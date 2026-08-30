@@ -155,6 +155,32 @@ The second focused run expands the positive/negative phrase matrix beyond the
 original review examples. The full run includes temporary archive validation of
 all 12 current source packs.
 
+## Post-GREEN reviewer-required characterization coverage
+
+Commit:
+
+```text
+581430d5af75ed900662546c4ddc243ce9b18fda
+test(persona): characterize POSIX special mode handling
+```
+
+The re-review found that production code already rejected set-ID/sticky mode
+bits and accepted canonical POSIX directory metadata, but permanent focused
+tests were missing. The tests were added without changing production code and
+passed immediately against the existing GREEN implementation:
+
+```text
+uv run pytest tests/persona_validator/test_archive_security.py -q \
+  -k 'posix_creator_with_canonical_directory_metadata_is_accepted or special_permission_bits_on_regular_files_are_rejected'
+
+9 passed, 49 deselected in 0.26s
+```
+
+This is characterization/regression coverage, not a RED phase. The nine cases
+cover canonical UNIX and macOS directory entries plus setuid, setgid, sticky,
+every two-bit combination, and the three-bit combination on regular files. The
+rejection cases assert the complete stable diagnostic code, message, and path.
+
 ## Final verification commands
 
 ```sh
