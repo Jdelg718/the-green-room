@@ -1,5 +1,5 @@
 {
-  "candidate_sha256": "84517f3bb1d44e76bdda04663cacc0762be7ff6fde1164b1ded5d9d3a8d55958",
+  "candidate_sha256": "5d869cd661cada6d1945c7fcf3b968c25419fc09995ea432e6cfc227f7be1ce1",
   "file_order": [
     "persona.yaml",
     "AGENTS.md",
@@ -33,8 +33,8 @@
       "sha256": "1398ade5fc3087d4d58b6230001de2eb283c7942ffa61574a21fe737ecc03bbd"
     },
     "SCENARIOS.md": {
-      "bytes": 465,
-      "sha256": "47f7d8324e8e868f516386ec3cd6d96c53e6c94e0ccb257b1ea74a1eb8157d51"
+      "bytes": 468,
+      "sha256": "ee1b1169e14d9e3057d99a14d9858c70920c4711899690601f34fe012b5da164"
     },
     "SOURCES.md": {
       "bytes": 326,

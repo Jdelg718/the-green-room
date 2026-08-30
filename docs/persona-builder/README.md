@@ -326,9 +326,32 @@ The base mapping is exact:
 
 `persona.yaml` uses `schema_version: "0.1"`, version `0.1.0`, and a stable ID:
 `local.greenroom.<ascii-slug>.<draft-id-without-hyphens>`. The slug is the
-lowercase ASCII transliteration of the canonical name, non-alphanumeric runs
-become one hyphen, edge hyphens are removed, and an empty result becomes
-`persona`. Transliteration table changes require a generator-version change.
+output of the pinned `greenroom-ascii-slug-v1` contract applied to the exact
+validated `identity.name`; it is never a template literal. No Unicode
+normalization or platform Unicode database is used. ASCII `A-Z` lowercases,
+ASCII `a-z0-9` passes through, and the complete v1 transliteration table is:
+
+```text
+a  <- ÀÁÂÃÄÅàáâãäåĀāĂăĄą       ae <- Ææ
+c  <- ÇçĆćĈĉĊċČč               d  <- ÐðĎďĐđ
+e  <- ÈÉÊËèéêëĒēĔĕĖėĘęĚě     g  <- ĜĝĞğĠġĢģ
+h  <- ĤĥĦħ                     i  <- ÌÍÎÏìíîïĨĩĪīĬĭĮįİı
+j  <- Ĵĵ                       k  <- Ķķĸ
+l  <- ĹĺĻļĽľĿŀŁł              n  <- ÑñŃńŅņŇňŉŊŋ
+o  <- ÒÓÔÕÖØòóôõöøŌōŎŏŐő      oe <- Œœ
+r  <- ŔŕŖŗŘř                   s  <- ŚśŜŝŞşŠš
+ss <- ß                        t  <- ŢţŤťŦŧ
+u  <- ÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲų  w  <- Ŵŵ
+y  <- ÝýÿŶŷŸ                   z  <- ŹźŻżŽž
+```
+
+Every other Unicode scalar is a separator. Separator runs become one hyphen
+between nonempty transliterated runs; leading/trailing separators disappear; an
+empty result is `persona`. Thus `Áda Coach` is `ada-coach`. Changes to the table
+or algorithm require a generator-version change. The draft UUID suffix is the
+collision namespace: equal slugs with different draft UUIDs remain distinct;
+an attempted second pack with the same complete ID is rejected, never renamed
+with an order-dependent numeric suffix.
 
 The template owns full literal templates, heading order, enum-to-prose tables,
 slider mappings, safe defaults, and license texts. The generator substitutes
@@ -354,6 +377,9 @@ identical. Slot grammar is deliberately narrow:
 - a YAML string slot uses a double-quoted JSON string with `ensure_ascii=false`;
 - YAML sequences preserve authored order and indent each item by four spaces;
 - optional `RELATIONSHIPS.md` and `SCENARIOS.md` are absent only for empty arrays;
+- `SCENARIOS.md` uses exactly `# Practice scenarios`, one `## <title>` per
+  scenario, and `### Mode`, `### Setup`, `### Success`, `### Failure`, and
+  `### Correction` inside each scenario;
 - no replacement value is interpreted as Markdown template syntax, a path,
   include, instruction, or second slot.
 
@@ -381,6 +407,13 @@ canonical outputs and per-file/candidate hashes are in
 [`golden/boundary-setter-pack/`](golden/boundary-setter-pack/). Verify without
 rewriting by running `python3 docs/persona-builder/verify_golden.py`. Regeneration
 is an explicit review action using `--write`, never an ordinary test side effect.
+The output must be a nonexistent or empty dedicated directory, or an existing
+directory carrying the valid checksummed `.persona-builder-golden.json` marker.
+A nonempty unmarked directory, a malformed marker, a filesystem root, or any
+symlink in the output path is refused. Writes atomically replace only the exact
+known canonical members and marker; unrelated entries are never removed.
+`--clean` removes only obsolete regular-file members named and SHA-256-authenticated
+by the prior marker, never an unlisted file, symlink, directory, or recursive tree.
 
 The candidate digest is SHA-256 over repeated records in the file order above:
 `decimal byte length of path`, one `:`, path bytes, one LF, `decimal byte length

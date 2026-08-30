@@ -9,8 +9,12 @@ environment, directory order, network, or random state.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
+import os
+import string
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -27,6 +31,43 @@ FILE_ORDER = (
     "SOURCES.md",
     "LICENSE",
 )
+MARKER_NAME = ".persona-builder-golden.json"
+MARKER_FORMAT = "org.greenroom.persona-builder.golden-root/v1"
+
+# Persona slug contract v1. This literal table, rather than Python's evolving
+# Unicode database, is normative. ASCII letters/digits pass through; these
+# code points transliterate as shown; every other code point is a separator.
+# A generator-version bump is required to alter this table or algorithm.
+SLUG_CONTRACT_VERSION = "greenroom-ascii-slug-v1"
+_SLUG_GROUPS = {
+    "a": "ÀÁÂÃÄÅàáâãäåĀāĂăĄą",
+    "ae": "Ææ",
+    "c": "ÇçĆćĈĉĊċČč",
+    "d": "ÐðĎďĐđ",
+    "e": "ÈÉÊËèéêëĒēĔĕĖėĘęĚě",
+    "g": "ĜĝĞğĠġĢģ",
+    "h": "ĤĥĦħ",
+    "i": "ÌÍÎÏìíîïĨĩĪīĬĭĮįİı",
+    "j": "Ĵĵ",
+    "k": "Ķķĸ",
+    "l": "ĹĺĻļĽľĿŀŁł",
+    "n": "ÑñŃńŅņŇňŉŊŋ",
+    "o": "ÒÓÔÕÖØòóôõöøŌōŎŏŐő",
+    "oe": "Œœ",
+    "r": "ŔŕŖŗŘř",
+    "s": "ŚśŜŝŞşŠš",
+    "ss": "ß",
+    "t": "ŢţŤťŦŧ",
+    "u": "ÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲų",
+    "w": "Ŵŵ",
+    "y": "ÝýÿŶŷŸ",
+    "z": "ŹźŻżŽž",
+}
+SLUG_TRANSLITERATION = {
+    character: replacement
+    for replacement, characters in _SLUG_GROUPS.items()
+    for character in characters
+}
 
 LICENSES = {
     "CC-BY-4.0": (
@@ -121,6 +162,27 @@ def section_list(title: str, items: list[str]) -> str:
     return f"## {title}\n\n{bullets(items)}\n"
 
 
+def canonical_slug(name: str) -> str:
+    """Apply the pinned greenroom-ascii-slug-v1 contract."""
+    pieces: list[str] = []
+    separator_pending = False
+    for character in name:
+        if "A" <= character <= "Z":
+            value = character.lower()
+        elif "a" <= character <= "z" or "0" <= character <= "9":
+            value = character
+        else:
+            value = SLUG_TRANSLITERATION.get(character, "")
+        if value:
+            if separator_pending and pieces:
+                pieces.append("-")
+            pieces.append(value)
+            separator_pending = False
+        else:
+            separator_pending = True
+    return "".join(pieces) or "persona"
+
+
 def render_manifest(draft: dict) -> str:
     b = draft["behavior"]
     identity = draft["identity"]
@@ -131,7 +193,7 @@ def render_manifest(draft: dict) -> str:
     private_expected = license_choice["spdx"] == "LicenseRef-GreenRoom-Private"
     if license_choice["private_export_only"] is not private_expected:
         raise ValueError("private_export_only must exactly match the license mapping")
-    slug = "the-boundary-setter"
+    slug = canonical_slug(identity["name"])
     pid = draft["draft_id"].replace("-", "")
     lines = [
         'schema_version: "0.1"',
@@ -248,11 +310,9 @@ def render_scenarios(d: dict) -> str | None:
     for s in d["scenarios"]:
         blocks.append(
             f"## {s['title']}\n\n### Mode\n\n{s['mode']}\n\n### Setup\n\n{s['setup']}\n\n"
-            + section_list("Success", s["success"])
-            + "\n"
-            + section_list("Failure", s["failure"])
-            + "\n"
-            + section_list("Correction", s["correction"])
+            + f"### Success\n\n{bullets(s['success'])}\n\n"
+            + f"### Failure\n\n{bullets(s['failure'])}\n\n"
+            + f"### Correction\n\n{bullets(s['correction'])}\n"
         )
     return "# Practice scenarios\n\n" + "\n".join(blocks)
 
@@ -368,23 +428,119 @@ def load(path: Path) -> dict:
     return json.loads(raw.decode("utf-8"))
 
 
-def write(output: Path, files: dict[str, bytes]) -> None:
-    output.mkdir(parents=True, exist_ok=True)
-    expected = set(files) | {"hashes.json"}
-    for child in output.iterdir():
-        if child.is_file() and child.name not in expected:
-            child.unlink()
-    for name, data in files.items():
-        (output / name).write_bytes(data)
-    (output / "hashes.json").write_bytes(hashes(files))
+def marker(files: dict[str, bytes]) -> bytes:
+    managed = {**files, "hashes.json": hashes(files)}
+    payload = {
+        "format": MARKER_FORMAT,
+        "managed_members": {
+            name: hashlib.sha256(data).hexdigest()
+            for name, data in sorted(managed.items())
+        },
+    }
+    authenticated = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    payload["manifest_sha256"] = hashlib.sha256(authenticated).hexdigest()
+    return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+
+
+def read_marker(output: Path) -> set[str]:
+    path = output / MARKER_NAME
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("nonempty output directory is unowned: valid marker required")
+    try:
+        document = json.loads(path.read_bytes())
+        checksum = document.pop("manifest_sha256")
+        authenticated = json.dumps(
+            document, separators=(",", ":"), sort_keys=True
+        ).encode()
+        if checksum != hashlib.sha256(authenticated).hexdigest():
+            raise ValueError
+        if document["format"] != MARKER_FORMAT:
+            raise ValueError
+        members = document["managed_members"]
+        if not isinstance(members, dict):
+            raise TypeError
+        allowed = set(FILE_ORDER) | {"hashes.json"}
+        if not set(members) <= allowed or not all(
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in string.hexdigits for character in value)
+            for value in members.values()
+        ):
+            raise ValueError
+        for name, expected_digest in members.items():
+            member = output / name
+            if member.is_symlink() or not member.is_file():
+                raise ValueError
+            if hashlib.sha256(member.read_bytes()).hexdigest() != expected_digest:
+                raise ValueError
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("invalid or unauthenticated golden-root marker") from error
+    return set(members)
+
+
+def validate_output_path(output: Path) -> Path:
+    absolute = output.absolute()
+    if output in (Path("."), Path("..")) or absolute == Path(absolute.anchor):
+        raise ValueError("output must be a dedicated child directory, not a root")
+    for candidate in (absolute, *absolute.parents):
+        if candidate.is_symlink():
+            raise ValueError(f"output path contains symlink: {candidate}")
+    if absolute.parent == absolute or not absolute.parent.is_dir():
+        raise ValueError("output parent must be an existing real directory")
+    return absolute
+
+
+def atomic_write(path: Path, data: bytes) -> None:
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError(f"managed member is not a regular file: {path.name}")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def write(output: Path, files: dict[str, bytes], *, clean: bool = False) -> None:
+    output = validate_output_path(output)
+    if output.exists() and not output.is_dir():
+        raise ValueError("output must be a directory")
+    if not output.exists():
+        output.mkdir()
+        previous: set[str] = set()
+    elif not any(output.iterdir()):
+        previous = set()
+    else:
+        previous = read_marker(output)
+
+    expected = {**files, "hashes.json": hashes(files)}
+    for name, data in expected.items():
+        atomic_write(output / name, data)
+    if clean:
+        for name in sorted(previous - set(expected)):
+            stale = output / name
+            if stale.is_symlink() or (stale.exists() and not stale.is_file()):
+                raise ValueError(f"obsolete managed member is unsafe: {name}")
+            if stale.exists():
+                stale.unlink()
+    atomic_write(output / MARKER_NAME, marker(files))
 
 
 def check(output: Path, files: dict[str, bytes]) -> None:
     expected = {**files, "hashes.json": hashes(files)}
+    read_marker(output)
     actual_names = {child.name for child in output.iterdir() if child.is_file()}
-    if actual_names != set(expected):
+    if actual_names != set(expected) | {MARKER_NAME}:
         raise SystemExit(
-            f"golden member mismatch: expected {sorted(expected)}, got {sorted(actual_names)}"
+            "golden member mismatch: expected "
+            f"{sorted(set(expected) | {MARKER_NAME})}, got {sorted(actual_names)}"
         )
     mismatches = [
         name for name, data in expected.items() if (output / name).read_bytes() != data
@@ -393,15 +549,149 @@ def check(output: Path, files: dict[str, bytes]) -> None:
         raise SystemExit("golden byte mismatch: " + ", ".join(mismatches))
 
 
+def self_test() -> None:
+    """Exercise deterministic mutations and adversarial output paths."""
+    draft = load(DEFAULT_INPUT)
+    baseline = generate(draft)
+    assert canonical_slug("The Boundary Setter") == "the-boundary-setter"
+    assert canonical_slug("Áda Coach") == "ada-coach"
+    assert canonical_slug("東京") == "persona"
+    assert canonical_slug("A---B") == "a-b"
+    assert canonical_slug("  ") == "persona"
+
+    renamed = copy.deepcopy(draft)
+    renamed["identity"]["name"] = "Áda Coach"
+    renamed_files = generate(renamed)
+    expected_id = b'id: "local.greenroom.ada-coach.11111111111141118111111111111111"\n'
+    assert expected_id in renamed_files["persona.yaml"]
+    assert renamed_files["persona.yaml"] != baseline["persona.yaml"]
+    assert len(renamed_files["persona.yaml"]) == 844
+    assert hashlib.sha256(renamed_files["persona.yaml"]).hexdigest() == (
+        "ea66fb1206d8ea03a3e7c9e989abec848d5de3f933865d8c4c2b97ce181cf318"
+    )
+    assert candidate_digest(renamed_files) == (
+        "5b16a80eca78b0094b669ec946ad76cfd56e2a2ee8f997cfbb016996dd06f3e1"
+    )
+    assert candidate_digest(renamed_files) != candidate_digest(baseline)
+    assert renamed_files == generate(copy.deepcopy(renamed))
+    assert candidate_digest(renamed_files) == candidate_digest(generate(renamed))
+
+    scenarios = baseline["SCENARIOS.md"]
+    assert b"\n## Salary negotiation\n" in scenarios
+    for heading in (b"Mode", b"Setup", b"Success", b"Failure", b"Correction"):
+        assert b"\n### " + heading + b"\n" in scenarios
+        assert b"\n## " + heading + b"\n" not in scenarios
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        fresh = root / "fresh"
+        write(fresh, baseline)
+        check(fresh, baseline)
+        sentinel = fresh / "unrelated.keep"
+        sentinel.write_text("preserve me", encoding="utf-8")
+        write(fresh, baseline)
+        assert sentinel.read_text(encoding="utf-8") == "preserve me"
+
+        unowned = root / "unowned"
+        unowned.mkdir()
+        unowned_sentinel = unowned / "sentinel"
+        unowned_sentinel.write_text("preserve me", encoding="utf-8")
+        try:
+            write(unowned, baseline)
+        except ValueError as error:
+            assert "unowned" in str(error)
+        else:
+            raise AssertionError("nonempty unowned output directory was accepted")
+        assert unowned_sentinel.read_text(encoding="utf-8") == "preserve me"
+
+        outside = root / "outside"
+        outside.mkdir()
+        link = root / "output-link"
+        link.symlink_to(outside, target_is_directory=True)
+        try:
+            write(link, baseline)
+        except ValueError as error:
+            assert "symlink" in str(error)
+        else:
+            raise AssertionError("symlink output root was accepted")
+        assert list(outside.iterdir()) == []
+
+        nested_parent = root / "parent-link"
+        nested_parent.symlink_to(outside, target_is_directory=True)
+        try:
+            write(nested_parent / "child", baseline)
+        except ValueError as error:
+            assert "symlink" in str(error)
+        else:
+            raise AssertionError("symlink output ancestor was accepted")
+        assert list(outside.iterdir()) == []
+
+        outside_member = root / "outside-member"
+        outside_member.write_text("do not replace", encoding="utf-8")
+        managed_link = fresh / "persona.yaml"
+        managed_link.unlink()
+        managed_link.symlink_to(outside_member)
+        try:
+            write(fresh, baseline)
+        except ValueError as error:
+            assert "marker" in str(error)
+        else:
+            raise AssertionError("managed-member symlink was accepted")
+        assert outside_member.read_text(encoding="utf-8") == "do not replace"
+        managed_link.unlink()
+        managed_link.write_bytes(baseline["persona.yaml"])
+        write(fresh, baseline)
+
+        malformed = root / "malformed"
+        malformed.mkdir()
+        (malformed / MARKER_NAME).write_text("{}\n", encoding="utf-8")
+        malformed_sentinel = malformed / "sentinel"
+        malformed_sentinel.write_text("preserve me", encoding="utf-8")
+        try:
+            write(malformed, baseline)
+        except ValueError as error:
+            assert "marker" in str(error)
+        else:
+            raise AssertionError("malformed managed marker was accepted")
+        assert malformed_sentinel.read_text(encoding="utf-8") == "preserve me"
+
+        for unsafe in (Path("/"), Path("."), Path("..")):
+            try:
+                write(unsafe, baseline)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"unsafe output root was accepted: {unsafe}")
+
+        optional = copy.deepcopy(draft)
+        optional["scenarios"] = []
+        reduced = generate(optional)
+        write(fresh, reduced, clean=True)
+        assert not (fresh / "SCENARIOS.md").exists()
+        assert sentinel.read_text(encoding="utf-8") == "preserve me"
+        expected = {**reduced, "hashes.json": hashes(reduced)}
+        assert all(
+            (fresh / name).read_bytes() == data for name, data in expected.items()
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--write", action="store_true", help="replace golden outputs")
+    parser.add_argument(
+        "--clean", action="store_true", help="remove only obsolete managed members"
+    )
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        print("PASS verifier self-tests")
+        return
     files = generate(load(args.input))
     if args.write:
-        write(args.output, files)
+        write(args.output, files, clean=args.clean)
     else:
         check(args.output, files)
     print(f"PASS {candidate_digest(files)} {len(files)} canonical files")
