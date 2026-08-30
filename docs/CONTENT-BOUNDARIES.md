@@ -12,6 +12,8 @@ The Green Room core repository and any project-operated catalog therefore ship o
 - historical-person interpretations that pass the [official catalog policy](PERSONA-CATALOG.md);
 - generic templates and tooling.
 
+Source presence is not official release approval. A pack directory on `main` is a candidate/draft unless the versioned Official Catalog Manifest contains an **approved** entry for its exact pack version and content digest, confirms complete provenance, and records both required independent reviews plus the decision date. No manifest means no approved catalog release; the first manifest will be created only after candidate packs have the required provenance and review records. Existing Benjamin Franklin and Nicolaus Copernicus directories are therefore candidates, not catalog approvals.
+
 A historical person's name and documented life facts are not a blanket license to copy a modern biography, edition, translation, photograph, film, recording, performance, or archive scan. Each source and asset must pass item-level provenance and rights review. Repository age, archive custody, online access, or an “educational” purpose does not by itself establish permission.
 
 ## Official historical catalog baseline
@@ -23,6 +25,7 @@ The official baseline begins with old, well-sourced historical figures rather th
 - Every historical pack needs `SOURCES.md`, item-level rights records, verified quotations, original behavior text, and independent fidelity and provenance review. Official artwork and assets are limited to item-reviewed public-domain works or original project-commissioned/stylized artwork under documented terms; compatible licenses or permissions do not qualify for the official baseline, although private or community-pack policies may differ.
 - Every historical persona must be labeled an educational creative interpretation. Generated dialogue is never represented as an authentic quotation.
 - Documented contradictions and harms must be addressed honestly rather than omitted to create a flattering or sanitized simulation.
+- Admission is completed only by an **approved**, version-and-digest-specific Official Catalog Manifest entry containing provenance completeness, both independent review records, and the decision date.
 
 See [Official Persona Catalog Policy](PERSONA-CATALOG.md) for the risk tiers, Everstone candidate matrix, first-trio recommendation, manifest fields, and release gate.
 
@@ -31,6 +34,14 @@ See [Official Persona Catalog Policy](PERSONA-CATALOG.md) for the risk tiers, Ev
 Users may create local packs on their own systems. Local/private use generally creates less practical exposure than public distribution, but “private,” “noncommercial,” “transformative,” or “educational” does not automatically make copied character or celebrity material lawful or fair use.
 
 Local import is not official-catalog approval. The project must not host, index as approved, bundle, endorse, or redistribute an unreviewed local pack.
+
+Private local imports remain the importing user's responsibility. Local availability does not establish rights, provenance, safety, endorsement, or eligibility for project distribution.
+
+## Community packs
+
+A **community pack** is externally authored and externally distributed by a third party. It is unofficial and is not hosted, indexed, bundled, endorsed, or redistributed by a project-operated repository, service, or catalog. The label does not provide a back door around the official public-domain-or-project-original asset boundary.
+
+Any future public community catalog operated by the project must apply the same Official Catalog Manifest gate to every hosted, indexed, or redistributed pack. The only alternative is a separately reviewed and maintainer-approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary. Until such a policy exists, project infrastructure must not host or index community packs.
 
 ## Public contributions
 

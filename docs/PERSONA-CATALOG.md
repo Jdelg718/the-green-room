@@ -9,9 +9,21 @@ The official baseline catalog starts with:
 1. original personas created for the project; and
 2. carefully researched historical-person interpretations built from item-reviewed public-domain material and project-original prose and artwork.
 
+Pack source and catalog admission are separate states. A persona directory may exist on `main`, be installable, or be described as an **include** research candidate without being an approved catalog release. The sole authority for official inclusion is a versioned **Official Catalog Manifest** committed by the project. Each approved entry must identify the pack ID, exact pack version, immutable content digest, complete-provenance status, two independent review records (historical-fidelity/content-boundary and provenance/rights), and the approval decision and date. An absent entry, a digest mismatch, or any decision other than **approved** means the pack is not in the official catalog.
+
+No Official Catalog Manifest exists yet. The first manifest will be created only after candidate packs are upgraded to satisfy the provenance requirements and both independent reviews below. Consequently, historical pack directories already merged into `main`—including Benjamin Franklin and Nicolaus Copernicus—remain candidates/drafts, not silently approved catalog items.
+
 It does **not** start with modern television, film, celebrity, musician, athlete, fashion, or estate-branded packs. A local user may privately import additional packs, but private use does not make copied material lawful and does not make those packs eligible for official distribution.
 
 “Historical person” is not a rights status. Names, facts, and discoveries are generally outside copyright, while expressive biographies, scholarly annotations, translations, photographs, recordings, artwork, and editions may each carry separate rights.[1] Name, image, likeness, trademark, false-endorsement, privacy, and publicity rules can present separate questions and vary by place and use.[6][11] Every source and asset therefore requires item-level review.
+
+## Community-pack boundary
+
+In this policy, a **community pack** is authored and distributed externally by a third party. It is unofficial and is not hosted, indexed, bundled, endorsed, or redistributed by any project-operated repository, service, or catalog. Calling a pack “community” does not create a less-reviewed project distribution channel.
+
+If the project later proposes a public, project-hosted community catalog, every pack it hosts, indexes, or redistributes must pass this official manifest gate unless maintainers first adopt a separately reviewed and approved policy that is at least equally strict. That policy must preserve the official public-domain-or-project-original asset boundary rather than treating compatible licenses, permissions, or community authorship as an automatic exception.
+
+Private local imports remain the importing user's responsibility. They are not community-catalog listings or official releases, and local availability does not establish rights, safety, provenance, endorsement, or catalog approval.
 
 ## Catalog principles
 
@@ -147,7 +159,7 @@ Every official historical persona and room must display substantially this notic
 
 ## Review and release gate
 
-A historical pack is eligible for the official catalog only when:
+A historical pack is eligible for an **approved** Official Catalog Manifest entry only when:
 
 1. its identity and all files are declarative and non-executable;
 2. every source and asset has a complete `SOURCES.md` entry;
@@ -159,7 +171,7 @@ A historical pack is eligible for the official catalog only when:
 8. the educational creative-interpretation label is present; and
 9. unresolved rights, factual, or portrayal questions fail closed to **hold**.
 
-Catalog approval is version-specific. A new source, quote, asset, translation, or substantive portrayal change requires a new review. Maintainers may remove or hold a pack while a provenance, rights, safety, or fidelity dispute is investigated.
+Catalog approval is version-and-digest-specific. After all nine requirements pass, the manifest entry must record the exact pack version and digest, provenance completeness, both independent review records, and the approval decision and date. A new source, quote, asset, translation, or substantive portrayal change requires a new version, digest, reviews, and manifest decision. Maintainers may change the manifest decision to **hold** or remove an entry while a provenance, rights, safety, or fidelity dispute is investigated.
 
 ## Sources
 

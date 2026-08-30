@@ -57,6 +57,8 @@ These are original archetypes, not renamed copies of protected television charac
 
 The first official catalog baseline combines project-original personas with carefully sourced public-domain historical interpretations. It does not distribute modern television, film, musician, athlete, fashion, celebrity, or estate-controlled packs merely because they are culturally recognizable.
 
+Repository source presence is not catalog admission. The sole inclusion authority is a versioned Official Catalog Manifest whose approved entry binds an exact pack version and content digest to complete provenance, two independent review records, and a decision date. A persona directory on `main` without that entry is a candidate/draft. No manifest exists yet; the first will be created only after packs are upgraded to the required provenance and review records, so currently merged packs such as Benjamin Franklin and Nicolaus Copernicus are not yet approved catalog releases.
+
 Historical identity is not a blanket rights category. Names and documented facts are different from expressive biographies, editions, translations, photographs, recordings, performances, and artwork, all of which require item-level review. Official historical packs must:
 
 - include a complete `SOURCES.md` provenance manifest;
@@ -69,6 +71,8 @@ Historical identity is not a blanket rights category. Names and documented facts
 - pass independent historical-fidelity/content-boundary and provenance/rights review.
 
 The [Official Persona Catalog Policy](PERSONA-CATALOG.md) defines risk tiers and the Everstone candidate matrix. After the loader exists and pack reviews pass, the recommended first historical room is **Isaac Newton, Ada Lovelace, and Frederick Douglass**. This is a user-facing demonstration cohort, not permission to create unsourced packs or to replace the original MVP and engineering fixtures.
+
+Community packs are externally authored and distributed, unofficial packs; project-operated repositories, services, and catalogs do not host, index, or redistribute them. Private local imports remain the user's responsibility. Any future project-hosted public community catalog must use the same official manifest gate or a separately reviewed and approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary.
 
 ## Success measures
 
