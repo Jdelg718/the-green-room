@@ -29,6 +29,7 @@ A private, local room with:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hosting placement decision](docs/adr/0000-hosting-placement.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)

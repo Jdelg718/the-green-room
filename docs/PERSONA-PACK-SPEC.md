@@ -9,11 +9,11 @@ This document defines the normative file-role, validation, prompt-assembly, and
 inspection contract for a future validator and persona loader. The words
 **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
-No runtime loader or validator is claimed to enforce this contract yet.
-Implementation belongs to the strict validator/inspection work in
-[issue #27](https://github.com/Jdelg718/the-green-room/issues/27); a loader MUST
-NOT submit a pack to a model provider until that strict validation and the
-loader checks specified here exist.
+The strict, non-extracting validator and inspection CLI are documented in
+[Persona Pack Validator](PERSONA-VALIDATOR.md). No model-provider loader is
+claimed to exist yet. A future loader MUST NOT submit a pack to a model provider
+unless this validation succeeds and the loader reuses the inspected immutable
+prompt bytes as specified below.
 
 ## Directory layout
 
@@ -261,9 +261,9 @@ The fixed draft 0.1 limits are:
 - no truncation, lossy decoding, newline conversion, or automatic repair.
 
 Archive-wide, YAML-complexity, asset, compression-ratio, file-count, and
-diagnostic-output limits are additionally required by
-[issue #27](https://github.com/Jdelg718/the-green-room/issues/27). Those
-stricter safety limits do not widen the runtime limits here.
+diagnostic-output limits are defined in
+[Persona Pack Validator](PERSONA-VALIDATOR.md). Those stricter safety limits do
+not widen the runtime limits here.
 
 A pack that exceeds a limit MUST fail validation. A loader MUST NOT truncate
 content to make a pack fit a provider context window; provider/context budgeting
