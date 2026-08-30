@@ -87,6 +87,16 @@ Arrays contain at most 20 items unless specified otherwise.
     "copyrighted_character_reference": "null or string, at most 160 bytes",
     "claims_credentials": false
   },
+  "background": {
+    "original_identity": "string, 1..2000 bytes",
+    "known": ["string, 1..600 bytes"],
+    "unknown": ["string, 1..600 bytes"]
+  },
+  "knowledge": {
+    "cutoff": "YYYY-MM-DD",
+    "domains": ["string, 1..120 bytes"],
+    "limitations": ["string, 1..300 bytes"]
+  },
   "traits": [
     {
       "id": "calm | prepared | concise | curious | firm | warm | skeptical | patient | playful | candid",
@@ -154,6 +164,33 @@ Arrays contain at most 20 items unless specified otherwise.
       "ingestion_status": "not_scanned | reviewed | rejected"
     }
   ],
+  "accepted_note_transforms": [
+    {
+      "transform_id": "lowercase ASCII [a-z0-9][a-z0-9-]{0,63}",
+      "note_id": "lowercase UUIDv4",
+      "source_span": {"start_byte": 0, "end_byte": 1},
+      "transformation": "user_edited_paraphrase | user_authored_from_ideas",
+      "destination": "JSON Pointer to one canonical authored string",
+      "accepted_text": "exact canonical accepted text"
+    }
+  ],
+  "distributable_citations": [
+    {
+      "citation_id": "lowercase ASCII [a-z0-9][a-z0-9-]{0,63}",
+      "note_id": "lowercase UUIDv4",
+      "title": "string, 1..300 bytes",
+      "author": "string, 1..200 bytes",
+      "url": "absolute https URL, at most 2048 bytes",
+      "license_or_rights": "string, 1..300 bytes"
+    }
+  ],
+  "relationship_seeds": [
+    {
+      "target_id": "lowercase ASCII pack ID or archetype ID, 1..160 bytes",
+      "stance": "ally | constructive_skepticism | rival | cautious | neutral",
+      "description": "string, 1..600 bytes"
+    }
+  ],
   "provenance": {
     "author_name": "string, 1..120 bytes",
     "authorship": "user_written | user_directed_generator | mixed",
@@ -182,7 +219,19 @@ Arrays contain at most 20 items unless specified otherwise.
   "risk": {
     "classifier_version": "0.1.0",
     "input_revision": 0,
-    "findings": [],
+    "findings": [
+      {
+        "rule_id": "stable rule ID",
+        "finding_id": "rule ID plus content digest",
+        "dimension": "one risk dimension",
+        "severity": "low | medium | high | critical",
+        "evidence_field": "JSON Pointer or override filename and line range",
+        "reason_code": "stable machine code",
+        "message": "plain nonjudgmental explanation",
+        "required_action": "none | acknowledge | narrow | private_only | remove",
+        "minimum_decision": "allow | warn | narrow | private | block"
+      }
+    ],
     "decision": "allow | warn | narrow | private | block"
   },
   "rehearsal": {
@@ -204,6 +253,16 @@ Boundary Setter, the exact ranges and meanings are in
 [`boundary-setter.md`](boundary-setter.md). A parser MUST reject out-of-range
 values, duplicate trait IDs, duplicate scenario IDs, or a stale risk result whose
 `input_revision` differs from `revision`.
+
+It also rejects duplicate relationship target IDs, transform IDs/destinations,
+or citation IDs; an invalid/non-forward byte span; a transform whose note is
+missing, rejected, or has a mismatched hash; a citation whose note is missing;
+and a destination that is not exactly one authored string slot. A citation is
+exportable only when its note is `reviewed`, its rights basis is neither
+`reference_only` nor `unknown`, and the user separately confirms the complete
+citation record. A `reference_only` note may support an accepted original
+paraphrase but never a distributable citation record or redistribution of source
+prose.
 
 Timestamps are persistence metadata only. They are excluded from generation, so
 two canonical drafts differing only in timestamps, revision, risk report,
@@ -278,6 +337,51 @@ YAML keys use the pack-spec order; strings are emitted with deterministic double
 quoting and JSON-compatible escapes. Numbers use a fixed decimal representation
 with two digits. Files are UTF-8, no BOM, LF-only, with exactly one final LF.
 
+### Normative template and slot grammar
+
+The executable documentation oracle
+[`verify_golden.py`](verify_golden.py) is the normative v0.1 literal-template,
+slot, enum-to-prose, manifest-order, license-byte, candidate-record, and newline
+oracle. Its `FILE_ORDER`, `LICENSES`, immutable literals, slider tables, and
+`render_*` functions are part of this specification. An implementation may use a
+different language, but its output for the canonical fixture MUST be byte-for-byte
+identical. Slot grammar is deliberately narrow:
+
+- a scalar slot inserts one canonical string without reflow or inference;
+- a Markdown list slot emits each canonical item as a hyphen, U+0020, the item,
+  and LF;
+- a section slot emits its literal heading, one blank line, content, and one LF;
+- a YAML string slot uses a double-quoted JSON string with `ensure_ascii=false`;
+- YAML sequences preserve authored order and indent each item by four spaces;
+- optional `RELATIONSHIPS.md` and `SCENARIOS.md` are absent only for empty arrays;
+- no replacement value is interpreted as Markdown template syntax, a path,
+  include, instruction, or second slot.
+
+All `persona.yaml` fields are assigned exactly: schema/version are literals; `id`
+is the specified slug plus draft UUID; name/summary come from identity;
+author/license come from provenance/license choice; `identity.type` uses
+`original_archetype|original_character|professional_perspective -> original` and
+`private_interpretation -> interpretation`; age band and setting are template
+literals; all six behavior fields use the pinned tables; knowledge uses the three
+closed knowledge fields; all three boundary booleans are literal `false`; and
+`assets` is exactly `{}` in v0.1 because the builder has no asset input. No draft
+field is silently repurposed as another manifest field.
+
+The license mapping is exact, not a label lookup: `CC-BY-4.0`, `CC0-1.0`, and
+`LicenseRef-GreenRoom-Private` map to the corresponding UTF-8 byte strings in the
+oracle's `LICENSES` constant. CC BY requires nonempty attribution; the private
+license requires `private_export_only: true`; both other choices require `false`.
+No custom license, attribution interpolation into `LICENSE`, or newline rewrite is
+allowed. Changes to any literal, slot, mapping, or license byte require a template
+and generator version bump plus replacement golden hashes.
+
+The committed canonical fixture is
+[`golden/boundary-setter-input.json`](golden/boundary-setter-input.json); its nine
+canonical outputs and per-file/candidate hashes are in
+[`golden/boundary-setter-pack/`](golden/boundary-setter-pack/). Verify without
+rewriting by running `python3 docs/persona-builder/verify_golden.py`. Regeneration
+is an explicit review action using `--write`, never an ordinary test side effect.
+
 The candidate digest is SHA-256 over repeated records in the file order above:
 `decimal byte length of path`, one `:`, path bytes, one LF, `decimal byte length
 of content`, one `:`, content bytes. Optional absent files contribute no record.
@@ -293,14 +397,28 @@ and validation state. Every generated canonical file is editable. Edits are
 stored as exact replacements in `advanced.overrides`; they never mutate wizard
 answers. Resetting an override regenerates that file from wizard state.
 
-An override is applied only after canonicalization and before risk classification
-and validation. `persona.yaml` must parse under the strict closed pack schema;
-advanced editing cannot add fields, files, roles, assets, capabilities, or tools.
-Removing required files, creating undeclared files, or changing schema/template
-identity is impossible in the UI and fails closed if draft storage is tampered
-with. The review screen always shows the effective bytes, not the pre-override
-base. An override that conflicts with a wizard answer is labeled `manual override`
-and remains stable across regeneration until explicitly reset.
+An override is a complete UTF-8 replacement, never a patch or recursive merge. It
+is applied only after base generation and canonicalization and before risk
+classification and validation. Empty/LF-only replacement of any present file is
+invalid; required metadata (`PROVENANCE.md`, `SOURCES.md`, and `LICENSE` for builder
+output) must remain nonempty. Optional runtime files may become absent only by
+emptying their source arrays and resetting the override, never by an empty
+override. `persona.yaml` must parse under the strict closed pack schema and contain
+every v0.1 field with exact identity/schema/version invariants; advanced editing
+cannot add fields, files, roles, assets, capabilities, or tools.
+
+Acceptance uses the **effective candidate as a whole**, not the replacement in
+isolation: merge the ordered map by replacing exactly the named base bytes, assert
+the exact member set/order, parse the complete manifest, check cross-file size and
+role rules, require all immutable safety semantics in effective runtime text,
+classify every effective byte, and pass those same immutable bytes to the strict
+validator. A replacement that moves safety text to metadata, shadows it with
+contradictory runtime text, weakens a boundary, empties metadata, changes identity,
+or validates alone but fails after merge is rejected. Removing required files,
+creating undeclared files, or changing schema/template identity is impossible in
+the UI and fails closed if draft storage is tampered with. The review screen always
+shows effective bytes, not pre-override base. A conflict is labeled `manual
+override` and remains stable across regeneration until explicitly reset.
 
 ## Immutable safe defaults
 
@@ -375,15 +493,35 @@ Each finding has stable fields:
 
 ```json
 {
+  "rule_id": "PB-RISK-COPYRIGHT-COPIED-DIALOGUE",
   "finding_id": "stable rule ID plus content digest",
   "dimension": "real_person | copyright | professional_authority | sensitive_data | coercion_fraud_harassment",
   "severity": "low | medium | high | critical",
   "evidence_field": "JSON Pointer or override filename and line range",
   "reason_code": "stable machine code",
   "message": "plain nonjudgmental explanation",
-  "required_action": "none | acknowledge | narrow | private_only | remove"
+  "required_action": "none | acknowledge | narrow | private_only | remove",
+  "minimum_decision": "allow | warn | narrow | private | block"
 }
 ```
+
+Every emitted finding MUST contain all nine fields; none is inferred by the UI.
+The classifier rule catalog is closed and versioned. v0.1 requires at least these
+rules and exact floors:
+
+| Rule ID | Severity | Required action | Minimum decision |
+| --- | --- | --- | --- |
+| `PB-RISK-REAL-INCIDENTAL` | low | acknowledge | warn |
+| `PB-RISK-REAL-PRIVATE-INTERPRETATION` | medium | private_only | private |
+| `PB-RISK-REAL-IMPERSONATION` | critical | remove | block |
+| `PB-RISK-COPYRIGHT-NAMED-IMITATION` | medium | narrow | narrow |
+| `PB-RISK-COPYRIGHT-COPIED-DIALOGUE` | high | remove | block |
+| `PB-RISK-PROFESSIONAL-TAILORED-ADVICE` | high | narrow | narrow |
+| `PB-RISK-PROFESSIONAL-CLAIMED-AUTHORITY` | critical | remove | block |
+| `PB-RISK-SENSITIVE-LOCAL-PERSONAL` | medium | private_only | private |
+| `PB-RISK-SENSITIVE-CREDENTIAL` | critical | remove | block |
+| `PB-RISK-COERCION-MANIPULATIVE-FRAMING` | high | narrow | narrow |
+| `PB-RISK-COERCION-THREAT-DECEPTION-HUMILIATION` | critical | remove | block |
 
 | Dimension | Low | Medium | High/critical |
 | --- | --- | --- | --- |
@@ -394,6 +532,22 @@ Each finding has stable fields:
 | Coercion/fraud/harassment | assertive disagreement | manipulative framing needing removal | threats, deception, humiliation, fake authority/evidence, discriminatory targeting |
 
 Decision precedence is `block > private > narrow > warn > allow`:
+
+For each finding, the rule catalog supplies a floor. The finding may be made more
+severe/private but never less. The final decision is the highest precedence among
+all `minimum_decision` values after any permitted escalation; user acknowledgment
+does not lower it. Ties do not depend on finding order. Missing/unknown rule ID,
+severity, action, floor, or a tuple below the catalog floor is itself a `block`
+classifier-contract failure. Thus a low warning can never mask a credential block,
+and `private` outranks `narrow` even when the narrow finding appears later.
+
+| Highest finding floor after escalation | Required final decision | Gate |
+| --- | --- | --- |
+| none | `allow` | generation, rehearsal, save, and export may continue |
+| `warn` | `warn` | acknowledgment before continuing |
+| `narrow` | `narrow` | no candidate until exact evidence is narrowed/removed |
+| `private` | `private` | local rehearsal/private export only; force private license |
+| `block` or classifier-contract failure | `block` | no rehearsal, save, or export |
 
 - **warn** explains limitations and requires acknowledgment; generation may
   proceed.
@@ -428,8 +582,28 @@ choice.
 | App logs/telemetry | redacted local logs; telemetry off | no | never | bounded rotation |
 
 Draft files MUST use the platform's per-user application-data directory, owner-only
-permissions where supported, and no sync-enabled folder by default. Autosave uses
-write-to-new-file, flush, atomic rename, and a previous-revision recovery slot.
+permissions where supported, and no sync-enabled folder by default. Every save is
+a compare-and-swap (CAS) under one exclusive per-draft lock. The caller supplies
+`draft_id`, expected `revision`, and expected SHA-256 of the currently loaded
+canonical bytes. After lock acquisition the writer reopens the active file without
+following links, verifies owner/type/permissions, schema, ID, revision, and digest,
+then rejects a stale writer without writing any byte. Lock ownership records an
+unforgeable process-local token plus PID and process-start identity; age or PID
+alone never proves abandonment. Recovery may break a lock only after proving the
+owner process identity is dead, then atomically replacing the lock with a new
+owner token. Lock timeout is a visible retry/conflict state.
+
+For an accepted CAS, increment revision exactly once, canonicalize, write an
+owner-only uniquely named file in the same directory using exclusive create,
+flush all bytes, `fsync` the file, re-read and verify schema/revision/digest, create
+the previous-revision backup by atomic rename/link replacement without
+overwriting the only known-good copy, atomically rename the new file over active,
+then `fsync` the containing directory before reporting success. Release only a
+lock whose token still matches. Backup is the immediately preceding complete
+revision and is itself checksummed; startup chooses the highest valid complete
+revision, quarantines corrupt bytes, and never promotes a temp file lacking a
+committed revision/digest. Platforms lacking atomic replace plus durable directory
+sync must report durability as unsupported rather than claim this guarantee.
 The application must not claim encryption at rest unless it actually uses an
 OS-backed encryption facility. No draft, note, transcript, or pack content is
 sent externally without an explicit per-session provider choice and consent.
@@ -593,6 +767,28 @@ Implementations must automate these tests with fixed fixtures:
 24. **PB-MIG-002:** Unsupported future/unknown/partially corrupt draft opens
     read-only recovery/export-of-raw-copy mode; generation and overwrite are
     disabled.
+25. **PB-ADV-003:** Empty each required runtime/metadata override, weaken each
+    immutable semantic, add a complete-but-contradictory runtime replacement, and
+    validate each replacement alone versus the effective merge; every case fails
+    before rehearsal/save/export and the prior candidate remains unchanged.
+26. **PB-RISK-003:** Each mandatory rule fixture emits all nine fields at or above
+    its catalog floor; every pair/permutation produces the precedence-table maximum;
+    unknown/missing/downgraded tuples block.
+27. **PB-PERSIST-003:** Two processes load revision N, synchronize at a barrier,
+    and save different bytes. Exactly one commits N+1; the other receives a stale
+    CAS conflict, active equals the winner, and backup equals byte-exact N.
+28. **PB-PERSIST-004:** Kill the lock owner before write, after temp fsync, after
+    backup creation, after active rename, and before directory fsync. A second
+    process proves owner death before recovery; restart yields only complete N or
+    N+1, preserves a valid backup, and never accepts a live or PID-reused lock.
+29. **PB-PERSIST-005:** Fault-inject short write, file-fsync failure, rename failure,
+    directory-fsync failure, disk full, corrupt active, corrupt backup, and stale
+    temp. No failure reports success; at least one verified complete revision
+    remains, and retry cannot double-increment revision.
+30. **PB-DET-004:** The committed Boundary Setter input regenerates all nine exact
+    files, per-file byte counts/SHA-256 values, order, and candidate SHA-256 shown
+    in `golden/boundary-setter-pack/hashes.json`; two independent output directories
+    compare byte-identical.
 
 The acceptance demo passes only when PB-PERSIST-002, PB-BOUNDARY-001/002,
 PB-VAL-001/002, PB-EXP-001, and PB-ROLE-001 pass together with no API key or
@@ -640,7 +836,10 @@ paraphrased into an original template; no source prose is persona dialogue.
 
 ## Sources
 
-[1] https://www.pon.harvard.edu/daily/batna/translate-your-batna-to-the-current-deal — What is BATNA?
-[2] https://www.pon.harvard.edu/tag/reservation-point — Reservation Point
-[3] https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value — Principled Negotiation
-[4] https://www.pon.harvard.edu/daily/negotiation-skills-daily/four-strategies-for-making-concessions — Making Concessions
+These authoritative Program on Negotiation at Harvard Law School pages are checked
+by `python3 docs/persona-builder/verify_sources.py`:
+
+[1] https://www.pon.harvard.edu/daily/batna/translate-your-batna-to-the-current-deal/ — What is BATNA?
+[2] https://www.pon.harvard.edu/tag/reservation-point/ — Reservation Point
+[3] https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value/ — Principled Negotiation
+[4] https://www.pon.harvard.edu/daily/negotiation-skills-daily/four-strategies-for-making-concessions/ — Making Concessions

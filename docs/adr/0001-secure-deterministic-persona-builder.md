@@ -48,7 +48,10 @@ The following are indivisible parts of the decision:
 6. **Layered risk decisions.** Classify real-person, copyright/character,
    professional-authority, sensitive-data, and coercion/fraud/harassment risk.
    Apply neutral `warn`, mandatory `narrow`, local-only `private`, or corrective
-   `block` decisions. The classifier is not the capability boundary.
+   `block` decisions using the closed mandatory rule catalog and maximum-precedence
+   final-decision table. Every finding carries rule ID, severity, required action,
+   and minimum decision; missing or downgraded tuples block. The classifier is not
+   the capability boundary.
 7. **Immutable safety semantics.** Templates carry non-removable limits against
    threats, deception, humiliation, harassment/discrimination, fake authority,
    fabricated facts, unqualified professional claims, sensitive-data misuse, and
@@ -67,6 +70,13 @@ The following are indivisible parts of the decision:
 11. **No implicit publication.** Local draft, pack save, archive export, and
     Official Catalog admission are visibly different states. v0.1 has no
     marketplace or publish action.
+12. **Conflict-safe durable drafts.** Autosave is an exclusive-lock, revision-plus-
+    digest CAS with stale-writer rejection, proven-dead-owner lock recovery,
+    same-directory atomic replace, file and directory `fsync`, and a checksummed
+    previous-revision backup. Concurrent writers never use last-writer-wins.
+13. **Executable byte oracle.** The committed Boundary Setter input, canonical pack
+    bytes, hashes, and standard-library verifier are normative review fixtures for
+    every literal, slot, manifest field, license mapping, file order, and newline.
 
 ## Why this decision
 
@@ -163,6 +173,8 @@ security boundary.
 Implementation cannot be considered complete until independent review verifies:
 
 - closed parsing, canonicalization, deterministic generation, and migration;
+- multi-process stale-writer CAS, proven-dead-owner lock recovery, atomic replace,
+  file/directory durability sync, and previous-revision backup fault injection;
 - note parser isolation, secret handling, provenance, and deletion;
 - semantic persistence of immutable boundaries across all slider combinations and
   advanced edits;

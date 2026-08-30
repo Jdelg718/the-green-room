@@ -32,6 +32,16 @@ research sources are documented in the
 [Persona Builder contract](README.md#research-basis), not copied into persona
 speech.
 
+The normative literal templates, slot grammar, YAML field order, exact license
+bytes, and canonical output hashes live in
+[`verify_golden.py`](verify_golden.py) and
+[`golden/boundary-setter-pack/`](golden/boundary-setter-pack/). The committed
+[`golden/boundary-setter-input.json`](golden/boundary-setter-input.json) includes a
+relationship seed, accepted note transform with an exact byte span, distributable
+citation, scenario, and original voice examples so every optional canonical file
+and every manifest field has a byte-exact oracle. Prose in this document explains
+the template but cannot override those versioned bytes.
+
 ## Default wizard answers
 
 - **Goal:** Prepare for a consequential conversation, make a clear request, hold
@@ -408,6 +418,12 @@ or real-person simulation.
 2. one `## <canonical scenario title>` section per authored order
 3. within each: `### Mode`, `### Setup`, `### Success`, `### Failure`,
    `### Correction`
+
+### `RELATIONSHIPS.md`
+
+1. `# Relationship seeds`
+2. one `## <canonical target_id>` section per authored order
+3. within each: `- Stance: <enum>` then `- Seed: <description>`
 
 ## Template-specific acceptance oracles
 

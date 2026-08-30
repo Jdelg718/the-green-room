@@ -1,0 +1,52 @@
+{
+  "candidate_sha256": "84517f3bb1d44e76bdda04663cacc0762be7ff6fde1164b1ded5d9d3a8d55958",
+  "file_order": [
+    "persona.yaml",
+    "AGENTS.md",
+    "BACKGROUND.md",
+    "VOICE.md",
+    "RELATIONSHIPS.md",
+    "SCENARIOS.md",
+    "PROVENANCE.md",
+    "SOURCES.md",
+    "LICENSE"
+  ],
+  "files": {
+    "AGENTS.md": {
+      "bytes": 1990,
+      "sha256": "6b5b47afd395ef7a96ccf9a8b072e5874bafb0b92da019b0e800499ad5eb2e59"
+    },
+    "BACKGROUND.md": {
+      "bytes": 351,
+      "sha256": "477e49a2b0152cec5a58d185a7f66d876dbf302001888c5323486c405c12c422"
+    },
+    "LICENSE": {
+      "bytes": 373,
+      "sha256": "0e6937a761507460d3939811253ff55a28339b6f66c41f984f5928e2f4f838bb"
+    },
+    "PROVENANCE.md": {
+      "bytes": 748,
+      "sha256": "886bdbedc87ac09963d780bfbfdbacfa50cb9bd93cd3b003d82b9d7d5854780c"
+    },
+    "RELATIONSHIPS.md": {
+      "bytes": 170,
+      "sha256": "1398ade5fc3087d4d58b6230001de2eb283c7942ffa61574a21fe737ecc03bbd"
+    },
+    "SCENARIOS.md": {
+      "bytes": 465,
+      "sha256": "47f7d8324e8e868f516386ec3cd6d96c53e6c94e0ccb257b1ea74a1eb8157d51"
+    },
+    "SOURCES.md": {
+      "bytes": 326,
+      "sha256": "587c15957a3ecd37ae0b4d1dfa998806cebbeeb1735e7e009ac80626f6f4f58b"
+    },
+    "VOICE.md": {
+      "bytes": 751,
+      "sha256": "f92918f250f43c755d403a409ef2c5e71024f5c6f9066d102206c3a6033791ff"
+    },
+    "persona.yaml": {
+      "bytes": 863,
+      "sha256": "65eaa61098fe97ce7b37a4083c76f5c596c73b6d52282049e63b42d03302966a"
+    }
+  }
+}
