@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123c2d">
+  <link rel="icon" href="data:,">
+  <title>GR–TV 33 — Public Access Time Machine</title>
+  <style>
+    :root {
+      --ink:#171714; --paper:#f1eedf; --paper-2:#fffdf1; --green:#123c2d;
+      --green-2:#1f6648; --signal:#ff5b36; --yellow:#f4de43; --muted:#67675e;
+      --line:2px solid var(--ink); --shadow:5px 5px 0 var(--ink); --radius:2px;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:Arial, Helvetica, sans-serif; line-height:1.35; overflow-x:hidden; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.035; z-index:20; background:repeating-linear-gradient(0deg,transparent 0 3px,#000 3px 4px); }
+    button, input { font:inherit; }
+    button { min-height:44px; color:inherit; }
+    button:focus-visible, a:focus-visible { outline:4px solid var(--yellow); outline-offset:3px; }
+    .skip { position:absolute; top:-100px; left:16px; z-index:100; padding:12px 16px; background:var(--yellow); color:var(--ink); font-weight:900; }
+    .skip:focus { top:16px; }
+    .topband { background:var(--ink); color:var(--paper); min-height:34px; display:flex; align-items:center; justify-content:space-between; padding:4px clamp(16px,4vw,58px); font:700 12px/1.1 "Courier New",monospace; letter-spacing:.09em; text-transform:uppercase; }
+    .live { display:flex; align-items:center; gap:8px; }
+    .live::before { content:""; width:9px; height:9px; border-radius:50%; background:var(--signal); box-shadow:0 0 0 3px rgba(255,91,54,.25); }
+    header { background:var(--green); color:var(--paper-2); border-bottom:4px solid var(--ink); padding:20px clamp(16px,4vw,58px) 24px; position:relative; overflow:hidden; }
+    header::after { content:"CH 33"; position:absolute; right:-18px; bottom:-34px; font:900 clamp(82px,12vw,170px)/1 Arial,sans-serif; color:rgba(255,255,255,.045); transform:rotate(-5deg); }
+    .mast { display:grid; grid-template-columns:auto 1fr auto; gap:20px; align-items:center; position:relative; z-index:1; }
+    .bug { width:76px; height:76px; border:3px solid var(--paper-2); border-radius:50%; display:grid; place-items:center; position:relative; background:var(--ink); box-shadow:4px 4px 0 var(--signal); flex:0 0 auto; }
+    .bug b { font:900 25px/1 Arial,sans-serif; letter-spacing:-.12em; transform:skew(-8deg); }
+    .bug small { position:absolute; bottom:7px; font:700 8px/1 "Courier New",monospace; letter-spacing:.13em; }
+    .wordmark { display:flex; flex-direction:column; letter-spacing:-.065em; text-transform:uppercase; }
+    .wordmark span { font:900 clamp(37px,5vw,76px)/.77 Arial Black,Arial,sans-serif; }
+    .wordmark span:last-child { color:var(--yellow); margin-left:clamp(22px,5vw,72px); }
+    .tagline { max-width:280px; font:700 14px/1.45 "Courier New",monospace; transform:rotate(1.5deg); border:2px solid var(--paper); padding:10px 12px; background:var(--green-2); }
+    .ticker { border-bottom:var(--line); background:var(--yellow); padding:8px clamp(16px,4vw,58px); font:900 13px/1.2 "Courier New",monospace; text-transform:uppercase; white-space:nowrap; overflow:hidden; }
+    main { max-width:1500px; margin:0 auto; padding:28px clamp(16px,4vw,58px) 60px; }
+    .section-head { display:flex; justify-content:space-between; gap:24px; align-items:end; margin-bottom:18px; }
+    .eyebrow { font:900 12px/1.1 "Courier New",monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--green-2); margin:0 0 6px; }
+    h1,h2,h3,p { margin-top:0; }
+    h1,h2 { font-family:Arial Black,Arial,sans-serif; letter-spacing:-.04em; }
+    h1 { font-size:clamp(30px,4.5vw,60px); line-height:.95; margin-bottom:10px; }
+    h2 { font-size:clamp(28px,3vw,44px); line-height:1; margin-bottom:6px; }
+    .lede { max-width:680px; color:#404039; margin:0; font-size:17px; }
+    .counter { flex:0 0 auto; border:var(--line); background:var(--paper-2); box-shadow:4px 4px 0 var(--green); padding:9px 12px; font:900 13px/1.2 "Courier New",monospace; text-transform:uppercase; }
+    .filters { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 24px; }
+    .filter { border:var(--line); border-radius:999px; background:transparent; padding:8px 16px; font-weight:900; cursor:pointer; }
+    .filter[aria-pressed="true"] { background:var(--ink); color:var(--paper-2); box-shadow:3px 3px 0 var(--signal); }
+    .broadcast-layout { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(290px,.78fr); gap:24px; align-items:start; }
+    .gallery { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+    .card { background:var(--paper-2); border:var(--line); box-shadow:var(--shadow); min-width:0; position:relative; display:flex; flex-direction:column; }
+    .card[hidden] { display:none; }
+    .card.selected { box-shadow:6px 6px 0 var(--signal); }
+    .card.selected::after { content:"CAST"; position:absolute; top:9px; right:-8px; background:var(--signal); color:#fff; padding:4px 8px; border:2px solid var(--ink); font:900 10px/1 "Courier New",monospace; transform:rotate(3deg); }
+    .portrait { height:122px; position:relative; overflow:hidden; background:var(--green); border-bottom:var(--line); isolation:isolate; }
+    .portrait::before { content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg,transparent 0 30px,rgba(255,255,255,.07) 31px 32px); }
+    .portrait .sun { position:absolute; width:80px; height:80px; border-radius:50%; background:var(--yellow); left:50%; top:18px; transform:translateX(-50%); }
+    .portrait .head { position:absolute; width:56px; height:70px; border-radius:45% 48% 38% 42%; background:var(--paper); left:50%; top:28px; transform:translateX(-50%) rotate(var(--tilt,0deg)); border:2px solid var(--ink); }
+    .portrait .head::before { content:""; position:absolute; background:var(--ink); width:64px; height:25px; left:-6px; top:-7px; clip-path:polygon(2% 100%,10% 15%,26% 42%,39% 0,53% 40%,72% 2%,96% 34%,91% 100%); }
+    .portrait .head::after { content:""; position:absolute; left:13px; right:11px; top:37px; height:2px; background:var(--ink); box-shadow:9px -14px 0 -0.5px var(--ink),-9px -14px 0 -0.5px var(--ink); }
+    .portrait .body { position:absolute; width:114px; height:62px; border-radius:55% 55% 0 0; background:var(--signal); border:2px solid var(--ink); left:50%; bottom:-30px; transform:translateX(-50%) rotate(var(--tilt,0deg)); }
+    .card:nth-child(2n) .portrait { background:#285746; }
+    .card:nth-child(2n) .portrait .sun { background:var(--signal); clip-path:polygon(8% 10%,89% 0,100% 84%,20% 100%); border-radius:0; }
+    .card:nth-child(3n) .portrait .body { background:var(--yellow); }
+    .card:nth-child(3n) .portrait .head::before { clip-path:polygon(0 70%,8% 5%,50% 22%,90% 0,100% 73%); height:32px; }
+    .card-copy { padding:13px 13px 9px; flex:1; }
+    .card-kicker { font:900 10px/1 "Courier New",monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--green-2); }
+    .card h3 { font:900 20px/.95 Arial Black,Arial,sans-serif; letter-spacing:-.035em; margin:7px 0; }
+    .card p { font-size:13px; margin:0; color:#505048; }
+    .card-actions { display:grid; grid-template-columns:1fr 46px; gap:8px; padding:0 10px 10px; }
+    .select, .details, .go-live { border:var(--line); font-weight:900; cursor:pointer; background:var(--paper); }
+    .select:hover, .details:hover { background:var(--yellow); }
+    .select[aria-pressed="true"] { background:var(--green); color:#fff; }
+    .details { font-size:20px; }
+    .switchboard { border:3px solid var(--ink); background:var(--green); color:var(--paper-2); padding:16px; box-shadow:7px 7px 0 var(--signal); position:sticky; top:16px; }
+    .switchboard h2 { font-size:25px; margin-bottom:6px; }
+    .switchboard > p { color:#d7e1d7; font-size:13px; }
+    .lineup { display:flex; margin:14px 0 12px; min-height:58px; }
+    .mini { width:54px; height:54px; border-radius:50%; border:2px solid var(--paper); background:var(--yellow); color:var(--ink); display:grid; place-items:center; font:900 14px/1 Arial,sans-serif; margin-right:-8px; box-shadow:2px 2px 0 var(--ink); }
+    .empty { color:#c9d6ce; font:700 12px/1.4 "Courier New",monospace; }
+    .dialrow { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; border-block:1px solid rgba(255,255,255,.3); padding:13px 0; }
+    .dial { text-align:center; font:700 9px/1.2 "Courier New",monospace; text-transform:uppercase; }
+    .knob { width:38px; height:38px; background:var(--ink); border:2px solid var(--paper); border-radius:50%; margin:0 auto 6px; position:relative; }
+    .knob::after { content:""; position:absolute; width:2px; height:13px; background:var(--yellow); left:17px; top:3px; transform:rotate(var(--turn,0deg)); transform-origin:1px 16px; }
+    .go-live { width:100%; background:var(--signal); color:#fff; margin-top:14px; text-transform:uppercase; letter-spacing:.06em; box-shadow:3px 3px 0 var(--ink); }
+    .go-live:disabled { background:#6e776f; color:#dce1dc; cursor:not-allowed; }
+    .microcopy { margin:10px 0 0!important; font:700 10px/1.3 "Courier New",monospace; color:#d7e1d7!important; }
+    .on-air { margin-top:50px; border:3px solid var(--ink); box-shadow:8px 8px 0 var(--green); background:var(--paper-2); }
+    .title-card { background:var(--ink); color:var(--paper); display:flex; justify-content:space-between; gap:20px; padding:14px 18px; align-items:center; }
+    .title-card h2 { margin:0; font-size:clamp(25px,3vw,42px); text-transform:uppercase; }
+    .title-card .flag { background:var(--signal); border:2px solid var(--paper); padding:7px 10px; font:900 11px/1 "Courier New",monospace; transform:rotate(1deg); white-space:nowrap; }
+    .studio { display:grid; grid-template-columns:1.35fr 1fr; min-width:0; }
+    .studio-left { padding:22px; border-right:var(--line); min-width:0; }
+    .studio-lineup { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:18px; }
+    .cast-tile { border:var(--line); background:var(--paper); padding:10px; position:relative; }
+    .cast-tile .portrait { height:118px; border:var(--line); }
+    .cast-tile h3 { font:900 17px/1 Arial Black,Arial,sans-serif; margin:9px 0 3px; }
+    .cast-tile p { font:700 10px/1.3 "Courier New",monospace; margin:0; color:var(--green); }
+    .studio-right { min-width:0; }
+    .panel { padding:18px; border-bottom:var(--line); }
+    .panel:last-child { border:0; }
+    .panel-label { display:flex; justify-content:space-between; gap:12px; font:900 11px/1.1 "Courier New",monospace; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
+    .tape { border:var(--line); padding:13px; background:var(--yellow); transform:rotate(-.5deg); font-family:"Courier New",monospace; }
+    .tape b { display:block; font-size:13px; margin-bottom:5px; }
+    .tape p { margin:0; font-size:12px; }
+    .source { margin-top:9px; color:var(--muted); font:700 10px/1.2 "Courier New",monospace; }
+    .meter { height:18px; border:var(--line); padding:2px; background:var(--paper); margin:8px 0 13px; }
+    .meter span { display:block; width:var(--level); height:100%; background:var(--signal); }
+    .relation-line { display:flex; justify-content:space-between; gap:12px; font:700 11px/1 "Courier New",monospace; }
+    dialog { max-width:540px; width:calc(100% - 32px); border:3px solid var(--ink); padding:0; background:var(--paper-2); color:var(--ink); box-shadow:10px 10px 0 var(--signal); }
+    dialog::backdrop { background:rgba(18,60,45,.78); }
+    .dialog-head { background:var(--ink); color:var(--paper); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .dialog-head h2 { margin:0; font-size:24px; }
+    .close { min-width:44px; border:2px solid var(--paper); background:transparent; color:var(--paper); font-size:20px; cursor:pointer; }
+    .dialog-body { padding:18px; }
+    .dialog-body dl { display:grid; grid-template-columns:120px 1fr; gap:10px; font-size:13px; }
+    .dialog-body dt { font-weight:900; font-family:"Courier New",monospace; text-transform:uppercase; }
+    .dialog-body dd { margin:0; }
+    footer { background:var(--ink); color:var(--paper); padding:24px clamp(16px,4vw,58px); display:flex; justify-content:space-between; gap:20px; font:700 11px/1.5 "Courier New",monospace; text-transform:uppercase; }
+    @media (max-width:1050px) { .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); } .tagline{display:none;} .mast{grid-template-columns:auto 1fr;} }
+    @media (max-width:760px) {
+      .broadcast-layout { grid-template-columns:1fr; }
+      .switchboard { position:static; }
+      .studio { grid-template-columns:1fr; }
+      .studio-left { border-right:0; border-bottom:var(--line); }
+      .section-head { align-items:start; flex-direction:column; }
+      .counter { align-self:start; }
+    }
+    @media (max-width:520px) {
+      .topband span:last-child { display:none; }
+      header { padding-top:16px; }
+      .mast { gap:13px; }
+      .bug { width:60px; height:60px; }
+      .bug b { font-size:20px; }
+      .wordmark span { font-size:36px; }
+      main { padding-top:22px; }
+      .gallery { grid-template-columns:1fr; }
+      .portrait { height:146px; }
+      .title-card { align-items:flex-start; }
+      .title-card .flag { white-space:normal; text-align:center; }
+      .studio-lineup { grid-template-columns:1fr; }
+      .cast-tile { display:grid; grid-template-columns:92px 1fr; gap:12px; align-items:center; }
+      .cast-tile .portrait { height:92px; }
+      .cast-tile h3 { margin-top:0; }
+      .dialog-body dl { grid-template-columns:1fr; gap:4px; }
+      .dialog-body dd { margin-bottom:8px; }
+      footer { flex-direction:column; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { animation:none!important; transition:none!important; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the signal library</a>
+  <div class="topband"><span class="live">Local signal / private by default</span><span>Sunday night & forever · no. 0033</span></div>
+  <header>
+    <div class="mast">
+      <div class="bug" aria-label="GR TV channel 33 mark"><b>GR</b><small>TV–33</small></div>
+      <div class="wordmark" aria-label="The Green Room"><span>The Green</span><span>Room</span></div>
+      <p class="tagline">Dead air is a feature. Three minds, one room, zero pileups.</p>
+    </div>
+  </header>
+  <div class="ticker" aria-hidden="true">Tonight: impossible company • bring a question • we bring the friction • candidate interpretations, clearly labeled •</div>
+
+  <main id="main">
+    <section aria-labelledby="library-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">The Signal Library / find your frequency</p>
+          <h1 id="library-title">Book the minds<br>history couldn’t schedule.</h1>
+          <p class="lede">Build an unruly, sourced three-person studio. Each voice is a creative interpretation—not a séance, not an endorsement, and definitely not a group chat in a blazer.</p>
+        </div>
+        <div class="counter" aria-live="polite"><span id="visibleCount">6</span> signals found</div>
+      </div>
+
+      <div class="filters" aria-label="Filter historical signals">
+        <button class="filter" data-filter="all" aria-pressed="true">All frequencies</button>
+        <button class="filter" data-filter="science" aria-pressed="false">Science</button>
+        <button class="filter" data-filter="letters" aria-pressed="false">Letters</button>
+        <button class="filter" data-filter="public" aria-pressed="false">Public life</button>
+      </div>
+
+      <div class="broadcast-layout">
+        <div class="gallery" id="gallery">
+          <article class="card selected" data-id="newton" data-category="science" data-name="Isaac Newton" data-initials="IN" data-angle="Gravity with a grievance" data-era="1643–1727" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:-3deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Science · Ch. 04</span><h3>Isaac Newton</h3><p>Private notebooks, public laws, and an allergy to sharing credit.</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="true">On the lineup</button><button class="details" aria-label="Open Isaac Newton signal file">＋</button></div>
+          </article>
+          <article class="card selected" data-id="lovelace" data-category="science letters" data-name="Ada Lovelace" data-initials="AL" data-angle="Imagination with machinery" data-era="1815–1852" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:2deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Numbers · Ch. 11</span><h3>Ada Lovelace</h3><p>Asks what the engine might become after arithmetic gets bored.</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="true">On the lineup</button><button class="details" aria-label="Open Ada Lovelace signal file">＋</button></div>
+          </article>
+          <article class="card selected" data-id="douglass" data-category="letters public" data-name="Frederick Douglass" data-initials="FD" data-angle="Witness sharpened into argument" data-era="c. 1818–1895" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:-1deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Oratory · Ch. 19</span><h3>Frederick Douglass</h3><p>Tests every grand principle against who is denied its protection.</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="true">On the lineup</button><button class="details" aria-label="Open Frederick Douglass signal file">＋</button></div>
+          </article>
+          <article class="card" data-id="austen" data-category="letters" data-name="Jane Austen" data-initials="JA" data-angle="Manners under magnification" data-era="1775–1817" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:3deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Letters · Ch. 08</span><h3>Jane Austen</h3><p>Polite enough to enter the room; observant enough to rearrange it.</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="false">Add to lineup</button><button class="details" aria-label="Open Jane Austen signal file">＋</button></div>
+          </article>
+          <article class="card" data-id="franklin" data-category="science public letters" data-name="Benjamin Franklin" data-initials="BF" data-angle="Civic experiment, running hot" data-era="1706–1790" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:-2deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Civic · Ch. 13</span><h3>Ben Franklin</h3><p>Arrives with a scheme, a maxim, and several undisclosed variables.</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="false">Add to lineup</button><button class="details" aria-label="Open Benjamin Franklin signal file">＋</button></div>
+          </article>
+          <article class="card" data-id="shelley" data-category="letters science" data-name="Mary Shelley" data-initials="MS" data-angle="The consequence department" data-era="1797–1851" data-status="Candidate / draft" data-source="Pack sources + provenance notes" style="--tilt:1deg">
+            <div class="portrait" aria-hidden="true"><i class="sun"></i><i class="head"></i><i class="body"></i></div>
+            <div class="card-copy"><span class="card-kicker">Futures · Ch. 22</span><h3>Mary Shelley</h3><p>Every invention gets one question: who stays to raise it?</p></div>
+            <div class="card-actions"><button class="select" aria-pressed="false">Add to lineup</button><button class="details" aria-label="Open Mary Shelley signal file">＋</button></div>
+          </article>
+        </div>
+
+        <aside class="switchboard" aria-labelledby="switchboard-title">
+          <p class="eyebrow" style="color:var(--yellow)">The Switchboard</p>
+          <h2 id="switchboard-title">Studio lineup</h2>
+          <p>Three chairs. Productive interference. The Director gives the mic to zero or one voice at a time.</p>
+          <div class="lineup" id="lineup" aria-live="polite"></div>
+          <div class="dialrow" aria-label="Room tuning preview">
+            <div class="dial"><div class="knob" style="--turn:-28deg"></div>Pace<br>measured</div>
+            <div class="dial"><div class="knob" style="--turn:31deg"></div>Friction<br>lively</div>
+            <div class="dial"><div class="knob" style="--turn:8deg"></div>Memory<br>visible</div>
+          </div>
+          <button class="go-live" id="goLive">Go live with 3 minds</button>
+          <p class="microcopy">Private room · inspectable Tape Log · emergency stop always in reach</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="on-air" id="onAir" aria-labelledby="on-air-title">
+      <div class="title-card"><div><p class="eyebrow" style="color:var(--yellow);margin-bottom:4px">Selected room / saved as Rerun 08</p><h2 id="on-air-title">The Machine Has Opinions</h2></div><span class="flag">On air · scene 01</span></div>
+      <div class="studio">
+        <div class="studio-left">
+          <p class="eyebrow">Tonight’s three-person studio</p>
+          <h2>A question with<br>consequences.</h2>
+          <p class="lede">“Does invention owe the future an apology?” The Director is holding for disagreement, not volume.</p>
+          <div class="studio-lineup" id="studioLineup"></div>
+        </div>
+        <div class="studio-right">
+          <div class="panel">
+            <div class="panel-label"><span>Tape Log / inspectable memory</span><span>REC 03:12</span></div>
+            <div class="tape"><b>What this room remembers</b><p>Newton dismissed metaphor as decoration. Lovelace defended it as a way to see a machine before it exists. Douglass asked who gets counted in that future.</p></div>
+            <div class="source">From room events 12–18 · draft summary · review / edit / erase</div>
+          </div>
+          <div class="panel">
+            <div class="panel-label"><span>Chemistry dials / relationships</span><span>Evidence-linked</span></div>
+            <div class="relation-line"><span>Newton ↔ Lovelace</span><b>Respect / static</b></div><div class="meter"><span style="--level:72%"></span></div>
+            <div class="relation-line"><span>Lovelace ↔ Douglass</span><b>Curiosity</b></div><div class="meter"><span style="--level:84%;background:var(--green)"></span></div>
+            <div class="relation-line"><span>Douglass ↔ Newton</span><b>Suspicion</b></div><div class="meter"><span style="--level:61%;background:var(--yellow)"></span></div>
+            <div class="source">Not a vibe score: every shift points back to the room moment that caused it.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="signalDialog" aria-labelledby="dialogTitle">
+    <div class="dialog-head"><h2 id="dialogTitle">Signal file</h2><button class="close" aria-label="Close signal file">×</button></div>
+    <div class="dialog-body"><p id="dialogAngle" class="lede"></p><dl><dt>Years</dt><dd id="dialogEra"></dd><dt>Catalog status</dt><dd id="dialogStatus"></dd><dt>Provenance</dt><dd id="dialogSource"></dd><dt>Interpretation</dt><dd>Educational creative interpretation. Generated dialogue is never presented as an authentic quotation.</dd></dl></div>
+  </dialog>
+
+  <footer><span>GR–TV 33 / The Green Room</span><span>Signal Library · Switchboard · Tape Log · Chemistry Dials · Reruns · Go Live</span></footer>
+
+  <script>
+    const cards = [...document.querySelectorAll('.card')];
+    const filters = [...document.querySelectorAll('.filter')];
+    const lineup = document.querySelector('#lineup');
+    const studioLineup = document.querySelector('#studioLineup');
+    const counter = document.querySelector('#visibleCount');
+    const goLive = document.querySelector('#goLive');
+    const dialog = document.querySelector('#signalDialog');
+    let selected = ['newton','lovelace','douglass'];
+
+    function renderSelection() {
+      cards.forEach(card => {
+        const active = selected.includes(card.dataset.id);
+        card.classList.toggle('selected', active);
+        const button = card.querySelector('.select');
+        button.setAttribute('aria-pressed', String(active));
+        button.textContent = active ? 'On the lineup' : 'Add to lineup';
+      });
+      const people = selected.map(id => cards.find(card => card.dataset.id === id));
+      lineup.innerHTML = people.length ? people.map(p => `<span class="mini" title="${p.dataset.name}">${p.dataset.initials}</span>`).join('') : '<span class="empty">The studio is quiet. Choose up to three signals.</span>';
+      studioLineup.innerHTML = people.map((p,i) => `<article class="cast-tile"><div class="portrait" aria-hidden="true" style="--tilt:${i-1}deg"><i class="sun"></i><i class="head"></i><i class="body"></i></div><div><h3>${p.dataset.name}</h3><p>${p.dataset.angle}</p></div></article>`).join('');
+      goLive.disabled = people.length !== 3;
+      goLive.textContent = people.length === 3 ? 'Go live with 3 minds' : `${people.length} / 3 minds tuned`;
+    }
+
+    cards.forEach(card => {
+      card.querySelector('.select').addEventListener('click', () => {
+        const id = card.dataset.id;
+        if (selected.includes(id)) selected = selected.filter(item => item !== id);
+        else if (selected.length < 3) selected.push(id);
+        else { selected.shift(); selected.push(id); }
+        renderSelection();
+      });
+      card.querySelector('.details').addEventListener('click', () => {
+        document.querySelector('#dialogTitle').textContent = card.dataset.name + ' / signal file';
+        document.querySelector('#dialogAngle').textContent = card.dataset.angle + '.';
+        document.querySelector('#dialogEra').textContent = card.dataset.era;
+        document.querySelector('#dialogStatus').textContent = card.dataset.status;
+        document.querySelector('#dialogSource').textContent = card.dataset.source;
+        dialog.showModal();
+      });
+    });
+
+    filters.forEach(button => button.addEventListener('click', () => {
+      filters.forEach(f => f.setAttribute('aria-pressed','false'));
+      button.setAttribute('aria-pressed','true');
+      const filter = button.dataset.filter;
+      let visible = 0;
+      cards.forEach(card => {
+        const show = filter === 'all' || card.dataset.category.split(' ').includes(filter);
+        card.hidden = !show;
+        if (show) visible++;
+      });
+      counter.textContent = visible;
+    }));
+
+    goLive.addEventListener('click', () => document.querySelector('#onAir').scrollIntoView());
+    dialog.querySelector('.close').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+    renderSelection();
+  </script>
+</body>
+</html>
