@@ -108,11 +108,52 @@ SAFE_REFERENCE_REQUEST = re.compile(
     re.IGNORECASE,
 )
 CLAUSE_SPLIT = re.compile(rb"[.!?;]+")
+COMMA_SPLIT = re.compile(rb",")
 RUNTIME_NEGATION = re.compile(
     rb"\b(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
     rb"must\s+not|never|no|not\s+available|without)\b",
     re.IGNORECASE,
 )
+NEGATION_PREFIX = re.compile(
+    rb"^\s*(?:[-*]\s*)?(?:\*{1,2}\s*)?"
+    rb"(?:(?:the\s+)?(?:agent|character|he|i|it|persona|she|they|this\s+persona|we|you)\s+)?"
+    rb"(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
+    rb"must\s+not|never|no|not\s+available|without)\b",
+    re.IGNORECASE,
+)
+AFFIRMATIVE_TRANSITION = re.compile(
+    rb"^\s*(?:(?:and\s+)?then|but|however)\b\s*",
+    re.IGNORECASE,
+)
+COORDINATOR = re.compile(rb"^\s*(and|nor|or)\b\s*", re.IGNORECASE)
+TRAILING_INSTEAD = re.compile(rb"\binstead\b", re.IGNORECASE)
+NEGATED_BARE_CAPABILITY_ACTION = re.compile(rb"^\s*browse\b", re.IGNORECASE)
+REQUEST_PATTERNS = (
+    ACTION_OBJECT_REQUEST,
+    DIRECT_MESSAGE_REQUEST,
+    ACTOR_CAPABILITY_REQUEST,
+)
+
+
+def _has_affirmative_capability_request(segment: bytes) -> bool:
+    if SAFE_REFERENCE_REQUEST.search(segment):
+        return False
+    for pattern in REQUEST_PATTERNS:
+        match = pattern.search(segment)
+        if match is not None and RUNTIME_NEGATION.search(match.group()) is None:
+            return True
+    return False
+
+
+def _negation_governs_capability(segment: bytes, negation: re.Match[bytes]) -> bool:
+    governed = segment[negation.end() :]
+    coordinator = COORDINATOR.match(governed)
+    if coordinator is not None:
+        governed = governed[coordinator.end() :]
+    return bool(
+        _has_affirmative_capability_request(governed)
+        or NEGATED_BARE_CAPABILITY_ACTION.search(governed)
+    )
 
 
 def _forbidden_runtime_request(data: bytes) -> bool:
@@ -120,15 +161,43 @@ def _forbidden_runtime_request(data: bytes) -> bool:
         if any(pattern.search(line) for pattern in STRUCTURAL_RUNTIME_PATTERNS):
             return True
         for clause in CLAUSE_SPLIT.split(line):
-            if not clause.strip() or SAFE_REFERENCE_REQUEST.search(clause):
-                continue
-            for pattern in (
-                ACTION_OBJECT_REQUEST,
-                DIRECT_MESSAGE_REQUEST,
-                ACTOR_CAPABILITY_REQUEST,
-            ):
-                match = pattern.search(clause)
-                if match is not None and RUNTIME_NEGATION.search(clause[: match.end()]) is None:
+            prohibition_context = False
+            capability_prohibition_chain = False
+            for raw_segment in COMMA_SPLIT.split(clause):
+                segment = raw_segment.strip()
+                if not segment:
+                    continue
+
+                transition = AFFIRMATIVE_TRANSITION.match(segment)
+                is_affirmative_transition = transition is not None or bool(
+                    TRAILING_INSTEAD.search(segment)
+                )
+                if transition is not None:
+                    segment = segment[transition.end() :]
+                if is_affirmative_transition:
+                    prohibition_context = False
+                    capability_prohibition_chain = False
+
+                coordinator = COORDINATOR.match(segment)
+                coordinator_word = b""
+                if coordinator is not None:
+                    coordinator_word = coordinator.group(1).lower()
+                    segment = segment[coordinator.end() :]
+
+                negation = NEGATION_PREFIX.match(segment)
+                if negation is not None:
+                    prohibition_context = True
+                    if _negation_governs_capability(segment, negation):
+                        capability_prohibition_chain = True
+                    continue
+
+                if not _has_affirmative_capability_request(segment):
+                    continue
+                inherits_prohibition = not is_affirmative_transition and (
+                    capability_prohibition_chain
+                    or (coordinator_word in {b"nor", b"or"} and prohibition_context)
+                )
+                if not inherits_prohibition:
                     return True
     return False
 
