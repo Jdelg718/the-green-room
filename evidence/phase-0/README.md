@@ -6,6 +6,8 @@
 
 This evidence supports source-level feasibility only. It is not evidence of a running Buzz stack, integration success, deployment, or production readiness.
 
+The checkout's `docker-compose.yml` references mutable image tags rather than immutable digests. Any future service startup is fresh evidence for the images resolved on that date, not exact reproduction of this baseline, unless all service images are first digest-pinned.
+
 ## Subject under test
 
 - Upstream: [`block/buzz`](https://github.com/block/buzz)
@@ -91,6 +93,8 @@ exit=0
 
 ### Service setup attempt
 
+This historical attempt reached Buzz's Docker-daemon preflight and failed before daemon resources were changed. It is recorded as evidence, not as a command sequence to repeat. Future operators must use the [runbook's side-effect disclosure and fail-closed Docker preflight](../../docs/runbooks/local-buzz.md#5-start-local-services-when-docker-is-available) before any `just setup` invocation.
+
 ```bash
 source ./bin/activate-hermit
 just setup
@@ -134,4 +138,4 @@ Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docke
 
 ## Next action
 
-On a local development host with Docker Engine running and Compose v2 installed, follow the [local runbook](../../docs/runbooks/local-buzz.md), rerun `just setup`, and capture service-health and integration-test evidence before making an architecture or production-readiness decision.
+On a local development host with Docker Engine running and Compose v2 installed, follow the [local runbook](../../docs/runbooks/local-buzz.md). Review all setup side effects, verify a local or dedicated disposable Docker context, confirm legacy `sprout-*` containers are disposable, review `.env`, and only then run the guarded setup flow. Capture resolved image digests, service health, and integration-test results as fresh evidence before making an architecture or production-readiness decision.
