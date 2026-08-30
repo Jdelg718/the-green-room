@@ -107,3 +107,92 @@ tests, `uv.lock`, constraints, and build output.
 
 These commands install only the pinned project/runtime tree. They do not load
 `.env.example` automatically and do not contact `relay.invalid`.
+
+## Phase 0D Slice 2 — strict Nostr wire and crypto boundary
+
+`nostr_types.py` accepts only raw UTF-8 JSON, rejects duplicate object keys,
+requires the exact NIP-01 event fields and JSON types, and returns deeply frozen
+parsed values. `crypto.py` copies an event into an independent deterministic JSON
+byte snapshot, reparses it under explicit room/time/resource policy, hashes
+canonical NIP-01 bytes, compares the event ID, and then asks pinned
+`coincurve==21.0.0`/libsecp256k1 to verify BIP-340.
+
+Python type identity, frozen dataclasses, `__slots__`, and unavailable public
+constructors are **not security capabilities**. Hostile in-process code can call
+`object.__new__` and `object.__setattr__`, forge either wrapper type, or mutate a
+nominally frozen object. `VerifiedWireEvent` therefore exposes no parsed event as
+authoritative state. It stores only immutable complete canonical JSON bytes plus
+the room, time, and policy fingerprint used for initial verification.
+Security-sensitive consumers must call `reverify_verified_event(...)` with their
+own authoritative expected room, time, and limits. That boundary compares the
+stored metadata, bounds and reparses the byte snapshot, recomputes the event ID,
+and reruns BIP-340 before returning a fresh frozen `WireEvent`. Forged, missing,
+wrongly typed, mutated, and structurally malformed values fail with short
+`CryptoError`/`WireError` codes rather than `AttributeError` or `TypeError`.
+
+A forged wrapper around genuinely valid canonical bytes and matching
+caller-supplied policy may be accepted after re-verification. This is intentional:
+cryptographic content and caller policy are authoritative; Python wrapper
+identity is not. There is deliberately no module-private object registry because
+such a registry would only simulate a capability inside a hostile Python process.
+
+The default fail-closed limits are:
+
+- 65,536 bytes for the complete serialized event or relay envelope;
+- 8,192 UTF-8 bytes of content;
+- 64 tags, 8 string elements per tag, and 1,024 UTF-8 bytes per element;
+- timestamps from 300 seconds in the past through 60 seconds in the future;
+- kinds `9`, `39002`, `44100`, and `44101` only; and
+- exactly one two-element canonical UUID `h` tag matching the expected room.
+
+Malformed JSON, raw/forbidden controls, unpaired surrogates, noncanonical hex,
+unknown fields, boolean-as-integer values, malformed/conflicting room tags, and
+resource-limit failures produce short ASCII domain error codes. NIP-01's
+escaped newline, carriage return, tab, backspace, and form-feed content forms
+remain supported. No parser or verifier path opens a network connection or
+handles a private/live key.
+
+### Public fixture provenance and auditable TDD
+
+`tests/fixtures/bip340_vectors_0_14.csv` is a faithful focused copy of vectors
+0–14 from the published [BIP-340 test vectors](https://github.com/bitcoin/bips/blob/master/bip-0340/test-vectors.csv).
+`valid_room_event.json` is deterministically derived from vector 0's publicly
+published test secret (`...0003`), x-only public key, and all-zero auxiliary
+randomness. It is deliberately labeled unusable as a real identity. The event
+shape and serialization follow [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md).
+
+The focused RED commit is
+`c5c53894bdcdb13a6a6644e7c7a318a0953716a7`. It contains the tests and public
+fixtures but neither new module. This exact installed-project command was run
+at that commit and exited `1` with `ModuleNotFoundError: No module named
+'greenroom_live.crypto'`:
+
+```bash
+env -u PYTHONPATH uv run --project spikes/002-live-buzz \
+  python -m unittest discover -s spikes/002-live-buzz/tests \
+  -p 'test_nostr_wire_crypto.py' -v
+```
+
+After implementation, the same command exits `0`: **24 tests passed**, including
+1,000 deterministic malformed inputs and all 15 focused BIP-340 vectors. The
+canonical accumulated gate also exits `0`: **47 tests passed**.
+
+```bash
+env -u PYTHONPATH uv run --project spikes/002-live-buzz \
+  python -m unittest discover -s spikes/002-live-buzz/tests -v
+```
+
+The full 47-test command was additionally exercised under CPython 3.13 via
+`uv run --isolated --python 3.13`; CPython 3.11 was not installed on the review
+host. The project's normal frozen environment selected CPython 3.12.13.
+
+The follow-up trust-boundary remediation also used observed RED → GREEN evidence.
+Before implementation, the expanded focused suite exited `1` because
+`reverify_verified_event` did not exist. After implementation, the focused suite
+passes **33 tests** and the accumulated suite passes **56 tests**. Deliberate
+mutation checks then removed the event-ID comparison and disabled signature
+verification in turn: the two ID-specific tests and the two signature-specific
+tests failed respectively. Restoring each check returned the suite to GREEN.
+These mutation runs demonstrate that both initial verification and consumption
+re-verification tests depend on the cryptographic checks rather than wrapper
+type identity.

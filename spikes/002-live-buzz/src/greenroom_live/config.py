@@ -52,7 +52,7 @@ class LiveBuzzConfig:
     director_public_key: str
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, str]) -> "LiveBuzzConfig":
+    def from_mapping(cls, values: Mapping[str, str]) -> LiveBuzzConfig:
         """Load exact supported settings and reject unknown prefixed names."""
         if not isinstance(values, Mapping):
             raise ConfigError("configuration must be a mapping")
