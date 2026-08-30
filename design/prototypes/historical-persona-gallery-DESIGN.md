@@ -27,7 +27,8 @@ not historical, approved, or official-catalog personas.
 4. **Room builder** — a fixed human participant, zero to three persona seats,
    textual compatibility/tension cues, removal controls, live status, and a
    primary Start Room action. It is sticky on wide screens and in document flow
-   on narrow screens.
+   on narrow screens. Once a mobile user selects a persona, a persistent **View
+   room (n of 3)** action exposes the otherwise distant builder immediately.
 5. **Details dialog** — modal, focus-managed disclosure for provenance, review,
    cutoff, strengths, productive tensions, and portrayal cautions.
 
@@ -141,7 +142,9 @@ scraping these labels.
 - Capacity is one human plus **up to three** personas. Add controls enforce this
   constraint; no fourth persona can enter via the UI.
 - Each selected persona has a 44px remove control with a specific accessible
-  name.
+  name. After removal, focus moves to the next surviving Remove control, the
+  previous one when the last seat was removed, or the builder heading when the
+  room becomes empty; a re-render never strands focus on a detached button.
 - Status reports zero-to-three occupancy and readiness in a polite live region.
 - Pairwise cues are text, not unexplained scores. They state either productive
   friction, shared-domain contrast, or cross-domain complementarity. These cues
@@ -150,6 +153,23 @@ scraping these labels.
 - Start Room is disabled for zero personas and enabled for one to three. It is
   visually primary and announces the assembled count. Because this is a static
   prototype, it explicitly does not invoke a model or runtime.
+- At 760px and below, the mobile room action is hidden while the room is empty
+  and appears immediately after the first successful add. Its label is the
+  current occupancy, **View room (n of 3)**, and it updates after adds, removes,
+  empty-room transitions, and held-state removal. Loading and no-results views
+  preserve the action when a valid cast still exists.
+- The mobile action is a 52px native button in a compact fixed container above
+  `env(safe-area-inset-bottom)`. When present, equivalent bottom padding is
+  added to the shell and toast feedback moves above it, so neither page content
+  nor feedback is obscured.
+- Activating **View room** jumps to the builder and moves programmatic focus to
+  its heading without a multi-screen smooth-scroll delay. A mobile-only 44px
+  **Back to gallery** link performs the inverse operation and focuses the
+  gallery heading. Both destinations use
+  `tabindex="-1"` so they do not add redundant stops to ordinary Tab order.
+- Desktop layout and interaction are unchanged; the persistent action and back
+  link are not displayed above the mobile breakpoint. The forced 390px review
+  state mirrors the same behavior without changing normal desktop layout.
 
 ## Exercisable prototype states
 
@@ -160,7 +180,7 @@ devtools.
 | --- | --- |
 | Default | Full fourteen-persona gallery; empty room initially |
 | Loading → recovered | Six skeleton cards, `aria-busy=true`, and “Loading personas…”; after exactly 1600ms it deterministically returns to Default and announces success |
-| Empty room | Clears the selected cast, shows three open seats, disables Start Room |
+| Empty room | Clears the selected cast, shows three open seats, disables Start Room; the next successful Add returns to Default so the card and builder cannot disagree |
 | No results | Applies a deterministic impossible search token and shows the clearable no-results state |
 | Held / unavailable | Applies a clearly labeled **prototype demo override** to Galileo; card remains inspectable but Add is disabled. If Galileo was already selected, the state transition removes him before the room can start and announces that removal. A live announcement states that source catalog status is unchanged |
 | 390 px mobile frame | Constrains the application shell to `min(390px, 100%)` and applies the same single-column behavior as the narrow breakpoint |
@@ -177,7 +197,8 @@ falsely relabeling any of the twelve policy candidates in the default view.
 - **761–1100px:** 310px builder; two gallery columns; filters wrap to three
   columns with search spanning two.
 - **481–760px:** gallery and builder stack; two filter columns; search spans the
-  row; state menu becomes full width.
+  row; state menu becomes full width. A selected cast exposes the safe-area-
+  aware persistent room action.
 - **480px and below:** one filter column, one card column, one detail column, and
   vertically stacked card/dialog actions.
 - **Forced mobile state:** reproduces the narrow layout inside a maximum 390px
@@ -201,6 +222,9 @@ narrowest breakpoint as a final guard, not as the primary layout mechanism.
   and trigger focus restoration.
 - Result count, room status, toast feedback, loading success, and held-demo
   explanation use polite live regions.
+- Mobile occupancy is exposed as visible button text rather than a transient
+  toast alone. The button owns the builder with `aria-controls`; activating it
+  or **Back to gallery** moves focus to the corresponding named section.
 - Loading grid sets `aria-busy`; purely visual skeletons are hidden from assistive
   technology.
 - Status is always written in text; candidate, fixture, and held meanings do not
@@ -247,8 +271,10 @@ Source boundaries applied here:
 - One self-contained HTML file with inline CSS, inline JavaScript, and static
   local data; opening it makes no network request.
 - Screenshot filenames record the Playwright viewport used (`1440x1100` and
-  `390x844`); each PNG is a full-page capture, so its pixel height exceeds the
-  viewport height.
+  `390x844`). The desktop PNG remains a full-page reference. The committed
+  mobile PNG is an exact 390×844 viewport capture taken after adding one persona
+  at the top of the gallery, so the fixed occupancy action and the primary
+  no-seven-screen-scroll workflow are visible in the review artifact.
 - DOM-safe rendering uses `createElement`, `createTextNode`, `textContent`, and
   fixed attributes for all dynamic content. It makes no `innerHTML` assignment.
 - Search text is compared as a lowercase string and never parsed as HTML, CSS,
@@ -285,6 +311,11 @@ Source boundaries applied here:
 | Builder remove | Remove middle persona | Seat count and cues recompute; focusable control remains named |
 | Builder cues | Add two or more | Human-readable pairwise compatibility/tension cues |
 | Start Room | Add one to three and activate | Ready count announced; no model/network operation |
+| Mobile room path | Add one persona at 390px | `View room (1 of 3)` appears in the current viewport without scrolling |
+| Mobile occupancy | Add to three, remove, enter Empty room, hold selected Galileo | Label updates for every valid cast change and hides at zero |
+| Mobile focus | Activate View room, then Back to gallery | View scrolls/focuses builder heading; Back scrolls/focuses gallery heading |
+| Mobile persistence | Enter Loading or No results with a valid cast | Occupancy action remains available while gallery content changes |
+| Mobile safety | Inspect fixed action and toast with simulated safe area | Content has equivalent bottom clearance; toast and action do not overlap |
 | Dialog keyboard | Open, press Tab and Escape | Focus stays in native modal; closes; focus returns to trigger |
 | Menu keyboard | Open; Arrow keys; Escape | Item navigation, close, and focus return work |
 | Keyboard | Tab through page | Visible 3px focus and logical order on every action |
