@@ -81,9 +81,13 @@ spikes/002-live-buzz/
     scheduler.py                   # production extraction of reviewed bounded policy
     store.py                       # SQLite schema, transactions, migrations
     service.py                     # per-room orchestration and cancellation epoch
-    persona_runtime.py             # bounded context + provider call; no tools
-    provider.py                    # provider protocol, mock, and one configured HTTP adapter
-    signer.py                      # signer protocol and isolated per-persona signer handles
+    persona_runtime.py             # bounded context; no credentials, signer, network, or tools
+    ipc.py                         # framed authenticated local IPC and capability validation
+    provider_client.py             # narrow supervisor client; never receives provider credentials
+    provider_worker.py             # isolated provider subprocess and sole credential reader
+    signer_client.py               # narrow supervisor client; never receives private key bytes
+    signer_worker.py               # one isolated, policy-enforcing subprocess per identity
+    control.py                     # owner-bound non-network local control socket
     publisher.py                   # deterministic event construction/sign-once/retry-same-event
     metrics.py                     # counters/timers and sanitized JSONL snapshots
     main.py                        # lifecycle only; no policy logic
@@ -99,6 +103,9 @@ spikes/002-live-buzz/
     test_scheduler.py
     test_service.py
     test_cancellation.py
+    test_control.py
+    test_leases.py
+    test_process_isolation.py
     test_publisher.py
     test_persona_runtime.py
     test_mock_relay_integration.py
@@ -190,18 +197,18 @@ class VerifiedRoomEvent:
 
 The adapter then calls the extracted `TrustedEventAdapter`/equivalent private factory. No other module can construct `VerifiedRoomEvent`. Unknown authors, stale/missing membership, malformed tags, unverifiable snapshots, and relay namespace changes fail closed and increment rejection metrics without model calls.
 
-### 4.3 Transport sessions, persona runtime, and signer ownership
+### 4.3 Process-isolated provider, signers, and identity-bound transports
 
-`service.py` owns room orchestration; `persona_runtime.py` owns model context and generation; `signer.py` owns signing; `relay_transport.py` owns identity-bound sessions. The director chooses a `persona_id`, never a key or transport.
+Python import visibility is **not** a security boundary. `service.py` is an uncredentialed supervisor; provider access and every signing identity run in separate OS subprocesses. `persona_runtime.py` assembles bounded context only. `relay_transport.py` owns identity-bound sessions, but cannot read a private key or provider credential. The director chooses a `persona_id`, never a key, credential, signer process, or transport.
 
 ```python
-class PersonaRuntime(Protocol):
-    async def generate(self, invitation: PersonaInvitation, cancel: CancelToken) -> CandidateSpeech | Silence: ...
+class ProviderWorkerClient(Protocol):
+    async def generate(self, request: ProviderRequest, cancel: CancelToken) -> CandidateSpeech | Silence: ...
 
-class PersonaSigner(Protocol):
-    @property
-    def public_key(self) -> str: ...
-    def sign_event(self, unsigned: UnsignedEvent) -> SignedEvent: ...
+class SignerWorkerClient(Protocol):
+    public_key: str
+    async def sign_auth(self, relay_origin: str, challenge: str) -> SignedEvent: ...
+    async def sign_room_event(self, request: RoomSignRequest) -> SignedEvent: ...
 
 class DirectorObservationSession(Protocol):
     authenticated_pubkey: str
@@ -213,15 +220,19 @@ class PersonaPublishSession(Protocol):
     async def submit_exact(self, event_bytes: bytes, event_id: str) -> RelayOK: ...
 ```
 
-- The supervisor creates exactly one `DirectorObservationSession`, performs NIP-42 with the director signer, and uses it only for membership discovery and room observation. The director signer may sign NIP-42 `AUTH` events for the configured relay and no room messages. The observation type exposes no `EVENT` submission API.
-- The supervisor creates one isolated `PersonaPublishSession` per enabled persona (eagerly or on first selection). That session performs its own NIP-42 challenge with that persona's signer, retains no other persona signer, and may submit only kind-9 events for the configured room whose `pubkey` equals `authenticated_pubkey`. It does not own scheduling or observation.
-- `PersonaPublishSession.submit_exact` parses the persisted bytes before writing, recomputes the event ID, verifies the signature, and rejects unless `event.pubkey == session.authenticated_pubkey == configured persona public key`, `event.id == event_id`, kind/room are allowed, and the signer/session mapping is unchanged. It then writes those exact bytes in a NIP-01 `EVENT` frame and routes the matching `OK` by event ID.
-- Each persona has a separate key, signer handle, and authenticated publication session. A persona signer is permissioned only for NIP-42 `AUTH` to the configured relay and kind-9 output in its configured room. Raw private keys are loaded by a signer worker/handle from a mode-`0600` local secret file or supported local secret store.
-- Private key bytes are not fields on scheduler, persona, provider, context, metrics, or persistence objects and are never logged.
-- The owner/human key is never available to the service. NIP-OA owner delegation tags, when required, are opaque per-identity configuration and do not grant the supervisor the owner key. The director cannot access persona signer handles; the publisher can request signing only through the signer selected by the durable decision.
-- Provider credentials are available only to the provider adapter process/environment, never to persona prompts or packs.
-- The runtime loads one immutable declarative persona, a bounded recent transcript, and the invitation. It exposes no tool registry. Output is plain candidate text or silence, subject to size and cancellation checks.
-- Before signing, publisher verifies `selected_persona_id -> configured public key -> signer public key -> PersonaPublishSession.authenticated_pubkey`; mismatch is terminal and publishes nothing. No code path may send persona-signed bytes through the director-authenticated transport.
+Process and secret boundaries are mandatory for the spike candidate:
+
+- Start the provider adapter as one subprocess with a scrubbed environment containing only its provider credential, provider endpoint/model allowlist, its owner-only durable request journal path, and a single inherited IPC descriptor. The supervisor, personas, signer processes, relay process, logs, central database, and Compose metadata receive no provider credential or provider environment. Provider responses are size-bounded plain text/silence; the provider worker has no signer socket, key mount, relay credential, control socket, tool registry, shell request, or arbitrary URL field.
+- Start the director signer and each persona signer as **separate non-root subprocesses**. Each receives only its own mode-`0400` read-only secret mount (or an equivalent one-identity local secret-store handle), an owner-only durable idempotency journal path, expected public key, exact relay origin, allowed room, and one inherited IPC descriptor. A signer process receives no provider environment, central ledger path, other key mount, transcript, persona pack, observation stream, or general network capability. Compose uses separate services/process namespaces where practical; the local non-Compose runner uses subprocesses plus per-child descriptor and environment allowlists.
+- `ipc.py` uses length-prefixed canonical JSON with a small maximum frame, exact schemas, request IDs, and a per-child random capability passed through an inherited descriptor, never argv/environment/disk. The supervisor pins the child PID and verifies local peer credentials (`SO_PEERCRED` where available); the child accepts one parent connection only. Unknown fields, duplicate/replayed request IDs, wrong capabilities/PIDs/UIDs, oversized frames, and commands not in that child's two-method allowlist fail closed. IPC sockets live in an owner-only mode-`0700` runtime directory and are mode `0600`; they never bind TCP.
+- Every signer independently recomputes the unsigned event, expected public key, and policy on **every** request. `sign_auth` accepts only NIP-42 kind `22242`, the configured canonical relay origin, the currently outstanding one-use challenge issued to that exact identity-bound session, the signer's own pubkey, and the protocol timestamp/tag bounds. `sign_room_event` accepts only kind `9`, exactly one `h` tag equal to its configured room, the signer's own pubkey, the durable decision/source reply IDs supplied in the request, bounded content/tags/timestamp, and the configured relay/session identity. A signer rejects all other kinds, rooms, relays, pubkeys, stale/reused challenges, caller-supplied IDs, and a reused decision ID with a different canonical request hash. For an identical decision/request hash it returns the exact signed bytes from its private journal without signing again. It commits `started` before cryptographic work and signed bytes before replying; an interrupted `started` record with no result is terminal/manual-review, never silently re-signed. Thus a compromised supervisor cannot ask a persona signer to sign an owner/control event, another room, or arbitrary bytes.
+- The supervisor creates exactly one `DirectorObservationSession`, performs NIP-42 with the director signer, and uses it only for membership discovery, room observation, and exact-ID reconciliation. The director signer can sign NIP-42 `AUTH` for the configured relay and no room messages. The observation type exposes no `EVENT` submission API.
+- The supervisor creates one `PersonaPublishSession` per enabled persona. It performs NIP-42 using only that persona's signer worker, retains no other signer client, and may submit only persisted kind-9 bytes for its configured room and authenticated pubkey. It owns neither scheduling nor observation.
+- `PersonaPublishSession.submit_exact` parses the persisted bytes before writing, recomputes the event ID, verifies the signature, and rejects unless `event.pubkey == session.authenticated_pubkey == configured persona public key`, `event.id == event_id`, kind/room are allowed, and the signer/session mapping is unchanged. It writes those exact bytes in a NIP-01 `EVENT` frame and routes matching `OK` by event ID.
+- The owner/human key is never available to any Phase 0D process. NIP-OA owner delegation tags, when required, are opaque per-identity configuration and do not grant an owner key. Private key bytes and provider credentials are never fields on scheduler, persona, context, metrics, persistence, or control objects and are never logged.
+- Before requesting a signature, publisher verifies `selected_persona_id -> configured public key -> signer-worker attested public key -> PersonaPublishSession.authenticated_pubkey`; mismatch is terminal and publishes nothing. No code path sends persona-signed bytes through the director-authenticated transport.
+
+Isolation tests inspect `/proc/<pid>/environ` and open descriptors/mounts where supported, inject the wrong child capability/PID/command, attempt cross-persona and cross-room signing, replay a NIP-42 challenge, request a control/unknown event kind, and prove rejection before signing or provider/relay network activity. Platform-specific equivalent checks are required if `/proc`/`SO_PEERCRED` is unavailable; weakening to module-only separation is not an acceptable fallback.
 
 ### 4.4 Two original test personas
 
@@ -238,56 +249,97 @@ Their files contain no copied dialogue, performer likeness, voice-clone instruct
 
 `migrations/001_phase0d.sql` defines at least:
 
-- `rooms(room_id PRIMARY KEY, relay_namespace, paused, generation_epoch, policy_version, max_model_calls, model_calls_used, max_responses, responses_reserved, responses_published, updated_at)`;
+- `rooms(room_id PRIMARY KEY, relay_namespace, paused, generation_epoch, policy_version, max_selections_lifetime, selections_used_lifetime, max_model_calls_lifetime, model_calls_used_lifetime, model_calls_reserved, max_responses_outstanding, responses_outstanding, responses_published_lifetime, updated_at)` with non-negative `CHECK`s, `selections_used_lifetime <= max_selections_lifetime`, `model_calls_used_lifetime + model_calls_reserved <= max_model_calls_lifetime`, and `responses_outstanding <= max_responses_outstanding`;
 - `personas(persona_id PRIMARY KEY, public_key UNIQUE, enabled, cooldown_events, last_selected_sequence, consecutive_turns)`;
 - `source_events(id INTEGER PRIMARY KEY, room_id, source_event_id, source_class, author_pubkey, accepted_sequence, received_at, UNIQUE(room_id, source_event_id))`;
-- `decisions(decision_id PRIMARY KEY, room_id, source_event_id, policy_version, epoch, state, persona_id NULL, reason_code, response_event_id NULL, lease_until NULL, created_at, updated_at, UNIQUE(room_id, source_event_id, policy_version))`;
-- `response_events(decision_id TEXT PRIMARY KEY REFERENCES decisions(decision_id), persona_id TEXT NOT NULL REFERENCES personas(persona_id), event_id TEXT NOT NULL UNIQUE CHECK(length(event_id) = 64), event_sha256 TEXT NOT NULL CHECK(length(event_sha256) = 64), event_bytes BLOB NOT NULL CHECK(length(event_bytes) > 0), created_at INTEGER NOT NULL)`; `event_bytes` is the exact UTF-8 serialized signed Nostr event object submitted on every attempt, while `event_sha256` hashes those bytes and `event_id` is the Nostr event ID;
+- `decisions(decision_id PRIMARY KEY, room_id, source_event_id, policy_version, epoch, state, persona_id NULL, reason_code, response_event_id NULL, worker_owner NULL, lease_token NULL, fence INTEGER NOT NULL DEFAULT 0, lease_until NULL, created_at, updated_at, UNIQUE(room_id, source_event_id), FOREIGN KEY(room_id, source_event_id) REFERENCES source_events(room_id, source_event_id))`;
+- `response_events(decision_id TEXT PRIMARY KEY REFERENCES decisions(decision_id), persona_id TEXT NOT NULL REFERENCES personas(persona_id), event_id TEXT NOT NULL UNIQUE CHECK(length(event_id) = 64), event_sha256 TEXT NOT NULL CHECK(length(event_sha256) = 64), event_bytes BLOB NOT NULL CHECK(length(event_bytes) > 0), committed_at INTEGER NOT NULL)`; `event_bytes` is the exact UTF-8 serialized signed Nostr event object submitted on every attempt, while `event_sha256` hashes those bytes and `event_id` is the Nostr event ID;
 - `publish_attempts(decision_id, response_event_id, attempt, ack_state, attempted_at, PRIMARY KEY(decision_id, attempt))`;
+- `control_requests(request_id PRIMARY KEY, command, expected_epoch, resulting_epoch, committed_at)` for durable replay rejection;
 - `room_metrics(...)` containing numeric measurements and no secret material.
 
-`migrations/001_phase0d.sql` also creates `BEFORE UPDATE` and `BEFORE DELETE` triggers on `response_events` that `RAISE(ABORT, 'response_events are immutable')`. There is exactly one row per signed decision, and normal runtime code has insert/read permission only for this table. SQLite runs WAL mode, `foreign_keys=ON`, a busy timeout, restrictive file permissions, and explicit migrations. SQL uses parameters only. One process is the Phase 0D operating default; concurrency tests still use two database connections to prove uniqueness.
+`policy_version` is immutable evidence of the policy snapshot used by the **one** source decision; it is never part of source identity or a reason to reschedule. Triggers reject changes to `decisions.room_id`, `source_event_id`, `policy_version`, or `epoch`, and `BEFORE UPDATE`/`BEFORE DELETE` triggers on `response_events` raise `response_events are immutable`. SQLite has no per-table runtime privilege model: least authority is enforced by exposing only narrow parameterized `Store` methods to the application, keeping raw connection/SQL objects private to `store.py`, using triggers/constraints as the database backstop, and opening evidence tooling read-only. Do not claim SQL `GRANT`-style insert/read permissions. Tests attempt forbidden updates/deletes through both the application API and direct SQL and expect rejection.
 
-### 5.2 Zero-or-one scheduling transaction
+The database, `-wal`, and `-shm` files live in one owner-only mode-`0700` directory on a named persistent local volume/bind mount backed by non-tmpfs storage; the SQLite path must not be under `/tmp`, `/run`, a container tmpfs, or an ephemeral writable layer. At startup, `store.py` verifies the resolved mount/path policy and file ownership/mode, then sets and reads back `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, `PRAGMA synchronous=FULL`, and a bounded `busy_timeout`; a mismatch is fatal. Explicit migrations and parameterized SQL are mandatory.
 
-`Store.claim_and_schedule(event, policy_snapshot)` executes `BEGIN IMMEDIATE` and, in one transaction:
+### 5.2 Policy-independent zero-or-one scheduling transaction
 
-1. insert the unique source event, or return its existing decision;
-2. read/lock the room's current pause flag, generation epoch, policy version, response/model budgets, and accepted-event sequence;
-3. reject non-human/persona-recursive sources by policy unless an explicitly bounded autonomous continuation is later enabled (disabled for Phase 0D acceptance);
-4. compute eligible personas from enabled state, cooldown, consecutive-turn limit, and deterministic tie-break order;
-5. insert exactly one immutable decision: silence/cancelled/rejected, or one selected persona;
-6. for a selection, reserve exactly one response and one model-call budget unit and update that persona's cooldown/consecutive-turn state;
-7. commit before provider work starts.
+`Store.claim_and_schedule(event)` executes `BEGIN IMMEDIATE` and, in one transaction:
 
-The unique decision constraint plus `BEGIN IMMEDIATE` is the zero-or-one scheduling invariant. No network or model call occurs while the transaction is open. A duplicate/replay returns the original decision and consumes no additional budget. A failed model call still consumes its model-call reservation (real cost may have occurred) but publishes no response. A pre-provider cancellation may release a response reservation according to a tested transition; it never rewinds cooldown in a way that permits a duplicate decision.
+1. insert `(room_id, source_event_id)` into `source_events`; on uniqueness conflict, fetch and return the existing decision **without reading current policy or changing any counter**;
+2. if a source row somehow exists without exactly one decision, fail closed as ledger corruption rather than scheduling it again;
+3. read the room's current pause flag, generation epoch, policy version, lifetime limits, outstanding limits/counts, and accepted-event sequence;
+4. reject non-human/persona-recursive sources by policy unless a separately reviewed bounded continuation is enabled (disabled for Phase 0D);
+5. compute eligible personas from enabled state, cooldown, consecutive-turn limit, and deterministic tie-break order;
+6. insert exactly one immutable decision keyed by `(room_id, source_event_id)`, recording the current `policy_version` as evidence only;
+7. for a selection, atomically increment `selections_used_lifetime`, `responses_outstanding`, and `model_calls_reserved`, then update cooldown/consecutive-turn state;
+8. commit before leasing or provider work starts.
 
-Allowed states and writers are explicit and monotonic:
+The source and decision uniqueness constraints, both independent of `policy_version`, plus `BEGIN IMMEDIATE` are the zero-or-one invariant. No network/model/signer call occurs in the transaction. A replay after a policy update returns the original decision and original recorded policy version and consumes no budget. Tests race (a) two deliveries, (b) replay against a committed policy update, and (c) first delivery against a policy update on separate connections; each run must yield one source, one decision, one selected persona at most, one internally consistent old-or-new policy snapshot, and one set of counter effects. A sabotage migration that restores `UNIQUE(room_id, source_event_id, policy_version)` must make these tests fail.
+
+Lifetime admission and current work are separate accounting concepts:
+
+- `selections_used_lifetime` is incremented once when a source selects a persona and is never refunded by cancellation, generation failure, relay rejection, or publish exhaustion.
+- `responses_outstanding` counts selected decisions that have not reached a terminal state. Every terminal transition decrements it exactly once; `published` also increments `responses_published_lifetime`. Cancellation never decrements published history and never restores lifetime selection capacity.
+- `model_calls_reserved` prevents concurrent selections from oversubscribing the lifetime call cap. Immediately before provider IPC, the leased CAS converts one reservation to `model_calls_used_lifetime += 1` and `model_calls_reserved -= 1`; once provider handoff may have occurred, usage is never refunded. Cancellation/failure before provider handoff releases only the outstanding model reservation. Terminal paths assert that no reservation leaks.
+- Acceptance reports all four classes separately: lifetime selections used, model calls used, responses currently outstanding, and responses published. It fails on negative/leaked counters or `used + reserved > max`; it never treats cancellation as erasing historical selection/provider work.
+
+### 5.3 Leases, fencing, and monotonic state writers
+
+Allowed states are explicit and monotonic:
 
 ```text
 selected -> generating -> signed -> publishing -> published
 selected/generating/signed -> cancelled
 selected/generating -> failed
-publishing -> failed  # only a definitive relay rejection; timeout/lost OK remains publishing
-silence | rejected | cancelled | failed | published are terminal
+publishing -> failed              # definitive relay rejection only
+publishing -> publish_exhausted   # bounded attempts/deadline exhausted or reconciliation inconclusive
+silence | rejected | cancelled | failed | published | publish_exhausted are terminal
 ```
 
-A worker lease may recover `generating`, `signed`, or `publishing` after a crash, but recovery never creates another decision or another signed event. `generating -> signed` occurs in one `BEGIN IMMEDIATE` transaction that (1) rechecks decision state and generation epoch, (2) inserts the one immutable `response_events` row, and (3) stores the same `event_id` on `decisions`. If the response row already exists, signing is forbidden. On recovery, the worker reads `event_bytes` and verifies `event_sha256`, event ID, signature, room, and persona/session identity. A recovered `signed` decision may proceed through the pre-submit gate. A recovered `publishing` decision first reconciles the immutable event ID with the relay because submission may already have succeeded; only while its epoch remains current may bounded recovery resubmit those exact bytes. Missing or corrupt signed bytes fail closed for operator review and are never replaced by re-signing.
+Every nonterminal writer first calls `Store.acquire_lease(decision_id, worker_owner, now, ttl)`. In a `BEGIN IMMEDIATE` transaction it conditionally updates only an allowed nonterminal row whose lease is null, already held by the same live token for renewal, or strictly expired; a new acquisition creates a cryptographically random `lease_token`, increments `fence`, sets `worker_owner/lease_until`, and returns `(token, fence)`. Contenders receive `not_acquired`. Every heartbeat and state/counter/response transition is a single SQL compare-and-swap containing `decision_id`, expected state, current epoch, `worker_owner`, `lease_token`, `fence`, and `lease_until >= now`; success requires exactly one affected row. Tokens are never reused. A stale or expired worker cannot renew, release, insert signed bytes, change counters/state, or hand bytes to transport.
 
-### 5.3 Publish idempotency
+Phase 0D runs one owner supervisor protected by an exclusive local process lock; its provider/signers are owned child subprocesses, not independent service replicas. The lease TTL is greater than the provider total deadline plus forced-child-termination margin. The provider worker uses `decision_id` plus a canonical request hash as its durable idempotency key: it commits `started` before provider network handoff and `completed` output before IPC response. An identical completed request returns the journaled output without a second provider call; a hash mismatch is rejected; an interrupted/ambiguous `started` request becomes terminal `failed` and is never automatically called again. Before takeover of expired `generating` work, the supervisor must prove the old child PID exited (or, after restart, that the exclusive lock proves the old process is gone), inspect the provider journal, and then acquire a higher fence. It never starts a second provider request merely because a heartbeat was delayed. If death/journal state cannot establish that no call began or recover a completed result, the decision becomes operator-visible failed rather than duplicating paid work.
 
-Before first network submission, construct and sign the full kind-9 response exactly once, persist the immutable `response_events` row and transition to `signed` in the same transaction, then submit it only through the matching persona-authenticated session. `Store.claim_publish(decision_id, expected_epoch)` runs a short transaction immediately before socket handoff: if the decision is `signed` but the room epoch is stale, it persists `signed -> cancelled` and returns no bytes; if the state is anything other than `signed`, it returns no bytes without changing that state; otherwise it transitions `signed -> publishing` and returns the stored bytes. If `OK` is lost, retry the **same signed event bytes**, never regenerate/sign a new event. Relay event-ID dedup plus the decision uniqueness constraint prevents a second response. The response has `h=<room>`, an NIP-10 reply reference to the source, and only tags proven accepted by the pinned relay. A Green Room custom provenance tag is added only after a mock and live compatibility test; otherwise the local decision ledger is authoritative.
+Signing requires a current `generating` lease and a pre-sign CAS reservation keyed by the canonical unsigned-event hash. After signer return, `generating -> signed` succeeds only under that same token/fence and in one `BEGIN IMMEDIATE` transaction that inserts the sole immutable `response_events` row and stores its `event_id`; a uniqueness conflict or lost fence forbids a different signing request. If the supervisor crashes after signer completion but before central persistence, recovery may repeat IPC with the same decision/request hash, but the signer journal returns the prior bytes without another cryptographic signing operation. An interrupted signer `started` record with no committed bytes fails closed for operator review. Recovery from central `signed` or `publishing` reads/verifies persisted bytes and never calls the signer. Tests cover simultaneous acquisition, heartbeat versus takeover, takeover only after strict expiry plus confirmed worker death, old worker return after expiry, stale-token/fence replay, and crashes before/after provider handoff, provider journal commit, signer start/result commit, central signed-byte commit, and transport handoff. Assertions distinguish IPC retries from work: exactly one provider network request and one cryptographic signing operation, with any retry returning journaled output/bytes; the expired old worker may finish locally, but every stale state change and network handoff is rejected.
 
-## 6. Cancellation, cooldown, and budget behavior
+### 5.4 Signed-byte durability, reconciliation, and bounded publication
 
-- Exact owner-only local controls are `pause`, `resume`, and `stop`. Relay-carried controls are disabled until author verification is proven; the private/local CLI is sufficient for the spike.
-- `stop` atomically sets `paused=1`, increments `generation_epoch`, and signals every in-flight director/provider/publisher task.
-- Every task captures its starting epoch. It must re-read epoch and decision state after provider return, before signing, and in `Store.claim_publish` immediately before first submission. A stop committed before `claim_publish` wins: `selected`, `generating`, or `signed` persists as `cancelled`, and no bytes are handed to the transport.
-- `publishing` means socket handoff may already have occurred. Once `signed -> publishing` commits, cancellation cannot truthfully guarantee recall: the relay may accept before the local task sees `stop`, and an accepted event may be observed or its `OK` may arrive after stop. The runtime stops retries when it learns of the new epoch, records the acknowledgement ambiguity, and reconciles by the immutable event ID; it never marks such a decision `cancelled` or signs a replacement. Tests and evidence distinguish **submission started before stop** from **submission attempted after stop**. The hard guarantee is no first submission when stop wins the pre-submit gate, not retraction of an event already handed to or acknowledged by the relay.
-- Provider calls have connect/read/total deadlines and consume a cancel token. Cancellation latency is measured from control commit to task acknowledgement and must meet the acceptance bound chosen before the live run.
-- Cooldown is measured in accepted human-event sequence numbers, not wall-clock time or persona output. Persona events do not advance the clock during this spike.
-- Room budgets include hard maxima for model calls, selected responses, published responses, response characters/tokens when available, and ten-turn acceptance duration. Exhaustion produces durable silence with a reason code.
-- Default Phase 0D autonomous depth is zero: persona-authored events are recorded but cannot schedule another persona. Ten coherent turns therefore require alternating human prompts and selected persona responses, proving the required invariant without agent-to-agent recursion.
+Before first network submission, construct/sign the kind-9 response exactly once, then insert `response_events` and transition to `signed` in the same `BEGIN IMMEDIATE` transaction under the active lease/fence. With `synchronous=FULL`, success is reported only after `COMMIT` returns; no queue, callback, socket, or transport process receives `event_bytes` before that return. The publisher reopens/reads the row, verifies SHA-256, recomputed event ID, Schnorr signature, persona pubkey, room, and reply source, then `Store.claim_publish(...)` performs the final epoch/token/fence CAS from `signed -> publishing` and returns the persisted bytes. A crash at every statement boundary must prove either no handoff occurred or the exact committed row is recoverable.
+
+For a lost/negative-ambiguous `OK` or recovered `publishing` decision, reconcile before resubmission on the authenticated director observation session with exactly one NIP-01 subscription:
+
+```json
+["REQ", "reconcile:<random>", {"ids": ["<persisted-event-id>"], "authors": ["<persona-pubkey>"], "kinds": [9], "#h": ["<room-id>"], "limit": 1}]
+```
+
+Accept reconciliation only when a signature-verified returned event has the exact persisted ID, author, kind, room, content/tags, and canonical object bytes; then send `CLOSE`, mark `published`, and do not resubmit. On `EOSE` with no match, send `CLOSE` and resubmit the **same persisted bytes** through the matching persona session. A disconnect/timeout before a trustworthy `EOSE` is inconclusive, not proof of absence.
+
+Publication has predeclared bounds: at most 5 submissions total, exponential backoff of 250 ms, 500 ms, 1 s, and 2 s between retries (bounded ±10% non-secret jitter), a 5-second deadline per reconciliation/submit exchange, and a 30-second monotonic overall deadline. The epoch/fence CAS runs before every handoff. A definitive relay rejection becomes `failed`; success/verified reconciliation becomes `published`; attempt or deadline exhaustion, corrupt/missing durable bytes, or inconclusive final reconciliation becomes terminal `publish_exhausted` with sanitized reason, attempt count, last transition time, and event ID available through the local status command and non-zero acceptance result. Exhaustion causes no re-signing, replacement event, unbounded background retry, or automatic budget refund. The operator may run read-only reconciliation later; only exact verified presence may move the recorded outcome to an append-only reconciliation record, never mutate signed bytes. Ten-turn acceptance fails if any selected decision is `publish_exhausted`, has unresolved acknowledgement state, exceeds bounds, or lacks commit-before-handoff evidence.
+
+## 6. Owner controls, cancellation, cooldown, and restart behavior
+
+### 6.1 Owner-authenticated non-network control path
+
+`control.py` is the sole control-plane owner. It listens only on an `AF_UNIX` socket inside the service owner's mode-`0700` runtime directory; the socket is atomically created with mode `0600`, refuses symlinks/non-sockets/pre-existing wrong-owner paths, and is never published into a container port or mounted into provider/signer/relay processes. On Linux it requires `SO_PEERCRED` UID to equal the service/database owner UID and pins the expected local control-client executable/process ancestry for the acceptance runner. On a platform without trustworthy Unix peer credentials, use same-process interactive stdin attached to the owner terminal; do not fall back to TCP, HTTP, relay events, filesystem flag files, or content-authored controls.
+
+The exact canonical JSON request schema is:
+
+```json
+{"v":1,"command":"pause|resume|stop|status","request_id":"<128-bit random hex>","expected_epoch":7,"issued_at":1788100000}
+```
+
+No extra fields are accepted. Mutating commands require a unique 128-bit `request_id`, an `issued_at` within a predeclared 30-second wall-clock window, and `expected_epoch` equal to the current durable room epoch. In one `BEGIN IMMEDIATE` transaction, `Store.apply_control` inserts `control_requests.request_id` and performs the epoch compare-and-swap: `pause`/`stop` require the expected epoch, set `paused=1`, and increment epoch once; `resume` requires `paused=1`, sets `paused=0`, and increments epoch once. A duplicate request ID returns the originally committed result without another mutation; a new ID carrying a stale epoch is rejected. `status` is read-only, returns no transcript/secrets, and reports pause/epoch, state counts, expired leases, counters, and any `publish_exhausted` decisions.
+
+The ACK is returned only after SQLite commit. The supervisor then signals tasks, but durable pause/epoch—not the signal—is authoritative. Startup opens the durable database before the socket, restores `paused` and `generation_epoch` exactly, cancels/recovers old-epoch work before accepting controls, and never resets epoch to a default. Socket replacement and restart race tests prove there is one listener and one committed epoch history. Unauthorized tests cover wrong UID/peer PID, mode `0666`, symlink/socket substitution, malformed/oversized/unknown commands, stale timestamp, stale expected epoch, duplicate request ID before and after restart, concurrent pause/resume, and attempts from provider/signer subprocesses; all must produce no state change and no network/model/signer activity.
+
+### 6.2 Cancellation and cooldown
+
+- Every task captures its starting epoch and lease fence. It rechecks both after provider return, before signer IPC, and in `Store.claim_publish` immediately before every socket handoff. A `pause` or `stop` committed before `claim_publish` wins: old-epoch `selected`, `generating`, or `signed` becomes `cancelled` under a valid writer/CAS, releases only its outstanding counters/reservations as specified in §5.2, and hands no bytes to transport.
+- `publishing` means a handoff may already have occurred. Once `signed -> publishing` commits, cancellation cannot claim recall: an accepted event may be observed or acknowledged afterward. The runtime stops retries on the new epoch, performs bounded exact-ID reconciliation, and resolves to `published` or `publish_exhausted`; it never marks the decision `cancelled`, signs a replacement, or refunds lifetime usage. Evidence distinguishes **submission started before stop** from **submission attempted after stop**.
+- Provider calls have connect/read/total deadlines shorter than the lease takeover bound and consume a cancel token. On cancellation the supervisor closes IPC, terminates then forcibly kills the provider child within the declared margin, and records latency from control commit to verified child exit. The same process is restarted later with the same isolation policy, never with an inherited request.
+- Cooldown is measured in accepted human-event sequence numbers, not wall-clock time or persona output. Persona events do not advance the clock during this spike. Cancellation never rewinds cooldown or accepted sequence.
+- Default autonomous depth is zero: persona-authored events are recorded but cannot schedule another persona. Ten coherent turns therefore require alternating human prompts and selected persona responses, proving the invariant without agent-to-agent recursion.
 
 ## 7. RED-GREEN implementation slices
 
@@ -317,19 +369,19 @@ RED proves a content claim such as `source=human`, a display-name match, an unkn
 
 ### Slice 4 — durable zero-or-one transaction
 
-RED uses two SQLite connections racing on the same source event and initially observes the missing schema/claim behavior. Add schema and `claim_and_schedule`. GREEN must show one decision row, at most one selected persona, one budget reservation, and identical duplicate result. Add crash/reopen, namespace, policy-version, pause, cooldown, exhaustion, and rollback-on-exception tests.
+RED uses two SQLite connections racing on the same source event and initially observes the missing schema/claim behavior. Add the policy-independent source/decision uniqueness, immutable policy evidence, durable controls, counter constraints, and `claim_and_schedule`. GREEN must show one decision row, at most one selected persona, one set of counter effects, and an identical duplicate result. Add replay-after-policy-change and first-delivery/policy-update races, then sabotage the decision uniqueness back to include `policy_version` and prove those tests fail. Add crash/reopen, namespace, pause, cooldown, lifetime-versus-outstanding accounting, every cancellation/failure counter effect, SQLite trigger/API restriction, non-tmpfs path validation, required-PRAGMA readback, and rollback-on-exception tests.
 
 ### Slice 5 — persona runtime without tools
 
-RED asserts the runtime context contains only persona definition, bounded transcript, room/decision identifiers, and invitation; rejects tool fields, environment leakage, excess context, malformed provider output, and overlong output. GREEN adds mock provider, cancellation token, and the two persona definitions. No network provider is enabled yet.
+RED asserts the runtime context contains only persona definition, bounded transcript, room/decision identifiers, and invitation; rejects tool fields, environment leakage, excess context, malformed provider output, and overlong output. GREEN adds the two persona definitions, mock provider subprocess, framed authenticated IPC, cancellation token, and process/environment/descriptor isolation checks. No network provider is enabled yet.
 
 ### Slice 6 — cancellation epoch and late-result fence
 
-RED blocks a mock provider, commits `stop`, releases the provider, and demonstrates the late result would publish without an epoch check. GREEN adds task cancellation plus persisted epoch checks. Test stop-before-call, stop-during-call, stop-after-generation-before-sign, **stop-after-sign-before-claim** (`signed -> cancelled`, zero transport writes), stop racing after socket handoff (acknowledgement ambiguity, no false `cancelled` claim), restart while paused, and resume creating a new epoch without resurrecting old work.
+RED blocks a mock provider, commits owner-authenticated `stop`, releases the provider, and demonstrates the late result would publish without epoch/lease fencing. GREEN adds the mode-`0600` owner Unix control socket, durable request/epoch CAS, worker token/fence CAS, child termination, and restart recovery. Test all unauthorized/replay/stale controls from §6.1; simultaneous lease claims; heartbeat/takeover; strict expired-dead-worker takeover; an expired old worker returning after a higher fence; stop-before-call, during-call, after-generation-before-sign, and **after-sign-before-claim** (`signed -> cancelled`, zero transport writes); stop racing after handoff (`published` or `publish_exhausted`, never false `cancelled`); restart while paused; and resume creating a new epoch without resurrecting old work. Assert one provider IPC request despite contention/takeover.
 
 ### Slice 7 — sign-once publisher
 
-RED simulates accepted publish with lost `OK`, crash/reopen, reconnect, and retry; a naive regenerated event would differ. GREEN atomically persists `event_bytes`, `event_sha256`, and `event_id` before send and retries identical bytes/ID without invoking the signer again. Also test existing response row forbids re-signing, byte corruption fails closed, signer/session/persona mismatch, director transport has no publish API, relay rejection, timeout, duplicate `OK`, and no custom provenance tag by default.
+RED simulates accepted publish with lost `OK`, crash at each signer-journal/central-commit/handoff boundary, reconnect, and retry; a naive regenerated event or pre-commit handoff would fail. GREEN adds isolated per-identity signer subprocesses, durable request-hash idempotency, signer-side relay/challenge/pubkey/kind/room enforcement, `synchronous=FULL` commit-before-handoff, exact reconciliation query, and bounded retry/exhaustion. Test wrong IPC capability/PID, cross-persona/room/relay/kind requests, stale/replayed NIP-42 challenge, same-ID/different-hash reuse, interrupted signer intent, journaled-result replay, existing response row, stale lease/fence, byte corruption, signer/session/persona mismatch, director transport lacking publish, exact match before retry, trustworthy empty `EOSE`, inconclusive timeout, definitive rejection, duplicate/lost `OK`, fixed retry/deadline bounds, operator-visible `publish_exhausted`, non-zero acceptance on exhaustion, and no custom provenance tag. Assert one cryptographic signing operation and byte-for-byte identical journal/central/submission bytes; repeated IPC may only retrieve the journaled result.
 
 ### Slice 8 — in-process mock relay integration
 
@@ -339,19 +391,21 @@ Required mock scenarios:
 
 1. one human event -> one selected persona -> one published event;
 2. deliberate silence -> zero model calls/publishes;
-3. duplicate live/replay and two service workers -> one decision/model call/publish ID;
+3. duplicate live/replay, policy update race, and two contending workers -> one decision/model call/signer call/publish ID;
 4. persona event -> zero schedules;
 5. cooldown and budget exhaustion -> durable silence;
 6. cancellation during generation -> no publish;
-7. lost ACK/reconnect -> exact same event retry;
+7. lost ACK/reconnect -> exact query reconciliation and exact same committed-byte retry within bounds;
 8. malformed/unauthorized event -> adapter rejection and zero model calls;
-9. restart -> dedup, pause, budgets, and cooldown persist.
+9. restart -> dedup, policy evidence, control replay history, epoch, leases/fences, budgets, and cooldown persist;
+10. unauthorized control/IPC/cross-identity signing -> fail closed with zero side effects;
+11. publish exhaustion -> durable operator-visible terminal state and acceptance failure.
 
 The complete mock suite must pass before live credentials are generated or a Buzz service is started.
 
 ### Slice 9 — private/local Compose candidate and independent gate
 
-Create loopback-only Compose/config with explicit service names, pinned image digests or local builds, `read_only`, tmpfs where needed, non-root user, `no-new-privileges`, dropped capabilities, PID/CPU/memory limits, healthchecks, bounded logs, and no host socket. Secrets are mounted read-only from gitignored local files; `.env.example` contains placeholders such as `wss://relay.invalid` and `ROOM_ID_PLACEHOLDER` only.
+Create loopback-only Compose/config with explicit service names for the uncredentialed supervisor, provider worker, and isolated identity signers; pinned image digests or local builds; `read_only`; tmpfs only for explicitly non-durable scratch; non-root users; `no-new-privileges`; dropped capabilities; PID/CPU/memory limits; healthchecks; bounded logs; and no host socket. The owner-only control Unix socket is local to the supervisor and never exposed as a port or mounted into child services. The central SQLite directory and each worker's private idempotency journal are separate named persistent non-tmpfs volumes/bind mounts; the central ledger is not shared with provider/signers, and no worker journal is shared with another identity. Each secret is mounted read-only only into its owning process; `.env.example` contains placeholders such as `wss://relay.invalid` and `ROOM_ID_PLACEHOLDER` only.
 
 Before any `up`, an independent reviewer must record in `evidence/phase-0d/reviews/compose.md`:
 
@@ -389,7 +443,7 @@ Do not put a real relay URL, room ID, pubkey, key path, transcript, hostname, us
 
 ### Slice 11 — model-backed ten-turn acceptance
 
-After live protocol tests pass, enable one reviewed provider adapter and two no-tool personas. Use a scripted human input file with benign original prompts. Run one fresh room with defaults: autonomous depth 0, at most one selected persona per source, hard model-call/response budget, cooldown enabled, and emergency stop armed.
+After live protocol tests pass, enable one reviewed isolated provider adapter and two no-tool personas. Use a scripted human input file with benign original prompts. Run one fresh room with defaults: autonomous depth 0, at most one selected persona per source, separate hard lifetime-selection/model-call limits and outstanding-work limits, cooldown enabled, and the owner Unix-socket emergency stop armed.
 
 Acceptance requires:
 
@@ -397,8 +451,12 @@ Acceptance requires:
 - both personas speak at least twice and satisfy a blind distinctness rubric;
 - every accepted source event has exactly one durable decision and zero or one selected persona;
 - every selected decision has zero or one response event ID; every response traces to one source decision;
-- duplicates, persona-authored events, cooldown/budget silence, and cancellation test produce no fan-out;
+- duplicate replay under a changed policy returns the original decision/policy evidence; persona-authored events, cooldown/limit silence, and cancellation produce no fan-out;
+- lifetime selections/model calls, outstanding responses/reservations, and lifetime publications reconcile exactly with the ledger under all terminal outcomes;
+- every signed event was durably committed before first handoff, all submissions for it are byte-identical, and lease contention/stale-worker return causes no duplicate provider network request or cryptographic signing operation (journal-result retrieval is counted separately);
+- no `publish_exhausted`, unresolved acknowledgement, stale lease write, leaked reservation, or retry/deadline violation exists;
 - no tool call, secret exposure, public ingress, or first submission after a stop that won the pre-submit gate; any stop after socket handoff is reported separately as an unavoidable acknowledgement/observation race rather than mislabeled cancellation;
+- process-isolation and unauthorized-control tests pass, and `status` reports no terminal operator action required;
 - all acceptance limits and rubric thresholds were fixed before the run, not selected after seeing results.
 
 The raw transcript and event ledger remain private. `sanitize_evidence.py` produces an allowlisted public summary containing counts, reason-code distribution, timings, resource metrics, version SHAs/digests, test status, and reviewer verdicts. It replaces identities with `human`, `lantern-archivist`, `harbor-mechanic`, hashes any correlation identifiers with a run-local salt not committed, and omits content unless the owner separately approves original benign excerpts.
@@ -410,8 +468,8 @@ Collect monotonic-clock timestamps at receive, verified/adapted, decision commit
 - **setup time:** checkout/config start to healthy private room and separately acceptance-script start to first accepted event;
 - **idle resources:** director and Buzz service CPU, RSS, container memory/PIDs, sampled after a defined five-minute idle window;
 - **message latency:** receive-to-decision, provider latency, publish-to-ACK, and human-source-to-response-observed; report count, median, p95, max;
-- **model-call count:** total and per persona, with selected/silence/failure/cancel reason counts;
-- **safety counters:** adapter rejects, duplicate claims, stale epochs, publish retries, relay rejects, late results discarded, max simultaneous provider calls, and maximum responses per source event.
+- **work accounting:** lifetime selections and model calls, outstanding model reservations/responses, lifetime publications, totals per persona, and silence/failure/cancel/exhaustion reasons;
+- **safety counters:** adapter rejects, duplicate claims, policy-version replay returns, lease conflicts/takeovers/stale-fence rejects, provider/signer IPC requests per decision, stale epochs, publish/reconciliation attempts, relay rejects, exhausted publications, unauthorized control/IPC rejects, late results discarded, max simultaneous provider calls, and maximum responses per source event.
 
 `evidence/phase-0d/README.md` must identify commands actually run, Green Room SHA, Buzz SHA, dependency-lock hash, image digests, sanitized configuration limits, test counts, measurement method, known omissions, and links to all four review records. Never claim resource or latency values not captured by the run.
 
@@ -429,8 +487,8 @@ The focused mock-relay, live, and acceptance commands depend on names created by
 Reviews are sequential; implementation does not self-approve.
 
 1. **Spec review:** map every issue #8 deliverable/security boundary/exit criterion to a file, test, metric, or evidence field. Block on missing zero-or-one proof, two original personas, mock-first order, ten-turn evidence, or rollback.
-2. **Quality review:** inspect transaction boundaries, state machine, crash/retry behavior, test determinism, typed interfaces, dependency necessity, structured logs, and absence of hidden network calls. Sabotage the dedup uniqueness and epoch checks to prove their tests fail, then restore and rerun.
-3. **Security review:** threat-model relay payloads, signature/membership trust, key isolation, provider secret scope, SQL/config injection, log redaction, tool prohibition, cancellation races, resource exhaustion, dependency/license risks, and public-repository leakage. Run a secret scan selected by the reviewer; record the actual command/result.
+2. **Quality review:** inspect policy-independent dedup, immutable policy evidence, transaction/counter boundaries, fenced leases/takeover, state machine, commit-before-handoff, exact reconciliation and bounded retries, crash behavior, test determinism, typed interfaces, dependency necessity, structured logs, and absence of hidden network calls. Sabotage dedup uniqueness, lease fencing, commit-before-handoff, and epoch checks to prove their tests fail, then restore and rerun.
+3. **Security review:** threat-model relay payloads, signature/membership trust, actual subprocess/key/provider isolation, authenticated IPC, signer-side relay/challenge/pubkey/kind/room enforcement, owner control authentication/replay, SQLite API/trigger restrictions and durable placement, SQL/config injection, log redaction, tool prohibition, cancellation races, resource exhaustion, dependency/license risks, and public-repository leakage. Run a secret scan selected by the reviewer; record the actual command/result.
 4. **Compose review:** independent private/local gate from Slice 9. This is required even if all tests pass.
 5. **Live protocol approval:** only approved disposable private infrastructure; no model calls until protocol tests pass.
 6. **Acceptance/ADR review:** compare actual evidence with thresholds and select thin extension, narrow fork, or selective reuse. A charming transcript cannot override failed invariants.
@@ -441,8 +499,8 @@ Any blocking finding returns to RED-GREEN work and reruns the affected focused, 
 
 ### Immediate runtime stop
 
-1. Commit room `pause + generation_epoch increment` through the local control path.
-2. Confirm all provider tasks acknowledge cancellation, every old-epoch `selected`/`generating`/`signed` decision is durably cancelled, and no new old-epoch `publishing` transition occurs; reconcile any already-`publishing` event by its immutable ID.
+1. Send owner-authenticated `stop` with a fresh request ID and current expected epoch; verify its committed resulting epoch through `status`.
+2. Confirm all provider children exited, every old-epoch `selected`/`generating`/`signed` decision is durably cancelled with counters reconciled, every stale lease/fence is rejected, and no new old-epoch `publishing` transition occurs; boundedly reconcile any already-`publishing` event by the exact immutable-ID query and surface exhaustion rather than retry forever.
 3. Stop only the named Green Room runtime, then the named disposable Buzz Compose project.
 4. Preserve a read-only copy of the SQLite ledger and sanitized logs for review; preserve raw keys/transcript only in the approved private location.
 
@@ -451,7 +509,7 @@ Any blocking finding returns to RED-GREEN work and reruns the affected focused, 
 - Revoke/remove director and persona room membership with the owner client and verify the current kind-`39002` snapshot no longer lists them.
 - Destroy one-run persona/director keys after evidence review; never reuse acceptance identities.
 - Remove only volumes named by the reviewed Compose project after an explicit operator confirmation. Never use global prune commands.
-- If acknowledgement ambiguity remains, inspect the relay by the persisted response event ID; never regenerate a response.
+- If acknowledgement ambiguity remains, use the exact bounded reconciliation query and record `publish_exhausted`; never regenerate a response or silently claim rollback succeeded.
 
 ### Code/architecture rollback
 
@@ -463,12 +521,12 @@ Any blocking finding returns to RED-GREEN work and reruns the affected focused, 
 
 Phase 0D implementation is done only when:
 
-- mock tests pass before live tests and include duplicate concurrency, cancellation epoch, cooldown/budget persistence, no persona recursion, and sign-once retry;
+- mock tests pass before live tests and include policy-update/replay dedup, lease fencing and expired-worker return, subprocess/IPC/signer isolation, unauthorized and replayed controls, cancellation epoch, lifetime/outstanding counter persistence, durable sign-once reconciliation/exhaustion, and no persona recursion;
 - a private pinned Buzz relay proves authenticated observation and persona-signed publication without source modification, or a concrete blocker is recorded;
 - the two original no-tool personas complete the predeclared ten-turn acceptance session with both represented;
-- the SQLite ledger mechanically proves one decision and zero-or-one selected/published response for every source event;
+- the durable SQLite ledger mechanically proves one policy-independent decision and zero-or-one selected/published response for every source event, with exact counter reconciliation and commit-before-handoff evidence;
 - setup time, idle resources, latency, model calls, and safety counters are captured rather than estimated;
-- rollback, membership removal, and immediate stop are exercised;
+- rollback, membership removal, owner-authenticated immediate stop, restart/epoch preservation, and operator-visible exhausted-state behavior are exercised;
 - spec, quality, security, and Compose reviews are independently approved;
 - ADR 0001 chooses thin extension, narrow fork, or selective reuse based on the recorded result;
 - only public-safe sanitized evidence is committed.
