@@ -181,6 +181,78 @@ cover canonical UNIX and macOS directory entries plus setuid, setgid, sticky,
 every two-bit combination, and the three-bit combination on regular files. The
 rejection cases assert the complete stable diagnostic code, message, and path.
 
+## PR #37 final quality/security remediation
+
+Review base:
+
+```text
+407036fa151e5bd93566807dea02c6bff5513569
+style(persona): wrap mode characterization assertion
+```
+
+Tests-only RED commit:
+
+```text
+d21a0a58f4a1f022efca782c14424e31351a9940
+test(persona): reproduce final quality review blockers (RED)
+```
+
+The focused selection was executed before any production or packaging change:
+
+```text
+21 failed, 8 passed, 149 deselected in 2.32s
+```
+
+The failures reproduced uncaught deep-YAML recursion and CLI traceback, three
+invalid numeric prerelease forms accepted by both runtime and schema, four
+noncanonical directory payload/header/descriptor representations, archive
+growth and pathname-replacement races, eight missed capability requests, one
+benign historical-word false positive, and the absent explicit sdist policy.
+The eight passing cases were boundary and safe mutation controls.
+
+Vertical GREEN commits:
+
+```text
+9f142cb60773bd9e24f42f7bea22f93362e5cfc2
+fix(persona): bound YAML parsing and enforce strict SemVer
+
+6d8601a4eb8c10a466bc39a10fe33e2ae19d1803
+fix(persona): bound archive reads and reject directory data
+
+bba061874c69a798577c479e0fb030f4618d60e2
+fix(persona): make capability gating clause-local
+
+24694e563d26175f7c366fd7d54e425e3e675437
+build(persona): scope validator source distribution
+
+d60f9ed00849d0cdd23f63157cb8569a20657b70
+fix(persona): preserve prohibitions and historical prose
+```
+
+The unchanged focused selection then passed:
+
+```text
+29 passed, 149 deselected in 0.83s
+```
+
+The full suite initially exposed current-pack false positives in coordinated
+prohibition lists and historical prose. The last GREEN slice narrowed subject
+grammar without weakening the new action/object cases; the next full run was:
+
+```text
+182 passed in 3.45s
+```
+
+Two consecutive builds were byte-identical:
+
+```text
+sdist sha256 0b997d0620e65133cf6525d04515a20d596e45eadc980a203e1e0257ce4e453f
+wheel  sha256 01d9e270ce58d7a504631f48715b8d7d17cb8a97ee84ecac33d3cc9230aa4c7c
+```
+
+The sdist contains only the runtime source, schema, license, README,
+`pyproject.toml`, generated `PKG-INFO`, and Hatch's VCS exclusion metadata.
+
 ## Final verification commands
 
 ```sh
