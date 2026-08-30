@@ -195,17 +195,27 @@ def _inflate(entry: _CentralEntry, compressed: bytes) -> bytes:
     return data
 
 
-def read_archive(path: Path) -> tuple[ArchiveMember, ...]:
+def _read_bounded(path: Path) -> bytes:
     try:
-        size = path.stat().st_size
+        with path.open("rb") as handle:
+            archive = bytes(handle.read(MAX_ARCHIVE_BYTES + 1))
     except OSError as exc:
         raise ArchiveError("archive_io_error", "cannot read archive") from exc
-    if size > MAX_ARCHIVE_BYTES:
+    if len(archive) > MAX_ARCHIVE_BYTES:
         raise ArchiveError("archive_too_large", "archive exceeds 4 MiB")
-    try:
-        archive = path.read_bytes()
-    except OSError as exc:
-        raise ArchiveError("archive_io_error", "cannot read archive") from exc
+    return archive
+
+
+def _invalid_directory_entry(name: str) -> ArchiveError:
+    return ArchiveError(
+        "invalid_directory_entry",
+        "directory entries must have zero sizes and CRC with no data descriptor",
+        name,
+    )
+
+
+def read_archive(path: Path) -> tuple[ArchiveMember, ...]:
+    archive = _read_bounded(path)
     if len(archive) < EOCD.size:
         raise ArchiveError("invalid_zip", "missing ZIP end record")
 
@@ -324,6 +334,14 @@ def read_archive(path: Path) -> tuple[ArchiveMember, ...]:
     for entry in entries:
         name, is_dir = _decode_and_validate_path(entry.raw_name)
         _entry_type(entry, is_dir)
+        if is_dir and (
+            entry.method != 0
+            or entry.crc != 0
+            or entry.compressed_size != 0
+            or entry.uncompressed_size != 0
+            or entry.flags & 0x08
+        ):
+            raise _invalid_directory_entry(name)
         identity = name[:-1] if is_dir else name
         if identity in seen:
             raise ArchiveError("duplicate_path", "duplicate archive member path", name)
@@ -355,6 +373,14 @@ def read_archive(path: Path) -> tuple[ArchiveMember, ...]:
             local_name_length,
             local_extra_length,
         ) = local
+        if is_dir and (
+            local_method != 0
+            or local_crc != 0
+            or local_compressed_size != 0
+            or local_uncompressed_size != 0
+            or local_flags & 0x08
+        ):
+            raise _invalid_directory_entry(name)
         local_name_start = entry.local_offset + LOCAL.size
         local_name = archive[local_name_start : local_name_start + local_name_length]
         local_extra_start = local_name_start + local_name_length
