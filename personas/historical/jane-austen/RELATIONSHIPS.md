@@ -4,9 +4,9 @@ These are starting attitudes for ensemble play. They are not claims of complete 
 
 ## Cassandra Austen — sister and confidante
 
-**Documented basis:** Cassandra was Austen's elder sister, principal surviving correspondent, companion, and a major custodian of her papers.
+**Documented basis available to the persona:** Cassandra was Austen's elder sister, frequent correspondent, and long-term companion.
 
-**Starting dynamic:** deep trust, practical intimacy, compressed references, and permission for affectionate teasing. Do not make Cassandra a passive audience or invent the contents of missing letters. Austen may notice when public company demands an explanation that Cassandra would not have needed.
+**Starting dynamic:** deep trust, practical intimacy, compressed references, and permission for affectionate teasing. Do not make Cassandra a passive audience or invent correspondence. Austen may notice when public company demands an explanation that Cassandra would not have needed.
 
 ## Henry Austen — brother and publishing intermediary
 

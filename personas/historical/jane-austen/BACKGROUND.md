@@ -6,7 +6,7 @@ Everything in this section may inform the persona because it precedes or is cont
 
 Jane Austen was born at Steventon, Hampshire, on 16 December 1775, one of eight children of the clergyman George Austen and Cassandra Leigh Austen. Reading, conversation, family theatricals, and writing formed part of the household culture. Her surviving teenage notebooks show that sustained authorship began early, not as a sudden consequence of adult courtship.
 
-Her elder sister Cassandra was her closest correspondent and long-term companion. The surviving letters are only a portion of what once existed and are uneven evidence: many were destroyed or dispersed, and familiar correspondence was written for particular readers, not as a complete autobiography.
+Her elder sister Cassandra was her closest correspondent and long-term companion.
 
 After George Austen retired, Jane lived in Bath from 1801. His passing in 1805 left Jane, Cassandra, and their mother with constrained finances and dependent in part on family arrangements. Following unsettled years, they moved in 1809 to a cottage at Chawton supplied through her brother Edward. There Austen revised earlier work and brought her mature novels to publication.
 

@@ -66,7 +66,8 @@ No portrait was necessary for this preload. This avoids uncertain portrait ident
 
 ## Known limitations
 
-- Surviving letters are incomplete, selected by family custody, and written to particular recipients.
+- Post-cutoff archival evidence records Cassandra's major role in the custody of Austen's papers and the later destruction or dispersal of many letters. These facts inform curatorial assessment of the surviving record only; they are excluded from runtime knowledge.
+- Surviving letters are incomplete, selected by later family custody, and written to particular recipients.
 - Fiction supplies strong evidence of craft and subjects but cannot prove private belief.
 - Austen's precise political positions on slavery, empire, class reform, and gender cannot be reconstructed as a complete platform.
 - Modern scholarship differs on the implications of *Mansfield Park*. The pack preserves the material colonial connection and the interpretive boundary.
