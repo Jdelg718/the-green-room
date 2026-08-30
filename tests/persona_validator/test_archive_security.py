@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import binascii
+import io
 import stat
 import struct
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from greenroom_persona import Diagnostic, inspect_pack
+from greenroom_persona.limits import MAX_ARCHIVE_BYTES, MAX_FILE_BYTES
 
 from .fixture_builder import (
     ROOT,
@@ -248,6 +251,69 @@ def test_posix_creator_with_canonical_directory_metadata_is_accepted(
 
 
 @pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(
+            RawEntry(
+                f"{ROOT}/assets/".encode(),
+                b"payload",
+                external_attr=((stat.S_IFDIR | 0o755) << 16) | 0x10,
+            ),
+            id="central-and-local-payload",
+        ),
+        pytest.param(
+            RawEntry(
+                f"{ROOT}/assets/".encode(),
+                b"",
+                central_crc=1,
+                local_crc=1,
+                external_attr=((stat.S_IFDIR | 0o755) << 16) | 0x10,
+            ),
+            id="central-and-local-crc",
+        ),
+        pytest.param(
+            RawEntry(
+                f"{ROOT}/assets/".encode(),
+                b"",
+                local_compressed_size=1,
+                local_uncompressed_size=1,
+                external_attr=((stat.S_IFDIR | 0o755) << 16) | 0x10,
+            ),
+            id="local-sizes",
+        ),
+        pytest.param(
+            RawEntry(
+                f"{ROOT}/assets/".encode(),
+                b"",
+                central_flags=0x08,
+                local_crc=0,
+                local_compressed_size=0,
+                local_uncompressed_size=0,
+                descriptor=(0, 0, 0),
+                external_attr=((stat.S_IFDIR | 0o755) << 16) | 0x10,
+            ),
+            id="descriptor",
+        ),
+    ],
+)
+def test_directory_payload_and_noncanonical_data_representation_are_rejected(
+    tmp_path: Path, entry: RawEntry
+) -> None:
+    archive_entries = raw_entries()
+    archive_entries.append(entry)
+
+    result = inspect_pack(write_raw_zip(tmp_path / "directory-payload.greenroom", archive_entries))
+
+    assert result.errors == (
+        Diagnostic(
+            "invalid_directory_entry",
+            "directory entries must have zero sizes and CRC with no data descriptor",
+            f"{ROOT}/assets/",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
     "special_bits",
     [
         pytest.param(stat.S_ISUID, id="setuid"),
@@ -358,3 +424,90 @@ def test_archive_byte_bound_is_enforced_before_zip_parsing(tmp_path: Path) -> No
     path.write_bytes(b"0" * (4 * 1024 * 1024 + 1))
 
     assert "archive_too_large" in codes(path)
+
+
+class _RecordingReader(io.BytesIO):
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.read_sizes: list[int] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        return super().read(size)
+
+
+def test_archive_growth_is_read_once_with_a_hard_allocation_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "growing.greenroom"
+    path.write_bytes(b"x")
+    reader = _RecordingReader(b"0" * (MAX_ARCHIVE_BYTES + 1))
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Path, "open", lambda _path, *args, **kwargs: reader)
+        result = inspect_pack(path)
+
+    assert result.errors == (Diagnostic("archive_too_large", "archive exceeds 4 MiB"),)
+    assert reader.read_sizes == [MAX_ARCHIVE_BYTES + 1]
+
+
+def test_archive_open_does_not_follow_a_replacement_after_separate_stat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write_raw_zip(tmp_path / "replaced.greenroom", raw_entries())
+    original_stat = Path.stat
+
+    def replacing_stat(candidate: Path, *args: object, **kwargs: object) -> object:
+        if candidate == path:
+            path.write_bytes(b"0" * (MAX_ARCHIVE_BYTES + 1))
+            return SimpleNamespace(st_size=1)
+        return original_stat(candidate, *args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Path, "stat", replacing_stat)
+        result = inspect_pack(path)
+
+    assert result.valid
+
+
+def test_archive_read_error_is_a_stable_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "read-error.greenroom"
+    path.write_bytes(b"x")
+
+    class FailingReader(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            raise OSError("synthetic bounded read failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Path, "open", lambda _path, *args, **kwargs: FailingReader())
+        result = inspect_pack(path)
+
+    assert result.errors == (Diagnostic("archive_io_error", "cannot read archive"),)
+
+
+def test_archive_size_exact_boundary_is_read_and_one_over_is_rejected(tmp_path: Path) -> None:
+    entries = raw_entries()
+    entries.extend(
+        [
+            RawEntry(f"{ROOT}/assets/a.bin".encode(), b""),
+            RawEntry(f"{ROOT}/assets/b.bin".encode(), b""),
+        ]
+    )
+    path = write_raw_zip(tmp_path / "exact-boundary.greenroom", entries)
+    payload_size = MAX_ARCHIVE_BYTES - path.stat().st_size
+    first_size = min(payload_size, MAX_FILE_BYTES)
+    second_size = payload_size - first_size
+    assert 0 <= second_size <= MAX_FILE_BYTES
+    entries[-2] = RawEntry(f"{ROOT}/assets/a.bin".encode(), b"a" * first_size)
+    entries[-1] = RawEntry(f"{ROOT}/assets/b.bin".encode(), b"b" * second_size)
+    write_raw_zip(path, entries)
+    assert path.stat().st_size == MAX_ARCHIVE_BYTES
+
+    at_boundary = inspect_pack(path)
+    path.write_bytes(path.read_bytes() + b"x")
+    over_boundary = inspect_pack(path)
+
+    assert "archive_too_large" not in {item.code for item in at_boundary.errors}
+    assert over_boundary.errors == (Diagnostic("archive_too_large", "archive exceeds 4 MiB"),)

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from greenroom_persona import inspect_pack
+from greenroom_persona import Diagnostic, inspect_pack
 
 from .fixture_builder import manifest_yaml, minimal_files, write_zip
 
@@ -138,6 +139,74 @@ def test_yaml_alias_tags_duplicate_keys_and_depth_are_rejected(
     result = inspect_pack(pack_factory(files=files))
 
     assert "invalid_yaml" in error_codes(result) or "yaml_complexity" in error_codes(result)
+
+
+def test_yaml_depth_boundary_is_stable_and_one_over_is_rejected(
+    pack_factory: Callable[..., Path],
+) -> None:
+    at_boundary = manifest_yaml(extra=f"nested: {'[' * 14}x{']' * 14}\n")
+    over_boundary = manifest_yaml(extra=f"nested: {'[' * 15}x{']' * 15}\n")
+
+    accepted = inspect_pack(pack_factory(files=minimal_files(manifest=at_boundary)))
+    rejected = inspect_pack(pack_factory(files=minimal_files(manifest=over_boundary)))
+
+    assert "yaml_complexity" not in error_codes(accepted)
+    assert "unknown_field" in error_codes(accepted)
+    assert rejected.errors == (
+        Diagnostic(
+            "yaml_complexity",
+            "persona.yaml exceeds node or depth limits",
+            "persona.yaml",
+        ),
+    )
+
+
+def test_hostile_yaml_parser_recursion_is_a_bounded_complexity_diagnostic(
+    pack_factory: Callable[..., Path],
+) -> None:
+    hostile = b"[" * 600 + b"x" + b"]" * 600 + b"\n"
+
+    result = inspect_pack(pack_factory(files=minimal_files(manifest=hostile)))
+
+    assert result.errors == (
+        Diagnostic(
+            "yaml_complexity",
+            "persona.yaml exceeds node or depth limits",
+            "persona.yaml",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("version", "valid"),
+    [
+        ("1.2.3-01", False),
+        ("1.2.3-alpha.01", False),
+        ("1.2.3-00.alpha", False),
+        ("0.0.0-0", True),
+        ("1.2.3-alpha.0", True),
+        ("1.2.3-01a", True),
+        ("1.2.3+01", True),
+        ("1.2.3-alpha.0+build.01", True),
+    ],
+)
+def test_strict_semver_prerelease_and_build_metadata_match_reference_schema(
+    pack_factory: Callable[..., Path], version: str, valid: bool
+) -> None:
+    files = replace_manifest(minimal_files(), b"version: 1.2.3", f"version: {version}".encode())
+    result = inspect_pack(pack_factory(files=files))
+    schema = json.loads(
+        (REPOSITORY_ROOT / "schemas" / "persona-0.1.schema.json").read_text(encoding="utf-8")
+    )
+    schema_accepts = re.fullmatch(schema["properties"]["version"]["pattern"], version) is not None
+
+    assert schema_accepts is valid
+    if valid:
+        assert result.valid
+    else:
+        assert result.errors == (
+            Diagnostic("invalid_semver", "version must be strict Semantic Versioning", "version"),
+        )
 
 
 @pytest.mark.parametrize(

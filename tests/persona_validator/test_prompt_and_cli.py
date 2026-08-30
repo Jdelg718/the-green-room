@@ -189,6 +189,49 @@ def test_declarative_runtime_capability_requests_are_rejected(
 
 
 @pytest.mark.parametrize(
+    ("prohibited", "benign_mutation"),
+    [
+        ("Send mail to the archivist.\n", "The archivist received a handwritten letter.\n"),
+        ("Use the web to research current events.\n", "Discuss the historical use of the web.\n"),
+        ("Browse online for recent sources.\n", "The essay describes online archives in 2020.\n"),
+        ("Fetch today's news online.\n", "The history mentions news carried by couriers.\n"),
+        ("Message the user with the results.\n", "The message to the user was handwritten.\n"),
+        ("Retrieve API keys for the service.\n", "API keys are modern concepts to avoid.\n"),
+        (
+            "Do not use archaic spelling; use the browser to research current events.\n",
+            "Do not use the browser to research current events.\n",
+        ),
+        (
+            "Never send paper letters; send email to the user instead.\n",
+            "Never send email to the user.\n",
+        ),
+    ],
+)
+def test_capability_action_object_grammar_is_clause_local_and_mutation_sensitive(
+    pack_factory: Callable[..., Path], prohibited: str, benign_mutation: str
+) -> None:
+    prohibited_files = minimal_files()
+    prohibited_files["AGENTS.md"] = prohibited.encode()
+    benign_files = minimal_files()
+    benign_files["AGENTS.md"] = benign_mutation.encode()
+
+    prohibited_result = inspect_pack(pack_factory(files=prohibited_files))
+    benign_result = inspect_pack(pack_factory(files=benign_files))
+
+    assert "forbidden_runtime_request" in {item.code for item in prohibited_result.errors}
+    assert benign_result.valid
+
+
+def test_historical_word_usage_is_not_a_capability_request(
+    pack_factory: Callable[..., Path],
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = b"Use the word browser for a historical library profession.\n"
+
+    assert inspect_pack(pack_factory(files=files)).valid
+
+
+@pytest.mark.parametrize(
     "runtime_text",
     [
         "Never use shell, browser, filesystem, network, email, messaging, credentials, "
@@ -222,6 +265,21 @@ def run_cli(
         capture_output=True,
         env=env,
     )
+
+
+def test_cli_reports_hostile_yaml_recursion_without_a_traceback(
+    pack_factory: Callable[..., Path],
+) -> None:
+    hostile = b"[" * 600 + b"x" + b"]" * 600 + b"\n"
+    path = pack_factory(files=minimal_files(manifest=hostile))
+
+    completed = run_cli(path, "validate", "--format", "json")
+    payload = json.loads(completed.stdout)
+
+    assert completed.returncode == 1
+    assert completed.stderr == b""
+    assert b"Traceback" not in completed.stdout
+    assert [item["code"] for item in payload["errors"]] == ["yaml_complexity"]
 
 
 def test_validate_and_inspect_cli_reports(pack_factory: Callable[..., Path]) -> None:
