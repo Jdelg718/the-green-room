@@ -222,6 +222,90 @@ def test_capability_action_object_grammar_is_clause_local_and_mutation_sensitive
     assert benign_result.valid
 
 
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
+        "Do not use archaic spelling, use the browser to research current events.\n",
+        "Never send paper letters, send email to the user instead.\n",
+        "Do not joke, then browse the web for current facts.\n",
+        "Avoid verbosity, fetch today's news online.\n",
+        "Do not joke, and then browse the web for current facts.\n",
+        "Do not joke, but browse the web for current facts.\n",
+        "Do not joke, however, browse the web for current facts.\n",
+        "Do not joke, browse the web for current facts instead.\n",
+        "Do not joke. Browse the web for current facts.\n",
+        "Do not joke; browse the web for current facts.\n",
+    ],
+)
+def test_affirmative_capability_transitions_do_not_inherit_prior_negation(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert "forbidden_runtime_request" in {item.code for item in result.errors}
+
+
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
+        "Do not use the browser or send email.\n",
+        "Never browse online, fetch current facts, or message anyone.\n",
+        "Never browse online, fetch current facts online, or message the user.\n",
+        "Do not browse the web, send email, or retrieve API keys.\n",
+        "Do not browse online and do not send email.\n",
+        "Avoid browsing online and sending email.\n",
+        "The history of web browsers concerns navigation, not browser software.\n",
+        "Mail history describes letters carried by couriers.\n",
+    ],
+)
+def test_coordinated_prohibitions_and_historical_discussion_remain_allowed(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    assert inspect_pack(pack_factory(files=files)).valid
+
+
+@pytest.mark.parametrize(
+    ("prohibited", "safe_mutation"),
+    [
+        (
+            "Never send paper letters, send email to the user instead.\n",
+            "Never send paper letters or send email to the user.\n",
+        ),
+        (
+            "Do not joke, then browse the web for current facts.\n",
+            "Do not joke, nor browse the web for current facts.\n",
+        ),
+        (
+            "Do not use the browser, but send email to the user.\n",
+            "Do not use the browser and do not send email to the user.\n",
+        ),
+        (
+            "Avoid verbosity, fetch today's news online.\n",
+            "Avoid fetching today's news online.\n",
+        ),
+    ],
+)
+def test_capability_transition_mutations_change_only_negation_governance(
+    pack_factory: Callable[..., Path], prohibited: str, safe_mutation: str
+) -> None:
+    prohibited_files = minimal_files()
+    prohibited_files["AGENTS.md"] = prohibited.encode()
+    safe_files = minimal_files()
+    safe_files["AGENTS.md"] = safe_mutation.encode()
+
+    prohibited_result = inspect_pack(pack_factory(files=prohibited_files))
+    safe_result = inspect_pack(pack_factory(files=safe_files))
+
+    assert "forbidden_runtime_request" in {item.code for item in prohibited_result.errors}
+    assert safe_result.valid
+
+
 def test_historical_word_usage_is_not_a_capability_request(
     pack_factory: Callable[..., Path],
 ) -> None:
