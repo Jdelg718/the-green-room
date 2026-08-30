@@ -1,5 +1,7 @@
 # Provenance manifest
 
+**Curator-only, non-runtime record.** Persona prompts and memories must not ingest this file.
+
 ## Pack identity
 
 - **Subject:** Jane Austen (1775–1817)
@@ -26,9 +28,9 @@ The construction process used:
 
 | Pack claim or choice | Evidence class | Sources | Treatment |
 | --- | --- | --- | --- |
-| Dates, family setting, Chawton period, publication sequence, final illness | Documented fact | S1, S7 | Pre-cutoff facts are persona-visible; death and later events are curator-only. |
+| Dates, family setting, Chawton period, publication sequence, final illness | Documented fact | S1, S7 | Only facts documented by the cutoff are persona-visible. |
 | Close correspondence with Cassandra and limits of the surviving record | Documented fact with archive limits | S1, S6, S7 | No missing correspondence reconstructed. |
-| Anonymous lifetime publication and changing title-page attribution | Documented fact | S5 | Henry Austen's posthumous notice is curator-only and excluded from persona knowledge. |
+| Anonymous lifetime publication and changing title-page attribution | Documented fact | S5 | Only evidence available by the cutoff informs runtime knowledge. |
 | Publication as paid professional work; copyright and commission risks | Documented fact and archival estimate | S1, S5, S8 | Exact earnings are presented as estimates where disputed. |
 | Attention to inheritance, income, status, marriage, and social judgment | Literary interpretation | S2, S3, S4 | Recurring patterns synthesized; fictional characters are not treated as autobiography. |
 | Compact irony, reversal, practical detail, and restrained emotional inference | Stylistic interpretation | S1, S2, S3, S4 | Newly written guidance; no sentence-level imitation or copied dialogue. |
@@ -48,8 +50,8 @@ When the persona speaks on a disputed historical question, it should identify th
 ## Temporal boundary
 
 - **Playable cutoff:** 17 July 1817.
-- **Rationale:** it is the last complete calendar date before Austen's documented death on 18 July. Ending before the date of death prevents accidental first-person death awareness while preserving the latest defensible pre-death snapshot.
-- Death, funeral, posthumous publication, Henry Austen's later public identification, and all later reception are curator-only biography. They must never become persona memories, narration, predictions, or relationship knowledge.
+- **Rationale:** it is a conservative boundary for the latest defensible playable snapshot.
+- Later events are outside runtime knowledge and must not become persona memories, narration, predictions, or relationship knowledge.
 - The date is a product boundary only; it does not assert that Austen wrote, spoke, or held any particular view on 17 July.
 
 ## Rights review

@@ -1,5 +1,7 @@
 # Sources
 
+**Curator-only, non-runtime record.** Persona prompts and memories must not ingest this file.
+
 Accessed 30 August 2026. “Primary” identifies Austen's own surviving writing or an original manuscript record. Rights notes describe the source item; this pack contains only new prose and no reproduced source images.
 
 ## S1 — *The Letters of Jane Austen*
@@ -45,7 +47,7 @@ Accessed 30 August 2026. “Primary” identifies Austen's own surviving writing
 - **Publication:** 2 December 2025
 - **Type:** Institutional curatorial scholarship
 - **Rights basis:** Modern British Library page; used for factual summary only. No page text or images are reproduced.
-- **Supports:** anonymous lifetime publication; “By a Lady” and later title-page attributions; the 1813 letter reporting earnings; posthumous naming by Henry Austen; the evidentiary need to question the family's modest-retiring-author narrative.
+- **Supports:** anonymous lifetime publication; “By a Lady” and title-page links among lifetime editions; the 1813 letter reporting earnings; the evidentiary need to question the family's modest-retiring-author narrative.
 
 ## S6 — Bodleian Library MS. 21838: two autograph letters to Cassandra Austen
 

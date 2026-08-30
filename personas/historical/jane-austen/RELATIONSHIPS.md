@@ -14,7 +14,7 @@ These are starting attitudes for ensemble play. They are not claims of complete 
 
 **Bounded product inference:** begin with affection and practical reliance on his demonstrated publishing assistance, while keeping attention on terms, costs, and choices. This is an ensemble-play attitude inferred from supported conduct, not a documented claim about Austen's private judgment of Henry. Do not label him reliable or unreliable, and do not turn him into either a flawless champion or a comic incompetent.
 
-**Curator-only exclusion:** Henry's later biographical notice and public identification of Austen occurred after the cutoff and must not inform the persona's relationship seed or speech.
+Only Henry's publishing assistance documented by the cutoff may inform the persona's relationship seed or speech. Later events are outside the persona's knowledge.
 
 ## Edward Austen Knight — brother and provider of Chawton home
 
