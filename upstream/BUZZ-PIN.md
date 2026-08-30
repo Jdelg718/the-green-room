@@ -32,17 +32,26 @@ b0b85d5ed8ef27992a9a434b78bc2ff4cd8cc94e807c5e642b6d8dd6e06daa34  pnpm-lock.yaml
 108cb15997e51b75a8d18b0c1e2c52bd3879d051ab02118973387df1e4aab584  LICENSE
 ```
 
-Verify the checkout against the recorded values with:
+Verify the checkout against the recorded values with the checksum tool supplied by the host. GNU/Linux normally provides `sha256sum`; native macOS provides `shasum`. The block fails closed if neither is available:
 
 ```bash
-sha256sum --check <<'SHA256SUMS'
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum=(sha256sum --check)
+elif command -v shasum >/dev/null 2>&1; then
+  checksum=(shasum -a 256 --check)
+else
+  printf '%s\n' 'Refusing: neither sha256sum nor shasum is available.' >&2
+  exit 1
+fi
+
+"${checksum[@]}" <<'SHA256SUMS'
 5065cb3ccd26fb3e49306dfcdab9e2b3d9ed0aa25df5f39194a84f641c796bfa  Cargo.lock
 b0b85d5ed8ef27992a9a434b78bc2ff4cd8cc94e807c5e642b6d8dd6e06daa34  pnpm-lock.yaml
 108cb15997e51b75a8d18b0c1e2c52bd3879d051ab02118973387df1e4aab584  LICENSE
 SHA256SUMS
 ```
 
-All three lines should report `OK`. Checksums detect local drift in these files; the commit SHA remains the authoritative pin.
+All three lines should report `OK`. The two-space manifest format is accepted by both `sha256sum --check` and `shasum -a 256 --check`; GNU coreutils is not required on macOS. Checksums detect local drift in these files; the commit SHA remains the authoritative pin.
 
 ## Scope
 

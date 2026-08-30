@@ -52,6 +52,26 @@ eed74bde2f4797714335ac10c56c0b0244c1def4
 exit=0
 ```
 
+### Portable checksum verification
+
+The recorded manifest was checked against the pinned files with both supported command forms available in the verification environment:
+
+```bash
+sha256sum --check <<'SHA256SUMS'
+5065cb3ccd26fb3e49306dfcdab9e2b3d9ed0aa25df5f39194a84f641c796bfa  Cargo.lock
+b0b85d5ed8ef27992a9a434b78bc2ff4cd8cc94e807c5e642b6d8dd6e06daa34  pnpm-lock.yaml
+108cb15997e51b75a8d18b0c1e2c52bd3879d051ab02118973387df1e4aab584  LICENSE
+SHA256SUMS
+
+shasum -a 256 --check <<'SHA256SUMS'
+5065cb3ccd26fb3e49306dfcdab9e2b3d9ed0aa25df5f39194a84f641c796bfa  Cargo.lock
+b0b85d5ed8ef27992a9a434b78bc2ff4cd8cc94e807c5e642b6d8dd6e06daa34  pnpm-lock.yaml
+108cb15997e51b75a8d18b0c1e2c52bd3879d051ab02118973387df1e4aab584  LICENSE
+SHA256SUMS
+```
+
+Both commands returned `OK` for `Cargo.lock`, `pnpm-lock.yaml`, and `LICENSE` with exit status `0`. This verifies the GNU/Linux and native macOS checksum paths use a mutually compatible manifest format.
+
 ### Source build
 
 ```bash
@@ -129,6 +149,8 @@ Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docke
 | --- | --- | --- |
 | Exact upstream SHA | Pass | Immutable source baseline identified |
 | Clean tracked checkout | Pass | No source edits were needed to build |
+| GNU/Linux `sha256sum --check` | Pass | All three recorded file hashes matched |
+| macOS `shasum -a 256 --check` | Pass | All three recorded file hashes matched with the portable manifest |
 | `cargo build --workspace` via `just build` | Pass | Pinned Rust workspace compiles |
 | Focused `buzz-core` unit test | Pass | One infrastructure-free behavior check executes successfully |
 | `just setup` | Blocked | No Compose v2 plugin and no running Docker daemon |

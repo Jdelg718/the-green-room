@@ -25,17 +25,26 @@ git status --short
 
 `git status --short` should print nothing.
 
-Verify the recorded lockfile and license hashes:
+Verify the recorded lockfile and license hashes. GNU/Linux normally provides `sha256sum`; native macOS provides `shasum`. This selects the available implementation and refuses to continue if neither exists:
 
 ```bash
-sha256sum --check <<'SHA256SUMS'
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum=(sha256sum --check)
+elif command -v shasum >/dev/null 2>&1; then
+  checksum=(shasum -a 256 --check)
+else
+  printf '%s\n' 'Refusing: neither sha256sum nor shasum is available.' >&2
+  exit 1
+fi
+
+"${checksum[@]}" <<'SHA256SUMS'
 5065cb3ccd26fb3e49306dfcdab9e2b3d9ed0aa25df5f39194a84f641c796bfa  Cargo.lock
 b0b85d5ed8ef27992a9a434b78bc2ff4cd8cc94e807c5e642b6d8dd6e06daa34  pnpm-lock.yaml
 108cb15997e51b75a8d18b0c1e2c52bd3879d051ab02118973387df1e4aab584  LICENSE
 SHA256SUMS
 ```
 
-All three lines should report `OK`.
+All three lines should report `OK`. The two-space manifest format works with both commands; macOS users do not need to install GNU coreutils.
 
 ## 2. Activate the supplied toolchain
 
