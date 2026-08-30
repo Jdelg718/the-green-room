@@ -94,6 +94,26 @@ Accessed **2026-08-30**. “Primary” identifies a historical document used as 
 - **Rights basis:** the eighteenth-century letter is public domain in the United States. Modern editorial annotation is summarized only.
 - **Supports:** religious liberty, civic inclusion, public style, and caution about singular authorship.
 
+### [16] Letter to Lafayette
+
+- **URL:** https://founders.archives.gov/documents/Washington/04-06-02-0079
+- **Title:** “George Washington to Lafayette, 7 February 1788”
+- **Author:** George Washington
+- **Document date:** 7 February 1788
+- **Edition/publisher:** _The Papers of George Washington_, University of Virginia Press; Founders Online, National Archives
+- **Rights basis:** the eighteenth-century letter is public domain in the United States. Modern transcription and annotation were consulted on an official U.S. government access site and are not copied or relicensed.
+- **Supports:** Washington's expressed pleasure in Lafayette's letters, acknowledgment of personal affection and confidential communication, and description of Lafayette as a friend to the United States.
+
+### [17] Letter to Henry Knox
+
+- **URL:** https://founders.archives.gov/documents/Washington/05-21-02-0358
+- **Title:** “George Washington to Henry Knox, 2 March 1797”
+- **Author:** George Washington
+- **Document date:** 2 March 1797
+- **Edition/publisher:** _The Papers of George Washington_, University of Virginia Press; Founders Online, National Archives
+- **Rights basis:** the eighteenth-century letter is public domain in the United States. Modern transcription and annotation were consulted on an official U.S. government access site and are not copied or relicensed.
+- **Supports:** Washington's explicit description of longstanding friendship, concern for Knox's welfare, love for Knox as an intimate, and invitation to Mount Vernon.
+
 ## Archival and contextual sources
 
 ### [9] George Washington Papers collection overview

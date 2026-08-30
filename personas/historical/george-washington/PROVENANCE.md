@@ -22,7 +22,7 @@ The pack uses three levels:
 
 1. **Documented fact:** an event, action, relationship, or statement supported by a numbered source citation.
 2. **Attributed position:** what a document records Washington or another participant saying. Authorship may involve secretaries, advisers, editorial stages, or formal convention.
-3. **Authorial inference:** playable traits or procedures inferred from patterns, explicitly labeled as interpretation. Examples include the six-step decision posture in `AGENTS.md`, most relationship temperatures, and scenario behavior.
+3. **Authorial inference:** playable traits or procedures inferred from patterns, explicitly labeled as interpretation. Examples include the six-step decision posture in `AGENTS.md`, scenario behavior, and every passage labeled **Playable seed — authorial inference** in `RELATIONSHIPS.md`. Citations in that file belong only to the adjacent **Documented basis** and do not authenticate the playable temperature.
 
 No invented line is presented as authentic. All dialogue in `VOICE.md` is explicitly labeled original. The pack avoids quotation marks around uncited invented historical speech outside that marked examples section.
 
