@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import binascii
 import stat
+import struct
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
 from greenroom_persona import inspect_pack
 
 from .fixture_builder import (
@@ -201,3 +203,50 @@ def test_crc_is_checked_against_bounded_payload(tmp_path: Path) -> None:
     assert "payload_integrity_error" in codes(
         write_raw_zip(tmp_path / "bad-crc.greenroom", archive_entries)
     )
+
+
+def test_file_directory_collisions_are_rejected(tmp_path: Path) -> None:
+    archive_entries = raw_entries()
+    archive_entries.extend(
+        [
+            RawEntry(f"{ROOT}/assets".encode()),
+            RawEntry(f"{ROOT}/assets/payload.txt".encode()),
+        ]
+    )
+
+    assert "case_collision" in codes(
+        write_raw_zip(tmp_path / "file-directory-collision.greenroom", archive_entries)
+    )
+
+
+def test_unix_link_capable_extra_is_rejected_as_hard_link_ambiguity(tmp_path: Path) -> None:
+    archive_entries = raw_entries()
+    original = archive_entries[1]
+    unix_extra = struct.pack("<HH", 0x000D, 0)
+    archive_entries[1] = RawEntry(original.central_name, original.data, central_extra=unix_extra)
+
+    assert "invalid_entry_type" in codes(
+        write_raw_zip(tmp_path / "hard-link-extra.greenroom", archive_entries)
+    )
+
+
+def test_directory_path_and_mode_must_agree(tmp_path: Path) -> None:
+    archive_entries = raw_entries()
+    archive_entries.append(
+        RawEntry(
+            f"{ROOT}/assets/".encode(),
+            b"",
+            external_attr=(stat.S_IFREG | 0o644) << 16,
+        )
+    )
+
+    assert "invalid_entry_type" in codes(
+        write_raw_zip(tmp_path / "directory-mode.greenroom", archive_entries)
+    )
+
+
+def test_archive_byte_bound_is_enforced_before_zip_parsing(tmp_path: Path) -> None:
+    path = tmp_path / "oversized.greenroom"
+    path.write_bytes(b"0" * (4 * 1024 * 1024 + 1))
+
+    assert "archive_too_large" in codes(path)

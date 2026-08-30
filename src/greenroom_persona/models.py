@@ -4,6 +4,8 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
+from .limits import MAX_DIAGNOSTICS
+
 
 @dataclass(frozen=True, order=True)
 class Diagnostic:
@@ -39,13 +41,13 @@ class DiagnosticCollector:
         self.truncated = False
 
     def error(self, code: str, message: str, path: str = "") -> None:
-        if len(self._errors) >= 64:
+        if len(self._errors) >= MAX_DIAGNOSTICS:
             self.truncated = True
             return
         self._errors.append(Diagnostic(code, message[:240], path[:255]))
 
     def warning(self, code: str, message: str, path: str = "") -> None:
-        if len(self._warnings) >= 64:
+        if len(self._warnings) >= MAX_DIAGNOSTICS:
             self.truncated = True
             return
         self._warnings.append(Diagnostic(code, message[:240], path[:255]))

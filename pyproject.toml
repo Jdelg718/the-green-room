@@ -20,7 +20,7 @@ dev = [
   "hypothesis>=6.138,<7",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
-  "pytest>=8.4,<9",
+  "pytest>=9.0.3,<10",
   "ruff>=0.12,<1",
   "types-PyYAML>=6.0.12,<7",
 ]
@@ -49,4 +49,3 @@ packages = ["greenroom_persona"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-

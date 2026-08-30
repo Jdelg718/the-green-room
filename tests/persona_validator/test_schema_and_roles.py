@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,7 +8,9 @@ import pytest
 
 from greenroom_persona import inspect_pack
 
-from .fixture_builder import manifest_yaml, minimal_files
+from .fixture_builder import manifest_yaml, minimal_files, write_zip
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def error_codes(result: object) -> set[str]:
@@ -29,6 +32,37 @@ def test_minimal_pack_is_loadable(pack_factory: Callable[..., Path]) -> None:
     assert result.runtime_files == ("AGENTS.md", "BACKGROUND.md", "VOICE.md")
     assert result.manifest["behavior"]["initiative"] == 0.5
     assert isinstance(result.manifest["knowledge"]["cutoff"], str)
+
+
+def test_all_current_source_packs_validate_when_archived(tmp_path: Path) -> None:
+    persona_directories = sorted((REPOSITORY_ROOT / "personas" / "historical").iterdir())
+    assert persona_directories
+
+    failures: dict[str, set[str]] = {}
+    for directory in persona_directories:
+        files = {
+            path.relative_to(directory).as_posix(): path.read_bytes()
+            for path in sorted(directory.rglob("*"))
+            if path.is_file()
+        }
+        archive = write_zip(tmp_path / f"{directory.name}.greenroom", files)
+        result = inspect_pack(archive)
+        if not result.valid:
+            failures[directory.name] = error_codes(result)
+
+    assert failures == {}
+
+
+def test_reference_schema_is_closed_and_version_locked() -> None:
+    schema = json.loads(
+        (REPOSITORY_ROOT / "schemas" / "persona-0.1.schema.json").read_text(encoding="utf-8")
+    )
+
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["schema_version"] == {"type": "string", "const": "0.1"}
+    for field in ("identity", "behavior", "knowledge", "boundaries"):
+        assert schema["properties"][field]["additionalProperties"] is False
+    assert schema["properties"]["assets"]["additionalProperties"]["additionalProperties"] is False
 
 
 @pytest.mark.parametrize("field", ["schema_version", "id", "identity", "behavior", "knowledge"])

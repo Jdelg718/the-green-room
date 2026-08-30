@@ -26,13 +26,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     result = inspect_pack(arguments.pack)
-    formatter = render_json if arguments.format == "json" else render_human
     include_prompt = bool(getattr(arguments, "include_prompt", False))
-    report = (
-        formatter(result, include_prompt=include_prompt)
-        if arguments.format == "json"
-        else formatter(result)
-    )
+    if arguments.format == "json":
+        report = render_json(result, include_prompt=include_prompt)
+    else:
+        report = render_human(result)
     prompt_output = getattr(arguments, "prompt_output", None)
 
     if prompt_output == "-":

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
 from greenroom_persona import inspect_pack, render_human, render_json, validated_prompt
 
 from .fixture_builder import manifest_yaml, minimal_files
@@ -201,6 +202,18 @@ def test_inspection_never_uses_zip_extraction(
     assert inspect_pack(pack_factory()).valid
 
 
+def test_cli_report_is_locale_independent(pack_factory: Callable[..., Path]) -> None:
+    path = pack_factory()
+    c_environment = {**os.environ, "LC_ALL": "C", "LANG": "C"}
+    utf8_environment = {**os.environ, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8"}
+
+    c_report = run_cli(path, "inspect", "--format", "json", env=c_environment)
+    utf8_report = run_cli(path, "inspect", "--format", "json", env=utf8_environment)
+
+    assert c_report.returncode == utf8_report.returncode == 0
+    assert c_report.stdout == utf8_report.stdout
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -225,6 +238,35 @@ def test_declared_asset_executable_content_is_rejected(
     result = inspect_pack(pack_factory(files=files))
 
     assert "executable_content" in {diagnostic.code for diagnostic in result.errors}
+
+
+def test_credential_material_is_rejected_even_in_declared_assets(
+    pack_factory: Callable[..., Path],
+) -> None:
+    manifest = manifest_yaml(
+        assets=(
+            "assets:\n  note:\n    path: assets/note.txt\n"
+            "    source: original\n    creator: Green Room Test Suite\n"
+        )
+    )
+    files = minimal_files(manifest=manifest)
+    files["assets/note.txt"] = b"-----BEGIN OPENSSH PRIVATE KEY-----\n"
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert "credential_content" in {diagnostic.code for diagnostic in result.errors}
+
+
+def test_metadata_source_urls_are_inert_and_allowed(
+    pack_factory: Callable[..., Path],
+) -> None:
+    files = minimal_files()
+    files["SOURCES.md"] = b"Source: https://example.invalid/original-synthetic-record\n"
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert result.valid
+    assert b"example.invalid" not in result.prompt
 
 
 @pytest.mark.parametrize(

@@ -43,6 +43,10 @@ EXECUTABLE_SUFFIXES = {
     ".wasm",
 }
 EXECUTABLE_MAGIC = (b"#!", b"\x7fELF", b"MZ", b"\x00asm", b"\xca\xfe\xba\xbe")
+CREDENTIAL_CONTENT = re.compile(
+    rb"-----BEGIN (?:OPENSSH|RSA|EC|DSA|PGP)? ?PRIVATE KEY-----|"
+    rb"\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bsk-[A-Za-z0-9]{20,}\b"
+)
 FORBIDDEN_RUNTIME = re.compile(
     rb"<tool_call>|BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY|"
     rb"\b(?:curl|wget)\b[^\r\n]{0,200}\|\s*(?:sh|bash)\b",
@@ -88,6 +92,10 @@ def _executable_content(member: ArchiveMember, diagnostics: DiagnosticCollector)
     if suffix in EXECUTABLE_SUFFIXES or member.data.startswith(EXECUTABLE_MAGIC):
         diagnostics.error(
             "executable_content", "executable archive content is forbidden", member.path
+        )
+    if CREDENTIAL_CONTENT.search(member.data):
+        diagnostics.error(
+            "credential_content", "credential-like secret material is forbidden", member.path
         )
 
 
