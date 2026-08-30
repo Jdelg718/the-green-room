@@ -1,0 +1,17 @@
+{
+  "source": "Derived solely from bitcoin/bips bip-0340 test vector 0 public test key; never use as a real identity",
+  "now": 1788100000,
+  "room_id": "00000000-0000-4000-8000-000000000000",
+  "event": {
+    "id": "5be6892d2012b5ba5dee3f4a51bb9f9f06804af700c31d5f6f1a0542d6f1dbd7",
+    "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "created_at": 1788100000,
+    "kind": 9,
+    "tags": [
+      ["h", "00000000-0000-4000-8000-000000000000"],
+      ["alt", "public BIP-340 fixture"]
+    ],
+    "content": "hello from a public test key",
+    "sig": "32f1fa8388132675dd1d5bedd71b34c6f02da9f41d0ace4ec419c37e273b6e6bb2f073f747194565852a7d56d5e636528905c80268a8dce9f951a52b9b66d489"
+  }
+}
