@@ -35,6 +35,15 @@ example-persona/
 Draft 0.1 derives roles from these exact, case-sensitive canonical paths. It
 does not have a manifest field for declaring or overriding roles.
 
+Every canonical top-level role is a singleton: required singleton roles have
+exactly one archive member, and optional singleton roles have zero or one. This
+applies to `manifest` and every `runtime.*` and `metadata.*` role. The `asset`
+role is repeatable. Each asset MUST have a unique canonical path, exactly one
+matching manifest declaration, and the declaration's required provenance fields;
+each asset declaration MUST match exactly one archive member. Repeating `asset`
+is therefore valid and is not a duplicate-role error. Duplicate canonical paths
+or multiple members for any singleton role fail validation.
+
 ## File-role allowlist
 
 <!-- markdownlint-disable MD013 -->
@@ -83,9 +92,9 @@ admitted to an official catalog.
 Strict validation MUST inspect archive entries before extraction and fail closed
 when any of the following is true:
 
-- a member path is absolute, contains `.` or `..` segments, uses `\\` as a
-  separator, has an empty segment, or does not resolve beneath the single pack
-  root;
+- a member path is absolute, contains `.` or `..` segments, contains a literal
+  backslash byte (`0x5C`, displayed as `\`), has an empty segment, or does not
+  resolve beneath the single pack root;
 - an entry is a symlink, hard link, device, executable, encrypted entry, or
   unsupported entry type;
 - two entries have the same raw path or the same normalized path;
@@ -110,10 +119,32 @@ prefixes of declared asset paths. Any other directory entry fails validation.
 Validation MUST occur against archive-member identity, not a post-extraction
 directory listing.
 
+For every ZIP member, strict validation MUST parse both the central-directory
+record and local file header before assigning a role. It MUST reject the archive
+unless the two records agree on the canonical filename's raw bytes and decoded
+path, general-purpose flags (including UTF-8, encryption, and data-descriptor
+bits), compression method, CRC-32, compressed and uncompressed sizes, and entry
+type/mode as represented by central external attributes and local-header name or
+extra-field indicators. When the data-descriptor bit is consistently set,
+placeholders that the ZIP format permits in the local header are allowed only if
+the descriptor's resolved CRC-32 and sizes exactly match the central-directory
+values and the bounded payload actually read; otherwise all duplicated values
+MUST match directly and MUST match the bounded payload actually read. Encryption
+remains forbidden.
+
+An entry MUST have exactly one supported interpretation before role assignment.
+The validator MUST reject duplicate extra fields, a Unicode Path extra field
+that conflicts with the filename bytes, its required filename CRC, the UTF-8
+flag, or the decoded canonical path, and any unsupported or ambiguous filename
+encoding. Supported extra-field values and interpretations MUST also agree
+between the central-directory record and local header whenever represented in
+both. These checks apply even when one interpretation would produce an otherwise
+allowed canonical path.
+
 ## `persona.yaml`
 
 ```yaml
-schema_version: 0.1
+schema_version: "0.1"
 id: org.example.detective
 name: The Detective
 version: 0.1.0
@@ -158,6 +189,22 @@ The loader MUST parse `persona.yaml` with the strict schema and safe
 scalar/container decoding. It MUST NOT serialize, concatenate, dump, summarize,
 or inject the manifest into a prompt.
 
+`schema_version` MUST be a quoted YAML string matching
+`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`. Each decimal component is canonical: it
+is either `0` or begins with a nonzero digit, so leading zeroes, signs,
+whitespace, exponents, and additional components are forbidden. Comparison
+parses the two components as arbitrary-precision non-negative decimal integers
+and compares the major component first, then the minor component; `"0.10"` is
+therefore newer than, and not equal to, `"0.1"`.
+
+This document defines loadable behavior for exactly `"0.1"`. A validator MUST
+reject every other version as unsupported for loading or provider submission,
+even if it matches the grammar; inspection tooling MAY report the unsupported
+string without interpreting unknown fields. YAML integers, floats, or any other
+non-string node MUST be rejected before version comparison. In particular,
+requiring the quoted string prevents YAML numeric decoding from collapsing
+`0.10` to the same numeric value as `0.1`.
+
 For draft 0.1, the approved loader mappings are:
 
 <!-- markdownlint-disable MD013 -->
@@ -200,7 +247,9 @@ exact field, type, escaping, bounds, destination, and assembly position.
 
 Each runtime file MUST be a regular UTF-8 text file with no byte-order mark, NUL
 byte, carriage return, or invalid UTF-8 sequence. It MUST end in exactly one
-line-feed byte (`LF`, `0x0A`). Empty runtime files fail validation.
+line-feed byte (`LF`, `0x0A`). After removing that required final `LF`, at least
+one byte MUST remain. Thus a zero-byte file and an LF-only one-byte file are both
+empty and fail validation.
 
 The fixed draft 0.1 limits are:
 
@@ -295,7 +344,7 @@ following succeeded:
 
 - exact role derivation and required/optional file checks;
 - path identity, duplicate, case-collision, confusable, symlink, and
-  archive-entry checks;
+  central-directory/local-header consistency checks;
 - manifest schema validation and approved typed mappings;
 - runtime encoding and byte limits;
 - deterministic assembly and exact inspection output;
@@ -305,10 +354,10 @@ following succeeded:
 
 At minimum, stable machine-readable errors SHOULD distinguish `unknown_file`,
 `missing_runtime_file`, `duplicate_path`, `case_collision`, `non_ascii_path`,
-`invalid_entry_type`, `undeclared_asset`, `invalid_runtime_encoding`,
-`runtime_file_too_large`, `runtime_total_too_large`, `unknown_role`, and
-`role_path_mismatch`. A loader MUST fail closed on any validation error or
-unrecognized validator/report version.
+`invalid_entry_type`, `archive_header_mismatch`, `invalid_zip_extra_field`,
+`undeclared_asset`, `invalid_runtime_encoding`, `runtime_file_too_large`,
+`runtime_total_too_large`, and `unknown_field`. A loader MUST fail closed on any
+validation error or unrecognized validator/report version.
 
 Warnings are non-load-bearing and cannot downgrade a role or make a rejected
 pack loadable. The validator should warn when:
@@ -319,17 +368,17 @@ pack loadable. The validator should warn when:
 - the pack claims affiliation or endorsement;
 - relationship references cannot be resolved.
 
-## Required future tests and fixtures
+## Required tests and fixtures
 
-Issue #27's fixture suite and the future loader suite MUST use original
-synthetic content and cover at least:
+Issue #27's draft 0.1 fixture suite MUST use original synthetic content and
+cover at least:
 
 1. a minimal valid pack and a five-runtime-file valid pack;
 2. all five runtime files appearing once and in canonical order despite shuffled
    ZIP entries;
 3. prompt injection strings placed separately in `PROVENANCE.md`, `SOURCES.md`,
-   `LICENSE`, `persona.yaml`, a declared asset, and future curator/review
-   metadata, proving none occur in the assembled buffer or provider request;
+   `LICENSE`, `persona.yaml`, and a declared asset, proving none occur in the
+   assembled buffer or provider request;
 4. every approved manifest mapping, proving typed behavior while the raw YAML
    and all manifest scalar text remain absent from the persona prompt;
 5. unknown top-level Markdown, an undeclared asset, a missing required file, and
@@ -344,10 +393,16 @@ synthetic content and cover at least:
 10. each runtime and aggregate bound at exactly the limit and one byte over it;
 11. exact-output golden bytes, length, and SHA-256, with a byte-for-byte
     assertion that the provider adapter receives the same persona segment;
-12. draft 0.1 role declarations rejected as unknown fields, plus future-schema
-    fixtures for unknown roles, duplicate roles, role/path mismatch, and
-    attempts to promote metadata/assets to runtime;
-13. property/fuzz probes showing that archive order, host OS, locale, and
+12. draft 0.1 role declarations rejected as unknown fields; role assignment in
+    issue #27 is tested only for the exact filename-derived 0.1 roles, including
+    singleton top-level roles and repeatable, uniquely declared assets;
+13. central-directory/local-header mismatches for filename raw bytes and decoded
+    path, flags (including UTF-8, encryption, and data-descriptor bits),
+    compression method, CRC-32, sizes, and entry type/mode; conflicting Unicode
+    Path extra fields, duplicate extra fields, unsupported/ambiguous filename
+    encodings, and mismatching data descriptors, all rejected before roles are
+    assigned;
+14. property/fuzz probes showing that archive order, host OS, locale, and
     filesystem case behavior cannot change role assignment or assembled bytes.
 
 Metadata-exclusion tests MUST use unique sentinel strings and assert absence
@@ -366,19 +421,17 @@ metadata and MUST NOT rely on extraction for identity or role assignment.
 - Draft schema 0.1 derives roles only from the exact canonical paths in this
   document. A `roles`, `files`, or equivalent declaration is an unknown field
   and fails strict validation.
-- Unknown major schema versions fail closed. Non-strict tooling may inspect
-  unknown minor data, but it MUST NOT produce a loadable report or submit a
-  prompt.
-- A future schema MAY declare file roles only with a closed enum defined by that
-  schema. At minimum, runtime and metadata roles remain distinct; unknown enum
-  values fail closed.
-- A declaration MUST be one-to-one: one role per file and one file per role.
-  Duplicate roles, duplicate paths, role/path mismatches, and missing declared
-  files fail validation.
-- Role declarations MUST NOT widen runtime visibility. They may restate the
-  schema's canonical role/path table; they may not promote `manifest`,
-  `metadata.*`, `asset`, curator/review content, or arbitrary files to
-  `runtime.*`.
+- Only the canonical `"0.1"` string is supported for loading. Every other
+  syntactically valid version fails closed for loading and provider submission;
+  non-strict tooling may identify it only as unsupported.
+- Issue #27 MUST implement and test only 0.1's exact filename-derived roles and
+  MUST reject every role declaration. No future-schema declaration fixtures are
+  part of the 0.1 contract.
+- Role declarations are deferred until a concrete newer schema is written. Such
+  a schema MUST receive its own reviewed role/path, cardinality, visibility,
+  compatibility, validator, loader, and adversarial-test contract before any
+  declaration can be accepted. This document does not reserve declaration field
+  names or authorize unknown future roles.
 - Adding a new runtime role or changing prompt order requires a new schema
   version, an explicit canonical path, revised bounds and assembly rules,
   validator and loader support, exclusion-regression tests, and review. Unknown
