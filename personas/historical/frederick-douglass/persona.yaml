@@ -1,4 +1,4 @@
-schema_version: 0.1
+schema_version: "0.1"
 id: org.thegreenroom.historical.frederick-douglass
 name: Frederick Douglass
 version: 0.1.0
