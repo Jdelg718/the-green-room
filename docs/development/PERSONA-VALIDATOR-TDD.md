@@ -108,6 +108,53 @@ This slice adds the closed reference schema, validates all 12 current source
 packs from temporary archives, extends archive/link/credential/locale probes,
 and upgrades the vulnerable test-runner version identified by dependency audit.
 
+## PR #37 spec-review remediation
+
+Review base:
+
+```text
+a115c6a3b8b2eb5e76c8aaea8e60fa95c703eb57
+style(persona): normalize validator fixture files
+```
+
+Focused RED commit:
+
+```text
+ce190e1517322eb4755eabfffd3afc64a4183c48
+test(persona): reproduce spec review blockers (RED)
+```
+
+No production file changed in that commit. The focused command observed the
+expected failures before fixes:
+
+```text
+18 failed, 8 passed, 58 deselected in 1.16s
+```
+
+The failures covered nine macOS/non-UNIX/ambiguous creator-mode cases, eight
+accepted declarative capability requests, and a 28,722-byte human report that
+exceeded the 16,384-byte contract. Canonical macOS regular metadata and the
+historical/prohibition negative phrases already passed.
+
+Focused GREEN commit:
+
+```text
+05efcd16e8f9cf3c69d1c7a85d5e1a6a29c855a5
+fix(persona): close validator spec review blockers (GREEN)
+```
+
+Results:
+
+```text
+26 passed, 58 deselected in 0.36s
+24 passed, 20 deselected in 0.35s
+144 passed in 2.83s
+```
+
+The second focused run expands the positive/negative phrase matrix beyond the
+original review examples. The full run includes temporary archive validation of
+all 12 current source packs.
+
 ## Final verification commands
 
 ```sh
