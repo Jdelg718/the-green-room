@@ -14,6 +14,7 @@ from greenroom_live.nostr_types import (
     DEFAULT_LIMITS,
     EventLimits,
     WireError,
+    WireEvent,
     canonical_event_bytes,
     parse_relay_envelope,
     parse_wire_event,
@@ -64,6 +65,8 @@ class PublicVectorTests(unittest.TestCase):
     def test_verified_value_cannot_be_publicly_constructed_from_raw(self) -> None:
         wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
 
+        with self.assertRaises(TypeError):
+            WireEvent()  # type: ignore[call-arg]
         with self.assertRaises(TypeError):
             VerifiedWireEvent(wire)  # type: ignore[call-arg]
 
@@ -179,7 +182,9 @@ class StrictWireParsingTests(unittest.TestCase):
     def test_invalid_utf8_surrogates_and_forbidden_controls_are_rejected(self) -> None:
         cases = (
             b"\xff",
-            encoded(changed(content="\ud800")),
+            json.dumps(
+                changed(content="\ud800"), separators=(",", ":")
+            ).encode("ascii"),
             encoded(changed(content="bad\x00control")),
             encoded(changed(tags=[["h", ROOM], ["alt", "bad\x7fcontrol"]])),
         )
@@ -215,22 +220,31 @@ class StrictWireParsingTests(unittest.TestCase):
 
 class CryptographicVerificationTests(unittest.TestCase):
     def test_recomputed_event_id_must_match(self) -> None:
-        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
-        tampered = replace(wire, content=wire.content + "!")
+        tampered = parse_wire_event(
+            encoded(changed(content=str(EVENT["content"]) + "!")),
+            expected_room_id=ROOM,
+            now=NOW,
+        )
         with self.assertRaisesRegex(CryptoError, "event_id_mismatch"):
             verify_event(tampered)
 
     def test_event_id_is_checked_before_signature_or_curve(self) -> None:
-        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
-        tampered = replace(wire, content="changed", pubkey="0" * 64, sig="0" * 128)
+        tampered = parse_wire_event(
+            encoded(changed(content="changed", pubkey="0" * 64, sig="0" * 128)),
+            expected_room_id=ROOM,
+            now=NOW,
+        )
         with self.assertRaisesRegex(CryptoError, "event_id_mismatch"):
             verify_event(tampered)
 
     def test_invalid_signature_fails_closed(self) -> None:
-        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
-        bad_sig = ("0" if wire.sig[0] != "0" else "1") + wire.sig[1:]
+        signature = str(EVENT["sig"])
+        bad_sig = ("0" if signature[0] != "0" else "1") + signature[1:]
+        wire = parse_wire_event(
+            encoded(changed(sig=bad_sig)), expected_room_id=ROOM, now=NOW
+        )
         with self.assertRaisesRegex(CryptoError, "invalid_signature"):
-            verify_event(replace(wire, sig=bad_sig))
+            verify_event(wire)
 
     def test_crypto_input_shape_errors_are_bounded_domain_errors(self) -> None:
         malformed = ((b"", b"0" * 32, b"0" * 64), (b"0" * 32, b"", b"0" * 64), (b"0" * 32, b"0" * 32, b""))
