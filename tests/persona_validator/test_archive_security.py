@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from greenroom_persona import inspect_pack
+from greenroom_persona import Diagnostic, inspect_pack
 
 from .fixture_builder import (
     ROOT,
@@ -217,6 +217,68 @@ def test_macos_creator_with_canonical_regular_metadata_is_accepted(tmp_path: Pat
     )
 
     assert inspect_pack(write_raw_zip(tmp_path / "macos-regular.greenroom", archive_entries)).valid
+
+
+@pytest.mark.parametrize(
+    "producer_os",
+    [
+        pytest.param(3, id="unix"),
+        pytest.param(19, id="macos"),
+    ],
+)
+def test_posix_creator_with_canonical_directory_metadata_is_accepted(
+    tmp_path: Path, producer_os: int
+) -> None:
+    archive_entries = raw_entries()
+    archive_entries.append(
+        RawEntry(
+            f"{ROOT}/assets/".encode(),
+            b"",
+            version_made=(producer_os << 8) | 20,
+            external_attr=((stat.S_IFDIR | 0o755) << 16) | 0x10,
+        )
+    )
+
+    result = inspect_pack(
+        write_raw_zip(tmp_path / f"posix-directory-{producer_os}.greenroom", archive_entries)
+    )
+
+    assert result.valid
+    assert result.errors == ()
+
+
+@pytest.mark.parametrize(
+    "special_bits",
+    [
+        pytest.param(stat.S_ISUID, id="setuid"),
+        pytest.param(stat.S_ISGID, id="setgid"),
+        pytest.param(stat.S_ISVTX, id="sticky"),
+        pytest.param(stat.S_ISUID | stat.S_ISGID, id="setuid-setgid"),
+        pytest.param(stat.S_ISUID | stat.S_ISVTX, id="setuid-sticky"),
+        pytest.param(stat.S_ISGID | stat.S_ISVTX, id="setgid-sticky"),
+        pytest.param(stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX, id="all-special-bits"),
+    ],
+)
+def test_special_permission_bits_on_regular_files_are_rejected(
+    tmp_path: Path, special_bits: int
+) -> None:
+    archive_entries = raw_entries()
+    original = archive_entries[1]
+    archive_entries[1] = RawEntry(
+        original.central_name,
+        original.data,
+        external_attr=(stat.S_IFREG | 0o644 | special_bits) << 16,
+    )
+
+    result = inspect_pack(write_raw_zip(tmp_path / "special-permissions.greenroom", archive_entries))
+
+    assert result.errors == (
+        Diagnostic(
+            "invalid_entry_type",
+            "special permission bits are forbidden",
+            f"{ROOT}/AGENTS.md",
+        ),
+    )
 
 
 def test_preamble_and_trailing_hidden_bytes_are_rejected(tmp_path: Path) -> None:
