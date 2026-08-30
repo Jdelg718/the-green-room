@@ -29,6 +29,7 @@ A private, local room with:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hosting placement decision](docs/adr/0000-hosting-placement.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
 - [Implementation plan](.hermes/plans/2026-08-30_121840-the-green-room-roadmap.md)

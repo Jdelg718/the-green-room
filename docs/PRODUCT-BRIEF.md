@@ -51,6 +51,25 @@ The public repository will begin with three original characters designed to prod
 
 These are original archetypes, not renamed copies of protected television characters.
 
+**Lantern Archivist** and **Harbor Mechanic** remain the harmless original engineering fixtures used to validate integration and persona distinction. They are not historical personas and are not replaced by catalog work.
+
+## Official catalog strategy
+
+The first official catalog baseline combines project-original personas with carefully sourced public-domain historical interpretations. It does not distribute modern television, film, musician, athlete, fashion, celebrity, or estate-controlled packs merely because they are culturally recognizable.
+
+Historical identity is not a blanket rights category. Names and documented facts are different from expressive biographies, editions, translations, photographs, recordings, performances, and artwork, all of which require item-level review. Official historical packs must:
+
+- include a complete `SOURCES.md` provenance manifest;
+- separate documented facts, verified direct quotations, and creative inference;
+- use original pack prose rather than copied modern biographies or scholarship;
+- never present invented or generated dialogue as an authentic quotation;
+- use reviewed public-domain, compatibly licensed, permissioned, or original assets only;
+- address documented contradictions and harms honestly;
+- display an educational creative-interpretation notice; and
+- pass independent historical-fidelity/content-boundary and provenance/rights review.
+
+The [Official Persona Catalog Policy](PERSONA-CATALOG.md) defines risk tiers and the Everstone candidate matrix. After the loader exists and pack reviews pass, the recommended first historical room is **Isaac Newton, Ada Lovelace, and Frederick Douglass**. This is a user-facing demonstration cohort, not permission to create unsourced packs or to replace the original MVP and engineering fixtures.
+
 ## Success measures
 
 - In blind transcript review, testers correctly distinguish each persona at least 80% of the time.
