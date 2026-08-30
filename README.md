@@ -41,7 +41,7 @@ A private, local room with:
 3. **Private by default.** Local/self-hosted operation comes before public hosting.
 4. **No unnecessary agency.** Entertainment personas do not need shell or account access.
 5. **Portable personas.** Packs are plain files with documented schemas.
-6. **Original examples.** The public repository ships original or public-domain personas, not copyrighted television-character packs.
+6. **Original examples.** The public repository ships original or public-domain personas, not copyrighted television-character packs. Official catalog artwork/assets are limited to item-reviewed public-domain works or original project-commissioned/stylized artwork.
 7. **Fork-friendly.** Apache-2.0 licensing, documented setup, and no proprietary lock-in.
 
 ## Upstream

@@ -63,7 +63,7 @@ Historical identity is not a blanket rights category. Names and documented facts
 - separate documented facts, verified direct quotations, and creative inference;
 - use original pack prose rather than copied modern biographies or scholarship;
 - never present invented or generated dialogue as an authentic quotation;
-- use reviewed public-domain, compatibly licensed, permissioned, or original assets only;
+- use only item-reviewed public-domain artwork/assets or original project-commissioned/stylized artwork under documented terms; compatible licenses or permissions are outside the official baseline;
 - address documented contradictions and harms honestly;
 - display an educational creative-interpretation notice; and
 - pass independent historical-fidelity/content-boundary and provenance/rights review.

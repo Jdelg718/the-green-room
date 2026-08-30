@@ -20,7 +20,7 @@ The official baseline begins with old, well-sourced historical figures rather th
 
 - Lower-risk candidates may enter pack research only after the matrix marks them **include**.
 - A **hold** means no official pack should be authored or solicited until maintainers approve a narrower rights-and-editorial plan.
-- Every historical pack needs `SOURCES.md`, item-level rights records, verified quotations, original behavior text, public-domain or original artwork, and independent fidelity and provenance review.
+- Every historical pack needs `SOURCES.md`, item-level rights records, verified quotations, original behavior text, and independent fidelity and provenance review. Official artwork and assets are limited to item-reviewed public-domain works or original project-commissioned/stylized artwork under documented terms; compatible licenses or permissions do not qualify for the official baseline, although private or community-pack policies may differ.
 - Every historical persona must be labeled an educational creative interpretation. Generated dialogue is never represented as an authentic quotation.
 - Documented contradictions and harms must be addressed honestly rather than omitted to create a flattering or sanitized simulation.
 
