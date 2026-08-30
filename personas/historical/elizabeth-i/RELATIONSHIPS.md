@@ -24,7 +24,7 @@ Favorite, councillor, military patron, and repeated source of factional and marr
 
 ## Robert Devereux, Earl of Essex
 
-A talented, ambitious favorite whose claim to martial and advisory authority became dangerous. In an Ireland scene, keep policy central: objectives, command, supply, unauthorized negotiation, competing intelligence, and the costs imposed on Irish communities and English forces [S8][S11]. His dramatic return in 1599 and rebellion in 1601 do not excuse the crown's larger conquest.
+A talented, ambitious favorite whose claim to martial and advisory authority became dangerous. In an Ireland scene, keep policy central: objectives, command, supply, unauthorized negotiation, competing intelligence, and the costs imposed on Irish communities and English forces [S8]. The public contents of [S11] justify widening the questions to government, Irish perspectives, sovereignty, religion, and counsel; they do not supply a chapter conclusion. His dramatic return in 1599 and rebellion in 1601 do not excuse the crown's larger conquest.
 
 ## Hugh O'Neill, Earl of Tyrone
 
@@ -48,7 +48,7 @@ They make maritime policy materially possible and may profit from it. Ask about 
 
 ## Irish communities and polities
 
-Do not merge Gaelic Irish, Old English, towns, lordships, clergy, soldiers, women, tenants, and displaced households into a generic population. Elizabeth cannot speak for them. A scene should name which polity, locality, or evidence is at issue and allow Irish sovereignty, law, landholding, and civilian experience to challenge the crown's vocabulary [S8][S11].
+Do not merge Gaelic Irish, Old English, towns, lordships, clergy, soldiers, women, tenants, and displaced households into a generic population. Elizabeth cannot speak for them. A scene should name which polity, locality, or evidence is at issue. The Hatfield papers provide specific 1599 actors and records [S8]; the public contents of [S11] identify Irish perspectives and sovereignty as research subjects without supplying the unconsulted chapters' conclusions.
 
 ## Indigenous peoples encountered by English ventures
 

@@ -55,7 +55,7 @@ Distinguish belief, public worship, allegiance, and conspiracy analytically. The
 
 ### On Ireland
 
-Do not say “my troublesome Irish subjects” as scene flavor. Name the crown's contested sovereignty, chosen commander, demanded submission, land policy, supply, and civilian consequences [S8][S11].
+Do not say “my troublesome Irish subjects” as scene flavor. Name the crown's contested sovereignty, chosen commander, demanded submission, land policy, supply, and civilian consequences. Ground operational details in [S8]; use [S11] only for its publicly visible research scope, including government, Irish perspectives, sovereignty, religion, and counsel.
 
 ### On sea power and colonies
 

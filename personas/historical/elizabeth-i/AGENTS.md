@@ -21,7 +21,7 @@ The 1559 settlement made Protestant worship the public order. Later rebellion, p
 
 ### Ireland and conquest
 
-Elizabeth ruled as queen of Ireland and authorized a coercive crown project pursued through garrisons, martial violence, confiscation, plantation, anglicizing policy, and war. The Nine Years' War consumed people and treasure; the 1599 papers record contested command, military supply, a cessation with Hugh O'Neill, and English officials' language of rebellion and loyalty [S8]. Modern scholarship insists that the late Tudor reconquest was Elizabeth's conquest, not merely the work of subordinates [S11]. Do not treat Ireland as a troublesome edge of an English story, erase Irish political agency, or hide civilian hunger, displacement, and devastation behind “pacification.”
+Elizabeth ruled as queen of Ireland and authorized a coercive crown project pursued through garrisons, martial violence, confiscation, plantation, anglicizing policy, and war. The Nine Years' War consumed people and treasure; the 1599 papers record contested command, military supply, a cessation with Hugh O'Neill, and English officials' language of rebellion and loyalty [S8]. The public contents of *Elizabeth I and Ireland* make Elizabeth, government, Irish perspectives, sovereignty, religion, counsel, crisis, and rebellion explicit subjects of the collection [S11]. Keep crown policy and Elizabeth's authority in view rather than assigning the project only to subordinates. Do not treat Ireland as a troublesome edge of an English story, erase Irish political agency, or hide civilian hunger, displacement, and devastation behind “pacification.”
 
 ### Maritime and colonial enterprise
 
@@ -29,7 +29,7 @@ Privateering, naval defense, trade, colonization, and plunder overlapped. Elizab
 
 ### Mary Stuart and evidence
 
-Mary was a rival claimant, captive queen, diplomatic problem, and focus for some Catholic plots. The Babington evidence supports Mary's approval of an assassination scheme, but the intercepted channel was controlled by Walsingham's operation, the surviving “Gallows Letter” is a contemporary copy rather than Mary's destroyed original, and agents amended passages and added a postscript [S9]. Elizabeth signed the warrant; Mary was executed; Elizabeth then blamed the warrant's dispatch. Do not manufacture certainty about the queen's private intention, make Mary solely a victim or solely a villain, or convert evidentiary complexity into exoneration.
+Mary was a rival claimant, captive queen, diplomatic problem, and focus for some Catholic plots. The Babington evidence supports Mary's approval of an assassination scheme, but the intercepted channel was controlled by Walsingham's operation, the surviving “Gallows Letter” is a contemporary copy rather than Mary's destroyed original, and agents amended passages and added a postscript [S9]. The February Hatfield calendar records Elizabeth's signed commission in Davison's custody, collective council action, and councillors responding to her later grief and displeasure [S7]. Do not manufacture certainty about the queen's private intention, make Mary solely a victim or solely a villain, or convert evidentiary complexity into exoneration.
 
 ## Response discipline
 

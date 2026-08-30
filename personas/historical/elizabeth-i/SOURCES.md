@@ -4,7 +4,7 @@ Access date for every web source: **2026-08-30**.
 
 Rights notes apply item by item. The age or public ownership of an underlying manuscript does not automatically clear a modern transcription, editorial apparatus, photograph, scan, website, or collection description. This pack paraphrases modern scholarship and archive descriptions in original prose. It reproduces no image and no direct historical quotation.
 
-## Primary and documentary sources
+## Primary records and public-domain documentary calendars
 
 ### S1 — Elizabeth's first speech, Hatfield, 20 November 1558
 
@@ -78,16 +78,16 @@ Rights notes apply item by item. The age or public ownership of an underlying ma
 - **Transformations:** Political function and transmission summarized; no celebrated phrase copied.
 - **Review decision:** Approved for text-only research with explicit transmission caveat.
 
-### S7 — *Calendar of the Cecil Papers in Hatfield House*, volume 3, introduction
+### S7 — *Calendar of the Cecil Papers in Hatfield House*, volume 3, February 1587
 
-- **URL:** https://www.british-history.ac.uk/cal-cecil-papers/vol3/iii-xxiv
-- **Collection/item:** Cecil Papers at Hatfield House; calendar to papers from 1583–1589
+- **URL:** https://www.british-history.ac.uk/cal-cecil-papers/vol3/pp216-234
+- **Collection/items:** Cecil Papers at Hatfield House, February 1587, especially nos. 471–472, 477, and 480: Walsingham's execution memorial; the councillors' account of seeing the signed, sealed commission from Davison; council pleas after Elizabeth's expressed grief and displeasure; and Burghley's account of the warrant in Davison's custody
 - **Creator:** Historical Manuscripts Commission; prepared with S. R. Scargill-Bird, Walford D. Selby, G. J. Morris, and Ernest G. Atkinson; underlying papers by multiple correspondents
 - **Publisher/editor:** Her Majesty's Stationery Office, London; digitized by British History Online
-- **Publication date:** 1889; underlying documents chiefly 1583–1589
+- **Publication date:** 1889; underlying documents February 1587
 - **Rights basis:** British History Online marks this double-rekeyed content **Public Domain**. The 1889 edition and underlying documents are public domain in the United States due to age.
-- **Use in pack:** Hatfield manuscript provenance; Anjou diplomacy; Anglo-Scottish succession management; papers surrounding Mary Stuart's execution; council aftermath, warrant dispatch, and the range of competing reports.
-- **Transformations:** Calendar conclusions summarized and cross-checked; no substantial calendar prose copied.
+- **Use in pack:** Item-level support for the signed and sealed commission, Davison's custody and presentation of it, collective council action, execution planning, and the councillors' response to Elizabeth's later grief and displeasure. These records expose competing official positions but do not prove a private instruction or settle Elizabeth's intention.
+- **Transformations:** Individual entries and document relationships summarized; no calendar or document prose copied.
 - **Review decision:** Approved public-domain documentary edition; text-only use.
 
 ### S8 — *Calendar of the Cecil Papers in Hatfield House*, volume 9, September 1599
@@ -145,10 +145,11 @@ Rights notes apply item by item. The age or public ownership of an underlying ma
 - **Authors/editors:** Brendan Kane and Valerie McGowan-Doyle
 - **Publisher:** Cambridge University Press
 - **Print/online publication:** 2014; online 5 November 2014
+- **Access/consultation scope:** The authorized public Cambridge Core landing page, bibliographic metadata, chapter title, page range, and book table of contents were consulted. The full chapter was not accessed through a personal or institutional subscription and is not treated as consulted evidence.
 - **Rights basis:** Modern copyrighted academic scholarship. Only bibliographic data, the public table of contents, and high-level scholarly framing are cited and summarized; no chapter prose is reproduced.
-- **Use in pack:** Elizabeth's own responsibility for late Tudor reconquest; Irish perspectives on sovereignty, counsel, religion, rebellion, and representation; guard against attributing the whole conquest to deputies.
-- **Transformations:** High-level argument summarized in original language and paired with public-domain Hatfield records [S8].
-- **Review decision:** Approved academic contextual source; not a reusable text source.
+- **Use in pack:** The public contents establish that the collection treats Elizabeth herself, Irish perspectives, government, sovereignty, religion, counsel, crisis, rebellion, and representation as research subjects. It is used only to broaden scene questions and prevent a deputy-only frame, not as support for any claimed chapter conclusion.
+- **Transformations:** Public metadata and contents scoped in original language and paired with public-domain Hatfield records [S8]; no inaccessible argument inferred.
+- **Review decision:** Approved for bibliographic and public-contents scope only; not a consulted chapter or reusable text source.
 
 ### S12 — “Notes from the Elizabethan Catholic Underground”
 
@@ -210,6 +211,6 @@ Rights notes apply item by item. The age or public ownership of an underlying ma
 
 ## Source audit and exclusions
 
-This pack uses **nine primary/documentary sources** [S1–S8][S16] and **eight authoritative modern archival, museum, library, or academic sources** [S9–S15][S17]. The primary group includes six item-level State Paper pages or document sets and three public-domain Hatfield documentary-calendar records/contexts; the modern group includes the British Library, Royal Museums Greenwich, Cambridge University Press, The Huntington, the Library of Virginia, the University of Chicago Press, and Historic Royal Palaces.
+This inventory contains **17 source entries total**. **Nine** are primary-record or public-domain documentary-calendar entries [S1–S8][S16]: seven National Archives State Paper item pages or document sets [S1–S6][S16] and two item-level Hatfield calendar page ranges [S7][S8]. **Eight** are modern authoritative research, collection-context, or edition-metadata entries [S9–S15][S17]: seven institutional research/context entries [S9–S14][S17] and one copyrighted modern documentary-edition metadata record [S15]. S15 is not counted as a primary source, and S11 is limited to authorized public metadata and contents because its full chapter was not consulted.
 
 No Project Gutenberg, Wikisource, Wikipedia, random-image, commercial biography, film/television portrayal, actor performance, voice recording, cloned voice, royal seal, or estate-branded source was used. A British Library legacy collection-item page that no longer exposed its original item content was not relied upon. History of Parliament pages blocked automated retrieval and were not used for pack claims. No source supplies an asset because this release intentionally contains none.

@@ -16,7 +16,7 @@ No modern edition, archive description, biography, annotation, or museum prose w
 
 - **Documented fact:** A claim supported by an itemized primary record or authoritative contextual source. Pack files attach keys such as `[S1]`.
 - **Attributed archival report:** A claim preserved through a copy, transcript, calendar, witness note, or later printing rather than an autograph original. The pack states the transmission issue when it matters.
-- **Scholarly interpretation:** A modern research conclusion summarized with attribution, including the re-centering of Elizabeth's responsibility for conquest in Ireland [S11].
+- **Scholarly scope:** A modern research agenda described only to the extent exposed by authorized public metadata or contents. For [S11], the full chapter was not consulted, so the pack uses its public table of contents to identify subjects rather than claiming a chapter conclusion.
 - **Behavioral inference:** Playable habits—calibrated delay, controlled attention, procedural rebuke, rhetorical coalition repair—derived from patterns across records. These are author-created controls, not diagnoses or secret motives.
 - **Original dramatic prose:** Every sample response and unattributed in-character sentence. None may be presented as Elizabeth's historical words.
 
@@ -28,7 +28,7 @@ This avoids both copied-speech performance and false confidence: several speeche
 
 ## Sensitive-history commitments
 
-- **Ireland:** Crown conquest, warfare, confiscation, plantation, coercive reform, and civilian consequences are central. Commanders do not absorb the sovereign's responsibility [S8][S11].
+- **Ireland:** Crown conquest, warfare, confiscation, plantation, coercive reform, and civilian consequences are central. The 1599 records ground the operational account [S8]; [S11] supplies only the publicly visible scope of a scholarly collection, not an unconsulted chapter argument.
 - **Religion:** Security threats and real plots are documented without sanitizing compulsory worship, recusancy penalties, searches, torture, imprisonment, censorship, or execution [S5][S9][S12].
 - **Mary Stuart:** The pack preserves both evidence of approval for assassination and problems in transmission and agent intervention. It does not invent Elizabeth's private intention about dispatch of the warrant [S7][S9].
 - **Colonial and maritime ventures:** Privateering, colonization, Indigenous sovereignty, plunder, and early English participation in the slave trade remain connected to royal commission and patronage [S10][S13].

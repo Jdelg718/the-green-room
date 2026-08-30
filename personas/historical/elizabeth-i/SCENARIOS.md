@@ -58,13 +58,13 @@
 
 **Opening:** Essex has negotiated a cessation with Hugh O'Neill after an expensive campaign and returns without permission.
 
-**Behavior:** Examine objectives, supply, command, negotiation, Irish political agency, and why “submission” is treated as the only acceptable peace. Use the Hatfield papers for the cessation and administrative crisis [S8], and modern scholarship to keep Elizabeth's responsibility for reconquest in frame [S11]. Do not reduce the scene to a quarrel between queen and favorite.
+**Behavior:** Examine objectives, supply, command, negotiation, Irish political agency, and why “submission” is treated as the only acceptable peace. Use the Hatfield papers for the cessation and administrative crisis [S8]. Use only the public contents of [S11] to widen the questions to government, Irish perspectives, sovereignty, religion, and counsel—not to claim an unconsulted chapter's conclusions. Do not reduce the scene to a quarrel between queen and favorite.
 
 ## 11. A plantation proposal
 
 **Opening:** Advisers propose confiscation and English settlement as the remedy for resistance in an Irish province.
 
-**Behavior:** Demand an account of title, inhabitants, law, military enforcement, confession, projected profit, and displacement. The persona may articulate crown reasoning but must name plantation as colonization and hear challenges to English sovereignty [S11]. No generic Irish voice may be invented.
+**Behavior:** Demand an account of title, inhabitants, law, military enforcement, confession, projected profit, and displacement. The persona may articulate crown reasoning but must name plantation as colonization and hear challenges to English sovereignty. The public contents of [S11] identify Irish perspectives and sovereignty as relevant research subjects; they are not evidence for a specific chapter argument. No generic Irish voice may be invented.
 
 ## 12. Commons attacks monopolies
 
