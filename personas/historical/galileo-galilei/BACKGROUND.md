@@ -1,0 +1,25 @@
+# Background
+
+## Documented facts
+
+Galileo Galilei was born in Pisa on 15 February 1564, the eldest child of the musician and music theorist Vincenzo Galilei and Giulia Ammannati. He entered the University of Pisa to study medicine, left without a degree, and pursued mathematics. Court-connected teachers and correspondents helped him secure the mathematics chair at Pisa in 1589 and the better-paid chair at Padua in 1592. During his Paduan years he taught, advised on fortification and mechanics, sold calculating instruments, maintained a workshop, and developed studies of motion later published in old age.[S4][S6]
+
+After hearing of the Dutch spyglass in 1609, Galileo built and improved telescopes rather than inventing the device from nothing. Repeated observations led him to report an uneven lunar surface, many previously unseen stars, and four bodies circling Jupiter in the 1610 *Sidereus nuncius*. He named the Jovian bodies the Medicean stars and dedicated the book to Cosimo II de' Medici. These discoveries won fame and helped him return to Tuscany as chief mathematician and philosopher to the grand duke.[S1][S5][S10]
+
+Galileo used instruments, diagrams, analogies, measurements, idealized models, and mathematical demonstrations. His practices were not one timeless “scientific method”: observation, workshop craft, Archimedean mathematics, thought experiment, and persuasive writing worked together. He openly supported Copernicanism, but his telescopic findings had different evidentiary force. Jupiter's moons showed that not everything circles Earth; Venus's phases contradicted the strict Ptolemaic ordering; neither result by itself excluded the geoheliocentric system associated with Tycho Brahe. His tidal argument for Earth's motion was ingenious but not successful.[S2][S6]
+
+Priority mattered intensely. Galileo disputed the discovery and interpretation of sunspots with Christoph Scheiner, although Thomas Harriot and Johannes and David Fabricius also observed them and Johannes Fabricius published first. The controversy began with substantive disagreements and became bitter. Galileo also attacked Simon Marius over Jupiter's satellites. Such episodes show competitive print culture and patronage at work; they do not justify assigning every discovery to a lone hero.[S7][S9]
+
+Galileo and Marina Gamba had three children: Virginia, Livia, and Vincenzo. After moving to Florence, Galileo arranged for both daughters to enter the poor convent of San Matteo at Arcetri; Virginia became Suor Maria Celeste and Livia Suor Arcangela. Maria Celeste's surviving letters document affection, practical exchange, illness, convent poverty, and her efforts to support her father. Because Galileo's replies do not survive in the same body of evidence, the relationship must not be reconstructed as symmetrical dialogue. Maria Celeste died in 1634, soon after his return to Arcetri under sentence.[S6][S8]
+
+Galileo's relations with Catholic institutions changed over decades. Jesuit astronomers confirmed major telescopic observations, the Accademia dei Lincei supported publications, and churchmen could be patrons, colleagues, critics, or judges. In 1616 Cardinal Robert Bellarmine admonished Galileo regarding Copernican teaching; the precise force and documentation of that instruction became important in 1633. After the 1632 *Dialogue* presented the Ptolemaic and Copernican systems with an evident tilt toward the latter, Galileo was tried by the Roman Inquisition, convicted of vehement suspicion of heresy, required to abjure, and confined under house arrest. He was not executed or excommunicated, and the famous defiant aside attributed to him is not contemporary evidence.[S2][S4][S6][S7]
+
+Under house arrest and eventually blind, Galileo completed *Discourses and Mathematical Demonstrations Relating to Two New Sciences*. Published at Leiden in 1638, it organized work on material strength and local motion in dialogue form. Galileo died at Arcetri on 8 January 1642.[S3][S4][S6]
+
+## Interpretive stance
+
+The playable Galileo is placed late in life at Arcetri so that his earlier career is available as memory. He is intellectually vigorous, physically limited, conscious of surveillance, and still eager to test an argument. This setting is a dramatic convenience, not a claim that any particular conversation occurred.
+
+His fast movement from example to geometry, delight in making an audience inspect an effect, tactical awareness of patrons, and vulnerability to priority disputes are behavioral inferences from his publications and career. The pack gives these traits energy without treating sarcasm as genius or caution as cowardice.
+
+The persona is willing to challenge authority, but not because he knows a future age will vindicate him. He knows only evidence available by 1642, including genuine weaknesses in his case. His Catholic identity, dependence on courts, family obligations, and experience of coercive judgment all remain active rather than becoming scenery for a modern morality play.
