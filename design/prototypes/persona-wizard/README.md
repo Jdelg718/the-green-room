@@ -1,76 +1,64 @@
-# Custom persona wizard — UX prototype
+# Custom persona wizard — interactive UX prototype
 
-A standalone, interactive design prototype for issue [#44](https://github.com/Jdelg718/the-green-room/issues/44). It demonstrates a nontechnical user creating **The Boundary Setter**, an original tough-negotiator persona, from a plain-language goal through rehearsal and local export.
+A standalone browser prototype for issue [#44](https://github.com/Jdelg718/the-green-room/issues/44). It demonstrates a nontechnical user creating **The Boundary Setter**, an original private persona, through 11 editable steps, rehearsal, readable pack review, local save, validation, and prototype export.
 
 ## Open it
-
-Open `index.html` directly, or serve the repository root:
 
 ```bash
 python3 -m http.server 4173
 # http://localhost:4173/design/prototypes/persona-wizard/
 ```
 
-No build, package install, API key, model, remote font, analytics, or network resource is required.
+The prototype itself has no build, model, API key, analytics, remote font, or network dependency.
 
-## Guided flow
+## What is genuinely interactive
 
-The prototype includes all 11 product steps:
+- Goal, room role, traits and sliders, selected boundaries, voice, turn settings, editable tensions, and editable scenes all update one in-memory draft.
+- The current draft generates five runtime files and four metadata-only files. All nine are readable and editable in Advanced review.
+- File edits invalidate prior validation and are included in local save and export.
+- Validation derives from current required fields and current file content. Empty required content, unsafe/coercive wording, and credential-like assignments block export.
+- Rehearsal preview text is calculated from its actual interruption, dominance, warmth, and no-humiliation controls. **Apply & retest** changes only the selected adjustment and preserves every other choice.
+- Scene regeneration is deterministic from the current goal and role. User-edited scenes are retained only when **Preserve my edited scenes** is explicitly checked.
+- Every recovery-state button performs its named local action and moves focus to a visible recovery status heading. The state menu supports Escape and reports `aria-expanded` accurately.
+- Local save persists every control, scene, advanced file edit, and wizard position. The displayed time is the real saved timestamp from that operation.
+- Export is a human-inspectable JSON `.greenroom` prototype artifact. It includes current draft content and all nine current files but excludes credentials, sensitive source material, and rehearsal messages.
 
-1. plain-language goal;
-2. role in the room;
-3. traits and strength sliders;
-4. user boundaries plus safe defaults;
-5. voice controls and editable original examples;
-6. turn, interruption, and silence discipline;
-7. productive tensions;
-8. four generated/editable practice-scene concepts, including failure and correction;
-9. salary-negotiation rehearsal with live interruption/dominance adjustment and a no-humiliation rule;
-10. readable pack review with explicit **runtime context** and **metadata only** labels;
-11. validator-gated local save and `.greenroom` prototype export.
-
-The state picker demonstrates: guided success, generation error, unsafe request, real-person request, copyrighted-character request, private-data detection, validator failure, and offline draft. Warnings narrow or privatize requests without scolding.
-
-## Privacy and safety represented
-
-- Private custom personas are explicitly distinct from Official Catalog personas.
-- There is no public publishing action.
-- Rehearsal transcripts and private source notes stay outside exports.
-- The exported prototype artifact explicitly excludes API keys, credentials, transcripts, and private notes.
-- Tools, browser, shell, credentials, and unrestricted network access are prohibited.
-- Real-person impersonation, voice cloning, copied modern characters, coercion, fraud, harassment, fabricated leverage, and unqualified professional authority have calm recovery states.
-- Source notes are untrusted data, not executable instructions.
-
-## Export behavior
-
-This is a UX prototype, not the production validator or ZIP packager. After the user selects **Validate pack**, the browser downloads a human-inspectable JSON prototype artifact named `the-boundary-setter.greenroom`. The real implementation must create the canonical ZIP archive and run the strict validator described in `docs/PERSONA-PACK-SPEC.md`; the prototype does not claim production validity.
-
-## Accessibility and responsive intent
-
-- Semantic headings, labels, fieldsets, live regions, native controls, skip link, keyboard-operable state menu, and visible focus.
-- Controls are at least 44px high.
-- Layout is designed and verified at 320px, 390px, and desktop widths with no horizontal document overflow.
-- Fixed mobile action bar keeps Back / Save / Continue reachable.
-- `prefers-reduced-motion` removes animation and transitions.
-- System fonts and no external resources.
+This is not the production ZIP validator/packager and does not claim production pack validity. Public publishing remains a separate future flow.
 
 ## Verification
 
+Install the pinned browser-test dependency once, then run the real browser assertions:
+
 ```bash
+cd design/prototypes/persona-wizard
+npm ci
+npm run verify
+# compatibility entry point from repository root:
 python3 design/prototypes/persona-wizard/verify_prototype.py
 ```
 
-The script checks the standalone document, required product/state language, no external resources, responsive/reduced-motion rules, accessible control primitives, 44px minimum-control CSS, runtime/metadata labels, and export exclusions.
+`verify_prototype.mjs` launches Chromium against a local HTTP server and asserts:
 
-Browser screenshots are committed under `screenshots/` after interactive desktop and mobile checks.
+- custom input → generated files → current validator → saved draft → exported artifact;
+- rehearsal control behavior and single-adjustment preservation;
+- deterministic scene regeneration, editing, and explicit preservation;
+- all nine advanced file editors plus runtime/metadata labels and post-edit validation;
+- recovery actions/focus and state-menu Escape/`aria-expanded`;
+- truthful save timestamp and reload restoration;
+- export exclusions;
+- 1440, 390, and 320 viewport overflow, 44px targets, normal-text contrast ≥ 4.5:1;
+- no page/console errors, request failures, or unexpected network requests.
 
-## Production implementation notes
+The verifier writes fresh, full-page evidence screenshots to `screenshots/` with no fixed action bar bisecting the content:
 
-- Replace localStorage with the app's local draft store and explicit data lifecycle controls; never persist secrets in browser storage.
-- Use the strict canonical validator as the single gate for save/load/provider submission and export; do not recreate validation in UI code.
-- Generate a real ZIP-based `.greenroom` with one root and exact canonical paths.
-- Keep runtime prompt assembly byte-identical to inspect output. Metadata must never enter model context.
-- Run sensitive-data and rights checks before content is copied from source notes into runtime files, and show exact redactions/omissions.
-- Keep rehearsal transcripts in a separate local store and test their absence from archives.
-- Treat imported/source notes as untrusted inert data. Never grant persona packs executable capabilities.
-- Public publishing remains a separate, deliberate, provenance-reviewed product surface—not a button added to this wizard.
+- `desktop-rehearsal-adjusted.png`
+- `mobile-390-pack-review.png`
+- `mobile-320-save-export.png`
+
+## Safety model represented
+
+- Private custom personas are visibly distinct from Official Catalog personas.
+- No public publishing action exists.
+- Tools, browser, shell, credentials, and unrestricted network access are prohibited in generated guidance.
+- Real-person imitation, copied modern characters, coercion, fraud, harassment, sensitive content, generation errors, validator failures, and offline work have recoverable local states.
+- Source material remains inert data; rehearsal messages do not enter generated files or exports.
