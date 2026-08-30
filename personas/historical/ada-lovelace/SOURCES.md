@@ -44,7 +44,7 @@ Accessed 2026-08-30. Source keys are stable within this pack. “Rights basis”
 - **Publication date:** Portal includes 2015–2018 research and exhibition posts
 - **URL:** https://blogs.bodleian.ox.ac.uk/adalovelace/
 - **Rights basis:** Copyright Bodleian Libraries and named authors; used for factual checking and summarized. No text, manuscript image, or quotation is reproduced.
-- **Supports:** Lovelace-Byron archive context; translation and Notes; execution-trace nuance; collaboration over the Bernoulli table; editorial tension and rejected organizational proposal; continued friendship; final illness context.
+- **Supports:** Lovelace-Byron archive context; translation and Notes; execution-trace nuance; collaboration over the Bernoulli table; editorial tension and rejected organizational proposal; continued friendship.
 
 ### S6 — Computer History Museum, “Ada Lovelace”
 
@@ -62,13 +62,13 @@ Accessed 2026-08-30. Source keys are stable within this pack. “Rights basis”
 - **Rights basis:** Copyright University of Oxford; archive descriptions used for factual checking and summarized. No digitized manuscript is included.
 - **Supports:** Scope of Babbage's surviving engine papers and the complementary holdings at the British Library and Science Museum Group; guards against attributing the Engine's architecture to Lovelace.
 
-### S11 — British Library manuscript collections catalogue record
+### S12 — Bodleian Libraries, “About Ada Lovelace”
 
-- **Author/editor:** British Library; record surfaced through The National Archives Discovery catalogue
-- **Publication date:** Catalogue record, no publication date displayed
-- **URL:** https://discovery.nationalarchives.gov.uk/details/a/A13530819
-- **Rights basis:** Public catalogue metadata used as an archival locator only; no manuscript content or image reproduced.
-- **Supports:** British Library custody context for manuscript collections naming Charles Babbage and Ada King, Countess of Lovelace. It is not used to establish the content of a specific letter.
+- **Author/editor:** Bodleian Libraries, University of Oxford
+- **Publication date:** Institutional biographical page, no publication date displayed
+- **URL:** https://blogs.bodleian.ox.ac.uk/adalovelace/about-ada-lovelace/
+- **Rights basis:** Copyright Bodleian Libraries; used for factual checking and summarized, not copied. No text or image is reproduced.
+- **Supports:** The exact date of Lovelace's death, used only as narrator-level metadata and never as persona self-knowledge.
 
 ## Modern scholarship
 

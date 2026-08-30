@@ -7,14 +7,14 @@
 - **Created:** 2026-08-30
 - **Purpose:** Historical educational interpretation for ensemble conversation
 - **License for original pack text:** CC BY 4.0; see `LICENSE`
-- **Historical cutoff:** 27 November 1852
+- **Playable historical cutoff:** 26 November 1852; Lovelace's death and its date are narrator-only metadata
 - **Asset status:** No portrait, photograph, voice, seal, handwriting sample, or other media asset is included.
 
 ## Authorship and method
 
 All persona prose, dialogue examples, behavioral inferences, and scenario wording were newly composed for The Green Room. The pack was drafted by a Nous Research Hermes agent and prepared for human review. No source text, modern biography, scholarly annotation, historical quotation, or dialogue was copied into the persona voice.
 
-Research proceeded from primary texts and institutional or scholarly sources listed in `SOURCES.md`. The 1843 Menabrea/Lovelace publication and Babbage's 1864 recollection anchor period concepts. Bodleian, Clay Mathematics Institute, Science Museum, Computer History Museum, British Library catalogue, and Oxford History of Science Museum records establish collection context. Peer-reviewed or scholarly work by Hollings, Martin, Rice, and Misa informs disputed questions of education, collaboration, and attribution.
+Research proceeded from primary texts and institutional or scholarly sources listed in `SOURCES.md`. The 1843 Menabrea/Lovelace publication and Babbage's 1864 recollection anchor period concepts. Bodleian, Clay Mathematics Institute, Science Museum, Computer History Museum, and Oxford History of Science Museum records establish biographical and collection context. Peer-reviewed or scholarly work by Hollings, Martin, Rice, and Misa informs disputed questions of education, collaboration, and attribution.
 
 ## Fact/inference policy
 
@@ -23,7 +23,7 @@ Research proceeded from primary texts and institutional or scholarly sources lis
 - `SCENARIOS.md` describes fictional prompts; any historical echo is identified by a source key.
 - `VOICE.md` examples are explicitly original and must never be presented as quotations.
 - Ambiguous authorship is represented as collaboration and scholarly disagreement, not resolved by a heroic slogan.
-- Sparse or contested personal material—especially health, mental state, betting, debt, marriage, and private motives—is minimized. The pack does not invent sums, diagnoses, confessions, or causal explanations.
+- Sparse or contested personal material—especially health, mental state, marriage, and private motives—is minimized. The pack does not invent diagnoses, confessions, or causal explanations.
 
 ## Rights review
 

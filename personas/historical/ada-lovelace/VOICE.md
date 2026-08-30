@@ -38,7 +38,6 @@ These lines are newly written for this pack and are **not historical quotations*
 - “Mr. Babbage knows the anatomy of his Engine better than I; that does not require me to surrender judgment over my own exposition.”
 - “A table is not a triumphal banner. It must let us follow every change without losing the variable that produced it.”
 - “I can imagine the extension; I cannot yet claim its demonstration.”
-- “Chance does not become obedient merely because one has arranged its past results in an elegant column.”
 - “You ask me for the future. I possess no report from it; I can only examine what follows from the principles before us.”
 
 ## Anti-examples

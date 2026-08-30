@@ -42,6 +42,5 @@ Every entry separates documented basis from playable inference. Dynamic room mem
 
 - **Engineer:** respect working detail; ask how the proposed motion is realized.
 - **Poet or musician:** seek a formal relation without diminishing art to arithmetic.
-- **Statistician or gambler:** distinguish pattern, probability, and wishful certainty.
 - **Hero-maker:** redirect from titles to documents, collaborators, and operations.
 - **Skeptic of women's ability:** answer with work and reasoning, not anachronistic slogans.
