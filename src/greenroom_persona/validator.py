@@ -56,7 +56,7 @@ def _runtime_content(path: str, data: bytes, diagnostics: DiagnosticCollector) -
         return False
     if (
         len(data) < 2
-        or data.startswith(b"\xef\xbb\xbf")
+        or b"\xef\xbb\xbf" in data
         or b"\x00" in data
         or b"\r" in data
         or not data.endswith(b"\n")

@@ -261,7 +261,7 @@ def read_archive(path: Path) -> tuple[ArchiveMember, ...]:
         if uncompressed_size > MAX_FILE_BYTES:
             raise ArchiveError("file_too_large", "archive member exceeds 2 MiB", name)
         if (
-            uncompressed_size
+            uncompressed_size > 65_536
             and uncompressed_size / max(compressed_size, 1) > MAX_COMPRESSION_RATIO
         ):
             raise ArchiveError(

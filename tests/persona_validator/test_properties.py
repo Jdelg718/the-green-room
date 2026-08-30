@@ -3,15 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from greenroom_persona import inspect_pack, render_json
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
+from greenroom_persona import inspect_pack, render_json
 
 from .fixture_builder import minimal_files, write_zip
 
 
-@given(st.permutations(tuple(minimal_files())))
-@settings(max_examples=50, derandomize=True)
+@given(order=st.permutations(tuple(minimal_files())))
+@settings(
+    max_examples=50,
+    derandomize=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_archive_order_cannot_change_roles_or_prompt(order: list[str], tmp_path: Path) -> None:
     files = minimal_files()
     path = write_zip(tmp_path / "ordered.greenroom", files, order=order)
@@ -25,8 +30,13 @@ def test_archive_order_cannot_change_roles_or_prompt(order: list[str], tmp_path:
     )
 
 
-@given(st.binary(max_size=2_048))
-@settings(max_examples=200, derandomize=True, deadline=None)
+@given(data=st.binary(max_size=2_048))
+@settings(
+    max_examples=200,
+    derandomize=True,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_random_archive_bytes_fail_closed_without_crashing(data: bytes, tmp_path: Path) -> None:
     path = tmp_path / "fuzz.greenroom"
     path.write_bytes(data)
@@ -40,13 +50,18 @@ def test_random_archive_bytes_fail_closed_without_crashing(data: bytes, tmp_path
 
 
 @given(
-    st.text(
+    path_text=st.text(
         alphabet=st.characters(min_codepoint=0, max_codepoint=127),
         min_size=0,
         max_size=300,
     )
 )
-@settings(max_examples=200, derandomize=True, deadline=None)
+@settings(
+    max_examples=200,
+    derandomize=True,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 def test_fuzzed_member_paths_never_escape_or_crash(path_text: str, tmp_path: Path) -> None:
     files = minimal_files()
     files[path_text] = b"payload\n"

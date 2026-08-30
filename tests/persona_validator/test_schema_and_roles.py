@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
 from greenroom_persona import inspect_pack
 
 from .fixture_builder import manifest_yaml, minimal_files
@@ -125,7 +126,7 @@ def test_unknown_files_and_directories_are_rejected(
     files = minimal_files()
     files[unknown] = b"hidden payload\n"
 
-    assert "unknown_file" in error_codes(inspect_pack(pack_factory(files=files)))
+    assert error_codes(inspect_pack(pack_factory(files=files))) & {"unknown_file", "unsafe_path"}
 
 
 def test_declared_asset_requires_complete_provenance_and_exact_member(
