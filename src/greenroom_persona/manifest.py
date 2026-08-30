@@ -9,7 +9,19 @@ from typing import Any
 import yaml
 from yaml.constructor import ConstructorError
 from yaml.nodes import MappingNode, Node, ScalarNode
-from yaml.tokens import AliasToken, AnchorToken, DirectiveToken, TagToken
+from yaml.tokens import (
+    AliasToken,
+    AnchorToken,
+    BlockEndToken,
+    BlockMappingStartToken,
+    BlockSequenceStartToken,
+    DirectiveToken,
+    FlowMappingEndToken,
+    FlowMappingStartToken,
+    FlowSequenceEndToken,
+    FlowSequenceStartToken,
+    TagToken,
+)
 
 from .limits import MAX_YAML_BYTES, MAX_YAML_DEPTH, MAX_YAML_NODES
 from .models import DiagnosticCollector
@@ -17,9 +29,10 @@ from .models import DiagnosticCollector
 STRING_TAG = "tag:yaml.org,2002:str"
 TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
 SCHEMA_VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+SEMVER_PRERELEASE_IDENTIFIER = r"(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
 SEMVER = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    rf"(?:-{SEMVER_PRERELEASE_IDENTIFIER}(?:\.{SEMVER_PRERELEASE_IDENTIFIER})*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
 PACK_ID = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)+\Z")
@@ -60,6 +73,10 @@ ASSET_FIELDS = {"path", "source", "creator"}
 
 
 class _StrictLoader(yaml.SafeLoader):
+    pass
+
+
+class _YamlComplexityError(Exception):
     pass
 
 
@@ -188,6 +205,7 @@ def parse_manifest(raw: bytes, diagnostics: DiagnosticCollector) -> dict[str, An
         diagnostics.error("invalid_yaml", "persona.yaml is not UTF-8", "persona.yaml")
         return {}
     try:
+        collection_depth = 0
         for token in yaml.scan(text, Loader=_StrictLoader):
             if isinstance(token, (AliasToken, AnchorToken, DirectiveToken, TagToken)):
                 diagnostics.error(
@@ -196,6 +214,20 @@ def parse_manifest(raw: bytes, diagnostics: DiagnosticCollector) -> dict[str, An
                     "persona.yaml",
                 )
                 return {}
+            if isinstance(
+                token,
+                (
+                    BlockMappingStartToken,
+                    BlockSequenceStartToken,
+                    FlowMappingStartToken,
+                    FlowSequenceStartToken,
+                ),
+            ):
+                collection_depth += 1
+                if collection_depth > MAX_YAML_DEPTH:
+                    raise _YamlComplexityError
+            elif isinstance(token, (BlockEndToken, FlowMappingEndToken, FlowSequenceEndToken)):
+                collection_depth -= 1
         root_node = yaml.compose(text, Loader=_StrictLoader)
         if root_node is None:
             diagnostics.error("invalid_yaml", "persona.yaml is empty", "persona.yaml")
@@ -218,6 +250,11 @@ def parse_manifest(raw: bytes, diagnostics: DiagnosticCollector) -> dict[str, An
             loaded = loader.get_single_data()
         finally:
             loader.dispose()
+    except (_YamlComplexityError, RecursionError):
+        diagnostics.error(
+            "yaml_complexity", "persona.yaml exceeds node or depth limits", "persona.yaml"
+        )
+        return {}
     except yaml.YAMLError:
         diagnostics.error("invalid_yaml", "persona.yaml is not valid strict YAML", "persona.yaml")
         return {}
