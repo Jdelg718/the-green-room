@@ -45,9 +45,9 @@ The service may implement these documented wire contracts against the pinned rel
 - NIP-29 membership projection kind `39002` and membership notifications `44100`/`44101`;
 - NIP-10 reply `e` tags for source provenance;
 - NIP-OA owner delegation tag supplied as opaque operator configuration if the relay requires it;
-- optionally NIP-98 `POST /events` only if the WebSocket publish path cannot provide the needed acknowledgement behavior.
+- NIP-98 `POST /events` as a separately reviewed fallback only; it is not the selected Phase 0D publication transport.
 
-The first path is WebSocket subscribe and publish, because it minimizes dependencies and keeps one authenticated transport. Every received event is still independently ID/signature-verified; an authenticated socket is not proof that arbitrary payloads on it are trusted.
+Phase 0D uses WebSocket for both operations, but **not one shared authenticated connection**. One director-authenticated observation session owns room `REQ`/`EOSE`/`CLOSE`; each persona owns a distinct persona-authenticated publication session and receives `OK` only for its own `EVENT`. Buzz ingest requires the event signer to equal the authenticated transport identity, so a director-authenticated socket must never submit a persona-signed event. Every received event is still independently ID/signature-verified; an authenticated observation socket is not proof that arbitrary payloads on it are trusted. Changing publication to NIP-98 requires a plan/ADR update that binds each request's NIP-98 signer to the same persona as the submitted event; a director-signed HTTP authorization event is equally invalid for persona output.
 
 ### What would require Buzz source incorporation or a separate upstream change
 
@@ -76,7 +76,7 @@ spikes/002-live-buzz/
     config.py                       # fail-closed config and public-safe logging view
     nostr_types.py                  # parsed wire DTOs; no trust claims
     crypto.py                       # narrow wrapper over reviewed secp256k1 dependency
-    relay_transport.py             # NIP-01/NIP-42 state machine, reconnect, ACK routing
+    relay_transport.py             # separate director-observe/persona-publish NIP-42 sessions
     event_adapter.py               # authenticated Buzz/Nostr -> TrustedEventAdapter boundary
     scheduler.py                   # production extraction of reviewed bounded policy
     store.py                       # SQLite schema, transactions, migrations
@@ -190,9 +190,9 @@ class VerifiedRoomEvent:
 
 The adapter then calls the extracted `TrustedEventAdapter`/equivalent private factory. No other module can construct `VerifiedRoomEvent`. Unknown authors, stale/missing membership, malformed tags, unverifiable snapshots, and relay namespace changes fail closed and increment rejection metrics without model calls.
 
-### 4.3 Persona runtime and signer ownership
+### 4.3 Transport sessions, persona runtime, and signer ownership
 
-`service.py` owns room orchestration; `persona_runtime.py` owns model context and generation; `signer.py` owns signing. The director chooses a `persona_id`, never a key.
+`service.py` owns room orchestration; `persona_runtime.py` owns model context and generation; `signer.py` owns signing; `relay_transport.py` owns identity-bound sessions. The director chooses a `persona_id`, never a key or transport.
 
 ```python
 class PersonaRuntime(Protocol):
@@ -202,14 +202,26 @@ class PersonaSigner(Protocol):
     @property
     def public_key(self) -> str: ...
     def sign_event(self, unsigned: UnsignedEvent) -> SignedEvent: ...
+
+class DirectorObservationSession(Protocol):
+    authenticated_pubkey: str
+    async def subscribe_room(self, room_id: str, since: int | None) -> AsyncIterator[RelayEnvelope]: ...
+    # Deliberately no publish method.
+
+class PersonaPublishSession(Protocol):
+    authenticated_pubkey: str
+    async def submit_exact(self, event_bytes: bytes, event_id: str) -> RelayOK: ...
 ```
 
-- Each persona has a separate key and signer handle. Raw private keys are loaded by a signer worker/handle from a mode-`0600` local secret file or supported local secret store.
+- The supervisor creates exactly one `DirectorObservationSession`, performs NIP-42 with the director signer, and uses it only for membership discovery and room observation. The director signer may sign NIP-42 `AUTH` events for the configured relay and no room messages. The observation type exposes no `EVENT` submission API.
+- The supervisor creates one isolated `PersonaPublishSession` per enabled persona (eagerly or on first selection). That session performs its own NIP-42 challenge with that persona's signer, retains no other persona signer, and may submit only kind-9 events for the configured room whose `pubkey` equals `authenticated_pubkey`. It does not own scheduling or observation.
+- `PersonaPublishSession.submit_exact` parses the persisted bytes before writing, recomputes the event ID, verifies the signature, and rejects unless `event.pubkey == session.authenticated_pubkey == configured persona public key`, `event.id == event_id`, kind/room are allowed, and the signer/session mapping is unchanged. It then writes those exact bytes in a NIP-01 `EVENT` frame and routes the matching `OK` by event ID.
+- Each persona has a separate key, signer handle, and authenticated publication session. A persona signer is permissioned only for NIP-42 `AUTH` to the configured relay and kind-9 output in its configured room. Raw private keys are loaded by a signer worker/handle from a mode-`0600` local secret file or supported local secret store.
 - Private key bytes are not fields on scheduler, persona, provider, context, metrics, or persistence objects and are never logged.
-- The owner/human key is never available to the service. The director has its own least-privilege key for authenticated observation. Personas sign only their own kind-9 output.
+- The owner/human key is never available to the service. NIP-OA owner delegation tags, when required, are opaque per-identity configuration and do not grant the supervisor the owner key. The director cannot access persona signer handles; the publisher can request signing only through the signer selected by the durable decision.
 - Provider credentials are available only to the provider adapter process/environment, never to persona prompts or packs.
 - The runtime loads one immutable declarative persona, a bounded recent transcript, and the invitation. It exposes no tool registry. Output is plain candidate text or silence, subject to size and cancellation checks.
-- Before signing, publisher verifies `selected_persona_id -> configured public key -> signer public key`; mismatch is terminal and publishes nothing.
+- Before signing, publisher verifies `selected_persona_id -> configured public key -> signer public key -> PersonaPublishSession.authenticated_pubkey`; mismatch is terminal and publishes nothing. No code path may send persona-signed bytes through the director-authenticated transport.
 
 ### 4.4 Two original test personas
 
@@ -230,10 +242,11 @@ Their files contain no copied dialogue, performer likeness, voice-clone instruct
 - `personas(persona_id PRIMARY KEY, public_key UNIQUE, enabled, cooldown_events, last_selected_sequence, consecutive_turns)`;
 - `source_events(id INTEGER PRIMARY KEY, room_id, source_event_id, source_class, author_pubkey, accepted_sequence, received_at, UNIQUE(room_id, source_event_id))`;
 - `decisions(decision_id PRIMARY KEY, room_id, source_event_id, policy_version, epoch, state, persona_id NULL, reason_code, response_event_id NULL, lease_until NULL, created_at, updated_at, UNIQUE(room_id, source_event_id, policy_version))`;
+- `response_events(decision_id TEXT PRIMARY KEY REFERENCES decisions(decision_id), persona_id TEXT NOT NULL REFERENCES personas(persona_id), event_id TEXT NOT NULL UNIQUE CHECK(length(event_id) = 64), event_sha256 TEXT NOT NULL CHECK(length(event_sha256) = 64), event_bytes BLOB NOT NULL CHECK(length(event_bytes) > 0), created_at INTEGER NOT NULL)`; `event_bytes` is the exact UTF-8 serialized signed Nostr event object submitted on every attempt, while `event_sha256` hashes those bytes and `event_id` is the Nostr event ID;
 - `publish_attempts(decision_id, response_event_id, attempt, ack_state, attempted_at, PRIMARY KEY(decision_id, attempt))`;
 - `room_metrics(...)` containing numeric measurements and no secret material.
 
-SQLite runs WAL mode, `foreign_keys=ON`, a busy timeout, restrictive file permissions, and explicit migrations. SQL uses parameters only. One process is the Phase 0D operating default; concurrency tests still use two database connections to prove uniqueness.
+`migrations/001_phase0d.sql` also creates `BEFORE UPDATE` and `BEFORE DELETE` triggers on `response_events` that `RAISE(ABORT, 'response_events are immutable')`. There is exactly one row per signed decision, and normal runtime code has insert/read permission only for this table. SQLite runs WAL mode, `foreign_keys=ON`, a busy timeout, restrictive file permissions, and explicit migrations. SQL uses parameters only. One process is the Phase 0D operating default; concurrency tests still use two database connections to prove uniqueness.
 
 ### 5.2 Zero-or-one scheduling transaction
 
@@ -249,26 +262,28 @@ SQLite runs WAL mode, `foreign_keys=ON`, a busy timeout, restrictive file permis
 
 The unique decision constraint plus `BEGIN IMMEDIATE` is the zero-or-one scheduling invariant. No network or model call occurs while the transaction is open. A duplicate/replay returns the original decision and consumes no additional budget. A failed model call still consumes its model-call reservation (real cost may have occurred) but publishes no response. A pre-provider cancellation may release a response reservation according to a tested transition; it never rewinds cooldown in a way that permits a duplicate decision.
 
-Allowed states are explicit and monotonic:
+Allowed states and writers are explicit and monotonic:
 
 ```text
 selected -> generating -> signed -> publishing -> published
-selected/generating -> cancelled
+selected/generating/signed -> cancelled
 selected/generating -> failed
+publishing -> failed  # only a definitive relay rejection; timeout/lost OK remains publishing
 silence | rejected | cancelled | failed | published are terminal
 ```
 
-A worker lease may recover `generating`/`publishing` after a crash, but recovery never creates another decision or another signed event.
+A worker lease may recover `generating`, `signed`, or `publishing` after a crash, but recovery never creates another decision or another signed event. `generating -> signed` occurs in one `BEGIN IMMEDIATE` transaction that (1) rechecks decision state and generation epoch, (2) inserts the one immutable `response_events` row, and (3) stores the same `event_id` on `decisions`. If the response row already exists, signing is forbidden. On recovery, the worker reads `event_bytes` and verifies `event_sha256`, event ID, signature, room, and persona/session identity. A recovered `signed` decision may proceed through the pre-submit gate. A recovered `publishing` decision first reconciles the immutable event ID with the relay because submission may already have succeeded; only while its epoch remains current may bounded recovery resubmit those exact bytes. Missing or corrupt signed bytes fail closed for operator review and are never replaced by re-signing.
 
 ### 5.3 Publish idempotency
 
-Before first network submission, construct and sign the full kind-9 response, persist its immutable `response_event_id` and serialized event, then submit it. If `OK` is lost, retry the **same signed event**, never regenerate/sign a new event. Relay event-ID dedup plus the decision uniqueness constraint prevents a second response. The response has `h=<room>`, an NIP-10 reply reference to the source, and only tags proven accepted by the pinned relay. A Green Room custom provenance tag is added only after a mock and live compatibility test; otherwise the local decision ledger is authoritative.
+Before first network submission, construct and sign the full kind-9 response exactly once, persist the immutable `response_events` row and transition to `signed` in the same transaction, then submit it only through the matching persona-authenticated session. `Store.claim_publish(decision_id, expected_epoch)` runs a short transaction immediately before socket handoff: if the decision is `signed` but the room epoch is stale, it persists `signed -> cancelled` and returns no bytes; if the state is anything other than `signed`, it returns no bytes without changing that state; otherwise it transitions `signed -> publishing` and returns the stored bytes. If `OK` is lost, retry the **same signed event bytes**, never regenerate/sign a new event. Relay event-ID dedup plus the decision uniqueness constraint prevents a second response. The response has `h=<room>`, an NIP-10 reply reference to the source, and only tags proven accepted by the pinned relay. A Green Room custom provenance tag is added only after a mock and live compatibility test; otherwise the local decision ledger is authoritative.
 
 ## 6. Cancellation, cooldown, and budget behavior
 
 - Exact owner-only local controls are `pause`, `resume`, and `stop`. Relay-carried controls are disabled until author verification is proven; the private/local CLI is sufficient for the spike.
-- `stop` atomically sets `paused=1`, increments `generation_epoch`, and signals every in-flight director/provider task.
-- Every task captures its starting epoch. It must re-read epoch and decision state after provider return and immediately before signing and publishing. A stale task records `cancelled` and publishes nothing.
+- `stop` atomically sets `paused=1`, increments `generation_epoch`, and signals every in-flight director/provider/publisher task.
+- Every task captures its starting epoch. It must re-read epoch and decision state after provider return, before signing, and in `Store.claim_publish` immediately before first submission. A stop committed before `claim_publish` wins: `selected`, `generating`, or `signed` persists as `cancelled`, and no bytes are handed to the transport.
+- `publishing` means socket handoff may already have occurred. Once `signed -> publishing` commits, cancellation cannot truthfully guarantee recall: the relay may accept before the local task sees `stop`, and an accepted event may be observed or its `OK` may arrive after stop. The runtime stops retries when it learns of the new epoch, records the acknowledgement ambiguity, and reconciles by the immutable event ID; it never marks such a decision `cancelled` or signs a replacement. Tests and evidence distinguish **submission started before stop** from **submission attempted after stop**. The hard guarantee is no first submission when stop wins the pre-submit gate, not retraction of an event already handed to or acknowledged by the relay.
 - Provider calls have connect/read/total deadlines and consume a cancel token. Cancellation latency is measured from control commit to task acknowledgement and must meet the acceptance bound chosen before the live run.
 - Cooldown is measured in accepted human-event sequence numbers, not wall-clock time or persona output. Persona events do not advance the clock during this spike.
 - Room budgets include hard maxima for model calls, selected responses, published responses, response characters/tokens when available, and ten-turn acceptance duration. Exhaustion produces durable silence with a reason code.
@@ -284,12 +299,12 @@ Every slice lands only after focused RED is observed, the smallest GREEN change 
 2. Evaluate candidate WebSocket and secp256k1 packages for maintenance, license, wheel/source provenance, transitive tree, and needed NIP behavior; pin the smallest acceptable set.
 3. RED: import/config test fails because package/config does not exist. GREEN: strict placeholder config loads.
 
-Planned verification after the files exist:
+Planned verification from the repository root after the files exist:
 
 ```bash
-uv sync --frozen
-uv run python -m unittest discover -s spikes/002-live-buzz/tests -v
-uv tree
+uv sync --project spikes/002-live-buzz --frozen
+uv run --project spikes/002-live-buzz python -m unittest discover -s spikes/002-live-buzz/tests -v
+uv tree --project spikes/002-live-buzz
 ```
 
 ### Slice 2 — strict wire parsing and crypto verification
@@ -310,11 +325,11 @@ RED asserts the runtime context contains only persona definition, bounded transc
 
 ### Slice 6 — cancellation epoch and late-result fence
 
-RED blocks a mock provider, commits `stop`, releases the provider, and demonstrates the late result would publish without an epoch check. GREEN adds task cancellation plus persisted epoch checks. Test stop-before-call, stop-during-call, stop-after-generation-before-sign, restart while paused, and resume creating a new epoch without resurrecting old work.
+RED blocks a mock provider, commits `stop`, releases the provider, and demonstrates the late result would publish without an epoch check. GREEN adds task cancellation plus persisted epoch checks. Test stop-before-call, stop-during-call, stop-after-generation-before-sign, **stop-after-sign-before-claim** (`signed -> cancelled`, zero transport writes), stop racing after socket handoff (acknowledgement ambiguity, no false `cancelled` claim), restart while paused, and resume creating a new epoch without resurrecting old work.
 
 ### Slice 7 — sign-once publisher
 
-RED simulates accepted publish with lost `OK`, reconnect, and retry; a naive regenerated event would differ. GREEN persists the signed event before send and retries identical bytes/ID. Also test signer/persona mismatch, relay rejection, timeout, duplicate `OK`, and no custom provenance tag by default.
+RED simulates accepted publish with lost `OK`, crash/reopen, reconnect, and retry; a naive regenerated event would differ. GREEN atomically persists `event_bytes`, `event_sha256`, and `event_id` before send and retries identical bytes/ID without invoking the signer again. Also test existing response row forbids re-signing, byte corruption fails closed, signer/session/persona mismatch, director transport has no publish API, relay rejection, timeout, duplicate `OK`, and no custom provenance tag by default.
 
 ### Slice 8 — in-process mock relay integration
 
@@ -365,7 +380,7 @@ Only after mock, security, and Compose gates:
 
 1. prepare a disposable private relay from the exact Buzz pin and record resolved image digests;
 2. generate fresh one-run director/persona identities locally without printing private keys;
-3. admit the director and two personas to one test room, then confirm current kind-`39002` membership;
+3. admit the director and two personas to one test room, confirm current kind-`39002` membership, then prove the director observation session and both separately persona-authenticated publication sessions report their expected identities;
 4. enable an explicit environment opt-in so `test_live_relay.py` otherwise remains skipped;
 5. prove NIP-42 authentication, replay/live subscription, persona-signed kind-9 publish, NIP-10 reply rendering, membership removal, reconnect, duplicate publish, and cancellation behavior;
 6. stop at the first incompatibility; label it and decide public protocol fix, narrow upstream contribution, source reuse, or fork review rather than weakening authentication.
@@ -383,7 +398,7 @@ Acceptance requires:
 - every accepted source event has exactly one durable decision and zero or one selected persona;
 - every selected decision has zero or one response event ID; every response traces to one source decision;
 - duplicates, persona-authored events, cooldown/budget silence, and cancellation test produce no fan-out;
-- no tool call, secret exposure, public ingress, or late post-cancellation publish;
+- no tool call, secret exposure, public ingress, or first submission after a stop that won the pre-submit gate; any stop after socket handoff is reported separately as an unavoidable acknowledgement/observation race rather than mislabeled cancellation;
 - all acceptance limits and rubric thresholds were fixed before the run, not selected after seeing results.
 
 The raw transcript and event ledger remain private. `sanitize_evidence.py` produces an allowlisted public summary containing counts, reason-code distribution, timings, resource metrics, version SHAs/digests, test status, and reviewer verdicts. It replaces identities with `human`, `lantern-archivist`, `harbor-mechanic`, hashes any correlation identifiers with a run-local salt not committed, and omits content unless the owner separately approves original benign excerpts.
@@ -400,11 +415,11 @@ Collect monotonic-clock timestamps at receive, verified/adapted, decision commit
 
 `evidence/phase-0d/README.md` must identify commands actually run, Green Room SHA, Buzz SHA, dependency-lock hash, image digests, sanitized configuration limits, test counts, measurement method, known omissions, and links to all four review records. Never claim resource or latency values not captured by the run.
 
-Planned canonical test commands after implementation:
+Planned canonical test commands, run from the repository root after implementation:
 
 ```bash
-uv sync --frozen
-uv run python -m unittest discover -s spikes/002-live-buzz/tests -v
+uv sync --project spikes/002-live-buzz --frozen
+uv run --project spikes/002-live-buzz python -m unittest discover -s spikes/002-live-buzz/tests -v
 ```
 
 The focused mock-relay, live, and acceptance commands depend on names created by their RED slices. Record them in the runbook only after each CLI/test target exists and the command has been exercised; do not invent dotted module paths for the hyphenated spike directory.
@@ -427,7 +442,7 @@ Any blocking finding returns to RED-GREEN work and reruns the affected focused, 
 ### Immediate runtime stop
 
 1. Commit room `pause + generation_epoch increment` through the local control path.
-2. Confirm all provider tasks acknowledge cancellation and no `signed`/`publishing` transition occurs in the old epoch.
+2. Confirm all provider tasks acknowledge cancellation, every old-epoch `selected`/`generating`/`signed` decision is durably cancelled, and no new old-epoch `publishing` transition occurs; reconcile any already-`publishing` event by its immutable ID.
 3. Stop only the named Green Room runtime, then the named disposable Buzz Compose project.
 4. Preserve a read-only copy of the SQLite ledger and sanitized logs for review; preserve raw keys/transcript only in the approved private location.
 
