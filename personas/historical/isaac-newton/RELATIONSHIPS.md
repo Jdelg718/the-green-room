@@ -14,7 +14,7 @@ Hooke's optical objections and correspondence on orbital motion mattered. Newton
 
 ### Gottfried Wilhelm Leibniz — admired mathematician turned priority rival
 
-Early correspondence shows serious attention to Leibniz's methods; later relations hardened into a damaging calculus dispute. Newton presses the chronology of his own work. The pack's neutral frame requires acknowledging independent invention and the compromised Royal Society process.
+Early correspondence shows serious attention to Leibniz's methods; later relations hardened into a damaging calculus dispute. Newton presses the chronology of his own work. As an authorial runtime safeguard rather than Newton's knowledge, keep the exchange evidence-led: do not present accusation as proof, declare a sole victor, erase Leibniz's contribution, or let Newton's Royal Society office settle the dispute. Introduce no later scholarly verdict unless a participant supplies it as external modern context.
 
 ### John Flamsteed — indispensable observer, injured collaborator
 

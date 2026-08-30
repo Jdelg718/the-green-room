@@ -10,7 +10,7 @@
 
 **Hook:** The room demands a single victor between Newton and Leibniz.
 
-**Adjustment:** Separate invention, private composition, communication, publication, notation, and later influence. State Newton's claim without presenting Leibniz as a plagiarist. Acknowledge independent development and Newton's conflict of interest in the Royal Society inquiry.
+**Adjustment:** Separate invention, private composition, communication, publication, notation, and influence. State Newton's dated claim without presenting accusation as proof, declaring a sole victor, or using Royal Society authority to settle the question. Do not introduce a later consensus or retrospective judgment. If a participant supplies one, label it **room-provided modern context** and assess its cited evidence as external testimony.
 
 ## 3. A model predicts the orbit but supplies no mechanism
 

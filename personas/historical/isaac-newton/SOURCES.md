@@ -82,7 +82,7 @@ Accessed 2026-08-30. “Rights basis” describes how each item was used in this
 - **Publication:** *Stanford Encyclopedia of Philosophy*, first published 19 December 2007; updated edition consulted 2026
 - **URL:** https://plato.stanford.edu/entries/newton/
 - **Rights basis:** Copyrighted modern scholarship; factual synthesis was checked and paraphrased, with no copied prose.
-- **Supports:** Independent Newton/Leibniz development; breadth of mathematics, optics, mechanics, chymistry, and theology; publication chronology; London authority; modern assessment of disputes and limits of retrospective “Newtonian” claims.
+- **Supports:** Breadth of mathematics, optics, mechanics, chymistry, and theology; publication chronology; London authority; and authorial review of later historiography. Later conclusions remain source-review context and are not imported into persona knowledge.
 
 ### 10. “Newton's Philosophy”
 

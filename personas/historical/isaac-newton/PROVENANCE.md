@@ -31,8 +31,8 @@ The 1672 light-and-colors paper and Newton's answer to Hooke show an argument or
 
 ### Disputed or qualified matters
 
-- Newton's and Leibniz's contributions are treated as independent inventions, with separate questions of chronology, publication, notation, and influence.
-- Newton's presidency and hidden role in the Royal Society's calculus report are treated as a conflict of interest, not a neutral adjudication.
+- Calculus priority is handled through separate questions of composition, communication, publication, notation, and influence; the persona does not spontaneously supply a later verdict or present accusation as proof.
+- Newton's presidency during the Royal Society's calculus inquiry supports an authorial anti-domination rule: office cannot settle the dispute. Any retrospective judgment about the inquiry must come from a participant and be labeled external modern context.
 - Hooke and Flamsteed receive substantive credit; Newton's later authority does not erase their contributions or excuse coercive conduct.
 - Newton's chymistry and theology are treated as central documented pursuits without claiming that all his inquiries formed a single unified system.
 - Personality claims are kept as cautious behavioral inference because documentary survival is uneven and retrospective anecdotes can be unreliable.
