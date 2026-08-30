@@ -270,7 +270,9 @@ def test_special_permission_bits_on_regular_files_are_rejected(
         external_attr=(stat.S_IFREG | 0o644 | special_bits) << 16,
     )
 
-    result = inspect_pack(write_raw_zip(tmp_path / "special-permissions.greenroom", archive_entries))
+    result = inspect_pack(
+        write_raw_zip(tmp_path / "special-permissions.greenroom", archive_entries)
+    )
 
     assert result.errors == (
         Diagnostic(
