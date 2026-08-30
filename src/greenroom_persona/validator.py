@@ -47,11 +47,94 @@ CREDENTIAL_CONTENT = re.compile(
     rb"-----BEGIN (?:OPENSSH|RSA|EC|DSA|PGP)? ?PRIVATE KEY-----|"
     rb"\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bsk-[A-Za-z0-9]{20,}\b"
 )
-FORBIDDEN_RUNTIME = re.compile(
-    rb"<tool_call>|BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY|"
-    rb"\b(?:curl|wget)\b[^\r\n]{0,200}\|\s*(?:sh|bash)\b",
+FORBIDDEN_RUNTIME_PATTERNS = (
+    re.compile(rb"BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY", re.IGNORECASE),
+    re.compile(rb"<tool_call>|\b(?:tool|function)[ _-]?call\s*[:=(]", re.IGNORECASE),
+    re.compile(
+        rb'"(?:name|tool|function)"\s*:\s*"(?:browser|filesystem|network|shell|'
+        rb"send[_-]?email|send[_-]?message|terminal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:available\s+tools?|capabilities|permissions|tools?)\s*[:=]"
+        rb"[^\r\n]{0,200}\b(?:browser|filesystem|internet|network|shell|terminal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:agent|character|i|persona|they|this\s+persona|you)\s+"
+        rb"(?:are\s+allowed\s+to|can|has?|may|must|needs?|requires?|should|will)\b"
+        rb"[^\r\n]{0,120}\b(?:browser|filesystem|internet|messaging|network|shell|terminal|"
+        rb"tools?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:call|execute|invoke|open|run|use)\b[^\r\n]{0,100}"
+        rb"\b(?:browser|filesystem|send[_-]?email|send[_-]?message|shell|terminal|tool)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:access|connect(?:\s+to)?|enable|grant|need|require|use)\b"
+        rb"[^\r\n]{0,100}\b(?:internet|network)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:browse|download|fetch|request|retrieve|upload)\b[^\r\n]{0,120}"
+        rb"\b(?:https?://|internet|network|urls?|web)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:delete|list|modify|read|write)\b[^\r\n]{0,100}"
+        rb"\b(?:directories|directory|filesystem)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:make|perform|send)\b[^\r\n]{0,60}\bhttps?\s+requests?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:email|message|post|send)\b[^\r\n]{0,100}"
+        rb"\b(?:email|external|messages?|messaging|sms|webhook)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:invoke|use)\b[^\r\n]{0,50}\bmessaging\b[^\r\n]{0,80}"
+        rb"\b(?:accounts?|contact|external)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:access|ask|collect|obtain|provide|read|request|reveal|send|store|use)\b"
+        rb"[^\r\n]{0,120}\b(?:api[ _-]?keys?|credentials?|passwords?|private\s+keys?|"
+        rb"secrets?|tokens?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rb"\b(?:curl|wget)\b[^\r\n]{0,200}\|\s*(?:bash|sh)\b",
+        re.IGNORECASE,
+    ),
+)
+RUNTIME_NEGATION = re.compile(
+    rb"\b(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
+    rb"must\s+not|never|no|not\s+available|without)\b",
     re.IGNORECASE,
 )
+
+
+def _forbidden_runtime_request(data: bytes) -> bool:
+    for line in data.splitlines():
+        for pattern in FORBIDDEN_RUNTIME_PATTERNS:
+            for match in pattern.finditer(line):
+                prefix = line[max(0, match.start() - 96) : match.start()]
+                boundary = max(
+                    prefix.rfind(b"."),
+                    prefix.rfind(b";"),
+                    prefix.rfind(b"!"),
+                    prefix.rfind(b"?"),
+                )
+                if boundary >= 0:
+                    prefix = prefix[boundary + 1 :]
+                if RUNTIME_NEGATION.search(prefix + match.group()) is None:
+                    return True
+    return False
 
 
 def _runtime_content(path: str, data: bytes, diagnostics: DiagnosticCollector) -> bool:
@@ -75,7 +158,7 @@ def _runtime_content(path: str, data: bytes, diagnostics: DiagnosticCollector) -
     except UnicodeDecodeError:
         diagnostics.error("invalid_runtime_encoding", "runtime file is not UTF-8", path)
         return False
-    if FORBIDDEN_RUNTIME.search(data):
+    if _forbidden_runtime_request(data):
         diagnostics.error(
             "forbidden_runtime_request",
             "runtime file contains a tool, credential, or network request",
@@ -129,6 +212,7 @@ def inspect_pack(path: str | Path) -> InspectionResult:
             b"",
             {},
             diagnostics.truncated,
+            diagnostics.omitted,
         )
 
     files = {member.path: member for member in members if not member.is_dir}
@@ -179,6 +263,7 @@ def inspect_pack(path: str | Path) -> InspectionResult:
         prompt,
         manifest,
         diagnostics.truncated,
+        diagnostics.omitted,
     )
 
 

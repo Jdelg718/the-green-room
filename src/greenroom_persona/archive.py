@@ -25,6 +25,7 @@ DESCRIPTOR = struct.Struct("<3I")
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 UNICODE_PATH_EXTRA = 0x7075
 UNIX_LINK_EXTRAS = {0x000D, 0x5855, 0x756E, 0x7855, 0x7875}
+POSIX_MODE_PRODUCERS = {3, 19}
 
 
 class ArchiveError(Exception):
@@ -127,15 +128,13 @@ def _decode_and_validate_path(raw_name: bytes) -> tuple[str, bool]:
 
 def _entry_type(entry: _CentralEntry, is_dir: bool) -> None:
     producer_os = entry.version_made >> 8
-    if producer_os == 3:
-        mode = entry.external_attr >> 16
-        file_type = stat.S_IFMT(mode)
-        if is_dir:
-            if file_type not in {0, stat.S_IFDIR}:
-                raise ArchiveError(
-                    "invalid_entry_type", "directory mode disagrees with path", entry.name
-                )
-        elif file_type not in {0, stat.S_IFREG}:
+    mode = entry.external_attr >> 16
+    dos_directory = bool(entry.external_attr & 0x10)
+    file_type = stat.S_IFMT(mode)
+
+    if mode:
+        expected_type = stat.S_IFDIR if is_dir else stat.S_IFREG
+        if file_type != expected_type:
             raise ArchiveError(
                 "invalid_entry_type", "links and special entries are forbidden", entry.name
             )
@@ -143,8 +142,31 @@ def _entry_type(entry: _CentralEntry, is_dir: bool) -> None:
             raise ArchiveError(
                 "invalid_entry_type", "executable mode bits are forbidden", entry.name
             )
-    elif is_dir != bool(entry.external_attr & 0x10):
-        raise ArchiveError("invalid_entry_type", "entry type disagrees with path", entry.name)
+        if mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+            raise ArchiveError(
+                "invalid_entry_type", "special permission bits are forbidden", entry.name
+            )
+
+    if producer_os in POSIX_MODE_PRODUCERS:
+        if not mode:
+            raise ArchiveError(
+                "invalid_entry_type",
+                "POSIX producer omitted canonical file type metadata",
+                entry.name,
+            )
+        if dos_directory and not is_dir:
+            raise ArchiveError(
+                "invalid_entry_type", "DOS and POSIX type metadata conflict", entry.name
+            )
+    else:
+        if mode:
+            raise ArchiveError(
+                "invalid_entry_type",
+                "non-POSIX producer supplied ambiguous mode metadata",
+                entry.name,
+            )
+        if is_dir != dos_directory:
+            raise ArchiveError("invalid_entry_type", "entry type disagrees with path", entry.name)
 
 
 def _inflate(entry: _CentralEntry, compressed: bytes) -> bytes:

@@ -24,6 +24,7 @@ class InspectionResult:
     prompt: bytes = field(repr=False)
     manifest: dict[str, Any] = field(repr=False)
     diagnostics_truncated: bool = False
+    diagnostics_omitted: int = 0
 
     @property
     def prompt_utf8_bytes(self) -> int:
@@ -39,21 +40,29 @@ class DiagnosticCollector:
         self._errors: list[Diagnostic] = []
         self._warnings: list[Diagnostic] = []
         self.truncated = False
+        self._omitted = 0
 
     def error(self, code: str, message: str, path: str = "") -> None:
         if len(self._errors) >= MAX_DIAGNOSTICS:
             self.truncated = True
+            self._omitted += 1
             return
         self._errors.append(Diagnostic(code, message[:240], path[:255]))
 
     def warning(self, code: str, message: str, path: str = "") -> None:
         if len(self._warnings) >= MAX_DIAGNOSTICS:
             self.truncated = True
+            self._omitted += 1
             return
         self._warnings.append(Diagnostic(code, message[:240], path[:255]))
 
-    def mark_truncated(self) -> None:
+    def mark_truncated(self, omitted: int = 1) -> None:
         self.truncated = True
+        self._omitted += max(1, omitted)
+
+    @property
+    def omitted(self) -> int:
+        return self._omitted
 
     @property
     def errors(self) -> tuple[Diagnostic, ...]:

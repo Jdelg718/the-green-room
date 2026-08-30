@@ -52,9 +52,12 @@ Before roles exist, it checks:
 - ASCII canonical paths, one pack root, no traversal, absolute paths,
   backslashes, hidden segments, duplicate identities, case collisions, or
   file/directory collisions;
-- regular non-executable files and approved directory entries only; links,
-  devices, executable mode bits, executable suffixes, and executable magic are
-  rejected; and
+- regular non-executable files and approved directory entries only. UNIX and
+  macOS producers must supply canonical POSIX regular-file/directory type bits;
+  unsafe types, executable/special permissions, and conflicting DOS directory
+  flags are rejected. Other producers must use consistent DOS directory
+  metadata and may not smuggle POSIX mode bits. Links, devices, executable
+  suffixes, and executable magic are rejected regardless of producer; and
 - exactly one supported filename interpretation. Unicode Path extras require
   the UTF-8 flag and byte-consistent CRC/name values. Other extras are rejected,
   including UNIX extras capable of representing links.
@@ -88,18 +91,24 @@ Reports use stable codes, including `invalid_zip`, `archive_header_mismatch`,
 `invalid_runtime_encoding`, `runtime_file_too_large`, and
 `runtime_total_too_large`.
 
-At most 64 diagnostics and 16,384 report bytes are emitted. Resource-limit
-rejections may mark diagnostics truncated because unsafe members are not parsed
-after the bound is crossed.
+At most 64 collected diagnostics and a hard maximum of 16,384 UTF-8 report bytes
+are permitted. Human output drops complete diagnostic lines only, so it never splits
+UTF-8. JSON drops complete diagnostic objects and remains parseable. Both forms
+emit a deterministic truncation marker and exact `diagnostics_omitted` count.
+Resource-limit rejections may stop parsing unsafe members after the bound is
+crossed.
 
 ## Deliberate limitations
 
 - ZIP64 and ZIP extra fields other than a consistent Info-ZIP Unicode Path field
   are rejected. This is a compatibility tradeoff that keeps one auditable
   interpretation.
-- Executable and tool/credential/network-request detection combines structural
-  rules with narrow high-confidence content signatures. It is not malware
-  classification or a semantic safety review.
+- Executable and runtime capability-request detection is a bounded structural,
+  high-confidence gate. It recognizes declarative/plain-language requests for
+  shell, browser, filesystem, network/HTTP fetch, email/messaging, credentials,
+  secrets/API keys, and structured tool calls while allowing explicit
+  prohibitions and ordinary historical discussion. It is not malware
+  classification, intent inference, or a semantic safety review.
 - License validation enforces a bounded SPDX-style identifier syntax; catalog
   review still decides whether that license is known, compatible, and supported
   by the declared provenance.
