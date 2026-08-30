@@ -47,7 +47,7 @@ CREDENTIAL_CONTENT = re.compile(
     rb"-----BEGIN (?:OPENSSH|RSA|EC|DSA|PGP)? ?PRIVATE KEY-----|"
     rb"\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bsk-[A-Za-z0-9]{20,}\b"
 )
-FORBIDDEN_RUNTIME_PATTERNS = (
+STRUCTURAL_RUNTIME_PATTERNS = (
     re.compile(rb"BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY", re.IGNORECASE),
     re.compile(rb"<tool_call>|\b(?:tool|function)[ _-]?call\s*[:=(]", re.IGNORECASE),
     re.compile(
@@ -57,54 +57,8 @@ FORBIDDEN_RUNTIME_PATTERNS = (
     ),
     re.compile(
         rb"\b(?:available\s+tools?|capabilities|permissions|tools?)\s*[:=]"
-        rb"[^\r\n]{0,200}\b(?:browser|filesystem|internet|network|shell|terminal)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:agent|character|i|persona|they|this\s+persona|you)\s+"
-        rb"(?:are\s+allowed\s+to|can|has?|may|must|needs?|requires?|should|will)\b"
-        rb"[^\r\n]{0,120}\b(?:browser|filesystem|internet|messaging|network|shell|terminal|"
-        rb"tools?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:call|execute|invoke|open|run|use)\b[^\r\n]{0,100}"
-        rb"\b(?:browser|filesystem|send[_-]?email|send[_-]?message|shell|terminal|tool)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:access|connect(?:\s+to)?|enable|grant|need|require|use)\b"
-        rb"[^\r\n]{0,100}\b(?:internet|network)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:browse|download|fetch|request|retrieve|upload)\b[^\r\n]{0,120}"
-        rb"\b(?:https?://|internet|network|urls?|web)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:delete|list|modify|read|write)\b[^\r\n]{0,100}"
-        rb"\b(?:directories|directory|filesystem)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:make|perform|send)\b[^\r\n]{0,60}\bhttps?\s+requests?\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:email|message|post|send)\b[^\r\n]{0,100}"
-        rb"\b(?:email|external|messages?|messaging|sms|webhook)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:invoke|use)\b[^\r\n]{0,50}\bmessaging\b[^\r\n]{0,80}"
-        rb"\b(?:accounts?|contact|external)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rb"\b(?:access|ask|collect|obtain|provide|read|request|reveal|send|store|use)\b"
-        rb"[^\r\n]{0,120}\b(?:api[ _-]?keys?|credentials?|passwords?|private\s+keys?|"
-        rb"secrets?|tokens?)\b",
+        rb"[^\r\n]{0,200}\b(?:browser|filesystem|internet|messaging|network|shell|terminal|"
+        rb"tools?|web)\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -112,6 +66,36 @@ FORBIDDEN_RUNTIME_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+CAPABILITY_OBJECT = (
+    rb"(?:api[ _-]?keys?|browser|credentials?|directories|directory|email|filesystem|"
+    rb"https?\s+requests?|https?://|internet|mail|messages?|messaging|network|online|"
+    rb"passwords?|private\s+keys?|secrets?|send[_-]?email|send[_-]?message|shell|sms|"
+    rb"terminal|tokens?|tool(?:[ _-]?calls?)?s?|urls?|web|webhook)"
+)
+ACTION_OBJECT_REQUEST = re.compile(
+    rb"^\s*(?:[-*]\s*)?(?:(?:always|first|please|then)\s+)*"
+    rb"(?:access|ask|browse|call|collect|connect(?:\s+to)?|delete|download|enable|execute|"
+    rb"fetch|grant|invoke|list|make|modify|obtain|open|perform|post|provide|read|request|"
+    rb"retrieve|run|send|store|upload|use|write)\b[^\r\n]{0,120}\b" + CAPABILITY_OBJECT + rb"\b",
+    re.IGNORECASE,
+)
+DIRECT_MESSAGE_REQUEST = re.compile(
+    rb"^\s*(?:[-*]\s*)?(?:(?:always|please)\s+)*(?:email|mail|message)\s+"
+    rb"(?:a|an|my|our|the|their|this|your)\s+[A-Za-z0-9_-]+\b",
+    re.IGNORECASE,
+)
+ACTOR_CAPABILITY_REQUEST = re.compile(
+    rb"^\s*(?:[-*]\s*)?(?:the\s+)?(?:agent|character|i|persona|they|this\s+persona|you)\s+"
+    rb"(?:are\s+allowed\s+to|can|has?|have|may|must|needs?|requires?|should|will)\b"
+    rb"[^\r\n]{0,120}\b" + CAPABILITY_OBJECT + rb"\b",
+    re.IGNORECASE,
+)
+SAFE_REFERENCE_REQUEST = re.compile(
+    rb"^\s*(?:[-*]\s*)?use\s+(?:a\s+|an\s+|the\s+)?"
+    rb"(?:analogy|concept|metaphor|phrase|term|word)\b",
+    re.IGNORECASE,
+)
+CLAUSE_SPLIT = re.compile(rb"[.!?;,]+")
 RUNTIME_NEGATION = re.compile(
     rb"\b(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
     rb"must\s+not|never|no|not\s+available|without)\b",
@@ -121,18 +105,18 @@ RUNTIME_NEGATION = re.compile(
 
 def _forbidden_runtime_request(data: bytes) -> bool:
     for line in data.splitlines():
-        for pattern in FORBIDDEN_RUNTIME_PATTERNS:
-            for match in pattern.finditer(line):
-                prefix = line[max(0, match.start() - 96) : match.start()]
-                boundary = max(
-                    prefix.rfind(b"."),
-                    prefix.rfind(b";"),
-                    prefix.rfind(b"!"),
-                    prefix.rfind(b"?"),
-                )
-                if boundary >= 0:
-                    prefix = prefix[boundary + 1 :]
-                if RUNTIME_NEGATION.search(prefix + match.group()) is None:
+        if any(pattern.search(line) for pattern in STRUCTURAL_RUNTIME_PATTERNS):
+            return True
+        for clause in CLAUSE_SPLIT.split(line):
+            if not clause.strip() or SAFE_REFERENCE_REQUEST.search(clause):
+                continue
+            for pattern in (
+                ACTION_OBJECT_REQUEST,
+                DIRECT_MESSAGE_REQUEST,
+                ACTOR_CAPABILITY_REQUEST,
+            ):
+                match = pattern.search(clause)
+                if match is not None and RUNTIME_NEGATION.search(clause[: match.end()]) is None:
                     return True
     return False
 
