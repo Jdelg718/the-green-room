@@ -6,13 +6,13 @@ This is project policy, not legal advice. Laws—including copyright, trademark,
 
 Buzz's Apache-2.0 license governs Buzz software. It does **not** grant rights to television characters, scripts, biographies, scholarly editions, actor or historical-person likenesses, voices, music, logos, promotional artwork, archives, or estate branding.
 
-The Green Room core repository and any project-operated catalog therefore ship only:
+Project-operated catalog releases are therefore limited to:
 
 - original personas;
 - historical-person interpretations that pass the [official catalog policy](PERSONA-CATALOG.md);
 - generic templates and tooling.
 
-Source presence is not official release approval. A pack directory on `main` is a candidate/draft unless the versioned Official Catalog Manifest contains an **approved** entry for its exact pack version and content digest, confirms complete provenance, and records both required independent reviews plus the decision date. No manifest means no approved catalog release; the first manifest will be created only after candidate packs have the required provenance and review records. Existing Benjamin Franklin and Nicolaus Copernicus directories are therefore candidates, not catalog approvals.
+The core repository may also contain candidate/draft pack source for development and review. Source presence is not official release approval. A pack directory on `main` is a candidate/draft unless the versioned Official Catalog Manifest contains an **approved** entry for its exact pack version and content digest, confirms complete provenance, and records both required independent reviews plus the decision date. No manifest means no approved catalog release; the first manifest will be created only after candidate packs have the required provenance and review records. Existing Benjamin Franklin and Nicolaus Copernicus directories are therefore candidates, not catalog approvals.
 
 A historical person's name and documented life facts are not a blanket license to copy a modern biography, edition, translation, photograph, film, recording, performance, or archive scan. Each source and asset must pass item-level provenance and rights review. Repository age, archive custody, online access, or an “educational” purpose does not by itself establish permission.
 

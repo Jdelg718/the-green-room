@@ -4,7 +4,7 @@
 
 This document governs personas distributed by The Green Room repository or any future project-operated catalog. It is project policy, not legal advice, and it does not promise that a person, text, image, edition, recording, or use is lawful in every jurisdiction.
 
-The official baseline catalog starts with:
+The planned official baseline catalog is limited to:
 
 1. original personas created for the project; and
 2. carefully researched historical-person interpretations built from item-reviewed public-domain material and project-original prose and artwork.

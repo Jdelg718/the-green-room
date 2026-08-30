@@ -55,7 +55,7 @@ These are original archetypes, not renamed copies of protected television charac
 
 ## Official catalog strategy
 
-The first official catalog baseline combines project-original personas with carefully sourced public-domain historical interpretations. It does not distribute modern television, film, musician, athlete, fashion, celebrity, or estate-controlled packs merely because they are culturally recognizable.
+The planned first official catalog baseline combines project-original personas with carefully sourced public-domain historical interpretations. It does not distribute modern television, film, musician, athlete, fashion, celebrity, or estate-controlled packs merely because they are culturally recognizable.
 
 Repository source presence is not catalog admission. The sole inclusion authority is a versioned Official Catalog Manifest whose approved entry binds an exact pack version and content digest to complete provenance, two independent review records, and a decision date. A persona directory on `main` without that entry is a candidate/draft. No manifest exists yet; the first will be created only after packs are upgraded to the required provenance and review records, so currently merged packs such as Benjamin Franklin and Nicolaus Copernicus are not yet approved catalog releases.
 
