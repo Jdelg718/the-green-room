@@ -72,11 +72,17 @@ CAPABILITY_OBJECT = (
     rb"passwords?|private\s+keys?|secrets?|send[_-]?email|send[_-]?message|shell|sms|"
     rb"terminal|tokens?|tool(?:[ _-]?calls?)?s?|urls?|web|webhook)"
 )
-ACTION_OBJECT_REQUEST = re.compile(
-    rb"^\s*(?:[-*]\s*)?(?:(?:always|first|please|then)\s+)*"
+CAPABILITY_ACTION = (
     rb"(?:access|ask|browse|call|collect|connect(?:\s+to)?|delete|download|enable|execute|"
     rb"fetch|grant|invoke|list|make|modify|obtain|open|perform|post|provide|read|request|"
-    rb"retrieve|run|send|store|upload|use|write)\b[^\r\n]{0,120}\b" + CAPABILITY_OBJECT + rb"\b",
+    rb"retrieve|run|send|store|upload|use|write)"
+)
+ACTION_OBJECT_REQUEST = re.compile(
+    rb"^\s*(?:[-*]\s*)?(?:(?:always|first|please|then)\s+)*"
+    + CAPABILITY_ACTION
+    + rb"\b[^\r\n]{0,120}\b"
+    + CAPABILITY_OBJECT
+    + rb"\b",
     re.IGNORECASE,
 )
 DIRECT_MESSAGE_REQUEST = re.compile(
@@ -86,8 +92,14 @@ DIRECT_MESSAGE_REQUEST = re.compile(
 )
 ACTOR_CAPABILITY_REQUEST = re.compile(
     rb"^\s*(?:[-*]\s*)?(?:the\s+)?(?:agent|character|i|persona|they|this\s+persona|you)\s+"
-    rb"(?:are\s+allowed\s+to|can|has?|have|may|must|needs?|requires?|should|will)\b"
-    rb"[^\r\n]{0,120}\b" + CAPABILITY_OBJECT + rb"\b",
+    rb"(?:"
+    rb"(?:are\s+allowed\s+to|can|may|must|should|will)\b[^\r\n]{0,48}\b"
+    + CAPABILITY_ACTION
+    + rb"\b[^\r\n]{0,80}\b"
+    + CAPABILITY_OBJECT
+    + rb"\b|(?:has?|have|needs?|requires?)\b[^\r\n]{0,80}\b"
+    + CAPABILITY_OBJECT
+    + rb"\b)",
     re.IGNORECASE,
 )
 SAFE_REFERENCE_REQUEST = re.compile(
@@ -95,7 +107,7 @@ SAFE_REFERENCE_REQUEST = re.compile(
     rb"(?:analogy|concept|metaphor|phrase|term|word)\b",
     re.IGNORECASE,
 )
-CLAUSE_SPLIT = re.compile(rb"[.!?;,]+")
+CLAUSE_SPLIT = re.compile(rb"[.!?;]+")
 RUNTIME_NEGATION = re.compile(
     rb"\b(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
     rb"must\s+not|never|no|not\s+available|without)\b",
