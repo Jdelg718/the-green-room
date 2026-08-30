@@ -6,4 +6,3 @@ committed so the RED test commit preserves the exact hostile bytes used during
 the TDD cycle.
 
 No fixture is extracted or executed by the test suite.
-
