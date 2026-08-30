@@ -127,10 +127,13 @@ The wheel contains only the runtime package and required distribution metadata.
   prohibitions and ordinary historical discussion. Action/object matches are
   limited to short imperative or explicitly empowered-persona clauses;
   sentence and semicolon boundaries stop negation from leaking into later
-  requests, while comma-coordinated prohibition lists retain their negation.
-  This is not malware classification, intent inference, or a semantic safety
-  review. Indirect, novel, or deliberately obfuscated wording can evade it, and
-  unusual benign imperative wording can still be rejected.
+  requests. Within a clause, comma segments are evaluated around each local
+  action/object pair: negation must govern a capability action, `or`/`nor` and
+  bare coordinated list items may inherit that prohibition, and affirmative
+  transitions such as `then`, `and then`, `but`, `however`, and `instead` reset
+  it. This is not malware classification, intent inference, or a semantic
+  safety review. Indirect, novel, or deliberately obfuscated wording can evade
+  it, and unusual benign imperative wording can still be rejected.
 - License validation enforces a bounded SPDX-style identifier syntax; catalog
   review still decides whether that license is known, compatible, and supported
   by the declared provenance.

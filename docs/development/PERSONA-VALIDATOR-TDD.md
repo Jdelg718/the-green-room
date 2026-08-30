@@ -235,6 +235,10 @@ The unchanged focused selection then passed:
 29 passed, 149 deselected in 0.83s
 ```
 
+That result is the exact then-current collection. After the later negation-scope
+regressions expanded the same four test files, the unchanged selector reports
+`29 passed, 171 deselected`; the selected behavior count did not change.
+
 The full suite initially exposed current-pack false positives in coordinated
 prohibition lists and historical prose. The last GREEN slice narrowed subject
 grammar without weakening the new action/object cases; the next full run was:
@@ -253,6 +257,61 @@ wheel  sha256 9f3ff151bc870863fce17094598847776b690fe7cff79dda4f378a7b560beafe
 The 15-entry sdist contains only the runtime source, schema, license, README,
 `pyproject.toml`, generated `PKG-INFO`, and Hatch's VCS exclusion metadata. The
 14-entry wheel contains only the runtime package and distribution metadata.
+
+## PR #37 comma/conjunction negation-scope remediation
+
+Review base:
+
+```text
+20242ccf539894ac3caca90428c9e9adf193ce92
+docs(persona): record final reproducible artifacts
+```
+
+Tests-only RED commit:
+
+```text
+82e7bb534f336d4f5c8be084b56cfceaf00ee9e7
+test(persona): reproduce capability negation leaks (RED)
+```
+
+The exact four reported phrases, additional comma/transition forms, coordinated
+prohibition controls, historical discussion controls, and four one-change
+mutation pairs produced:
+
+```text
+12 failed, 10 passed, 54 deselected in 0.62s
+```
+
+GREEN commit:
+
+```text
+1fea96ddc852bda88a4ccb4e6adf978d31d30e73
+fix(persona): scope capability negation to action lists
+```
+
+The parser now evaluates bounded comma segments around each capability action.
+A negation prefix must govern that capability action to establish a prohibition
+chain. `or`/`nor` and coordinated list items can inherit the chain; `then`,
+`and then`, `but`, `however`, `instead`, sentence, and semicolon transitions
+cannot. Markdown list/emphasis prefixes are recognized without general NLP.
+
+Results:
+
+```text
+22 passed, 54 deselected in 0.33s
+29 passed, 171 deselected in 0.79s
+204 passed in 3.82s  # CPython 3.12
+204 passed in 4.99s  # CPython 3.11
+204 passed in 4.43s  # CPython 3.13
+```
+
+All 12 current source packs validate. Final source changes produce byte-identical
+artifacts across consecutive builds:
+
+```text
+sdist sha256 b6f238e5c8e0422fccae0333bef76dfdfba5856dbf5c86e08b2a2ac5d75fd474
+wheel  sha256 659fdcc72e9df71c3bf3648915dacf382520678ae2cb030377871715c62fad63
+```
 
 ## Final verification commands
 
