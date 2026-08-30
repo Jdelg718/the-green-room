@@ -1,5 +1,6 @@
 import random
 import unittest
+from typing import Any
 
 from director import Director, Event, TrustedEventAdapter
 
@@ -61,6 +62,22 @@ class DirectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_autonomous_turns"):
             Director(("ada",), max_autonomous_turns=-1)
 
+    def test_constructor_rejects_non_integer_bounds(self):
+        invalid_values: tuple[Any, ...] = (
+            True,
+            False,
+            1.0,
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+        )
+        for field in ("cooldown_events", "max_autonomous_turns"):
+            for value in invalid_values:
+                with self.subTest(field=field, value=value):
+                    kwargs: dict[str, Any] = {field: value}
+                    with self.assertRaisesRegex(TypeError, field):
+                        Director(("ada",), **kwargs)
+
     def test_autonomous_turn_budget_is_a_hard_maximum(self):
         director = Director(("ada", "bert"), max_autonomous_turns=1)
 
@@ -99,6 +116,27 @@ class DirectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "event_id"):
             TrustedEventAdapter("relay").human_event("", "Missing id.")
 
+    def test_trusted_adapter_requires_canonical_nonblank_string_identifiers(self):
+        non_strings: tuple[Any, ...] = (1, None, b"relay")
+        for namespace in non_strings:
+            with self.subTest(identifier="namespace", value=namespace):
+                with self.assertRaisesRegex(TypeError, "namespace"):
+                    TrustedEventAdapter(namespace)
+        for namespace in (" ", "\t\n", " relay", "relay "):
+            with self.subTest(identifier="namespace", value=namespace):
+                with self.assertRaisesRegex(ValueError, "namespace"):
+                    TrustedEventAdapter(namespace)
+
+        adapter = TrustedEventAdapter("relay")
+        for event_id in non_strings:
+            with self.subTest(identifier="event_id", value=event_id):
+                with self.assertRaisesRegex(TypeError, "event_id"):
+                    adapter.human_event(event_id, "Invalid id.")
+        for event_id in (" ", "\t\n", " evt", "evt "):
+            with self.subTest(identifier="event_id", value=event_id):
+                with self.assertRaisesRegex(ValueError, "event_id"):
+                    adapter.human_event(event_id, "Invalid id.")
+
     def test_adapter_namespaces_prevent_cross_relay_id_collisions(self):
         director = Director(("ada",), max_autonomous_turns=2)
         relay_a = TrustedEventAdapter("relay-a")
@@ -106,6 +144,17 @@ class DirectorTests(unittest.TestCase):
 
         first = director.schedule(relay_a.human_event("evt-1", "From A."))
         second = director.schedule(relay_b.human_event("evt-1", "From B."))
+
+        self.assertEqual(first.speaker, "ada")
+        self.assertEqual(second.speaker, "ada")
+
+    def test_namespace_and_event_id_boundaries_have_injective_identity(self):
+        director = Director(("ada",), max_autonomous_turns=2)
+        relay_a = TrustedEventAdapter("relay:a")
+        relay = TrustedEventAdapter("relay")
+
+        first = director.schedule(relay_a.human_event("evt", "First boundary."))
+        second = director.schedule(relay.human_event("a:evt", "Second boundary."))
 
         self.assertEqual(first.speaker, "ada")
         self.assertEqual(second.speaker, "ada")
