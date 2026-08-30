@@ -29,6 +29,7 @@ A private, local room with:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hosting placement decision](docs/adr/0000-hosting-placement.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
 - [Implementation plan](.hermes/plans/2026-08-30_121840-the-green-room-roadmap.md)
@@ -40,8 +41,10 @@ A private, local room with:
 3. **Private by default.** Local/self-hosted operation comes before public hosting.
 4. **No unnecessary agency.** Entertainment personas do not need shell or account access.
 5. **Portable personas.** Packs are plain files with documented schemas.
-6. **Original examples.** The public repository ships original or public-domain personas, not copyrighted television-character packs.
+6. **Original examples, explicit admission.** The public repository contains original or public-domain persona source, not copyrighted television-character packs. Source presence is not official-catalog approval: only an approved, version-and-digest-specific entry in the versioned Official Catalog Manifest admits a pack. Official catalog artwork/assets are limited to item-reviewed public-domain works or original project-commissioned/stylized artwork.
 7. **Fork-friendly.** Apache-2.0 licensing, documented setup, and no proprietary lock-in.
+
+No Official Catalog Manifest exists yet. Persona directories on `main`, including Benjamin Franklin and Nicolaus Copernicus, remain candidates/drafts until packs have complete provenance, two independent review records, and an approved manifest decision and date. “Community packs” are externally authored and distributed unofficial packs, not content hosted, indexed, or redistributed by project-operated infrastructure; private local imports remain the user's responsibility. Any future project-hosted public community catalog must use the official gate or a separately approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary.
 
 ## Upstream
 
