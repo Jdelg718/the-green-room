@@ -84,6 +84,7 @@ def unicode_path_extra(raw_name: bytes, unicode_name: str) -> bytes:
 class RawEntry:
     central_name: bytes
     data: bytes = b"x\n"
+    version_made: int = (3 << 8) | 20
     local_name: bytes | None = None
     central_flags: int = 0
     local_flags: int | None = None
@@ -169,7 +170,7 @@ def write_raw_zip(path: Path, entries: list[RawEntry], *, prefix: bytes = b"") -
         central_records += struct.pack(
             "<4s6H3I5H2I",
             b"PK\x01\x02",
-            (3 << 8) | 20,
+            entry.version_made,
             20,
             entry.central_flags,
             entry.central_method,

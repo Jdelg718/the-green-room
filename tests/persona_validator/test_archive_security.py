@@ -175,6 +175,50 @@ def test_links_devices_and_executable_modes_are_rejected(
     )
 
 
+@pytest.mark.parametrize(
+    ("producer_os", "external_attr"),
+    [
+        (19, (stat.S_IFLNK | 0o777) << 16),
+        (19, (stat.S_IFCHR | 0o644) << 16),
+        (19, (stat.S_IFREG | 0o755) << 16),
+        (0, (stat.S_IFLNK | 0o777) << 16),
+        (0, (stat.S_IFCHR | 0o644) << 16),
+        (0, (stat.S_IFREG | 0o755) << 16),
+        (0, (stat.S_IFREG | 0o644) << 16),
+        (3, 0),
+        (3, ((stat.S_IFREG | 0o644) << 16) | 0x10),
+    ],
+)
+def test_creator_mode_smuggling_and_conflicting_metadata_fail_closed(
+    tmp_path: Path, producer_os: int, external_attr: int
+) -> None:
+    archive_entries = raw_entries()
+    original = archive_entries[1]
+    archive_entries[1] = RawEntry(
+        original.central_name,
+        original.data,
+        version_made=(producer_os << 8) | 20,
+        external_attr=external_attr,
+    )
+
+    assert "invalid_entry_type" in codes(
+        write_raw_zip(tmp_path / "creator-mode-smuggling.greenroom", archive_entries)
+    )
+
+
+def test_macos_creator_with_canonical_regular_metadata_is_accepted(tmp_path: Path) -> None:
+    archive_entries = raw_entries()
+    original = archive_entries[1]
+    archive_entries[1] = RawEntry(
+        original.central_name,
+        original.data,
+        version_made=(19 << 8) | 20,
+        external_attr=(stat.S_IFREG | 0o644) << 16,
+    )
+
+    assert inspect_pack(write_raw_zip(tmp_path / "macos-regular.greenroom", archive_entries)).valid
+
+
 def test_preamble_and_trailing_hidden_bytes_are_rejected(tmp_path: Path) -> None:
     preamble = write_raw_zip(tmp_path / "preamble.greenroom", raw_entries(), prefix=b"hidden")
     trailing = write_raw_zip(tmp_path / "trailing.greenroom", raw_entries())

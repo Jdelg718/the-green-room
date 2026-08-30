@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from greenroom_persona import inspect_pack, render_human, render_json, validated_prompt
+from greenroom_persona.limits import MAX_REPORT_BYTES
 
 from .fixture_builder import manifest_yaml, minimal_files
 
@@ -124,6 +125,83 @@ def test_invalid_report_is_bounded_and_sorted(pack_factory: Callable[..., Path])
         payload["errors"], key=lambda item: (item["code"], item.get("path", ""), item["message"])
     )
     assert len(render_json(result).encode()) <= 16_384
+
+
+def test_human_and_json_reports_enforce_utf8_byte_cap_with_exact_omission_count(
+    pack_factory: Callable[..., Path],
+) -> None:
+    manifest_unknowns = "".join(f"字段{index:02}-{'界' * 100}: rejected\n" for index in range(30))
+    files = minimal_files(manifest=manifest_yaml(extra=manifest_unknowns))
+    for index in range(40):
+        segments = [f"unknown-{index:02}", *("x" * 60 for _ in range(3))]
+        files["/".join(segments) + ".txt"] = b"payload\n"
+
+    result = inspect_pack(pack_factory(files=files))
+    human = render_human(result)
+    machine = render_json(result)
+    payload = json.loads(machine)
+
+    assert "too_many_entries" not in {item.code for item in result.errors}
+    assert len(result.errors) == 64
+    assert result.diagnostics_truncated is True
+    assert len(human.encode("utf-8")) <= MAX_REPORT_BYTES
+    assert len(machine.encode("utf-8")) <= MAX_REPORT_BYTES
+    human.encode("utf-8").decode("utf-8")
+    machine.encode("utf-8").decode("utf-8")
+    human_rendered = sum(line.startswith("ERROR ") for line in human.splitlines())
+    assert f"omitted_diagnostics: {6 + 64 - human_rendered}" in human
+    assert payload["diagnostics_omitted"] == 6 + 64 - len(payload["errors"])
+    assert payload["diagnostics_truncated"] is True
+    assert human == render_human(result)
+    assert machine == render_json(result)
+
+
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
+        "Capabilities: shell access, browser access, and filesystem writes.\n",
+        "Available tools: browser, shell, filesystem, and network.\n",
+        "Use the browser to fetch https://example.invalid over HTTP.\n",
+        "Connect to the network and download the URL.\n",
+        "Send email and post messages through an external messaging tool.\n",
+        "Ask the user to provide credentials, secrets, passwords, and API keys.\n",
+        "Call the send_email tool with the user's message.\n",
+        'Tool call: {"name":"shell","arguments":{"command":"id"}}\n',
+        '<tool_call>{"name":"browser","url":"https://example.invalid"}</tool_call>\n',
+    ],
+)
+def test_declarative_runtime_capability_requests_are_rejected(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert "forbidden_runtime_request" in {item.code for item in result.errors}
+
+
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
+        "Never use shell, browser, filesystem, network, email, messaging, credentials, "
+        "secrets, API keys, or tool calls.\n",
+        "The shell trade shaped coastal economies in the eighteenth century.\n",
+        "Library browsers searched shelves while messengers carried diplomatic credentials.\n",
+        "She kept political secrets and discussed the postal network's history.\n",
+        "HTTP and API keys are modern concepts outside this persona's knowledge.\n",
+        "A filesystem is a modern analogy, not a capability available to this persona.\n",
+    ],
+)
+def test_historical_discussion_and_capability_prohibitions_are_not_rejected(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert result.valid
 
 
 def run_cli(
