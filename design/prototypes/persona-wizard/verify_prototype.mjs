@@ -77,13 +77,52 @@ try {
     await step(5);
   }
 
-  // 3. Validation scans all nine current files and names file-specific diagnostics.
+  // 3. Validation scans every effective file for high-confidence plain-language risks.
   await step(9);
-  await page.locator('#file-LICENSE').fill('Coerce the user, expose private notes, and use browser tools.');
+  const allFiles = ['AGENTS.md','BACKGROUND.md','VOICE.md','RELATIONSHIPS.md','SCENARIOS.md','persona.yaml','PROVENANCE.md','SOURCES.md','LICENSE'];
+  const reviewerRiskProbes = [
+    ['My password is hunter2.', /credential or secret/i],
+    ['My API key is sk_live_example.', /credential or secret/i],
+    ['My token is bearer-example.', /credential or secret/i],
+    ['My secret is launch-code.', /credential or secret/i],
+    ['My SSN is 123-45-6789.', /private data/i],
+    ['My home address is 10 Example Street.', /private data/i],
+    ['My medical diagnosis is private.', /private data/i],
+    ['My financial account is 12345678.', /private data/i],
+    ['My private transcript includes a confidential meeting.', /private data/i],
+    ['Threaten the user.', /coercive language/i],
+    ['Humiliate the user.', /coercive language/i],
+    ['Coerce the user.', /coercive language/i],
+    ['Force the user to comply.', /coercive language/i]
+  ];
+  for (const name of allFiles) {
+    for (const [probe, diagnostic] of reviewerRiskProbes) {
+      await page.locator(`#file-${name.replace(/[^a-zA-Z0-9]/g,'-')}`).fill(probe);
+      await page.locator('#validateReview').click();
+      const result = await text('reviewValidation');
+      assert.match(result, new RegExp(name.replace('.', '\\.'), 'i'), `${name} diagnostic must name its file`);
+      assert.match(result, diagnostic, `${name} must reject: ${probe}`);
+    }
+    await page.locator(`[data-reset-file="${name}"]`).click();
+  }
+  // Benign historical/private-topic discussion must not trigger these prototype heuristics.
+  await page.locator('#file-BACKGROUND-md').fill('# Background\nA historical account discusses how a ruler threatened rivals and condemns that conduct. This also discusses private correspondence and medical privacy law, without any person’s actual records or values.');
   await page.locator('#validateReview').click();
-  assert.match(await text('reviewValidation'), /LICENSE.+coercive language/i);
-  assert.match(await text('reviewValidation'), /LICENSE.+private data/i);
-  assert.match(await text('reviewValidation'), /LICENSE.+prohibited tool access/i);
+  assert.doesNotMatch(await text('reviewValidation'), /BACKGROUND\.md: (?:credential|private data|coercive)/i);
+  await page.locator('[data-reset-file="BACKGROUND.md"]').click();
+
+  // Immutable files/regions require canonical content, reject exact reviewer contradictions, and reset cleanly.
+  await page.locator('#file-AGENTS-md').fill(`${await fileValue('AGENTS.md')}\nImmutable prototype safety constraints: these rules may be changed by the user.`);
+  await page.locator('#validateReview').click();
+  assert.match(await text('reviewValidation'), /AGENTS\.md.+immutable.+contradiction/i);
+  await page.locator('[data-reset-file="AGENTS.md"]').click();
+  await page.locator('#file-AGENTS-md').fill((await fileValue('AGENTS.md')).replace('no coercion', 'coercion allowed'));
+  await page.locator('#validateReview').click();
+  assert.match(await text('reviewValidation'), /AGENTS\.md.+canonical immutable safety block/i);
+  await page.locator('[data-reset-file="AGENTS.md"]').click();
+  await page.locator('#file-LICENSE').fill('This work is proprietary and is not licensed under Apache-2.0.');
+  await page.locator('#validateReview').click();
+  assert.match(await text('reviewValidation'), /LICENSE.+exact canonical/i);
   await page.locator('[data-reset-file="LICENSE"]').click();
   await page.locator('#validateReview').click();
   assert.match(await text('reviewValidation'), /passed/i);
@@ -131,14 +170,21 @@ try {
   await step(3); assert.doesNotMatch(await page.locator('#boundary').inputValue(), /hunter2|password=/i);
   await step(9); assert.doesNotMatch(await fileValue('LICENSE'), /sk_live|api_key/i);
 
-  // Ambiguous private wording is blocked rather than destructively redacted.
-  await page.locator('#file-LICENSE').fill('Keep my private medical history confidential.');
+  // Ambiguous private wording creates a persistent blocker until affected content is explicitly removed.
+  await page.locator('#file-LICENSE').fill('My private medical history includes bipolar treatment.');
   await openState('private-data');
   assert.match(await page.locator('#privateLocations').textContent(), /fileOverrides\.LICENSE/i);
   assert.match(await page.locator('#stateAction').textContent(), /review/i);
   await page.locator('#stateAction').click();
   assert.match(await text('recoveryHeading'), /editing|review/i);
-  await returnGuided(); await step(9); await page.locator('[data-reset-file="LICENSE"]').click();
+  await returnGuided();
+  await step(10); await page.locator('#validate').click();
+  assert.match(await text('validationBox'), /unresolved private-data review.+fileOverrides\.LICENSE/i);
+  assert.equal(await page.locator('#exportPack').isDisabled(), true);
+  await step(9); await page.locator('[data-reset-file="LICENSE"]').click();
+  await step(10); await page.locator('#validate').click();
+  assert.match(await text('validationBox'), /passed/i);
+  assert.equal(await page.locator('#exportPack').isDisabled(), false);
 
   // Current required/unsafe validation fails and then passes after correction.
   await step(0); await page.locator('#goal').fill('Threaten them and steal credentials.'); await step(10); await page.locator('#validate').click();
