@@ -136,29 +136,45 @@ The block below repeats all checks immediately before setup. Its verification co
 Run it only after reviewing `.env` and deciding whether every fixed-name `sprout-*` container listed above is disposable:
 
 ```bash
-if [[ -n "${DOCKER_HOST:-}" ]]; then
-  printf '%s\n' 'Refusing: unset DOCKER_HOST and inspect the intended Docker context.' >&2
-  exit 1
-fi
+(
+  set -euo pipefail
 
-test -f .env || { printf '%s\n' 'Refusing: generate and review .env first.' >&2; exit 1; }
+  if [[ -n "${DOCKER_HOST:-}" ]]; then
+    printf '%s\n' 'Refusing: unset DOCKER_HOST and inspect the intended Docker context.' >&2
+    exit 1
+  fi
 
-context="$(docker context show)"
-printf 'Active Docker context: %s\n' "$context"
-docker context inspect "$context"
-docker info
-docker compose version
+  test -f .env || { printf '%s\n' 'Refusing: generate and review .env first.' >&2; exit 1; }
 
-read -r -p 'Type USE DISPOSABLE DOCKER CONTEXT to confirm the inspected daemon is local/dedicated and disposable: ' context_ack
-[[ "$context_ack" == 'USE DISPOSABLE DOCKER CONTEXT' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
+  context="$(docker context show)" || {
+    printf '%s\n' 'Refusing: could not determine the active Docker context.' >&2
+    exit 1
+  }
+  printf 'Active Docker context: %s\n' "$context"
+  docker context inspect "$context" || {
+    printf '%s\n' 'Refusing: could not inspect the active Docker context.' >&2
+    exit 1
+  }
+  docker info || {
+    printf '%s\n' 'Refusing: the selected Docker daemon is unavailable.' >&2
+    exit 1
+  }
+  docker compose version || {
+    printf '%s\n' 'Refusing: Docker Compose v2 is unavailable.' >&2
+    exit 1
+  }
 
-read -r -p 'Type LEGACY SPROUT CONTAINERS ARE DISPOSABLE to permit their stop/removal: ' legacy_ack
-[[ "$legacy_ack" == 'LEGACY SPROUT CONTAINERS ARE DISPOSABLE' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
+  read -r -p 'Type USE DISPOSABLE DOCKER CONTEXT to confirm the inspected daemon is local/dedicated and disposable: ' context_ack
+  [[ "$context_ack" == 'USE DISPOSABLE DOCKER CONTEXT' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
 
-read -r -p 'Type ENV REVIEWED FOR LOCAL USE to confirm .env contains only approved local settings: ' env_ack
-[[ "$env_ack" == 'ENV REVIEWED FOR LOCAL USE' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
+  read -r -p 'Type LEGACY SPROUT CONTAINERS ARE DISPOSABLE to permit their stop/removal: ' legacy_ack
+  [[ "$legacy_ack" == 'LEGACY SPROUT CONTAINERS ARE DISPOSABLE' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
 
-just setup
+  read -r -p 'Type ENV REVIEWED FOR LOCAL USE to confirm .env contains only approved local settings: ' env_ack
+  [[ "$env_ack" == 'ENV REVIEWED FOR LOCAL USE' ]] || { printf '%s\n' 'Aborted.' >&2; exit 1; }
+
+  just setup
+)
 ```
 
 Inspect `docker context inspect` before typing the first acknowledgement. Continue only when its Docker endpoint is a local socket or a dedicated, disposable development daemon that you are authorized to modify. Stop if it is shared, remote, production-like, or uncertain. Do not use `docker ps`, `docker compose up`, or any cleanup command to investigate an uncertain context; resolve the context outside this runbook first.

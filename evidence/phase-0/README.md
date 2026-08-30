@@ -143,6 +143,17 @@ docker: 'compose' is not a docker command.
 Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
 ```
 
+### Fail-closed preflight regression verification
+
+The literal setup block was extracted from the runbook and executed in an isolated temporary directory with shell-function mocks for `docker`, `just`, and acknowledgement reads. No real Docker command or daemon was contacted. The failure case made mocked `docker compose version` exit `23` while all three acknowledgement responses were available on standard input; the block exited nonzero before requesting any acknowledgement, and the event log contained no `just setup`. Before the fix, the same regression check failed because the block returned `0` and invoked `just setup`.
+
+The success case used only successful mocks and required this exact event order: context selection, context inspection, daemon information, Compose version, all three acknowledgements, then `just setup`.
+
+```text
+PASS: compose failure blocks just setup
+PASS: success-path command ordering is exact
+```
+
 ## Verification matrix
 
 | Check | Result | Meaning |
@@ -153,6 +164,7 @@ Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docke
 | macOS `shasum -a 256 --check` | Pass | All three recorded file hashes matched with the portable manifest |
 | `cargo build --workspace` via `just build` | Pass | Pinned Rust workspace compiles |
 | Focused `buzz-core` unit test | Pass | One infrastructure-free behavior check executes successfully |
+| Mocked fail-closed setup preflight | Pass | A Compose failure prevents acknowledgements and `just setup`; successful mocks preserve the reviewed order |
 | `just setup` | Blocked | No Compose v2 plugin and no running Docker daemon |
 | Postgres/Redis migrations and service health | Not run | Depend on successful Docker startup |
 | Full unit/integration/E2E suites | Not run | Outside this bounded recovery; integration requires services |
