@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>The Green Room — Radical Salon</title>
+  <style>
+    :root {
+      --ink: #101511;
+      --cream: #f4f0e5;
+      --paper: #fffdf5;
+      --green: #0b3b2e;
+      --green-2: #195c47;
+      --coral: #ff4f38;
+      --soft: #dcd7ca;
+      --muted: #5d625c;
+      --line: 2px solid var(--ink);
+      --sans: Arial, Helvetica, ui-sans-serif, system-ui, sans-serif;
+      --serif: Georgia, "Times New Roman", ui-serif, serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--cream);
+      font-family: var(--sans);
+      overflow-x: hidden;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 4px solid var(--coral); outline-offset: 3px; }
+    .skip { position: fixed; top: 8px; left: 8px; z-index: 50; padding: 12px 16px; background: var(--paper); border: var(--line); transform: translateY(-160%); }
+    .skip:focus { transform: none; }
+    .topline {
+      min-height: 50px; padding: 8px clamp(16px, 3vw, 48px); background: var(--ink); color: var(--cream);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+    }
+    .edition { color: var(--coral); }
+    header { padding: 24px clamp(16px, 3vw, 48px) 20px; border-bottom: var(--line); background: var(--paper); }
+    nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+    .mark { width: 48px; height: 48px; border: var(--line); background: var(--green); color: var(--cream); display: grid; place-items: center; transform: rotate(-3deg); font-family: var(--serif); font-size: 26px; font-style: italic; font-weight: 700; box-shadow: 5px 5px 0 var(--coral); }
+    .wordmark { line-height: .78; font-family: var(--serif); font-size: clamp(21px, 2vw, 30px); font-weight: 700; letter-spacing: -.07em; }
+    .wordmark small { display: block; margin-top: 9px; font: 800 9px/1 var(--sans); letter-spacing: .24em; text-transform: uppercase; }
+    .navlinks { display: flex; align-items: center; gap: 8px; }
+    .navlinks a { min-height: 44px; display: inline-flex; align-items: center; padding: 0 14px; color: inherit; font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: .09em; text-decoration: none; }
+    .navlinks a:last-child { color: var(--cream); background: var(--green); border: var(--line); }
+    .hero { position: relative; min-height: 540px; padding: clamp(44px, 7vw, 90px) clamp(16px, 5vw, 74px); display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: clamp(28px, 6vw, 90px); overflow: hidden; border-bottom: 5px solid var(--ink); }
+    .hero::before { content: ""; position: absolute; width: 580px; height: 580px; right: -220px; top: -230px; border: 64px solid var(--coral); transform: rotate(16deg); opacity: .98; }
+    .kicker { display: inline-block; padding: 10px 14px; border: var(--line); background: var(--coral); font-size: 11px; line-height: 1; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; transform: rotate(-1deg); box-shadow: 5px 5px 0 var(--ink); }
+    h1 { max-width: 900px; margin: 25px 0 20px; font-family: var(--serif); font-size: clamp(62px, 10vw, 150px); line-height: .76; letter-spacing: -.085em; font-weight: 700; }
+    h1 em { color: var(--green); font-weight: 400; }
+    .thesis { max-width: 690px; margin: 0; font-family: var(--serif); font-size: clamp(22px, 3vw, 40px); line-height: 1.04; }
+    .hero-note { align-self: end; position: relative; z-index: 1; padding: 28px 26px 25px; color: var(--cream); background: var(--green); clip-path: polygon(0 3%, 96% 0, 100% 94%, 3% 100%); transform: rotate(1.5deg); }
+    .hero-note::before { content: "FIELD NOTE 01"; display: block; margin-bottom: 42px; color: var(--coral); font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+    .hero-note p { margin: 0; font: italic 26px/1.15 var(--serif); }
+    .hero-note span { display: block; margin-top: 22px; font-size: 11px; line-height: 1.5; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+    main { display: block; }
+    .section-head { padding: 54px clamp(16px, 3vw, 48px) 28px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 30px; align-items: end; }
+    .eyebrow { display: block; margin-bottom: 12px; color: var(--green-2); font-size: 11px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+    h2 { margin: 0; font-family: var(--serif); font-size: clamp(44px, 7vw, 88px); line-height: .88; letter-spacing: -.055em; }
+    .manifesto { max-width: 360px; margin: 0; font: italic 21px/1.25 var(--serif); border-left: 8px solid var(--coral); padding-left: 18px; }
+    .filters { margin: 0 clamp(16px, 3vw, 48px) 28px; padding: 10px; display: flex; gap: 8px; border-top: var(--line); border-bottom: var(--line); overflow-x: auto; scrollbar-width: thin; }
+    .filter { min-height: 44px; padding: 8px 16px; border: 1px solid var(--ink); background: transparent; cursor: pointer; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+    .filter[aria-pressed="true"] { color: var(--cream); background: var(--green); box-shadow: 4px 4px 0 var(--coral); }
+    .gallery-wrap { position: relative; padding: 0 clamp(16px, 3vw, 48px) 80px; }
+    .margin-note { position: absolute; right: 7px; top: 20px; writing-mode: vertical-rl; font: 900 9px/1 var(--sans); letter-spacing: .22em; text-transform: uppercase; }
+    .gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: var(--line); border-left: var(--line); }
+    .card { position: relative; min-height: 400px; padding: 22px 22px 62px; border: 0; border-right: var(--line); border-bottom: var(--line); background: var(--paper); text-align: left; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+    .card:hover, .card:focus-visible { z-index: 2; transform: translate(-4px,-4px); box-shadow: 8px 8px 0 var(--ink); }
+    .card[aria-pressed="true"] { background: var(--coral); }
+    .card[hidden] { display: none; }
+    .card-no { position: absolute; top: 18px; right: 17px; font: 900 10px/1 var(--sans); letter-spacing: .16em; }
+    .sigil { width: 92px; height: 92px; display: grid; place-items: center; margin: 10px 0 55px; border: 3px solid var(--ink); border-radius: 50%; background: var(--cream); font: italic 700 40px/1 var(--serif); transform: rotate(-7deg); }
+    .card:nth-child(2n) .sigil { border-radius: 0; transform: rotate(5deg); }
+    .card:nth-child(3n) .sigil { clip-path: polygon(50% 0,100% 24%,88% 100%,12% 100%,0 24%); border-radius: 0; }
+    .era { font-size: 10px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; color: var(--green-2); }
+    .card[aria-pressed="true"] .era { color: var(--ink); }
+    .card h3 { margin: 8px 0 7px; font: 700 clamp(25px,2.2vw,36px)/.93 var(--serif); letter-spacing: -.04em; }
+    .card p { margin: 0; max-width: 26ch; font: italic 17px/1.25 var(--serif); }
+    .candidate { position: absolute; left: 18px; bottom: 16px; padding: 6px 8px; border: 2px solid currentColor; font-size: 9px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; transform: rotate(-2deg); }
+    .details { background: var(--ink); color: var(--cream); padding: 70px clamp(16px, 4vw, 64px); }
+    .details-grid { display: grid; grid-template-columns: .85fr 1.15fr; gap: clamp(30px, 7vw, 110px); align-items: start; }
+    .details h2 { color: var(--coral); }
+    .annotation { margin: 26px 0 0; max-width: 40ch; font: italic 22px/1.3 var(--serif); }
+    .profile-sheet { position: relative; min-height: 390px; padding: 30px; background: var(--paper); color: var(--ink); transform: rotate(-.6deg); box-shadow: 12px 12px 0 var(--coral); }
+    .profile-sheet::before { content:"OPEN FILE"; position:absolute; right:22px; top:20px; padding:7px 9px; border:2px solid var(--coral); color:var(--coral); font-size:10px; font-weight:900; letter-spacing:.12em; transform:rotate(3deg); }
+    .profile-sheet .era { margin-bottom: 12px; }
+    .profile-sheet h3 { margin: 0 0 20px; max-width: 70%; font: 700 clamp(38px,5vw,68px)/.9 var(--serif); letter-spacing: -.05em; }
+    .profile-sheet blockquote { margin: 0 0 26px; max-width: 36ch; font: italic 21px/1.25 var(--serif); }
+    .profile-meta { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; background: var(--ink); border: 1px solid var(--ink); }
+    .profile-meta div { padding: 13px; background: var(--paper); font-size: 12px; line-height: 1.35; }
+    .profile-meta b { display:block; margin-bottom: 5px; text-transform: uppercase; font-size:9px; letter-spacing:.13em; }
+    .room { padding: 80px clamp(16px, 3vw, 48px); background: var(--green); color: var(--cream); }
+    .room-top { display: grid; grid-template-columns: minmax(0,1fr) minmax(250px,.45fr); gap: 40px; align-items: end; margin-bottom: 35px; }
+    .room h2 { max-width: 850px; }
+    .room-brief { margin: 0; padding: 20px; border: 2px solid var(--cream); font: italic 19px/1.25 var(--serif); }
+    .table { position: relative; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 2px; background: var(--cream); border: 2px solid var(--cream); }
+    .seat { position: relative; min-height: 330px; padding: 26px; background: var(--ink); }
+    .seat:nth-child(2) { background: var(--paper); color: var(--ink); }
+    .seat-no { font-size: 10px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+    .seat .sigil { margin: 38px 0 35px; width: 72px; height: 72px; color: var(--ink); font-size: 30px; }
+    .seat h3 { margin:0 0 8px; font: 700 31px/.95 var(--serif); letter-spacing:-.04em; }
+    .seat p { margin:0; font:italic 17px/1.3 var(--serif); }
+    .relation { position: absolute; z-index: 3; top: -18px; left: 50%; transform: translateX(-50%) rotate(-2deg); padding: 11px 15px; color: var(--ink); background: var(--coral); border: var(--line); white-space: nowrap; font-size: 10px; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+    .memory { margin-top: 32px; display: grid; grid-template-columns: .65fr 1.35fr; border: 2px solid var(--cream); }
+    .memory-title { padding: 25px; background: var(--coral); color: var(--ink); }
+    .memory-title span { font-size: 10px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
+    .memory-title h3 { margin: 45px 0 0; font: 700 38px/.9 var(--serif); letter-spacing: -.04em; }
+    .memory-copy { padding: 25px; background: var(--paper); color: var(--ink); }
+    .memory-copy p { margin:0 0 16px; font:italic 22px/1.25 var(--serif); }
+    .memory-copy small { display:block; border-top:1px solid var(--ink); padding-top:12px; font-size:10px; font-weight:800; line-height:1.5; letter-spacing:.08em; text-transform:uppercase; }
+    .startbar { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:28px 0 0; }
+    .startbar p { margin:0; font-size:11px; line-height:1.5; text-transform:uppercase; letter-spacing:.1em; font-weight:800; }
+    .start { min-height:52px; padding:12px 24px; border:2px solid var(--cream); color:var(--ink); background:var(--coral); box-shadow:6px 6px 0 var(--cream); cursor:pointer; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.12em; }
+    .toast { position:fixed; z-index:40; left:50%; bottom:24px; transform:translate(-50%,24px); visibility:hidden; opacity:0; max-width:calc(100% - 32px); padding:15px 20px; border:2px solid var(--ink); background:var(--paper); box-shadow:7px 7px 0 var(--coral); font-weight:800; font-size:13px; transition:transform .2s ease, opacity .2s ease; }
+    .toast.show { transform:translate(-50%,0); visibility:visible; opacity:1; }
+    footer { padding: 36px clamp(16px,3vw,48px); display:grid; grid-template-columns:1fr auto; gap:30px; border-top:5px solid var(--ink); background:var(--paper); }
+    footer strong { font:700 27px/1 var(--serif); }
+    footer p { margin:8px 0 0; max-width:60ch; font-size:11px; line-height:1.5; text-transform:uppercase; letter-spacing:.08em; }
+    footer .stamp { align-self:start; padding:10px; border:3px solid var(--green); color:var(--green); font-size:10px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; transform:rotate(3deg); }
+    @media (max-width: 920px) {
+      .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .hero { grid-template-columns:1fr; }
+      .hero-note { max-width:520px; }
+      .details-grid, .room-top { grid-template-columns:1fr; }
+    }
+    @media (max-width: 600px) {
+      html { scroll-behavior:auto; }
+      .topline span:last-child, .navlinks a:not(:last-child) { display:none; }
+      header { padding-top:17px; }
+      .mark { width:44px; height:44px; }
+      .navlinks a:last-child { padding:0 10px; }
+      .hero { min-height:auto; padding-top:54px; }
+      .hero::before { width:330px; height:330px; right:-220px; top:-120px; border-width:42px; }
+      h1 { font-size:clamp(64px,23vw,92px); }
+      .thesis { font-size:24px; }
+      .hero-note { padding:24px; }
+      .hero-note::before { margin-bottom:25px; }
+      .section-head { grid-template-columns:1fr; padding-top:46px; }
+      .manifesto { font-size:18px; }
+      .filters { margin-right:0; margin-left:0; padding-left:16px; }
+      .gallery-wrap { padding-left:16px; padding-right:16px; padding-bottom:54px; }
+      .gallery { grid-template-columns:1fr; }
+      .card { min-height:350px; }
+      .card .sigil { margin-bottom:38px; }
+      .margin-note { display:none; }
+      .details { padding-top:52px; padding-bottom:60px; }
+      .profile-sheet { padding:23px; min-height:430px; }
+      .profile-sheet::before { position:static; display:inline-block; float:right; }
+      .profile-sheet h3 { clear:both; padding-top:20px; max-width:100%; }
+      .profile-meta { grid-template-columns:1fr; }
+      .room { padding-top:55px; padding-bottom:55px; }
+      .table { grid-template-columns:1fr; }
+      .seat { min-height:250px; }
+      .seat .sigil { margin:24px 0 25px; }
+      .relation { top:-20px; font-size:9px; }
+      .memory { grid-template-columns:1fr; }
+      .memory-title h3 { margin-top:25px; }
+      .startbar { align-items:stretch; flex-direction:column; }
+      .start { width:100%; }
+      footer { grid-template-columns:1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#catalog">Skip to The Assembly</a>
+  <div class="topline"><span><span class="edition">Working paper / No. 02</span> — Radical Salon</span><span>Private-first ensemble conversation</span></div>
+  <header>
+    <nav aria-label="Primary">
+      <a class="brand" href="#top" aria-label="The Green Room, home">
+        <span class="mark" aria-hidden="true">G!</span>
+        <span class="wordmark">The Green<br>Room <small>Ideas enter together</small></span>
+      </a>
+      <div class="navlinks"><a href="#catalog">The Assembly</a><a href="#room">Open Tables</a><a href="#room">Convene →</a></div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <span class="kicker">Not a chat. An argument with memory.</span>
+        <h1 id="hero-title">Ideas need<br><em>opposition.</em></h1>
+        <p class="thesis">Convene history’s sharpest minds around one table—and give the room enough memory to become more than a first meeting.</p>
+      </div>
+      <aside class="hero-note" aria-label="Editorial note">
+        <p>“The point is not perfect imitation. The point is useful friction, with every claim still carrying its papers.”</p>
+        <span>Persona drafts remain visible, sourced, and revisable.</span>
+      </aside>
+    </section>
+
+    <section id="catalog" aria-labelledby="catalog-title">
+      <div class="section-head">
+        <div><span class="eyebrow">I. The Assembly / 12 dossiers available</span><h2 id="catalog-title">Choose your<br>contradictions.</h2></div>
+        <p class="manifesto">No portraits required. Each person arrives as a living position: a typographic voice, a contested thesis, a traceable file.</p>
+      </div>
+      <div class="filters" role="group" aria-label="Filter historical personas">
+        <button class="filter" type="button" data-filter="all" aria-pressed="true">All voices</button>
+        <button class="filter" type="button" data-filter="science" aria-pressed="false">Science</button>
+        <button class="filter" type="button" data-filter="letters" aria-pressed="false">Letters</button>
+        <button class="filter" type="button" data-filter="power" aria-pressed="false">Power</button>
+        <button class="filter" type="button" data-filter="systems" aria-pressed="false">Systems</button>
+      </div>
+      <div class="gallery-wrap">
+        <span class="margin-note">Select a dossier → open the file below</span>
+        <div class="gallery" id="gallery">
+          <button class="card" type="button" data-topic="science systems" data-name="Ada Lovelace" data-era="1815—1852 / Systems" data-quote="Poetical science is not ornament. It is how machinery becomes imaginable before it becomes inevitable." data-method="Analogy + systems" data-source="Draft pack / 7 sources" aria-pressed="true"><span class="card-no">01</span><span class="sigil" aria-hidden="true">AL</span><span class="era">1815—1852 · Systems</span><h3>Ada<br>Lovelace</h3><p>Machinery needs imagination before it needs obedience.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="letters" data-name="Mary Shelley" data-era="1797—1851 / Letters" data-quote="Creation is the easy boast. Responsibility begins when the created thing looks back." data-method="Moral inversion" data-source="Draft pack / 8 sources" aria-pressed="false"><span class="card-no">02</span><span class="sigil" aria-hidden="true">MS</span><span class="era">1797—1851 · Letters</span><h3>Mary<br>Shelley</h3><p>Every invention eventually asks who abandoned it.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="power letters" data-name="Frederick Douglass" data-era="1818—1895 / Power" data-quote="Power describes itself as order. Ask instead who pays for that calm, and who is forbidden to interrupt it." data-method="Moral cross-examination" data-source="Draft pack / 9 sources" aria-pressed="false"><span class="card-no">03</span><span class="sigil" aria-hidden="true">FD</span><span class="era">1818—1895 · Power</span><h3>Frederick<br>Douglass</h3><p>Polite language does not make an unjust premise civil.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="science" data-name="Galileo Galilei" data-era="1564—1642 / Science" data-quote="Authority may refuse the telescope. It cannot negotiate with the orbit." data-method="Observed contradiction" data-source="Draft pack / 6 sources" aria-pressed="false"><span class="card-no">04</span><span class="sigil" aria-hidden="true">GG</span><span class="era">1564—1642 · Science</span><h3>Galileo<br>Galilei</h3><p>Evidence is insolent only when certainty is fragile.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="letters power" data-name="Jane Austen" data-era="1775—1817 / Letters" data-quote="A room tells the truth by arranging who may speak freely and who must call strategy good manners." data-method="Social observation" data-source="Draft pack / 7 sources" aria-pressed="false"><span class="card-no">05</span><span class="sigil" aria-hidden="true">JA</span><span class="era">1775—1817 · Letters</span><h3>Jane<br>Austen</h3><p>Good manners: the preferred disguise of bad incentives.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="science systems" data-name="Isaac Newton" data-era="1643—1727 / Science" data-quote="The system earns trust when the same rule governs the apple, the planet, and the inconvenient result." data-method="First principles" data-source="Draft pack / 6 sources" aria-pressed="false"><span class="card-no">06</span><span class="sigil" aria-hidden="true">IN</span><span class="era">1643—1727 · Science</span><h3>Isaac<br>Newton</h3><p>A rule that changes for prestige was never a rule.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="systems science" data-name="Leonardo da Vinci" data-era="1452—1519 / Systems" data-quote="Before choosing the answer, draw the force that moves through it. The hidden mechanism usually confesses on paper." data-method="Diagram + synthesis" data-source="Draft pack / 8 sources" aria-pressed="false"><span class="card-no">07</span><span class="sigil" aria-hidden="true">LV</span><span class="era">1452—1519 · Systems</span><h3>Leonardo<br>da Vinci</h3><p>Draw the mechanism until the hidden force confesses.</p><span class="candidate">Candidate voice</span></button>
+          <button class="card" type="button" data-topic="power systems" data-name="Elizabeth I" data-era="1533—1603 / Power" data-quote="A divided table is not a failed table. It is a map of the bargains that will be demanded later." data-method="Coalition reading" data-source="Draft pack / 6 sources" aria-pressed="false"><span class="card-no">08</span><span class="sigil" aria-hidden="true">EI</span><span class="era">1533—1603 · Power</span><h3>Elizabeth<br>I</h3><p>Every alliance is also a schedule of future demands.</p><span class="candidate">Candidate voice</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="details" id="details" aria-labelledby="details-title">
+      <div class="details-grid">
+        <div><span class="eyebrow">II. Open dossier / selected voice</span><h2 id="details-title">The file<br>argues back.</h2><p class="annotation">Selection changes the evidence sheet—not just a decorative border. Provenance and candidate status stay in the loudest part of the interface.</p></div>
+        <article class="profile-sheet" aria-live="polite">
+          <div class="era" id="profile-era">1815—1852 / Systems</div><h3 id="profile-name">Ada Lovelace</h3>
+          <blockquote id="profile-quote">“Poetical science is not ornament. It is how machinery becomes imaginable before it becomes inevitable.”</blockquote>
+          <div class="profile-meta"><div><b>Argument method</b><span id="profile-method">Analogy + systems</span></div><div><b>Evidence state</b><span id="profile-source">Draft pack / 7 sources</span></div><div><b>Room posture</b>Challenges mechanical certainty</div><div><b>Trust note</b>Composite simulation, not the person</div></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="room" id="room" aria-labelledby="room-title">
+      <div class="room-top">
+        <div><span class="eyebrow" style="color:var(--coral)">III. An open table / saved room 04</span><h2 id="room-title">Who owns the consequences of invention?</h2></div>
+        <p class="room-brief"><b>THE MOTION:</b><br>“A creator remains responsible for foreseeable misuse.” Debate, then draft one principle everyone can sign.</p>
+      </div>
+      <div class="table" aria-label="Three-person conversation table">
+        <span class="relation">Tension line: intention ↔ consequence</span>
+        <article class="seat"><span class="seat-no">Seat A / systems</span><span class="sigil" aria-hidden="true">AL</span><h3>Ada Lovelace</h3><p>Separates what the machine can do from what its stewards decide it should do.</p></article>
+        <article class="seat"><span class="seat-no">Seat B / conscience</span><span class="sigil" aria-hidden="true">MS</span><h3>Mary Shelley</h3><p>Refuses the comfort of treating abandonment as an unfortunate side effect.</p></article>
+        <article class="seat"><span class="seat-no">Seat C / mechanism</span><span class="sigil" aria-hidden="true">LV</span><h3>Leonardo da Vinci</h3><p>Draws the chain from maker to patron to use—and asks where control actually leaves the hand.</p></article>
+      </div>
+      <aside class="memory" aria-labelledby="memory-title">
+        <div class="memory-title"><span>Margin kept / memory 07</span><h3 id="memory-title">The room remembers the disagreement.</h3></div>
+        <div class="memory-copy"><p>Last session, Mary rejected Ada’s distinction between mechanism and steward as “a clean line drawn after the damage.” Ada conceded one point: creators owe future users an explicit account of foreseeable abuse.</p><small>Relationship shift: Mary Shelley → Ada Lovelace · skepticism softened, trust +1 · sourced to Room 03, turns 18–24 · editable before reuse</small></div>
+      </aside>
+      <div class="startbar"><p>Private by default · 3 candidate personas · Memory preview on<br>Director moderates turn-taking; nobody piles on.</p><button class="start" type="button" id="start-room">Convene this table →</button></div>
+    </section>
+  </main>
+
+  <footer><div><strong>A salon, not a séance.</strong><p>Historical voices are sourced simulations with visible uncertainty—not endorsements, replicas, or replacements for primary material.</p></div><span class="stamp">Exploration / Direction 02</span></footer>
+  <div class="toast" role="status" aria-live="polite" id="toast">Table saved as a private draft. No conversation was started.</div>
+
+  <script>
+    const cards = [...document.querySelectorAll('.card')];
+    const filters = [...document.querySelectorAll('.filter')];
+    const fields = {
+      name: document.querySelector('#profile-name'), era: document.querySelector('#profile-era'),
+      quote: document.querySelector('#profile-quote'), method: document.querySelector('#profile-method'), source: document.querySelector('#profile-source')
+    };
+    function selectCard(card, scroll = true) {
+      cards.forEach(item => item.setAttribute('aria-pressed', String(item === card)));
+      fields.name.textContent = card.dataset.name;
+      fields.era.textContent = card.dataset.era;
+      fields.quote.textContent = `“${card.dataset.quote}”`;
+      fields.method.textContent = card.dataset.method;
+      fields.source.textContent = card.dataset.source;
+      if (scroll) document.querySelector('#details').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+    }
+    cards.forEach(card => card.addEventListener('click', () => selectCard(card)));
+    filters.forEach(filter => filter.addEventListener('click', () => {
+      filters.forEach(item => item.setAttribute('aria-pressed', String(item === filter)));
+      const value = filter.dataset.filter;
+      cards.forEach(card => { card.hidden = value !== 'all' && !card.dataset.topic.split(' ').includes(value); });
+      const selected = cards.find(card => card.getAttribute('aria-pressed') === 'true' && !card.hidden) || cards.find(card => !card.hidden);
+      if (selected) selectCard(selected, false);
+    }));
+    const toast = document.querySelector('#toast');
+    document.querySelector('#start-room').addEventListener('click', event => {
+      toast.classList.add('show'); event.currentTarget.textContent = 'Table drafted ✓';
+      window.setTimeout(() => toast.classList.remove('show'), 3200);
+    });
+  </script>
+</body>
+</html>
