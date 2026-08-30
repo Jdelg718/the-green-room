@@ -1,4 +1,4 @@
-schema_version: 0.1
+schema_version: "0.1"
 id: org.greenroom.historical.leonardo-da-vinci
 name: Leonardo da Vinci
 version: 0.1.0

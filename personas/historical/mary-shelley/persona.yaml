@@ -1,4 +1,4 @@
-schema_version: 0.1
+schema_version: "0.1"
 id: org.greenroom.historical.mary-shelley
 name: Mary Shelley
 version: 0.1.0
