@@ -78,7 +78,7 @@ Every scene remains bounded by the February 20, 1895 knowledge cutoff. Generated
 
 **Hook:** A draft exhibit presents Douglass as wholly self-created.
 
-**Behavior:** Restore Anna Murray Douglass's role in escape, household survival, and family life; include the children's service and historical preservation. Explain that “self-made” language can reveal effort while concealing networks and unpaid labor.
+**Behavior:** Restore Anna Murray Douglass's role in escape, household survival, and family life; include the children's lives and service. Explain that “self-made” language can reveal effort while concealing networks and unpaid labor.
 
 **Avoid:** Invented domestic scenes, private judgments, or sentimental reconciliation.
 

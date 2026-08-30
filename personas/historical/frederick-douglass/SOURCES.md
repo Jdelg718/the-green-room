@@ -119,6 +119,18 @@ Review notation for this pre-release version:
 - **Use / transformations:** Facts summarized; no record image or webpage prose copied.
 - **Review:** Author reviewed; independent rights/fidelity review pending; **decision: use**.
 
+### FD-NYPL-WELLS-LETTER
+
+- **URL:** https://digitalcollections.nypl.org/items/9f9fea50-a90c-0138-b4bf-7de164e511e1
+- **Archive / identifier:** New York Public Library, Schomburg Center for Research in Black Culture, Manuscripts, Archives and Rare Books Division; shelf locator `Sc MG 108`; UUID `9f9fea50-a90c-0138-b4bf-7de164e511e1`
+- **Title / type:** Letter from Frederick Douglass to Rev. R. A. Armstrong, written on behalf of Ida B. Wells; manuscript letter
+- **Creator / date:** Frederick Douglass; May 22, 1894
+- **Supports:** The specific fact that Douglass wrote on Wells's behalf during her British anti-lynching campaign, used in `RELATIONSHIPS.md`.
+- **Rights basis (U.S.):** NYPL identifies the item as public domain in the United States. No determination is assumed for other countries.
+- **Rights link:** https://www.nypl.org/events/exhibitions/galleries/beginnings/item/3547
+- **Use / transformations:** The relationship and campaign context are summarized; no letter wording, manuscript image, or modern exhibition prose copied.
+- **Review:** Author reviewed; independent fidelity/rights review pending; **decision: use**.
+
 ## Institutional reference sources
 
 ### FD-LOC-COLLECTION
@@ -128,7 +140,7 @@ Review notation for this pre-release version:
 - **Title / type:** “About this Collection”; archive scope and content description
 - **Creator / publisher:** Library of Congress, Manuscript Division; page date not stated
 - **Coverage:** Papers span 1841-1964, bulk 1862-1895; approximately 7,400 items and 38,000 images; series include correspondence, family papers, speeches, articles, book drafts, subject files, and additions.
-- **Supports:** Newspaper career, family holdings, office and Haiti materials, collection limitations after the 1872 Rochester fire, and Helen Pitts Douglass's preservation role.
+- **Supports:** Newspaper career, family holdings, office and Haiti materials, and collection limitations after the 1872 Rochester fire.
 - **Rights basis:** Contemporary LOC descriptive prose is not imported. Collection rights statement separately identifies the Frederick Douglass Papers as public domain and free to use and reuse; see `FD-LOC-RIGHTS`.
 - **Use / transformations:** Collection facts summarized; no page prose, metadata set, or image copied.
 - **Review:** Author reviewed; independent rights/fidelity review pending; **decision: use**.
@@ -149,7 +161,7 @@ Review notation for this pre-release version:
 - **URL:** https://www.nps.gov/people/frederick-douglass.htm
 - **Title / type:** “Frederick Douglass”; institutional biography
 - **Author / publisher:** National Park Service; individual author not identified; last updated May 28, 2025
-- **Supports:** Life chronology, escape and Anna Murray's role, five children, abolitionist and publishing work, woman suffrage, Civil War recruitment, Reconstruction, federal offices, marriages, Haiti, death, and burial.
+- **Supports:** Life chronology through the persona cutoff, escape and Anna Murray's role, five children, abolitionist and publishing work, woman suffrage, Civil War recruitment, Reconstruction, federal offices, marriages, and Haiti.
 - **Rights basis:** U.S. government institutional page used as a factual reference. No assumption is made about third-party images or quoted primary text embedded on the page; neither is included here.
 - **Rights guidance:** https://www.nps.gov/aboutus/disclaimer.htm
 - **Use / transformations:** Cross-checked facts summarized in original language; no modern prose, embedded quotation, or image copied.
@@ -160,7 +172,7 @@ Review notation for this pre-release version:
 - **URL:** https://www.nps.gov/frdo/learn/kidsyouth/chronology.htm
 - **Title / type:** “Chronology of the Life of Frederick Douglass”; institutional chronology
 - **Author / publisher:** Frederick Douglass National Historic Site, National Park Service; individual author not identified; last updated May 1, 2021
-- **Supports:** Dated political evolution; break with Garrison; newspapers; family births and deaths; John Brown; Civil War recruitment; suffrage; Reconstruction offices; Freedman's Bank; Santo Domingo; Haiti and Môle Saint-Nicolas; 1894 anti-lynching address; final day.
+- **Supports:** Dated political evolution; break with Garrison; newspapers; family births and deaths before the cutoff; John Brown; Civil War recruitment; suffrage; Reconstruction offices; Freedman's Bank; Santo Domingo; Haiti and Môle Saint-Nicolas; and the 1894 anti-lynching address.
 - **Rights basis:** U.S. government institutional page used as factual reference; linked third-party material and images excluded.
 - **Rights guidance:** https://www.nps.gov/aboutus/disclaimer.htm
 - **Use / transformations:** Dates cross-checked and summarized; no chronology prose or image copied.
@@ -201,8 +213,8 @@ Review notation for this pre-release version:
 
 ## Source-count and rights summary
 
-- **Total authoritative entries:** 15
-- **Primary-source entries:** 8 (`FD-LOC-NARRATIVE`, `FD-LOC-ANNA`, `FD-LOC-LESSONS`, four FDP items, and `FD-NARA-SONS`)
+- **Total authoritative entries:** 16
+- **Primary-source entries:** 9 (`FD-LOC-NARRATIVE`, `FD-LOC-ANNA`, `FD-LOC-LESSONS`, four FDP items, `FD-NARA-SONS`, and `FD-NYPL-WELLS-LETTER`)
 - **Institutional reference / rights entries:** 7
 - **Direct quotations imported:** 0
 - **Assets imported:** 0

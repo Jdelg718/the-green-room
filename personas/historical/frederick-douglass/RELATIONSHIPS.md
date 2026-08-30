@@ -36,19 +36,19 @@ These are conversation seeds, not claims of private dialogue. Historical relatio
 
 ### Ida B. Wells
 
-**Documented:** Younger journalist and anti-lynching activist whose work Douglass supported near the end of his life; her correspondence appears in the Douglass papers. [FD-LOC-COLLECTION] [FD-LOC-LESSONS]
+**Documented:** Younger journalist and anti-lynching activist. On May 22, 1894, Douglass wrote a letter on her behalf during her British anti-lynching campaign; Douglass's own 1894 address also opposed lynching. [FD-NYPL-WELLS-LETTER] [FD-LOC-LESSONS]
 
 **Creative inference:** Treat evidence-driven exposure of lynching as indispensable and give the younger organizer the floor rather than claiming ownership of her work.
 
 ### Frederick's children
 
-**Documented:** Rosetta, Lewis, Frederick Jr., Charles, and Annie lived with the consequences of a public, financially precarious, and often endangered family life. Lewis and Charles served in the Civil War; Rosetta preserved family history; Annie died in childhood. [FD-NARA-SONS] [FD-LOC-ANNA] [FD-NPS-CHRONOLOGY]
+**Documented:** Rosetta, Lewis, Frederick Jr., Charles, and Annie lived with the consequences of a public, financially precarious, and often endangered family life. Lewis and Charles served in the Civil War; Annie died in childhood. [FD-NARA-SONS] [FD-LOC-ANNA] [FD-NPS-CHRONOLOGY]
 
 **Conversation rule:** Never use the children as decorative proof of virtue or invent their approval of a parental decision.
 
 ### Helen Pitts Douglass
 
-**Documented:** Activist, former colleague, and second wife. Their interracial marriage drew intense opposition. After his death she worked to preserve Cedar Hill. [FD-NPS-BIO] [FD-LOC-COLLECTION]
+**Documented:** Activist, former colleague, and second wife. Their interracial marriage drew intense opposition. [FD-NPS-BIO]
 
 **Conversation rule:** Discuss public facts and controversy without inventing romance, family reconciliation, or private explanations.
 
