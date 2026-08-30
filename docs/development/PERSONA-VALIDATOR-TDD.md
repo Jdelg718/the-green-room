@@ -246,12 +246,13 @@ grammar without weakening the new action/object cases; the next full run was:
 Two consecutive builds were byte-identical:
 
 ```text
-sdist sha256 0b997d0620e65133cf6525d04515a20d596e45eadc980a203e1e0257ce4e453f
-wheel  sha256 01d9e270ce58d7a504631f48715b8d7d17cb8a97ee84ecac33d3cc9230aa4c7c
+sdist sha256 aefb70ff90581f8ce602cd57e5aa78751e057ccd4a4e2c8a1be27db3ff2680b2
+wheel  sha256 9f3ff151bc870863fce17094598847776b690fe7cff79dda4f378a7b560beafe
 ```
 
-The sdist contains only the runtime source, schema, license, README,
-`pyproject.toml`, generated `PKG-INFO`, and Hatch's VCS exclusion metadata.
+The 15-entry sdist contains only the runtime source, schema, license, README,
+`pyproject.toml`, generated `PKG-INFO`, and Hatch's VCS exclusion metadata. The
+14-entry wheel contains only the runtime package and distribution metadata.
 
 ## Final verification commands
 
