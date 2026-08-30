@@ -10,7 +10,7 @@ import json
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, Self
 
 __all__ = (
     "DEFAULT_LIMITS",
@@ -94,7 +94,7 @@ class WireEvent:
     content: str
     sig: str
 
-    def __new__(cls, *_args: object, **_kwargs: object) -> "WireEvent":
+    def __new__(cls, *_args: object, **_kwargs: object) -> Self:
         raise TypeError("WireEvent values are created only by strict parsing")
 
 
@@ -155,9 +155,10 @@ def _is_safe_text(value: str, *, content: bool) -> bool:
         codepoint = ord(character)
         if 0xD800 <= codepoint <= 0xDFFF:
             return False
-        if unicodedata.category(character) == "Cc":
-            if not content or character not in _ALLOWED_CONTENT_CONTROLS:
-                return False
+        if unicodedata.category(character) == "Cc" and (
+            not content or character not in _ALLOWED_CONTENT_CONTROLS
+        ):
+            return False
     return True
 
 

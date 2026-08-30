@@ -9,7 +9,13 @@ import unittest
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
-from greenroom_live.crypto import CryptoError, VerifiedWireEvent, verify_event, verify_schnorr
+from greenroom_live.crypto import (
+    CryptoError,
+    VerifiedWireEvent,
+    reverify_verified_event,
+    verify_event,
+    verify_schnorr,
+)
 from greenroom_live.nostr_types import (
     DEFAULT_LIMITS,
     EventLimits,
@@ -57,10 +63,16 @@ class PublicVectorTests(unittest.TestCase):
 
     def test_public_nostr_fixture_parses_and_verifies(self) -> None:
         wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
-        verified = verify_event(wire)
+        verified = verify_event(
+            wire, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+        )
+        consumed = reverify_verified_event(
+            verified, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+        )
 
-        self.assertEqual(verified.event.id, EVENT["id"])
+        self.assertEqual(consumed.id, EVENT["id"])
         self.assertEqual(verified.room_id, ROOM)
+        self.assertIsInstance(verified.canonical_bytes, bytes)
 
     def test_verified_value_cannot_be_publicly_constructed_from_raw(self) -> None:
         wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
@@ -108,6 +120,13 @@ class StrictWireParsingTests(unittest.TestCase):
         for event in malformed:
             with self.subTest(event=repr(event)[:100]):
                 self.assertWireRejected(encoded(event))
+
+    def test_boolean_created_at_has_specific_type_error_code(self) -> None:
+        with self.assertRaises(WireError) as raised:
+            parse_wire_event(
+                encoded(changed(created_at=True)), expected_room_id=ROOM, now=NOW
+            )
+        self.assertEqual(raised.exception.code, "created_at_type")
 
     def test_hex_fields_are_canonical_lowercase_and_fixed_length(self) -> None:
         cases = (
@@ -204,21 +223,24 @@ class StrictWireParsingTests(unittest.TestCase):
         self.assertEqual(envelope.subscription_id, "sub-1")
         malformed = ([], ["EVENT", "sub-1"], ["NOTICE", "sub-1", EVENT], ["EVENT", "", EVENT], ["EVENT", "x" * 65, EVENT], ["EVENT", 1, EVENT])
         for value in malformed:
-            with self.subTest(value=repr(value)[:80]):
-                with self.assertRaises(WireError):
-                    parse_relay_envelope(encoded(value), relay_namespace="relay.invalid", expected_room_id=ROOM, now=NOW)
+            with self.subTest(value=repr(value)[:80]), self.assertRaises(WireError):
+                parse_relay_envelope(encoded(value), relay_namespace="relay.invalid", expected_room_id=ROOM, now=NOW)
         for namespace in ("", "\n", "é", "x" * 129):
             with self.assertRaises(WireError):
                 parse_relay_envelope(valid, relay_namespace=namespace, expected_room_id=ROOM, now=NOW)
 
     def test_limits_reject_invalid_configuration(self) -> None:
         for kwargs in ({"max_tags": 0}, {"max_serialized_bytes": True}, {"allowed_kinds": frozenset()}, {"max_future_seconds": -1}):
-            with self.subTest(kwargs=kwargs):
-                with self.assertRaises(ValueError):
-                    EventLimits(**kwargs)  # type: ignore[arg-type]
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                EventLimits(**kwargs)  # type: ignore[arg-type]
 
 
 class CryptographicVerificationTests(unittest.TestCase):
+    def verify(self, event: WireEvent) -> VerifiedWireEvent:
+        return verify_event(
+            event, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+        )
+
     def test_recomputed_event_id_must_match(self) -> None:
         tampered = parse_wire_event(
             encoded(changed(content=str(EVENT["content"]) + "!")),
@@ -226,7 +248,7 @@ class CryptographicVerificationTests(unittest.TestCase):
             now=NOW,
         )
         with self.assertRaisesRegex(CryptoError, "event_id_mismatch"):
-            verify_event(tampered)
+            self.verify(tampered)
 
     def test_event_id_is_checked_before_signature_or_curve(self) -> None:
         tampered = parse_wire_event(
@@ -235,7 +257,7 @@ class CryptographicVerificationTests(unittest.TestCase):
             now=NOW,
         )
         with self.assertRaisesRegex(CryptoError, "event_id_mismatch"):
-            verify_event(tampered)
+            self.verify(tampered)
 
     def test_invalid_signature_fails_closed(self) -> None:
         signature = str(EVENT["sig"])
@@ -244,7 +266,117 @@ class CryptographicVerificationTests(unittest.TestCase):
             encoded(changed(sig=bad_sig)), expected_room_id=ROOM, now=NOW
         )
         with self.assertRaisesRegex(CryptoError, "invalid_signature"):
-            verify_event(wire)
+            self.verify(wire)
+
+    def test_forged_verified_wrapper_with_invalid_bytes_is_rejected(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        legitimate = self.verify(wire)
+        forged = object.__new__(VerifiedWireEvent)
+        object.__setattr__(forged, "_canonical_bytes", b"not json")
+        object.__setattr__(forged, "_room_id", ROOM)
+        object.__setattr__(forged, "_now", NOW)
+        object.__setattr__(forged, "_policy", legitimate._policy)
+
+        with self.assertRaises((CryptoError, WireError)) as raised:
+            reverify_verified_event(
+                forged, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+            )
+        self.assertLessEqual(len(str(raised.exception)), 256)
+
+    def test_forged_wrapper_around_valid_bytes_is_accepted_after_reverification(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        legitimate = self.verify(wire)
+        forged = object.__new__(VerifiedWireEvent)
+        for name in ("_canonical_bytes", "_room_id", "_now", "_policy"):
+            object.__setattr__(forged, name, getattr(legitimate, name))
+
+        consumed = reverify_verified_event(
+            forged, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+        )
+        self.assertEqual(consumed.id, EVENT["id"])
+
+    def test_tampered_legitimate_verified_wrapper_is_rejected(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        verified = self.verify(wire)
+        object.__setattr__(
+            verified, "_canonical_bytes", encoded(changed(content="tampered"))
+        )
+
+        with self.assertRaisesRegex(CryptoError, "event_id_mismatch"):
+            reverify_verified_event(
+                verified, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+            )
+
+    def test_original_event_mutation_cannot_change_verified_snapshot(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        verified = self.verify(wire)
+        snapshot = verified.canonical_bytes
+        object.__setattr__(wire, "content", "mutated after verification")
+
+        self.assertEqual(verified.canonical_bytes, snapshot)
+        consumed = reverify_verified_event(
+            verified, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+        )
+        self.assertEqual(consumed.content, EVENT["content"])
+        self.assertIsNot(consumed, wire)
+
+    def test_consumption_boundary_rechecks_signature(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        verified = self.verify(wire)
+        tampered = changed()
+        signature = str(tampered["sig"])
+        tampered["sig"] = ("0" if signature[0] != "0" else "1") + signature[1:]
+        object.__setattr__(verified, "_canonical_bytes", encoded(tampered))
+
+        with self.assertRaisesRegex(CryptoError, "invalid_signature"):
+            reverify_verified_event(
+                verified, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+            )
+
+    def test_consumption_boundary_rejects_tampered_policy_metadata(self) -> None:
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        verified = self.verify(wire)
+        object.__setattr__(
+            verified, "_room_id", "11111111-1111-4111-8111-111111111111"
+        )
+
+        with self.assertRaisesRegex(CryptoError, "verified_metadata_mismatch"):
+            reverify_verified_event(
+                verified, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+            )
+
+    def test_forged_policy_contents_cannot_leak_comparison_exceptions(self) -> None:
+        class ExplosiveEquality:
+            def __eq__(self, _other: object) -> bool:
+                raise RuntimeError("hostile comparison ran")
+
+        wire = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        forged = self.verify(wire)
+        object.__setattr__(forged, "_policy", (ExplosiveEquality(),) * 8)
+
+        with self.assertRaises(CryptoError) as raised:
+            reverify_verified_event(
+                forged, expected_room_id=ROOM, now=NOW, limits=DEFAULT_LIMITS
+            )
+        self.assertLessEqual(len(str(raised.exception)), 256)
+
+    def test_forged_wire_events_fail_with_bounded_crypto_errors(self) -> None:
+        valid = parse_wire_event(encoded(), expected_room_id=ROOM, now=NOW)
+        malformed: list[WireEvent] = [object.__new__(WireEvent)]
+        wrong_tags = object.__new__(WireEvent)
+        for name in ("id", "pubkey", "created_at", "kind", "content", "sig"):
+            object.__setattr__(wrong_tags, name, getattr(valid, name))
+        object.__setattr__(wrong_tags, "tags", (("h", ROOM), (1,)))
+        malformed.append(wrong_tags)
+        object.__setattr__(valid, "created_at", True)
+        malformed.append(valid)
+
+        for index, event in enumerate(malformed):
+            with self.subTest(case=index):
+                with self.assertRaises(CryptoError) as raised:
+                    self.verify(event)
+                self.assertLessEqual(len(str(raised.exception)), 256)
+                self.assertTrue(str(raised.exception).isascii())
 
     def test_crypto_input_shape_errors_are_bounded_domain_errors(self) -> None:
         malformed = ((b"", b"0" * 32, b"0" * 64), (b"0" * 32, b"", b"0" * 64), (b"0" * 32, b"0" * 32, b""))

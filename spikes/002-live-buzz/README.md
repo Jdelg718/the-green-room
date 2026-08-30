@@ -112,11 +112,29 @@ These commands install only the pinned project/runtime tree. They do not load
 
 `nostr_types.py` accepts only raw UTF-8 JSON, rejects duplicate object keys,
 requires the exact NIP-01 event fields and JSON types, and returns deeply frozen
-parsed values. `crypto.py` hashes canonical NIP-01 bytes and compares the event
-ID before asking pinned `coincurve==21.0.0`/libsecp256k1 to verify BIP-340. The
-opaque verified type has no public constructor; the parsed wire type is also
-minted only by the strict parser, so callers cannot bypass parsing and then ask
-the verifier to bless a hand-built value.
+parsed values. `crypto.py` copies an event into an independent deterministic JSON
+byte snapshot, reparses it under explicit room/time/resource policy, hashes
+canonical NIP-01 bytes, compares the event ID, and then asks pinned
+`coincurve==21.0.0`/libsecp256k1 to verify BIP-340.
+
+Python type identity, frozen dataclasses, `__slots__`, and unavailable public
+constructors are **not security capabilities**. Hostile in-process code can call
+`object.__new__` and `object.__setattr__`, forge either wrapper type, or mutate a
+nominally frozen object. `VerifiedWireEvent` therefore exposes no parsed event as
+authoritative state. It stores only immutable complete canonical JSON bytes plus
+the room, time, and policy fingerprint used for initial verification.
+Security-sensitive consumers must call `reverify_verified_event(...)` with their
+own authoritative expected room, time, and limits. That boundary compares the
+stored metadata, bounds and reparses the byte snapshot, recomputes the event ID,
+and reruns BIP-340 before returning a fresh frozen `WireEvent`. Forged, missing,
+wrongly typed, mutated, and structurally malformed values fail with short
+`CryptoError`/`WireError` codes rather than `AttributeError` or `TypeError`.
+
+A forged wrapper around genuinely valid canonical bytes and matching
+caller-supplied policy may be accepted after re-verification. This is intentional:
+cryptographic content and caller policy are authoritative; Python wrapper
+identity is not. There is deliberately no module-private object registry because
+such a registry would only simulate a capability inside a hostile Python process.
 
 The default fail-closed limits are:
 
@@ -167,3 +185,14 @@ env -u PYTHONPATH uv run --project spikes/002-live-buzz \
 The full 47-test command was additionally exercised under CPython 3.13 via
 `uv run --isolated --python 3.13`; CPython 3.11 was not installed on the review
 host. The project's normal frozen environment selected CPython 3.12.13.
+
+The follow-up trust-boundary remediation also used observed RED → GREEN evidence.
+Before implementation, the expanded focused suite exited `1` because
+`reverify_verified_event` did not exist. After implementation, the focused suite
+passes **33 tests** and the accumulated suite passes **56 tests**. Deliberate
+mutation checks then removed the event-ID comparison and disabled signature
+verification in turn: the two ID-specific tests and the two signature-specific
+tests failed respectively. Restoring each check returned the suite to GREEN.
+These mutation runs demonstrate that both initial verification and consumption
+re-verification tests depend on the cryptographic checks rather than wrapper
+type identity.

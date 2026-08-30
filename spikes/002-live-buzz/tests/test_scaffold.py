@@ -7,7 +7,6 @@ import unittest
 
 from greenroom_live.config import ConfigError, LiveBuzzConfig
 
-
 PUBLIC_PLACEHOLDER = {
     "GREENROOM_RELAY_URL": "wss://relay.invalid",
     "GREENROOM_ROOM_ID": "00000000-0000-4000-8000-000000000000",
@@ -205,9 +204,10 @@ class ConfigTests(unittest.TestCase):
 
     def test_non_mapping_input_fails_with_config_error(self) -> None:
         for values in (None, 1, [], "not a mapping"):
-            with self.subTest(values=repr(values)):
-                with self.assertRaisesRegex(ConfigError, "mapping"):
-                    LiveBuzzConfig.from_mapping(values)  # type: ignore[arg-type]
+            with self.subTest(values=repr(values)), self.assertRaisesRegex(
+                ConfigError, "mapping"
+            ):
+                LiveBuzzConfig.from_mapping(values)  # type: ignore[arg-type]
 
     def test_mapping_keys_must_be_strings(self) -> None:
         for malformed_key in (None, 1, ("tuple",)):
