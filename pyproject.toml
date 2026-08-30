@@ -28,6 +28,27 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/greenroom_persona"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+  "/schemas/persona-0.1.schema.json",
+  "/src/greenroom_persona",
+]
+exclude = [
+  "/.hypothesis",
+  "/.venv",
+  "/dist",
+  "/**/__pycache__",
+  "/docs",
+  "/evidence",
+  "/personas",
+  "/spikes",
+  "/tests",
+  "/upstream",
+]
+
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
