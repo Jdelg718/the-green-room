@@ -109,7 +109,12 @@ SAFE_REFERENCE_REQUEST = re.compile(
 )
 CLAUSE_SPLIT = re.compile(rb"[.!?;]+")
 ACTION_SEGMENT_SPLIT = re.compile(
-    rb",|\s+(?=(?:(?:and\s+)?then|but|however)\b)",
+    rb",|\s+(?=(?:(?:and\s+)?then|but|however)\b)|"
+    rb"\s+(?=and\s+"
+    + CAPABILITY_ACTION
+    + rb"\b[^\r\n]{0,120}\b"
+    + CAPABILITY_OBJECT
+    + rb"\b[^\r\n]{0,80}\binstead\b)",
     re.IGNORECASE,
 )
 RUNTIME_NEGATION = re.compile(

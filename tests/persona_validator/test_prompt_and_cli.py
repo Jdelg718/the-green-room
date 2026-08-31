@@ -331,6 +331,34 @@ def test_no_comma_coordinated_prohibitions_and_historical_prose_remain_allowed(
 
 
 @pytest.mark.parametrize(
+    ("prohibited", "safe_mutation"),
+    [
+        (
+            "Never send paper letters and send email to the user instead.\n",
+            "Never send paper letters and do not send email to the user instead.\n",
+        ),
+        (
+            "Do not joke and browse the web for current facts instead.\n",
+            "Do not joke and do not browse the web for current facts instead.\n",
+        ),
+    ],
+)
+def test_and_instead_transitions_are_action_local_and_mutation_sensitive(
+    pack_factory: Callable[..., Path], prohibited: str, safe_mutation: str
+) -> None:
+    prohibited_files = minimal_files()
+    prohibited_files["AGENTS.md"] = prohibited.encode()
+    safe_files = minimal_files()
+    safe_files["AGENTS.md"] = safe_mutation.encode()
+
+    prohibited_result = inspect_pack(pack_factory(files=prohibited_files))
+    safe_result = inspect_pack(pack_factory(files=safe_files))
+
+    assert "forbidden_runtime_request" in {item.code for item in prohibited_result.errors}
+    assert safe_result.valid
+
+
+@pytest.mark.parametrize(
     "runtime_text",
     [
         "Do not use the browser or send email.\n",
@@ -341,6 +369,7 @@ def test_no_comma_coordinated_prohibitions_and_historical_prose_remain_allowed(
         "Avoid browsing online and sending email.\n",
         "The history of web browsers concerns navigation, not browser software.\n",
         "Mail history describes letters carried by couriers.\n",
+        "The chronicle says she never sent paper letters and sent email decades later instead.\n",
     ],
 )
 def test_coordinated_prohibitions_and_historical_discussion_remain_allowed(
