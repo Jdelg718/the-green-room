@@ -92,7 +92,7 @@ test("compiled server starts from a non-repository cwd with packaged migrations"
   const database = new DatabaseSync(databasePath, { readOnly: true });
   assert.equal(
     database.prepare("SELECT count(*) AS count FROM schema_migrations").get()?.count,
-    1,
+    2,
   );
   database.close();
 });

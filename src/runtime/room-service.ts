@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 import {
@@ -16,10 +16,14 @@ import {
 } from "./director.js";
 
 const DEFAULT_AUTONOMOUS_TURN_BUDGET = 10;
+const DEFAULT_PENDING_WORK_LEASE_MS = 30_000;
+const DEFAULT_PENDING_WORK_POLL_MS = 50;
+const MAX_PENDING_WORK_LEASE_MS = 300_000;
 
 export const ROOM_SERVICE_LIMITS = Object.freeze({
   MAX_IDENTIFIER_LENGTH: 256,
   MAX_MESSAGE_LENGTH: 16_384,
+  MAX_PROVIDER_TEXT_LENGTH: 16_384,
 } as const);
 
 export interface RoomCommand {
@@ -77,6 +81,10 @@ export interface RoomServiceOptions {
   readonly database: DatabaseSync;
   readonly provider: GenerationProvider;
   readonly maxAutonomousTurns?: number;
+  readonly now?: () => number;
+  readonly pendingWorkLeaseMs?: number;
+  readonly pendingWorkPollMs?: number;
+  readonly wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
 interface RoomRow {
@@ -97,6 +105,8 @@ interface PersonaRow {
 }
 
 interface CommandRow {
+  readonly claim_expires_at: number | null;
+  readonly claim_owner: string | null;
   readonly request_digest: string;
   readonly result_json: string;
 }
@@ -117,7 +127,9 @@ interface CompleteCommand<T> {
 }
 
 interface PreparedMessage {
+  readonly claimOwner?: string;
   readonly complete?: SendMessageResult;
+  readonly observedUntil?: number;
   readonly pending?: PendingMessage;
 }
 
@@ -128,6 +140,26 @@ interface InFlightMessage {
 
 interface ActiveGeneration {
   readonly controller: AbortController;
+}
+
+function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolveWait, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timeout = setTimeout(finish, milliseconds);
+    function finish(): void {
+      signal.removeEventListener("abort", abort);
+      resolveWait();
+    }
+    function abort(): void {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason);
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function canonicalIdentifier(value: string, field: string): string {
@@ -187,6 +219,10 @@ export class RoomService {
   readonly #database: DatabaseSync;
   readonly #provider: GenerationProvider;
   readonly #maxAutonomousTurns: number;
+  readonly #now: () => number;
+  readonly #pendingWorkLeaseMs: number;
+  readonly #pendingWorkPollMs: number;
+  readonly #wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly #inFlight = new Map<string, InFlightMessage>();
   readonly #controllers = new Map<string, Set<ActiveGeneration>>();
 
@@ -197,10 +233,32 @@ export class RoomService {
     ) {
       throw new TypeError("maxAutonomousTurns must be a non-negative integer");
     }
+    const pendingWorkLeaseMs =
+      options.pendingWorkLeaseMs ?? DEFAULT_PENDING_WORK_LEASE_MS;
+    const pendingWorkPollMs =
+      options.pendingWorkPollMs ?? DEFAULT_PENDING_WORK_POLL_MS;
+    if (
+      !Number.isSafeInteger(pendingWorkLeaseMs) ||
+      pendingWorkLeaseMs <= 0 ||
+      pendingWorkLeaseMs > MAX_PENDING_WORK_LEASE_MS
+    ) {
+      throw new TypeError("pendingWorkLeaseMs must be a bounded positive integer");
+    }
+    if (
+      !Number.isSafeInteger(pendingWorkPollMs) ||
+      pendingWorkPollMs <= 0 ||
+      pendingWorkPollMs > pendingWorkLeaseMs
+    ) {
+      throw new TypeError("pendingWorkPollMs must not exceed the work lease");
+    }
     this.#database = options.database;
     this.#provider = options.provider;
     this.#maxAutonomousTurns =
       options.maxAutonomousTurns ?? DEFAULT_AUTONOMOUS_TURN_BUDGET;
+    this.#now = options.now ?? Date.now;
+    this.#pendingWorkLeaseMs = pendingWorkLeaseMs;
+    this.#pendingWorkPollMs = pendingWorkPollMs;
+    this.#wait = options.wait ?? defaultWait;
   }
 
   sendMessage(command: SendMessageCommand): Promise<SendMessageResult> {
@@ -226,24 +284,9 @@ export class RoomService {
       return existing.promise;
     }
 
-    let promise: Promise<SendMessageResult>;
-    try {
-      const prepared = this.#prepareMessage(normalized, requestDigest);
-      if (prepared.complete !== undefined) {
-        return Promise.resolve(prepared.complete);
-      }
-      if (prepared.pending === undefined) {
-        throw new Error("Message command was not prepared");
-      }
-      promise = this.#generateMessage(
-        normalized.roomId,
-        normalized.requestId,
-        prepared.pending,
-      );
-    } catch (error) {
-      return Promise.reject(error);
-    }
-
+    const promise = Promise.resolve().then(async () =>
+      this.#executeMessage(normalized, requestDigest),
+    );
     this.#inFlight.set(key, { digest: requestDigest, promise });
     void promise.finally(() => {
       if (this.#inFlight.get(key)?.promise === promise) {
@@ -273,6 +316,60 @@ export class RoomService {
     return this.#personaControl("unmute", command);
   }
 
+  async #executeMessage(
+    command: {
+      readonly roomId: string;
+      readonly requestId: string;
+      readonly text: string;
+      readonly wantsResponse: boolean;
+    },
+    requestDigest: string,
+  ): Promise<SendMessageResult> {
+    const claimOwner = randomUUID();
+    const observation = new AbortController();
+    let generated = false;
+    let providerResult: ProviderResult | undefined;
+    while (true) {
+      const prepared = this.#prepareMessage(command, requestDigest, claimOwner);
+      if (prepared.complete !== undefined) {
+        return prepared.complete;
+      }
+      if (prepared.pending === undefined) {
+        throw new Error("Message command was not prepared");
+      }
+      if (prepared.claimOwner === claimOwner) {
+        if (!generated) {
+          providerResult = await this.#generateMessage(
+            command.roomId,
+            command.requestId,
+            prepared.pending,
+            claimOwner,
+          );
+          generated = true;
+        }
+        const complete = this.#completeMessage(
+          command.roomId,
+          command.requestId,
+          prepared.pending,
+          providerResult,
+          claimOwner,
+        );
+        if (complete !== undefined) {
+          return complete;
+        }
+        continue;
+      }
+      const remaining = Math.max(
+        1,
+        (prepared.observedUntil ?? this.#currentTime()) - this.#currentTime(),
+      );
+      await this.#wait(
+        Math.min(this.#pendingWorkPollMs, remaining),
+        observation.signal,
+      );
+    }
+  }
+
   #prepareMessage(
     command: {
       readonly roomId: string;
@@ -281,15 +378,32 @@ export class RoomService {
       readonly wantsResponse: boolean;
     },
     requestDigest: string,
+    claimOwner: string,
   ): PreparedMessage {
     return withImmediateTransaction(this.#database, () => {
+      const now = this.#currentTime();
       const prior = this.#findCommand(command.roomId, command.requestId);
       if (prior !== undefined) {
         assertMatchingDigest(prior, requestDigest);
         const stored = parseStored<SendMessageResult>(prior.result_json);
-        return stored.state === "complete"
-          ? { complete: stored.result }
-          : { pending: stored };
+        if (stored.state === "complete") {
+          return { complete: stored.result };
+        }
+        if (
+          prior.claim_owner === null ||
+          prior.claim_expires_at === null ||
+          prior.claim_expires_at <= now
+        ) {
+          const claimExpiresAt = now + this.#pendingWorkLeaseMs;
+          this.#database
+            .prepare(
+              `UPDATE commands SET claim_owner = ?, claim_expires_at = ?
+               WHERE room_id = ? AND request_id = ?`,
+            )
+            .run(claimOwner, claimExpiresAt, command.roomId, command.requestId);
+          return { claimOwner, pending: stored };
+        }
+        return { observedUntil: prior.claim_expires_at, pending: stored };
       }
 
       const room = this.#room(command.roomId);
@@ -375,8 +489,10 @@ export class RoomService {
         command.requestId,
         requestDigest,
         pending,
+        claimOwner,
+        now + this.#pendingWorkLeaseMs,
       );
-      return { pending };
+      return { claimOwner, pending };
     });
   }
 
@@ -436,21 +552,29 @@ export class RoomService {
     roomId: string,
     requestId: string,
     pending: PendingMessage,
-  ): Promise<SendMessageResult> {
+    claimOwner: string,
+  ): Promise<ProviderResult | undefined> {
     const speaker = pending.decision.speaker;
     if (speaker === null) {
       throw new Error("Cannot generate without a selected speaker");
     }
     const controller = new AbortController();
     const active = { controller };
+    const stopLease = new AbortController();
+    const leaseMaintenance = this.#maintainClaim(
+      roomId,
+      requestId,
+      claimOwner,
+      controller,
+      stopLease.signal,
+    );
     this.#addController(roomId, active);
     try {
       if (this.#isStale(roomId, pending.generation, speaker)) {
-        return this.#completeMessage(roomId, requestId, pending, undefined);
+        return undefined;
       }
-      let providerResult: ProviderResult;
       try {
-        providerResult = await this.#provider.generate(
+        const result: unknown = await this.#provider.generate(
           {
             id: `${roomId}:${pending.generation}:${pending.humanEventSequence}:${speaker}`,
             personaId: speaker,
@@ -458,22 +582,17 @@ export class RoomService {
           },
           controller.signal,
         );
+        return this.#validatedProviderResult(result);
       } catch (error) {
         if (this.#isStale(roomId, pending.generation, speaker)) {
-          return this.#completeMessage(roomId, requestId, pending, undefined);
+          return undefined;
         }
+        this.#releaseClaim(roomId, requestId, claimOwner);
         throw error;
       }
-      if (providerResult.kind === "text" && providerResult.text.length === 0) {
-        throw new TypeError("Provider text must not be empty");
-      }
-      return this.#completeMessage(
-        roomId,
-        requestId,
-        pending,
-        providerResult,
-      );
     } finally {
+      stopLease.abort();
+      await leaseMaintenance;
       this.#removeController(roomId, active);
     }
   }
@@ -483,7 +602,8 @@ export class RoomService {
     requestId: string,
     pending: PendingMessage,
     providerResult: ProviderResult | undefined,
-  ): SendMessageResult {
+    claimOwner: string,
+  ): SendMessageResult | undefined {
     return withImmediateTransaction(this.#database, () => {
       const row = this.#findCommand(roomId, requestId);
       if (row === undefined) {
@@ -492,6 +612,13 @@ export class RoomService {
       const stored = parseStored<SendMessageResult>(row.result_json);
       if (stored.state === "complete") {
         return stored.result;
+      }
+      if (
+        row.claim_owner !== claimOwner ||
+        row.claim_expires_at === null ||
+        row.claim_expires_at <= this.#currentTime()
+      ) {
+        return undefined;
       }
 
       const speaker = pending.decision.speaker;
@@ -528,10 +655,11 @@ export class RoomService {
       };
       this.#database
         .prepare(
-          `UPDATE commands SET result_json = ?
-           WHERE room_id = ? AND request_id = ?`,
+          `UPDATE commands
+           SET result_json = ?, claim_owner = NULL, claim_expires_at = NULL
+           WHERE room_id = ? AND request_id = ? AND claim_owner = ?`,
         )
-        .run(canonicalJson(completed(result)), roomId, requestId);
+        .run(canonicalJson(completed(result)), roomId, requestId, claimOwner);
       return result;
     });
   }
@@ -573,6 +701,9 @@ export class RoomService {
               `UPDATE rooms SET status = ?, generation = generation + ? WHERE id = ?`,
             )
             .run(targetStatus, fencesGeneration ? 1 : 0, roomId);
+          if (fencesGeneration) {
+            this.#releaseRoomClaims(roomId);
+          }
         }
         const updated = this.#room(roomId);
         const controlResult: RoomControlResult = {
@@ -641,6 +772,7 @@ export class RoomService {
             this.#database
               .prepare("UPDATE rooms SET generation = generation + 1 WHERE id = ?")
               .run(roomId);
+            this.#releaseRoomClaims(roomId);
           }
         }
         const updatedRoom = this.#room(roomId);
@@ -682,7 +814,7 @@ export class RoomService {
   #findCommand(roomId: string, requestId: string): CommandRow | undefined {
     return this.#database
       .prepare(
-        `SELECT request_digest, result_json FROM commands
+        `SELECT request_digest, result_json, claim_owner, claim_expires_at FROM commands
          WHERE room_id = ? AND request_id = ?`,
       )
       .get(roomId, requestId) as CommandRow | undefined;
@@ -693,13 +825,116 @@ export class RoomService {
     requestId: string,
     requestDigest: string,
     result: unknown,
+    claimOwner: string | null = null,
+    claimExpiresAt: number | null = null,
   ): void {
     this.#database
       .prepare(
-        `INSERT INTO commands(room_id, request_id, request_digest, result_json)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO commands(
+           room_id, request_id, request_digest, result_json,
+           claim_owner, claim_expires_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(roomId, requestId, requestDigest, canonicalJson(result));
+      .run(
+        roomId,
+        requestId,
+        requestDigest,
+        canonicalJson(result),
+        claimOwner,
+        claimExpiresAt,
+      );
+  }
+
+  #currentTime(): number {
+    const now = this.#now();
+    if (!Number.isSafeInteger(now) || now < 0) {
+      throw new TypeError("now must return a non-negative safe integer");
+    }
+    return now;
+  }
+
+  async #maintainClaim(
+    roomId: string,
+    requestId: string,
+    claimOwner: string,
+    controller: AbortController,
+    stopSignal: AbortSignal,
+  ): Promise<void> {
+    const interval = Math.max(1, Math.floor(this.#pendingWorkLeaseMs / 3));
+    while (!stopSignal.aborted) {
+      try {
+        await this.#wait(interval, stopSignal);
+      } catch {
+        return;
+      }
+      if (stopSignal.aborted) {
+        return;
+      }
+      try {
+        const renewed = withImmediateTransaction(this.#database, () =>
+          this.#database
+            .prepare(
+              `UPDATE commands SET claim_expires_at = ?
+               WHERE room_id = ? AND request_id = ? AND claim_owner = ?
+                 AND json_extract(result_json, '$.state') = 'pending'`,
+            )
+            .run(
+              this.#currentTime() + this.#pendingWorkLeaseMs,
+              roomId,
+              requestId,
+              claimOwner,
+            ).changes,
+        );
+        if (renewed !== 1) {
+          controller.abort(new Error("Pending provider claim was lost"));
+          return;
+        }
+      } catch (error) {
+        controller.abort(error);
+        return;
+      }
+    }
+  }
+
+  #releaseClaim(roomId: string, requestId: string, claimOwner: string): void {
+    withImmediateTransaction(this.#database, () => {
+      this.#database
+        .prepare(
+          `UPDATE commands SET claim_owner = NULL, claim_expires_at = NULL
+           WHERE room_id = ? AND request_id = ? AND claim_owner = ?
+             AND json_extract(result_json, '$.state') = 'pending'`,
+        )
+        .run(roomId, requestId, claimOwner);
+    });
+  }
+
+  #releaseRoomClaims(roomId: string): void {
+    this.#database
+      .prepare(
+        `UPDATE commands SET claim_owner = NULL, claim_expires_at = NULL
+         WHERE room_id = ? AND claim_owner IS NOT NULL
+           AND json_extract(result_json, '$.state') = 'pending'`,
+      )
+      .run(roomId);
+  }
+
+  #validatedProviderResult(value: unknown): ProviderResult {
+    if (value === null || typeof value !== "object") {
+      throw new TypeError("Provider result must be an object");
+    }
+    const result = value as { readonly kind?: unknown; readonly text?: unknown };
+    if (result.kind === "silence") {
+      return { kind: "silence" };
+    }
+    if (
+      result.kind !== "text" ||
+      typeof result.text !== "string" ||
+      result.text.length === 0 ||
+      result.text.length > ROOM_SERVICE_LIMITS.MAX_PROVIDER_TEXT_LENGTH
+    ) {
+      throw new TypeError("Provider text must be a nonempty bounded string");
+    }
+    return { kind: "text", text: result.text };
   }
 
   #isStale(roomId: string, generation: number, personaId: string): boolean {

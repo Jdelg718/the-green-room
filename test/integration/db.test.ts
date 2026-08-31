@@ -51,6 +51,7 @@ test("concurrent first opens serialize migration history and both succeed", asyn
   const concurrentMigrations = join(dataDir, "concurrent-migrations");
   const migrationDatabase = join(dataDir, "greenroom.sqlite");
   cpSync(migrationsDir, concurrentMigrations, { recursive: true });
+  rmSync(join(concurrentMigrations, "0002-claim-pending-work.sql"));
   writeFileSync(
     join(concurrentMigrations, "0001-first-playable.sql"),
     `CREATE TABLE race_probe(value INTEGER PRIMARY KEY);
@@ -115,8 +116,9 @@ test("migration checksums reject changed files and unknown newer schema versions
   const applied = first.database
     .prepare("SELECT version, name, checksum FROM schema_migrations")
     .all() as Array<{ version: number; name: string; checksum: string }>;
-  assert.equal(applied.length, 1);
+  assert.equal(applied.length, 2);
   assert.deepEqual(applied[0]?.version, 1);
+  assert.deepEqual(applied[1]?.version, 2);
   assert.match(applied[0]?.checksum ?? "", /^[a-f0-9]{64}$/);
   first.close();
 
@@ -130,12 +132,12 @@ test("migration checksums reject changed files and unknown newer schema versions
   writeFileSync(migrationPath, readFileSync(join(migrationsDir, "0001-first-playable.sql")));
   const raw = new DatabaseSync(join(dataDir, "greenroom.sqlite"));
   raw.prepare(
-    "INSERT INTO schema_migrations(version, name, checksum) VALUES (2, 'future', ?)",
+    "INSERT INTO schema_migrations(version, name, checksum) VALUES (3, 'future', ?)",
   ).run("0".repeat(64));
   raw.close();
   assert.throws(
     () => openGreenRoomDatabase({ dataDir, migrationsDir: copiedMigrations }),
-    /unknown.*migration.*2|newer.*2/i,
+    /unknown.*migration.*3|newer.*3/i,
   );
 });
 
@@ -144,13 +146,13 @@ test("migration failure rolls back every pending migration", (context) => {
   const copiedMigrations = join(dataDir, "migration-copy");
   cpSync(migrationsDir, copiedMigrations, { recursive: true });
   writeFileSync(
-    join(copiedMigrations, "0002-broken.sql"),
+    join(copiedMigrations, "0003-broken.sql"),
     "CREATE TABLE rollback_probe(value TEXT); INSERT INTO missing_table VALUES (1);",
   );
 
   assert.throws(
     () => openGreenRoomDatabase({ dataDir, migrationsDir: copiedMigrations }),
-    /migration 2/i,
+    /migration 3/i,
   );
 
   const raw = new DatabaseSync(join(dataDir, "greenroom.sqlite"));
@@ -165,6 +167,75 @@ test("migration failure rolls back every pending migration", (context) => {
       "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'",
     ),
     0,
+  );
+});
+
+test("forward migration preserves legacy pending commands and adds empty claims", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const legacyMigrations = join(dataDir, "legacy-migrations");
+  cpSync(migrationsDir, legacyMigrations, { recursive: true });
+  rmSync(join(legacyMigrations, "0002-claim-pending-work.sql"));
+  const legacy = openGreenRoomDatabase({
+    dataDir,
+    migrationsDir: legacyMigrations,
+  });
+  legacy.database
+    .prepare(
+      `INSERT INTO commands(room_id, request_id, request_digest, result_json)
+       VALUES ('first-playable', 'legacy-pending', ?, ?)`,
+    )
+    .run(
+      "a".repeat(64),
+      '{"decision":{"reason":"selected","speaker":"detective"},"directorEventSequence":2,"generation":0,"humanEventSequence":1,"prompt":"Legacy.","requestId":"legacy-pending","state":"pending"}',
+    );
+  legacy.close();
+
+  const upgraded = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => upgraded.close());
+  assert.deepEqual(
+    upgraded.database
+      .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { version: 1, name: "0001-first-playable.sql" },
+      { version: 2, name: "0002-claim-pending-work.sql" },
+    ],
+  );
+  assert.deepEqual(
+    {
+      ...upgraded.database
+        .prepare(
+          `SELECT request_id, claim_owner, claim_expires_at
+           FROM commands WHERE request_id = 'legacy-pending'`,
+        )
+        .get(),
+    },
+    {
+      request_id: "legacy-pending",
+      claim_owner: null,
+      claim_expires_at: null,
+    },
+  );
+  assert.throws(
+    () =>
+      upgraded.database
+        .prepare(
+          `UPDATE commands SET claim_owner = 'half-a-claim'
+           WHERE request_id = 'legacy-pending'`,
+        )
+        .run(),
+    /invalid command claim/i,
+  );
+  assert.throws(
+    () =>
+      upgraded.database
+        .prepare(
+          `UPDATE commands SET result_json = ?
+           WHERE request_id = 'legacy-pending'`,
+        )
+        .run(JSON.stringify({ state: "complete", padding: "x".repeat(131_072) })),
+    /oversized command metadata/i,
   );
 });
 

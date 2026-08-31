@@ -219,6 +219,168 @@ test("idempotency returns the complete result and rejects a digest mismatch with
   );
 });
 
+test("two room services race one durable request but invoke exactly one provider", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const first = openGreenRoomDatabase({ dataDir, migrationsDir });
+  const second = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => first.close());
+  context.after(() => second.close());
+  const winningProvider = new LatchingProvider({
+    kind: "text",
+    text: "The durable claimant wins.",
+  });
+  const losingProvider = new DeterministicMockProvider({
+    "first-playable:0:1:detective": {
+      kind: "text",
+      text: "A second process must not become authoritative.",
+    },
+  });
+  let losingCalls = 0;
+  const countingLosingProvider: GenerationProvider = {
+    async generate(invitation, signal) {
+      losingCalls += 1;
+      return losingProvider.generate(invitation, signal);
+    },
+  };
+  const firstService = new RoomService({
+    database: first.database,
+    provider: winningProvider,
+  });
+  const secondService = new RoomService({
+    database: second.database,
+    provider: countingLosingProvider,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "two-service-race",
+    text: "Claim this once.",
+  } as const;
+
+  const firstResult = firstService.sendMessage(command);
+  await winningProvider.entered;
+  const secondResult = secondService.sendMessage(command);
+  await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  try {
+    assert.equal(winningProvider.calls.length + losingCalls, 1);
+    assert.equal(losingCalls, 0);
+  } finally {
+    winningProvider.release();
+  }
+
+  const expected = {
+    kind: "message",
+    requestId: "two-service-race",
+    humanEventSequence: 1,
+    directorEventSequence: 2,
+    personaEventSequence: 3,
+    decision: { speaker: "detective", reason: "selected" },
+    outcome: "text",
+    generation: 0,
+  } as const;
+  assert.deepEqual(await firstResult, expected);
+  assert.deepEqual(await secondResult, expected);
+  assert.equal(count(first.database, "events"), 3);
+  assert.deepEqual(
+    first.database
+      .prepare("SELECT sequence, event_json FROM events ORDER BY sequence")
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      {
+        sequence: 1,
+        event_json:
+          '{"participantId":"human","text":"Claim this once.","type":"human_message"}',
+      },
+      {
+        sequence: 2,
+        event_json:
+          '{"reason":"selected","sourceEventSequence":1,"speaker":"detective","type":"director_decision"}',
+      },
+      {
+        sequence: 3,
+        event_json:
+          '{"participantId":"detective","sourceEventSequence":1,"text":"The durable claimant wins.","type":"persona_message"}',
+      },
+    ],
+  );
+});
+
+test("provider failure releases its durable claim for an immediate idempotent retry", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  let calls = 0;
+  const provider: GenerationProvider = {
+    async generate() {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("temporary provider failure");
+      }
+      return { kind: "text", text: "Recovered without rescheduling." };
+    },
+  };
+  const service = new RoomService({ database: store.database, provider });
+  const command = {
+    roomId: "first-playable",
+    requestId: "provider-retry",
+    text: "Retry only the provider work.",
+  } as const;
+
+  await assert.rejects(service.sendMessage(command), /temporary provider failure/);
+  assert.deepEqual(
+    {
+      ...store.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'provider-retry'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+  const retried = await service.sendMessage(command);
+  assert.equal(retried.outcome, "text");
+  assert.equal(retried.personaEventSequence, 3);
+  assert.equal(calls, 2);
+  assert.equal(count(store.database, "events"), 3);
+  assert.equal(count(store.database, "commands"), 1);
+});
+
+test("provider output is bounded before it can enter durable events", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const service = new RoomService({
+    database: store.database,
+    provider: {
+      async generate() {
+        return { kind: "text", text: "x".repeat(16_385) };
+      },
+    },
+  });
+
+  await assert.rejects(
+    service.sendMessage({
+      roomId: "first-playable",
+      requestId: "oversized-provider-output",
+      text: "Stay bounded.",
+    }),
+    /provider text.*bounded/i,
+  );
+  assert.equal(count(store.database, "events"), 2);
+  assert.deepEqual(
+    {
+      ...store.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'oversized-provider-output'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+});
+
 test("restart state preserves pause mute cooldown budget generation and completed retries", async (context) => {
   const dataDir = temporaryDirectory(context);
   const first = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -498,13 +660,17 @@ test("restart state cooldown elapses across an intervening deliberate silence", 
   );
 });
 
-test("restart state resumes a crash-interrupted pending command without duplicating scheduling rows", async (context) => {
+test("restart reclaims an expired provider claim without duplicating scheduling rows", async (context) => {
   const dataDir = temporaryDirectory(context);
+  let now = 1_000;
   const first = openGreenRoomDatabase({ dataDir, migrationsDir });
   const crashedProvider = new LatchingProvider({ kind: "silence" });
   const firstService = new RoomService({
     database: first.database,
     provider: crashedProvider,
+    now: () => now,
+    pendingWorkLeaseMs: 100,
+    pendingWorkPollMs: 10,
   });
   const interrupted = firstService.sendMessage({
     roomId: "first-playable",
@@ -512,7 +678,23 @@ test("restart state resumes a crash-interrupted pending command without duplicat
     text: "Survive restart.",
   });
   await crashedProvider.entered;
+  assert.deepEqual(
+    {
+      ...first.database
+        .prepare(
+          `SELECT claim_expires_at, result_json FROM commands
+           WHERE request_id = 'crash-request'`,
+        )
+        .get(),
+    },
+    {
+      claim_expires_at: 1_100,
+      result_json:
+        '{"decision":{"reason":"selected","speaker":"detective"},"directorEventSequence":2,"generation":0,"humanEventSequence":1,"prompt":"Survive restart.","requestId":"crash-request","state":"pending"}',
+    },
+  );
   first.close();
+  now = 1_100;
 
   const reopened = openGreenRoomDatabase({ dataDir, migrationsDir });
   context.after(() => reopened.close());
@@ -521,6 +703,9 @@ test("restart state resumes a crash-interrupted pending command without duplicat
     provider: new DeterministicMockProvider({
       "first-playable:0:1:detective": { kind: "text", text: "Recovered." },
     }),
+    now: () => now,
+    pendingWorkLeaseMs: 100,
+    pendingWorkPollMs: 10,
   });
   const recovered = await service.sendMessage({
     roomId: "first-playable",
@@ -531,6 +716,17 @@ test("restart state resumes a crash-interrupted pending command without duplicat
   assert.equal(recovered.personaEventSequence, 3);
   assert.equal(count(reopened.database, "events"), 3);
   assert.equal(count(reopened.database, "commands"), 1);
+  assert.deepEqual(
+    {
+      ...reopened.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'crash-request'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
 
   crashedProvider.release();
   await assert.rejects(interrupted);
