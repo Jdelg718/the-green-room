@@ -8,10 +8,59 @@ test("config uses private loopback defaults", () => {
 
   assert.deepEqual(config, {
     acceptanceFixture: null,
+    allowedOrigin: "http://127.0.0.1:8787",
     dataDir: "/tmp/green-room-checkout/.local/first-playable",
     host: "127.0.0.1",
     port: 8787,
   });
+});
+
+test("config accepts canonical private Tailscale Serve HTTPS origins", () => {
+  const config = loadConfig({
+    GREENROOM_ALLOWED_ORIGIN: "https://amys-macbook-pro.tail91f2b3.ts.net",
+  });
+  assert.equal(
+    config.allowedOrigin,
+    "https://amys-macbook-pro.tail91f2b3.ts.net",
+  );
+  assert.equal(config.host, "127.0.0.1");
+  assert.equal(
+    loadConfig({
+      GREENROOM_ALLOWED_ORIGIN: "https://green-room.tail91f2b3.ts.net:8443",
+    }).allowedOrigin,
+    "https://green-room.tail91f2b3.ts.net:8443",
+  );
+});
+
+test("config rejects unsafe or noncanonical allowed-origin overrides", () => {
+  for (const origin of [
+    "http://amys-macbook-pro.tail91f2b3.ts.net",
+    "https://example.com",
+    "https://ts.net",
+    "https://user@amys-macbook-pro.tail91f2b3.ts.net",
+    "https://user:password@amys-macbook-pro.tail91f2b3.ts.net",
+    "https://amys-macbook-pro.tail91f2b3.ts.net/",
+    "https://amys-macbook-pro.tail91f2b3.ts.net/path",
+    "https://amys-macbook-pro.tail91f2b3.ts.net?query=1",
+    "https://amys-macbook-pro.tail91f2b3.ts.net#hash",
+    " https://amys-macbook-pro.tail91f2b3.ts.net",
+    "https://amys-macbook-pro.tail91f2b3.ts.net ",
+    "https://amys-macbook-pro.tail91f2b3.ts.net\\",
+    "https://amys-macbook-pro.tail91f2b3.ts.net:443",
+    "https://amys-macbook-pro.tail91f2b3.ts.net:08443",
+    "HTTPS://amys-macbook-pro.tail91f2b3.ts.net",
+    "https://AMYS-MACBOOK-PRO.tail91f2b3.ts.net",
+    "https://%61mys-macbook-pro.tail91f2b3.ts.net",
+    "https://café.tail91f2b3.ts.net",
+    "https://amys-macbook-pro.tail91f2b3.ts.net\u0000",
+    "https://amys-macbook-pro.tail91f2b3.ts.net\n",
+  ]) {
+    assert.throws(
+      () => loadConfig({ GREENROOM_ALLOWED_ORIGIN: origin }),
+      /GREENROOM_ALLOWED_ORIGIN/,
+      origin,
+    );
+  }
 });
 
 test("config admits only the fixed local acceptance fixture", () => {

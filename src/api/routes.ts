@@ -111,14 +111,15 @@ function parseAllowedOrigin(origin: string): {
   const parsed = new URL(origin);
   if (
     origin !== parsed.origin ||
-    parsed.protocol !== "http:" ||
+    (parsed.protocol !== "http:" &&
+      !(parsed.protocol === "https:" && parsed.hostname.endsWith(".ts.net"))) ||
     parsed.username !== "" ||
     parsed.password !== "" ||
     parsed.pathname !== "/" ||
     parsed.search !== "" ||
     parsed.hash !== ""
   ) {
-    throw new TypeError("allowedOrigin must be an HTTP origin");
+    throw new TypeError("allowedOrigin must be a canonical permitted origin");
   }
   return { authority: parsed.host, origin: parsed.origin };
 }

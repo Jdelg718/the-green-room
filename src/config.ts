@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 export interface AppConfig {
   readonly acceptanceFixture: "first-playable-v1" | null;
+  readonly allowedOrigin: string;
   readonly dataDir: string;
   readonly host: string;
   readonly port: number;
@@ -67,16 +68,54 @@ function dataDirectory(value: string | undefined, cwd: string): string {
   return resolve(cwd, value ?? ".local/first-playable");
 }
 
+function allowedOrigin(value: string | undefined, fallback: string): string {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(
+      "GREENROOM_ALLOWED_ORIGIN must be a canonical Tailscale HTTPS origin",
+    );
+  }
+
+  if (
+    value !== parsed.origin ||
+    parsed.protocol !== "https:" ||
+    !parsed.hostname.endsWith(".ts.net") ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    throw new Error(
+      "GREENROOM_ALLOWED_ORIGIN must be a canonical Tailscale HTTPS origin",
+    );
+  }
+
+  return value;
+}
+
 export function loadConfig(
   environment: Environment = process.env,
   cwd: string = process.cwd(),
 ): AppConfig {
+  const host = loopbackHost(environment.GREENROOM_HOST);
+  const port = listenPort(environment.GREENROOM_PORT);
   return {
     acceptanceFixture: acceptanceFixture(
       environment.GREENROOM_ACCEPTANCE_FIXTURE,
     ),
+    allowedOrigin: allowedOrigin(
+      environment.GREENROOM_ALLOWED_ORIGIN,
+      httpOrigin({ host, port }),
+    ),
     dataDir: dataDirectory(environment.GREENROOM_DATA_DIR, cwd),
-    host: loopbackHost(environment.GREENROOM_HOST),
-    port: listenPort(environment.GREENROOM_PORT),
+    host,
+    port,
   };
 }

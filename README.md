@@ -34,6 +34,22 @@ The command builds the app, exercises a fresh private room through the compiled
 loopback server, restarts it against the same temporary data, and removes its
 temporary data before exiting. A passing run ends with a single JSON summary.
 
+## Private Tailscale Serve access
+
+Green Room continues to listen only on loopback, but it can be shared privately
+with devices in your tailnet through Tailscale Serve. Configure Serve for the
+default local port, then start Green Room with the exact HTTPS origin Serve
+reports (replace the example device and tailnet name):
+
+```bash
+tailscale serve --bg http://127.0.0.1:8787
+npm run build
+GREENROOM_ALLOWED_ORIGIN=https://amys-macbook-pro.tail91f2b3.ts.net npm start
+```
+
+The override accepts only a canonical `https://…ts.net` origin. Keep
+`GREENROOM_HOST` unset so the backend remains bound to `127.0.0.1`.
+
 ## Documents
 
 - [Product brief](docs/PRODUCT-BRIEF.md)

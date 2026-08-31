@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { buildApp } from "./app.js";
-import { httpOrigin, loadConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
 import { AcceptanceFixtureProvider } from "./providers/acceptance-fixture.js";
 import { DeterministicMockProvider } from "./providers/mock.js";
@@ -21,7 +21,7 @@ const provider = config.acceptanceFixture === null
       },
     });
 const app = buildApp({
-  allowedOrigin: httpOrigin(config),
+  allowedOrigin: config.allowedOrigin,
   database: store.database,
   logger: true,
   provider,

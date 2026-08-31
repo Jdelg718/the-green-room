@@ -273,6 +273,11 @@ test("api accepts canonical configured origins and rejects noncanonical request 
       host: "[::1]:8787",
       noncanonicalOrigin: "http://[0:0:0:0:0:0:0:1]:8787",
     },
+    {
+      canonicalOrigin: "https://amys-macbook-pro.tail91f2b3.ts.net",
+      host: "amys-macbook-pro.tail91f2b3.ts.net",
+      noncanonicalOrigin: "https://amys-macbook-pro.tail91f2b3.ts.net/",
+    },
   ] as const;
 
   for (const [index, originCase] of cases.entries()) {
@@ -344,7 +349,7 @@ test("api rejects noncanonical configured origins and raw normalization bypasses
   ]) {
     assert.throws(
       () => buildApp({ allowedOrigin }),
-      /allowedOrigin must be an HTTP origin/,
+      /allowedOrigin must be a canonical permitted origin/,
     );
   }
 });
