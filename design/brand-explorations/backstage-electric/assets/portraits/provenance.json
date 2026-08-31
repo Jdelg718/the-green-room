@@ -1,0 +1,631 @@
+{
+  "schema_version": "1.0",
+  "collection": "Backstage Electric historical portrait candidates",
+  "issue": 41,
+  "created_utc": "2026-08-30T00:00:00Z",
+  "scope_note": "Asset-level provenance for this design exploration only. Candidate status is not official catalog admission, a rights determination, endorsement, or a legal guarantee.",
+  "derivative_policy": "Optimized WebP files retain source composition and color; only source-bounded resize, colorspace conversion, and lossy WebP encoding were applied. Acid wash, scanlines, halftone, keyline, labels, and crop positioning remain nondestructive CSS.",
+  "assets": [
+    {
+      "subject": "Ada Lovelace",
+      "slug": "ada-lovelace",
+      "pack_id": "org.greenroom.historical.ada-lovelace",
+      "status": "reused",
+      "source": {
+        "repository": "https://github.com/Jdelg718/Everstone-btc",
+        "path": "public/generated/batch4/ada-lovelace.jpg",
+        "commit": "74d3578ef19957763047ad1ac22e062955728069"
+      },
+      "generation": {
+        "date_utc": null,
+        "tool": null,
+        "provider": null,
+        "model": null,
+        "seed": null,
+        "prompt": null,
+        "prompt_availability": "not present in the verified source commits or reachable repository history; no prompt inferred"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/ada-lovelace.jpg",
+        "sha256": "65f2ff15835a67a1407c156afb73b0eb5938b367619524a3c091b16751e1f91e",
+        "bytes": 261365,
+        "width": 896,
+        "height": 1280,
+        "format": "JPEG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/ada-lovelace.webp",
+        "sha256": "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2",
+        "bytes": 68994,
+        "width": 840,
+        "height": 1200,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.",
+      "ui": {
+        "call_number": "CALL 01",
+        "discipline": "MAKER / WRITER",
+        "signal_accent": "#ed4f37",
+        "object_position_4x5": "50% 33%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Galileo Galilei",
+      "slug": "galileo-galilei",
+      "pack_id": "org.greenroom.historical.galileo-galilei",
+      "status": "reused",
+      "source": {
+        "repository": "https://github.com/Jdelg718/Everstone-btc",
+        "path": "public/generated/batch4/galileo-galilei.jpg",
+        "commit": "74d3578ef19957763047ad1ac22e062955728069"
+      },
+      "generation": {
+        "date_utc": null,
+        "tool": null,
+        "provider": null,
+        "model": null,
+        "seed": null,
+        "prompt": null,
+        "prompt_availability": "not present in the verified source commits or reachable repository history; no prompt inferred"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/galileo-galilei.jpg",
+        "sha256": "dd6cb3c080b620b40864757c15e7c8943c9c817e4c9bd9c68e768869f72391ae",
+        "bytes": 271796,
+        "width": 896,
+        "height": 1280,
+        "format": "JPEG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/galileo-galilei.webp",
+        "sha256": "81c1826e479b4b8b6357e69da3bd9142c34f7f47a8742b8386ce4b78b3603605",
+        "bytes": 68780,
+        "width": 840,
+        "height": 1200,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Galileo Galilei, white-bearded and seated beside books and a candle.",
+      "ui": {
+        "call_number": "CALL 02",
+        "discipline": "OBSERVER / MAKER",
+        "signal_accent": "#ff7a32",
+        "object_position_4x5": "50% 26%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale. Visually similar to Leonardo; retain upper crop, orange accent, observer label, and CALL 02.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Leonardo da Vinci",
+      "slug": "leonardo-da-vinci",
+      "pack_id": "org.greenroom.historical.leonardo-da-vinci",
+      "status": "reused",
+      "source": {
+        "repository": "https://github.com/Jdelg718/Everstone-btc",
+        "path": "public/generated/batch4/leonardo-da-vinci.jpg",
+        "commit": "74d3578ef19957763047ad1ac22e062955728069"
+      },
+      "generation": {
+        "date_utc": null,
+        "tool": null,
+        "provider": null,
+        "model": null,
+        "seed": null,
+        "prompt": null,
+        "prompt_availability": "not present in the verified source commits or reachable repository history; no prompt inferred"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/leonardo-da-vinci.jpg",
+        "sha256": "1ae2baf1e7dca922515bbb67f35e129729701ee4a294bf633e08dff8b192ffec",
+        "bytes": 346302,
+        "width": 896,
+        "height": 1280,
+        "format": "JPEG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/leonardo-da-vinci.webp",
+        "sha256": "6340c0f43e05e46175bfaad85f200d4e8cd1be2754cac3f2a3843df294842acd",
+        "bytes": 105226,
+        "width": 840,
+        "height": 1200,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Leonardo da Vinci, white-bearded with one hand raised in thought.",
+      "ui": {
+        "call_number": "CALL 07",
+        "discipline": "ARTIST / MAKER",
+        "signal_accent": "#33b7d4",
+        "object_position_4x5": "50% 48%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale. Visually similar to Galileo; retain lower hand-inclusive crop, cyan accent, artist label, and CALL 07.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Isaac Newton",
+      "slug": "isaac-newton",
+      "pack_id": "org.greenroom.historical.isaac-newton",
+      "status": "reused",
+      "source": {
+        "repository": "https://github.com/Jdelg718/Everstone-btc",
+        "path": "public/generated/batch5/isaac-newton.jpg",
+        "commit": "bfc5b7f263f2878fcfeb3ef5a86d0c6f88049d1e"
+      },
+      "generation": {
+        "date_utc": null,
+        "tool": null,
+        "provider": null,
+        "model": null,
+        "seed": null,
+        "prompt": null,
+        "prompt_availability": "not present in the verified source commits or reachable repository history; no prompt inferred"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/isaac-newton.jpg",
+        "sha256": "6aedea92b5b6d4ec1155ca9a40ccaa8e0541eea3bd6499d09f9487e05a1e9e9b",
+        "bytes": 369524,
+        "width": 896,
+        "height": 1280,
+        "format": "JPEG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/isaac-newton.webp",
+        "sha256": "b666032239adf370bfb187b612506466fabfa6d6d3272179d3055ef236c57466",
+        "bytes": 123060,
+        "width": 840,
+        "height": 1200,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Isaac Newton in a dark coat, seated at a candlelit desk.",
+      "ui": {
+        "call_number": "CALL 08",
+        "discipline": "MAKER / POWER",
+        "signal_accent": "#3d5afe",
+        "object_position_4x5": "50% 38%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Elizabeth I",
+      "slug": "elizabeth-i",
+      "pack_id": "org.greenroom.historical.elizabeth-i",
+      "status": "reused",
+      "source": {
+        "repository": "https://github.com/Jdelg718/Everstone-btc",
+        "path": "public/generated/batch5/queen-elizabeth-i.jpg",
+        "commit": "bfc5b7f263f2878fcfeb3ef5a86d0c6f88049d1e"
+      },
+      "generation": {
+        "date_utc": null,
+        "tool": null,
+        "provider": null,
+        "model": null,
+        "seed": null,
+        "prompt": null,
+        "prompt_availability": "not present in the verified source commits or reachable repository history; no prompt inferred"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/elizabeth-i.jpg",
+        "sha256": "105d4f9f0fbc606c5d16157f0b9fcfa4779af1ef46435d6d03119f25f45142ab",
+        "bytes": 491963,
+        "width": 896,
+        "height": 1280,
+        "format": "JPEG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/elizabeth-i.webp",
+        "sha256": "4436884480fe701940d8c9bd695940bc238e99ab71c65eacd9ba55fc4c77220c",
+        "bytes": 207016,
+        "width": 840,
+        "height": 1200,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.",
+      "ui": {
+        "call_number": "CALL 05",
+        "discipline": "POWER / WRITER",
+        "signal_accent": "#d1a900",
+        "object_position_4x5": "50% 32%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Nicolaus Copernicus",
+      "slug": "nicolaus-copernicus",
+      "pack_id": "org.greenroom.historical.nicolaus-copernicus",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/nicolaus-copernicus.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:35.197643+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Nicolaus Copernicus, recognizable as a late-15th/early-16th-century Polish Renaissance astronomer based broadly on public-domain iconography but not copying any specific painting. Three-quarter half-length pose, long dark wavy hair, clean-shaven, thoughtful alert expression, dark red and black Renaissance scholar's robe. A subtle brass armillary sphere and geometric astronomical notes sit softly out of focus in a dark scholarly studio. Warm restrained oil-paint texture, dramatic directional edge light like a backstage cue lamp, deep shadows, strong silhouette, breathing room around head and shoulders for square and 4:5 crops. Historically plausible, intelligent rather than saintly. No text, signature, watermark, frame, halo, flag, seal, modern objects, extra hands, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/nicolaus-copernicus.png",
+        "sha256": "e85a05166a31e435e0d35b70bca7cfd2f67328944b388daca406801d6e9004dd",
+        "bytes": 1136147,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/nicolaus-copernicus.webp",
+        "sha256": "f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e",
+        "bytes": 67110,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes.",
+      "ui": {
+        "call_number": "CALL 09",
+        "discipline": "MAKER / OBSERVER",
+        "signal_accent": "#d83a2e",
+        "object_position_4x5": "50% 29%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "George Washington",
+      "slug": "george-washington",
+      "pack_id": "org.greenroom.historical.george-washington",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/george-washington.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:35.367540+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: George Washington, recognizable late-18th-century American military and civic leader based broadly on public-domain iconography without copying a specific painting. Three-quarter half-length pose, powdered natural hair tied back, reserved weathered face, sober dark blue-gray Continental-era coat with restrained buff details, no medals or flag. Dark planning room with a folded map and unlit surveying instruments softly out of focus. Warm controlled oil-paint texture, dramatic stage-like side light and clear silhouette, unsentimental and human, breathing room around head and shoulders for square and 4:5 crops. No text, signature, watermark, frame, seal, flag, modern object, heroic glow, extra fingers, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/george-washington.png",
+        "sha256": "adcc35e043eadc84e0cd7a707fd19db215eb66ece58c630be8d68ac668f394a3",
+        "bytes": 1046388,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/george-washington.webp",
+        "sha256": "3883588e3ac035deed560893b1ddc1bca34c356c197c0094f179365d4b7a3a03",
+        "bytes": 54986,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of George Washington in a dark blue Continental-era coat beside surveying instruments.",
+      "ui": {
+        "call_number": "CALL 06",
+        "discipline": "POWER / MAKER",
+        "signal_accent": "#6f87ff",
+        "object_position_4x5": "50% 36%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Thomas Jefferson",
+      "slug": "thomas-jefferson",
+      "pack_id": "org.greenroom.historical.thomas-jefferson",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/thomas-jefferson.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:35.859040+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Thomas Jefferson, recognizable late-18th/early-19th-century American statesman based broadly on public-domain iconography without copying a specific painting. Three-quarter half-length pose, reddish-brown graying hair, long narrow thoughtful face, dark period coat and plain waistcoat, guarded analytical expression. Dim study with architectural drawings and handwritten papers blurred in the background, no readable text. Warm restrained oil-paint texture, strong backstage-style edge light, deep shadow, clear silhouette, neither heroic nor sanitized, breathing room for square and 4:5 crops. No text, signature, watermark, frame, flag, seal, modern object, Monticello replica, extra hands, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/thomas-jefferson.png",
+        "sha256": "bac7cb435feac55a516f4a3929da3ebf23da7bcdb802d22da996897b3aa41675",
+        "bytes": 1116417,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/thomas-jefferson.webp",
+        "sha256": "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06",
+        "bytes": 55880,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Thomas Jefferson in a dark period coat in an architectural study.",
+      "ui": {
+        "call_number": "CALL 12",
+        "discipline": "WRITER / POWER",
+        "signal_accent": "#e4854a",
+        "object_position_4x5": "50% 31%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Benjamin Franklin",
+      "slug": "benjamin-franklin",
+      "pack_id": "org.greenroom.historical.benjamin-franklin",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/benjamin-franklin.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:36.251078+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Benjamin Franklin, recognizable elderly 18th-century printer, scientist and diplomat based broadly on public-domain iconography without copying a specific painting. Three-quarter half-length pose, shoulder-length gray hair, round spectacles held casually rather than worn if composition allows, plain brown coat and cream linen, observant amused expression. Dark print shop and experiment desk softly out of focus with type cases and a glass electrical instrument, no readable text. Warm controlled oil-paint texture, dramatic stage-like side light, deep shadows, strong silhouette, practical and witty rather than ceremonial, breathing room for square and 4:5 crops. No text, signature, watermark, frame, flag, seal, lightning spectacle, modern objects, extra fingers, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/benjamin-franklin.png",
+        "sha256": "e3cc882d00e91cfd5425594bfa2a0b0af9e7f75a27311cff443c6537e662c299",
+        "bytes": 1166928,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/benjamin-franklin.webp",
+        "sha256": "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0",
+        "bytes": 81188,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.",
+      "ui": {
+        "call_number": "CALL 03",
+        "discipline": "MAKER / POWER",
+        "signal_accent": "#00a984",
+        "object_position_4x5": "50% 36%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Frederick Douglass",
+      "slug": "frederick-douglass",
+      "pack_id": "org.greenroom.historical.frederick-douglass",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/frederick-douglass.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:36.609047+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Frederick Douglass, recognizable 19th-century Black American abolitionist, editor and orator based broadly on public-domain photographic iconography without copying a specific photograph. Three-quarter half-length pose, powerful swept gray hair, clean-shaven face, direct formidable gaze, dark formal suit with high collar and understated waistcoat. Dim editorial room with printing pages and lectern forms softly out of focus, no readable text. Painterly realism blending early photography gravity with restrained oil texture, dramatic stage-like rim light, strong silhouette, dignity and moral force without saintly glow, breathing room for square and 4:5 crops. No text, signature, watermark, frame, flag, chains, seal, modern object, extra fingers, or copied photograph.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/frederick-douglass.png",
+        "sha256": "d1106ef64b9d9dab284c92e2fe43125eb7a6a1caa0d0d2ce4317bdda060712cf",
+        "bytes": 1148009,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/frederick-douglass.webp",
+        "sha256": "e445dd92b3c36e4dff5bc920b408bfc239fabfe6f6ad60d0e22e4a4b93892b2b",
+        "bytes": 65726,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Frederick Douglass with swept gray hair and a dark formal suit.",
+      "ui": {
+        "call_number": "CALL 04",
+        "discipline": "WRITER / POWER",
+        "signal_accent": "#f5a623",
+        "object_position_4x5": "50% 25%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Jane Austen",
+      "slug": "jane-austen",
+      "pack_id": "org.greenroom.historical.jane-austen",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/jane-austen.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:36.778391+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Jane Austen, recognizable late-Georgian English novelist based broadly on sparse public-domain family iconography while avoiding reproduction of any specific portrait. Three-quarter half-length pose, woman in her early forties, brown hair arranged simply under a modest period cap, intelligent observant expression with restrained dry humor, simple pale muslin dress and dark shawl. Dark domestic writing room with a small writing slope and folded manuscript pages softly out of focus, no readable text. Warm restrained oil-paint texture, one dramatic backstage-style edge light, strong silhouette, humane and unsentimental, breathing room around head and shoulders for square and 4:5 crops. No text, signature, watermark, frame, bonnet caricature, quill cliché, modern object, extra fingers, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/jane-austen.png",
+        "sha256": "c311e7ad7268167a257f7c634ef9bbd5d7d28da959efd0e9eedd074c301bcb13",
+        "bytes": 1251442,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/jane-austen.webp",
+        "sha256": "abf73e727337eb88b99dfbe2f318bced75e2ce9ef34689e96dd26758879345ea",
+        "bytes": 96626,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Jane Austen in a modest cap and dark shawl beside a writing desk.",
+      "ui": {
+        "call_number": "CALL 10",
+        "discipline": "WRITER / POWER",
+        "signal_accent": "#f06e9c",
+        "object_position_4x5": "50% 29%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    },
+    {
+      "subject": "Mary Shelley",
+      "slug": "mary-shelley",
+      "pack_id": "org.greenroom.historical.mary-shelley",
+      "status": "generated",
+      "source": {
+        "handoff_path": "/opt/data/green-room-generated-seven/mary-shelley.png",
+        "metadata_sha256": "180cca3cdce401c23e561fd99fd4eebee67e1749ed08033136a262d88535c38c",
+        "prompts_sha256": "6225bc20d8741ad2363ec1a3416b3de1755ff3f51b679cc7862eb0f6b65fb003"
+      },
+      "generation": {
+        "date_utc": "2026-08-30T21:48:37.238141+00:00",
+        "tool": "Hermes image_generate",
+        "provider": "FAL.ai",
+        "model": "GPT Image 2",
+        "aspect_ratio": "portrait",
+        "upscaled": false,
+        "seed": null,
+        "seed_availability": "not provided by generation tool output",
+        "prompt": "Original AI-generated historical portrait for The Green Room, subject: Mary Shelley, recognizable early-19th-century English novelist and intellectual based broadly on public-domain iconography without copying a specific painting. Three-quarter half-length pose, pale thoughtful young-to-middle-aged woman, dark brown center-parted hair arranged in period coils, black early Victorian dress with restrained lace, steady independent gaze. Dark study with storm-lit window edge, manuscript pages and scientific glassware softly out of focus, no readable text and no monster imagery. Warm controlled oil-paint texture with a cool dramatic backstage rim light, deep shadows, strong silhouette, inventive and resilient rather than gothic caricature, breathing room for square and 4:5 crops. No text, signature, watermark, frame, lightning bolt, creature, modern object, extra fingers, or copied artwork.",
+        "prompt_availability": "exact prompt preserved from generation-prompts.json"
+      },
+      "original": {
+        "path": "backstage-electric/assets/portraits/originals/mary-shelley.png",
+        "sha256": "3799cfaa5dd7a32a0b2cc6e606b0e5b488f9195050b0881d779a45f7c87a4d3c",
+        "bytes": 1089544,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "optimized": {
+        "path": "backstage-electric/assets/portraits/optimized/mary-shelley.webp",
+        "sha256": "6030a58352b00b3fea02b7e950d2a58fa464c51efbdd453933e68312486a633f",
+        "bytes": 66174,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "creative_interpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+      "alt_text": "Creative historical portrait of Mary Shelley in a black period dress at a storm-lit writing desk.",
+      "ui": {
+        "call_number": "CALL 11",
+        "discipline": "WRITER / MAKER",
+        "signal_accent": "#9c7af2",
+        "object_position_4x5": "50% 32%"
+      },
+      "review": {
+        "state": "candidate",
+        "visual_review_date": "2026-08-30",
+        "notes": "Visually plausible candidate with no obvious demographic mismatch, embedded text, watermark, or severe anatomy artifact at card scale.",
+        "catalog_admission": false
+      }
+    }
+  ]
+}
