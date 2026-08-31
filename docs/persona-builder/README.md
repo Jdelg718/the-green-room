@@ -264,19 +264,23 @@ citation record. A `reference_only` note may support an accepted original
 paraphrase but never a distributable citation record or redistribution of source
 prose.
 
-Timestamps are persistence metadata only. They are excluded from generation, so
-two canonical drafts differing only in timestamps, revision, risk report,
-rehearsal pointers, or validation pointers generate identical candidates.
+Only explicitly non-output operational/UI fields are byte-neutral. In v0.1 these
+are `created_at`, `updated_at`, `revision` paired with the matching
+`risk.input_revision`, `risk.classifier_version`, `risk.findings`, `rehearsal`, and
+`validation`. `risk.decision` is intentionally output-affecting because its exact
+enum is rendered into `PROVENANCE.md`; changing only that decision changes only
+the `- Risk decision: ...` provenance bytes and the resulting hashes.
 
 ## Canonicalization
 
 Canonicalization occurs when a field edit is committed, before persistence:
 
-1. decode strict UTF-8 and reject BOM, NUL, noncharacters, and C0/C1 controls
-   except LF and horizontal tab;
+1. decode strict UTF-8 and reject BOM, lone surrogates, noncharacters, NUL, and
+   every C0/C1 control in single-line fields;
 2. convert CRLF and CR to LF;
 3. normalize Unicode to NFC;
-4. replace tabs with four spaces in multiline authored text;
+4. allow LF only in the separately stored multiline bodies classified below and
+   replace their tabs with four spaces;
 5. remove trailing spaces from every line, remove leading and trailing blank
    lines, and use exactly one final LF when rendered into a pack file;
 6. preserve interior whitespace and case; do not smart-quote, translate, spell
@@ -288,6 +292,21 @@ Canonicalization occurs when a field edit is committed, before persistence:
 A UI MUST preview any destructive canonicalization before accepting pasted text.
 A changed canonical draft increments `revision`, clears the validation result,
 and makes the risk result stale.
+
+### Authored-field Markdown safety classification
+
+Every v0.1 authored string has exactly one class:
+
+| Class | Fields | Rendering rule |
+| --- | --- | --- |
+| Single-line generated slots | `identity.name`, `identity.description`, `identity.room_role`; `goal.plain_language`, every `success_signals[]` and `non_goals[]`; every tension `desired`/`without`; `background.original_identity`, `known[]`, and `unknown[]`; `knowledge.cutoff`, `domains[]`, and `limitations[]`; every `boundaries.user_rules[]`; every voice-example `situation` and `original_example`; every relationship `target_id`, `stance`, and `description`; every scenario `title`, `mode`, `setup`, `success[]`, `failure[]`, and `correction[]`; every accepted transform `accepted_text`; citation `title`, `author`, `url`, and `license_or_rights`; provenance `author_name` and `generator_disclosure`; license `attribution_name` | Reject CR, LF, tab, all other C0/C1 controls, lone surrogates, and Unicode noncharacters before rendering. Values are data only and therefore cannot create a heading, list item, thematic break, frontmatter, fence, or second scalar. |
+| Single-line metadata/enums/identifiers | All remaining draft JSON strings, including IDs, enum choices, references, hashes, JSON Pointers, timestamps, classifier finding strings, and validation/rehearsal pointers | Apply the same single-line Unicode/control rejection. These fields are never treated as Markdown. |
+| Multiline inert bodies | Separate source-note blob bodies and non-null complete-file `advanced.overrides` | Never interpolate into a generated Markdown slot. Preview as a literal fence whose delimiter is `~` repeated `max(3, 1 + longest run of ~ in the body)` times, followed by literal `text`, LF, the canonical body, LF, and the same delimiter. Because no body line can contain the selected delimiter run, authored headings, lists, frontmatter, and fences remain inert. An override is validated as a complete file after preview, not spliced into a template. |
+
+There are no multiline generated authored slots in v0.1. Implementations MUST test
+scenario-title, scenario-list-item, and voice situation/example mutations containing
+LF plus headings, lists, thematic breaks/frontmatter, and fence text; each must fail
+with the stable single-line diagnostic before any candidate byte is emitted.
 
 ## Deterministic generation
 
@@ -394,12 +413,15 @@ closed knowledge fields; all three boundary booleans are literal `false`; and
 field is silently repurposed as another manifest field.
 
 The license mapping is exact, not a label lookup: `CC-BY-4.0`, `CC0-1.0`, and
-`LicenseRef-GreenRoom-Private` map to the corresponding UTF-8 byte strings in the
-oracle's `LICENSES` constant. CC BY requires nonempty attribution; the private
-license requires `private_export_only: true`; both other choices require `false`.
-No custom license, attribution interpolation into `LICENSE`, or newline rewrite is
-allowed. Changes to any literal, slot, mapping, or license byte require a template
-and generator version bump plus replacement golden hashes.
+`LicenseRef-GreenRoom-Private` map to the corresponding UTF-8 templates in the
+oracle. CC BY requires `license_choice.attribution_name` to be nonempty and exactly
+equal to `provenance.author_name`; that exact canonical value renders as the
+manifest `author`, the provenance `Author` and `Attribution` values, and both the
+`Copyright (c) <name>` and `Attribution: <name>` lines in `LICENSE`. No hardcoded
+project-contributor attribution is permitted. The private license requires
+`private_export_only: true`; both other choices require `false`. No custom license
+or newline rewrite is allowed. Changes to any literal, slot, mapping, or license
+byte require a template and generator version bump plus replacement golden hashes.
 
 The committed canonical fixture is
 [`golden/boundary-setter-input.json`](golden/boundary-setter-input.json); its nine
@@ -407,13 +429,17 @@ canonical outputs and per-file/candidate hashes are in
 [`golden/boundary-setter-pack/`](golden/boundary-setter-pack/). Verify without
 rewriting by running `python3 docs/persona-builder/verify_golden.py`. Regeneration
 is an explicit review action using `--write`, never an ordinary test side effect.
-The output must be a nonexistent or empty dedicated directory, or an existing
-directory carrying the valid checksummed `.persona-builder-golden.json` marker.
-A nonempty unmarked directory, a malformed marker, a filesystem root, or any
-symlink in the output path is refused. Writes atomically replace only the exact
-known canonical members and marker; unrelated entries are never removed.
-`--clean` removes only obsolete regular-file members named and SHA-256-authenticated
-by the prior marker, never an unlisted file, symlink, directory, or recursive tree.
+`--write` accepts only a nonexistent dedicated child directory. It opens every
+existing parent component descriptor-relatively with `O_DIRECTORY|O_NOFOLLOW`,
+creates the leaf with descriptor-relative `mkdir`, opens and verifies that leaf by
+`lstat`/`fstat` device and inode, and keeps the directory descriptor for the entire
+write. Each member uses descriptor-relative `O_CREAT|O_EXCL|O_NOFOLLOW`, file
+`fsync`, and same-directory descriptor-relative atomic rename; the directory is
+then `fsync`ed. No validated pathname is reopened. Existing/empty/marked output
+directories, filesystem roots, symlink ancestors, and platforms lacking these
+POSIX primitives are refused; there is no update or `--clean` mode. The swap-race
+self-test renames the opened leaf and replaces its path with an outside symlink,
+then proves the outside sentinel and directory remain untouched.
 
 The candidate digest is SHA-256 over repeated records in the file order above:
 `decimal byte length of path`, one `:`, path bytes, one LF, `decimal byte length
@@ -492,6 +518,15 @@ note can influence a pack, ingestion MUST:
    note hash and transformation in `PROVENANCE.md`;
 8. include a citation in `SOURCES.md` only if the user confirms it is
    distributable and provides enough source and rights metadata.
+
+Draft JSON, marker JSON, source notes, and remote source responses are read with a
+fixed `limit + 1` bound before parse/decode; overflow fails before unbounded
+allocation. The golden note is the clearly synthetic locally authored file
+[`golden/source-notes/22222222-2222-4222-8222-222222222222.txt`](golden/source-notes/22222222-2222-4222-8222-222222222222.txt).
+Its committed SHA-256 and `[56,144)` byte span are verified before generation.
+Every citation must reference an existing reviewed note also present in accepted
+transform records, and its citation ID, title, author, and canonical HTTPS URL must
+match the versioned source record exactly.
 
 `reference_only` and `unknown` notes can inform private review but their text and
 citations are export-excluded by default. Deleting a note deletes the blob and
@@ -737,8 +772,9 @@ Implementations must automate these tests with fixed fixtures:
 1. **PB-DET-001:** Given byte-identical canonical draft/template/generator inputs,
    100 generations on two locales and shuffled storage order produce identical
    candidate files and candidate digest.
-2. **PB-DET-002:** Changing only timestamps, revision, risk, rehearsal, or
-   validation pointers leaves every candidate byte unchanged.
+2. **PB-DET-002:** Changing only the explicitly listed non-output operational/UI
+   fields leaves every candidate byte unchanged. Changing only `risk.decision`
+   changes only the exact risk-decision line in `PROVENANCE.md` and its hashes.
 3. **PB-DET-003:** Changing one slider changes only its declared manifest control
    and template prose slots; a golden diff lists no other bytes.
 4. **PB-ROLE-001:** Unique sentinels in draft metadata, every note body, risk
@@ -765,7 +801,9 @@ Implementations must automate these tests with fixed fixtures:
 11. **PB-RISK-002:** Warning copy contains detection, reason, allowed path, and
     action; it contains no accusatory or diagnostic phrase from the forbidden-copy
     fixture list.
-12. **PB-LIC-001:** CC BY requires attribution; CC0 requires irreversible-choice
+12. **PB-LIC-001:** CC BY requires `attribution_name == author_name`; mutating both
+    changes exactly manifest author, provenance author/attribution, license
+    copyright/attribution, and their hashes. CC0 requires irreversible-choice
     acknowledgment; uncertain third-party rights force private; private disables
     publish affordances.
 13. **PB-VAL-001:** Save/export is impossible for not-run, stale, failed, unknown
@@ -870,7 +908,11 @@ paraphrased into an original template; no source prose is persona dialogue.
 ## Sources
 
 These authoritative Program on Negotiation at Harvard Law School pages are checked
-by `python3 docs/persona-builder/verify_sources.py`:
+by `python3 docs/persona-builder/verify_sources.py`. The verifier uses direct
+`HTTPSConnection` requests only to the exact `www.pon.harvard.edu` host, does not
+follow redirects, rejects any non-200 response or canonical-link mismatch, enforces
+one total monotonic deadline and a per-response byte cap, decodes strict UTF-8, and
+matches the versioned exact title substring and authority marker:
 
 [1] https://www.pon.harvard.edu/daily/batna/translate-your-batna-to-the-current-deal/ — What is BATNA?
 [2] https://www.pon.harvard.edu/tag/reservation-point/ — Reservation Point

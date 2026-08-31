@@ -1,5 +1,5 @@
 {
-  "candidate_sha256": "5d869cd661cada6d1945c7fcf3b968c25419fc09995ea432e6cfc227f7be1ce1",
+  "candidate_sha256": "e1c857aca60e81314d856dcaa698c8d135886d4c2cdabef997d39bc644945f47",
   "file_order": [
     "persona.yaml",
     "AGENTS.md",
@@ -21,12 +21,12 @@
       "sha256": "477e49a2b0152cec5a58d185a7f66d876dbf302001888c5323486c405c12c422"
     },
     "LICENSE": {
-      "bytes": 373,
-      "sha256": "0e6937a761507460d3939811253ff55a28339b6f66c41f984f5928e2f4f838bb"
+      "bytes": 410,
+      "sha256": "016ba7ea27c1196a7edc22848e519f0ff4d765443c64471d88c0a40f92f14fff"
     },
     "PROVENANCE.md": {
-      "bytes": 748,
-      "sha256": "886bdbedc87ac09963d780bfbfdbacfa50cb9bd93cd3b003d82b9d7d5854780c"
+      "bytes": 788,
+      "sha256": "99b3f46988a8d86cd1826cdf5326dcce4842257bd5f2629ac312954c0ff0ce01"
     },
     "RELATIONSHIPS.md": {
       "bytes": 170,

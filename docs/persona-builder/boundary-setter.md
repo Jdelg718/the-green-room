@@ -42,6 +42,12 @@ citation, scenario, and original voice examples so every optional canonical file
 and every manifest field has a byte-exact oracle. Prose in this document explains
 the template but cannot override those versioned bytes.
 
+The transform's note is the committed synthetic local fixture under
+[`golden/source-notes/`](golden/source-notes/). Generation verifies its SHA-256 and
+UTF-8-aligned byte span before linking the accepted transform and distributable
+citation. The default CC BY author is visibly repeated in `persona.yaml`,
+`PROVENANCE.md`, and `LICENSE`; changing that author changes all three outputs.
+
 ## Default wizard answers
 
 - **Goal:** Prepare for a consequential conversation, make a clear request, hold

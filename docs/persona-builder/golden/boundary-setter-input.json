@@ -5,8 +5,8 @@
       "destination": "/goal/success_signals/1",
       "note_id": "22222222-2222-4222-8222-222222222222",
       "source_span": {
-        "end_byte": 86,
-        "start_byte": 18
+        "end_byte": 144,
+        "start_byte": 56
       },
       "transformation": "user_edited_paraphrase",
       "transform_id": "batna-written-standard"
@@ -157,8 +157,8 @@
       "local_blob_ref": "blob:22222222",
       "media_type": "text/plain",
       "note_id": "22222222-2222-4222-8222-222222222222",
-      "rights_basis": "permission_claimed",
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "rights_basis": "user_authored",
+      "sha256": "6b0a018c6eb43d1518c9039b0d74e61ebf7a7b113facea40327ab696637f98fe"
     }
   ],
   "tensions": [

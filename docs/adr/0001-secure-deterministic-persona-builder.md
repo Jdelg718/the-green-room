@@ -77,6 +77,23 @@ The following are indivisible parts of the decision:
 13. **Executable byte oracle.** The committed Boundary Setter input, canonical pack
     bytes, hashes, and standard-library verifier are normative review fixtures for
     every literal, slot, manifest field, license mapping, file order, and newline.
+14. **Injection-safe authored fields.** Every generated authored slot in v0.1 is a
+    single-line value that rejects controls, lone surrogates, and Unicode
+    noncharacters before rendering. Multiline note blobs are inert and never
+    interpolated; complete-file advanced overrides remain separately validated.
+15. **Descriptor-bound golden writes.** Golden regeneration creates only a new
+    dedicated leaf through no-follow directory descriptors. It writes and renames
+    members relative to the held leaf descriptor, so a concurrent pathname swap or
+    symlink cannot redirect output; existing roots are never updated or cleaned.
+16. **Bounded, linked evidence.** Drafts, markers, managed members, source notes,
+    and remote research responses have fixed byte caps. A transform must name a
+    hash-verified committed note and a valid UTF-8-aligned byte span; a
+    distributable citation must link to an accepted reviewed note and a versioned
+    exact title, author, and canonical HTTPS URL.
+17. **Visible attribution and output decisions.** CC BY attribution is one exact
+    nonempty author value rendered visibly in the manifest, provenance, and
+    license. Risk findings and classifier metadata are operational, but the final
+    risk decision is output-affecting and is rendered in provenance.
 
 ## Why this decision
 
