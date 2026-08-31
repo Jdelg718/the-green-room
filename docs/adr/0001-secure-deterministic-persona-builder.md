@@ -33,7 +33,9 @@ The following are indivisible parts of the decision:
 1. **Separate versioned state.** Persist a recursively closed builder draft schema
    independent of the generated persona pack schema. Missing/unknown fields,
    wrong primitive/container types, invalid formats/enums/bounds, and duplicate
-   identifiers fail closed; version changes use explicit, copy-on-write migration.
+   identifiers fail closed; dates are real proleptic-Gregorian `0001`..`9999`
+   values and timestamps are canonical second-precision RFC 3339 UTC with no leap
+   second; version changes use explicit, copy-on-write migration.
 2. **Pure generation.** Generate canonical files from canonical draft bytes plus
    pinned template/generator versions. Generation has no model, clock, random,
    locale, host-path, or network input.
@@ -50,9 +52,13 @@ The following are indivisible parts of the decision:
    professional-authority, sensitive-data, and coercion/fraud/harassment risk.
    Apply neutral `warn`, mandatory `narrow`, local-only `private`, or corrective
    `block` decisions using the closed mandatory rule catalog and maximum-precedence
-   final-decision table. Every finding carries rule ID, severity, required action,
-   and minimum decision; missing or downgraded tuples block. The classifier is not
-   the capability boundary.
+   final-decision table. Every finding uses a closed dimension enum and pinned rule
+   ID, exact catalog dimension, severity/action/decision at or above its catalog
+   floors, an action compatible with its minimum decision, and a stable
+   `rule_id:SHA-256` over the other eight canonical fields. The final decision may
+   be stricter but never below the deterministic maximum finding floor; unknown,
+   missing, mismatched, downgraded, incompatible, duplicate, or stale-digest
+   findings fail closed. The classifier is not the capability boundary.
 7. **Immutable safety semantics.** Templates carry non-removable limits against
    threats, deception, humiliation, harassment/discrimination, fake authority,
    fabricated facts, unqualified professional claims, sensitive-data misuse, and

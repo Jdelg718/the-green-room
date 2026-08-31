@@ -456,3 +456,11 @@ In addition to the parent contract tests:
 8. A transcript containing an API key sentinel and salary details is absent from
    all generated files, exact prompt preview after transcript deletion, local pack
    save, and `.greenroom` archive.
+9. The closed v0.1 risk catalog rejects unknown dimensions/rules and any finding
+   below its catalog floor or outside action/decision compatibility. Pair order
+   cannot change the aggregate maximum, and a credential/remove/block finding with
+   final `allow` fails before rendering.
+10. `knowledge.cutoff`, `created_at`, and `updated_at` parse as real Gregorian
+    calendar values in years `0001`..`9999`; timestamps use only canonical
+    second-precision UTC `YYYY-MM-DDTHH:MM:SSZ`. Impossible dates, leap seconds,
+    offsets, and noncanonical spellings fail before rendering.

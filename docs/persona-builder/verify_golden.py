@@ -20,6 +20,7 @@ import tempfile
 import unicodedata
 from collections.abc import Callable
 from collections.abc import Set as AbstractSet
+from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
@@ -252,10 +253,79 @@ LOWER_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 PACK_ID = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,158}[a-z0-9])?")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 UTC_TIMESTAMP = re.compile(
-    r"\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T"
-    r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ"
+    r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T"
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z"
 )
-DATE = re.compile(r"\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])")
+DATE = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
+RISK_DIMENSIONS = (
+    "real_person",
+    "copyright",
+    "professional_authority",
+    "sensitive_data",
+    "coercion_fraud_harassment",
+)
+RISK_SEVERITY = ("low", "medium", "high", "critical")
+RISK_ACTIONS = ("none", "acknowledge", "narrow", "private_only", "remove")
+RISK_DECISIONS = ("allow", "warn", "narrow", "private", "block")
+# dimension, minimum severity, minimum required action, minimum decision
+RISK_RULE_CATALOG = {
+    "PB-RISK-REAL-INCIDENTAL": ("real_person", "low", "acknowledge", "warn"),
+    "PB-RISK-REAL-PRIVATE-INTERPRETATION": (
+        "real_person",
+        "medium",
+        "private_only",
+        "private",
+    ),
+    "PB-RISK-REAL-IMPERSONATION": ("real_person", "critical", "remove", "block"),
+    "PB-RISK-COPYRIGHT-NAMED-IMITATION": (
+        "copyright",
+        "medium",
+        "narrow",
+        "narrow",
+    ),
+    "PB-RISK-COPYRIGHT-COPIED-DIALOGUE": (
+        "copyright",
+        "high",
+        "remove",
+        "block",
+    ),
+    "PB-RISK-PROFESSIONAL-TAILORED-ADVICE": (
+        "professional_authority",
+        "high",
+        "narrow",
+        "narrow",
+    ),
+    "PB-RISK-PROFESSIONAL-CLAIMED-AUTHORITY": (
+        "professional_authority",
+        "critical",
+        "remove",
+        "block",
+    ),
+    "PB-RISK-SENSITIVE-LOCAL-PERSONAL": (
+        "sensitive_data",
+        "medium",
+        "private_only",
+        "private",
+    ),
+    "PB-RISK-SENSITIVE-CREDENTIAL": (
+        "sensitive_data",
+        "critical",
+        "remove",
+        "block",
+    ),
+    "PB-RISK-COERCION-MANIPULATIVE-FRAMING": (
+        "coercion_fraud_harassment",
+        "high",
+        "narrow",
+        "narrow",
+    ),
+    "PB-RISK-COERCION-THREAT-DECEPTION-HUMILIATION": (
+        "coercion_fraud_harassment",
+        "critical",
+        "remove",
+        "block",
+    ),
+}
 TRAIT_ORDER = (
     "calm",
     "prepared",
@@ -308,6 +378,26 @@ def _string(
     if pattern is not None and pattern.fullmatch(value) is None:
         raise ValueError(f"invalid format at {pointer}")
     return value
+
+
+def _validate_gregorian_date(value: str, pointer: str) -> None:
+    """Require canonical YYYY-MM-DD for Gregorian years 0001 through 9999."""
+    if DATE.fullmatch(value) is None:
+        raise ValueError(f"invalid Gregorian date at {pointer}")
+    try:
+        date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
+    except ValueError as error:
+        raise ValueError(f"invalid Gregorian date at {pointer}") from error
+
+
+def _validate_utc_timestamp(value: str, pointer: str) -> None:
+    """Require canonical second-precision RFC3339 UTC with no leap second."""
+    if UTC_TIMESTAMP.fullmatch(value) is None:
+        raise ValueError(f"invalid RFC3339 UTC timestamp at {pointer}")
+    try:
+        date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
+    except ValueError as error:
+        raise ValueError(f"invalid RFC3339 UTC timestamp at {pointer}") from error
 
 
 def _integer(value: object, pointer: str, minimum: int, maximum: int) -> int:
@@ -427,8 +517,10 @@ def validate_draft_schema(draft: object) -> dict:
     _string(d["draft_schema_version"], "/draft_schema_version", choices=("0.1",))
     _string(d["draft_id"], "/draft_id", pattern=UUID_V4)
     _integer(d["revision"], "/revision", 0, 2**63 - 1)
-    _string(d["created_at"], "/created_at", pattern=UTC_TIMESTAMP)
-    _string(d["updated_at"], "/updated_at", pattern=UTC_TIMESTAMP)
+    created_at = cast(str, _string(d["created_at"], "/created_at"))
+    updated_at = cast(str, _string(d["updated_at"], "/updated_at"))
+    _validate_utc_timestamp(created_at, "/created_at")
+    _validate_utc_timestamp(updated_at, "/updated_at")
 
     generator = _object(
         d["generator"],
@@ -512,7 +604,8 @@ def validate_draft_schema(draft: object) -> dict:
     knowledge = _object(
         d["knowledge"], "/knowledge", {"cutoff", "domains", "limitations"}
     )
-    _string(knowledge["cutoff"], "/knowledge/cutoff", pattern=DATE)
+    cutoff = cast(str, _string(knowledge["cutoff"], "/knowledge/cutoff"))
+    _validate_gregorian_date(cutoff, "/knowledge/cutoff")
     _string_array(knowledge["domains"], "/knowledge/domains", 120)
     _string_array(knowledge["limitations"], "/knowledge/limitations", 300)
 
@@ -829,7 +922,11 @@ def validate_draft_schema(draft: object) -> dict:
         "/risk",
         {"classifier_version", "input_revision", "findings", "decision"},
     )
-    _string(risk["classifier_version"], "/risk/classifier_version")
+    _string(
+        risk["classifier_version"],
+        "/risk/classifier_version",
+        choices=("0.1.0",),
+    )
     _integer(risk["input_revision"], "/risk/input_revision", 0, 2**63 - 1)
     findings = _array(risk["findings"], "/risk/findings")
     finding_keys = {
@@ -843,39 +940,85 @@ def validate_draft_schema(draft: object) -> dict:
         "required_action",
         "minimum_decision",
     }
+    aggregate_rank = 0
     for index, finding in enumerate(findings):
         p = f"/risk/findings/{index}"
         item = _object(finding, p, finding_keys)
-        for key in (
-            "rule_id",
-            "finding_id",
-            "dimension",
-            "evidence_field",
-            "reason_code",
-            "message",
-        ):
+        rule_id = cast(str, _string(item["rule_id"], p + "/rule_id"))
+        _string(item["finding_id"], p + "/finding_id")
+        dimension = cast(
+            str,
+            _string(
+                item["dimension"],
+                p + "/dimension",
+                choices=RISK_DIMENSIONS,
+            ),
+        )
+        for key in ("evidence_field", "reason_code", "message"):
             _string(item[key], p + "/" + key)
-        _string(
-            item["severity"],
-            p + "/severity",
-            choices=("low", "medium", "high", "critical"),
+        severity = cast(
+            str,
+            _string(
+                item["severity"],
+                p + "/severity",
+                choices=RISK_SEVERITY,
+            ),
         )
-        _string(
-            item["required_action"],
-            p + "/required_action",
-            choices=("none", "acknowledge", "narrow", "private_only", "remove"),
+        required_action = cast(
+            str,
+            _string(
+                item["required_action"],
+                p + "/required_action",
+                choices=RISK_ACTIONS,
+            ),
         )
-        _string(
-            item["minimum_decision"],
-            p + "/minimum_decision",
-            choices=("allow", "warn", "narrow", "private", "block"),
+        minimum_decision = cast(
+            str,
+            _string(
+                item["minimum_decision"],
+                p + "/minimum_decision",
+                choices=RISK_DECISIONS,
+            ),
         )
+        catalog = RISK_RULE_CATALOG.get(rule_id)
+        if catalog is None:
+            raise ValueError(f"unknown risk rule at {p}/rule_id")
+        catalog_dimension, severity_floor, action_floor, decision_floor = catalog
+        if dimension != catalog_dimension:
+            raise ValueError(f"risk catalog dimension mismatch at {p}/dimension")
+        if (
+            RISK_SEVERITY.index(severity) < RISK_SEVERITY.index(severity_floor)
+            or RISK_ACTIONS.index(required_action) < RISK_ACTIONS.index(action_floor)
+            or RISK_DECISIONS.index(minimum_decision)
+            < RISK_DECISIONS.index(decision_floor)
+        ):
+            raise ValueError(f"risk tuple below catalog floor at {p}")
+        if RISK_ACTIONS.index(required_action) != RISK_DECISIONS.index(
+            minimum_decision
+        ):
+            raise ValueError(f"risk action/decision compatibility mismatch at {p}")
+        content = {key: item[key] for key in finding_keys if key != "finding_id"}
+        canonical = json.dumps(
+            content, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        expected_finding_id = f"{rule_id}:{hashlib.sha256(canonical).hexdigest()}"
+        if item["finding_id"] != expected_finding_id:
+            raise ValueError(f"risk finding content digest mismatch at {p}/finding_id")
+        aggregate_rank = max(aggregate_rank, RISK_DECISIONS.index(minimum_decision))
     _unique(findings, "/risk/findings", "finding_id")
-    _string(
-        risk["decision"],
-        "/risk/decision",
-        choices=("allow", "warn", "narrow", "private", "block"),
+    decision = cast(
+        str,
+        _string(
+            risk["decision"],
+            "/risk/decision",
+            choices=RISK_DECISIONS,
+        ),
     )
+    if RISK_DECISIONS.index(decision) < aggregate_rank:
+        raise ValueError(
+            "risk decision is below aggregate minimum: "
+            f"required={RISK_DECISIONS[aggregate_rank]} actual={decision}"
+        )
 
     rehearsal = _object(
         d["rehearsal"],
@@ -1644,6 +1787,276 @@ def self_test() -> None:
     )
     rejects(duplicate_scenario, "unique", "duplicate scenario ID accepted")
 
+    for cutoff in ("0001-01-01", "2000-02-29", "9999-12-31"):
+        valid_date = copy.deepcopy(draft)
+        valid_date["knowledge"]["cutoff"] = cutoff
+        generate(valid_date)
+    for invalid_date in (
+        "0000-01-01",
+        "2026-02-31",
+        "2023-02-29",
+        "1900-02-29",
+        "2026-00-01",
+        "2026-13-01",
+        "2026-01-00",
+        "2026-1-01",
+        "026-01-01",
+        "10000-01-01",
+    ):
+        invalid_cutoff = copy.deepcopy(draft)
+        invalid_cutoff["knowledge"]["cutoff"] = invalid_date
+        rejects(
+            invalid_cutoff, "Gregorian date", f"invalid date accepted: {invalid_date}"
+        )
+
+    for timestamp in (
+        "0001-01-01T00:00:00Z",
+        "2000-02-29T23:59:59Z",
+        "9999-12-31T23:59:59Z",
+    ):
+        valid_timestamp = copy.deepcopy(draft)
+        valid_timestamp["created_at"] = timestamp
+        valid_timestamp["updated_at"] = timestamp
+        generate(valid_timestamp)
+    for invalid_timestamp in (
+        "0000-01-01T00:00:00Z",
+        "2026-02-31T00:00:00Z",
+        "2023-02-29T00:00:00Z",
+        "1900-02-29T00:00:00Z",
+        "2026-00-01T00:00:00Z",
+        "2026-13-01T00:00:00Z",
+        "2026-01-00T00:00:00Z",
+        "2026-01-01T24:00:00Z",
+        "2026-01-01T00:60:00Z",
+        "2026-01-01T00:00:60Z",
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-01T00:00:00-00:00",
+        "2026-01-01T00:00:00z",
+        "2026-01-01t00:00:00Z",
+        "2026-01-01 00:00:00Z",
+        "2026-01-01T00:00Z",
+        "2026-01-01T00:00:00.0Z",
+        "2026-1-01T00:00:00Z",
+        "10000-01-01T00:00:00Z",
+    ):
+        for timestamp_field in ("created_at", "updated_at"):
+            invalid_time = copy.deepcopy(draft)
+            invalid_time[timestamp_field] = invalid_timestamp
+            rejects(
+                invalid_time,
+                "RFC3339 UTC timestamp",
+                f"invalid {timestamp_field} accepted: {invalid_timestamp}",
+            )
+
+    def risk_finding(
+        rule_id: str,
+        dimension: str,
+        severity: str,
+        required_action: str,
+        minimum_decision: str,
+        *,
+        evidence_field: str = "/identity/description",
+        reason_code: str = "self-test",
+        message: str = "Deterministic risk self-test finding.",
+    ) -> dict[str, str]:
+        content = {
+            "rule_id": rule_id,
+            "dimension": dimension,
+            "severity": severity,
+            "evidence_field": evidence_field,
+            "reason_code": reason_code,
+            "message": message,
+            "required_action": required_action,
+            "minimum_decision": minimum_decision,
+        }
+        canonical = json.dumps(
+            content, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        return {
+            **content,
+            "finding_id": f"{rule_id}:{hashlib.sha256(canonical).hexdigest()}",
+        }
+
+    catalog_fixtures = (
+        risk_finding(
+            "PB-RISK-REAL-INCIDENTAL", "real_person", "low", "acknowledge", "warn"
+        ),
+        risk_finding(
+            "PB-RISK-REAL-PRIVATE-INTERPRETATION",
+            "real_person",
+            "medium",
+            "private_only",
+            "private",
+        ),
+        risk_finding(
+            "PB-RISK-REAL-IMPERSONATION", "real_person", "critical", "remove", "block"
+        ),
+        risk_finding(
+            "PB-RISK-COPYRIGHT-NAMED-IMITATION",
+            "copyright",
+            "medium",
+            "narrow",
+            "narrow",
+        ),
+        risk_finding(
+            "PB-RISK-COPYRIGHT-COPIED-DIALOGUE", "copyright", "high", "remove", "block"
+        ),
+        risk_finding(
+            "PB-RISK-PROFESSIONAL-TAILORED-ADVICE",
+            "professional_authority",
+            "high",
+            "narrow",
+            "narrow",
+        ),
+        risk_finding(
+            "PB-RISK-PROFESSIONAL-CLAIMED-AUTHORITY",
+            "professional_authority",
+            "critical",
+            "remove",
+            "block",
+        ),
+        risk_finding(
+            "PB-RISK-SENSITIVE-LOCAL-PERSONAL",
+            "sensitive_data",
+            "medium",
+            "private_only",
+            "private",
+        ),
+        risk_finding(
+            "PB-RISK-SENSITIVE-CREDENTIAL",
+            "sensitive_data",
+            "critical",
+            "remove",
+            "block",
+        ),
+        risk_finding(
+            "PB-RISK-COERCION-MANIPULATIVE-FRAMING",
+            "coercion_fraud_harassment",
+            "high",
+            "narrow",
+            "narrow",
+        ),
+        risk_finding(
+            "PB-RISK-COERCION-THREAT-DECEPTION-HUMILIATION",
+            "coercion_fraud_harassment",
+            "critical",
+            "remove",
+            "block",
+        ),
+    )
+    decision_rank = {"allow": 0, "warn": 1, "narrow": 2, "private": 3, "block": 4}
+
+    # Every pinned rule's exact floor is accepted, independent of finding order.
+    for finding in catalog_fixtures:
+        exact_floor = copy.deepcopy(draft)
+        exact_floor["risk"]["findings"] = [copy.deepcopy(finding)]
+        exact_floor["risk"]["decision"] = finding["minimum_decision"]
+        generate(exact_floor)
+    decision_fixtures = {
+        "warn": catalog_fixtures[0],
+        "narrow": catalog_fixtures[3],
+        "private": catalog_fixtures[1],
+        "block": catalog_fixtures[8],
+    }
+    decisions = tuple(decision_rank)
+    for left_name, left in decision_fixtures.items():
+        for right_name, right in decision_fixtures.items():
+            right_for_pair = right
+            if right["finding_id"] == left["finding_id"]:
+                right_for_pair = risk_finding(
+                    right["rule_id"],
+                    right["dimension"],
+                    right["severity"],
+                    right["required_action"],
+                    right["minimum_decision"],
+                    reason_code="self-test-second-finding",
+                )
+            required = max((left_name, right_name), key=decision_rank.__getitem__)
+            for ordered in ((left, right_for_pair), (right_for_pair, left)):
+                combined = copy.deepcopy(draft)
+                combined["risk"]["findings"] = [copy.deepcopy(item) for item in ordered]
+                combined["risk"]["decision"] = required
+                generate(combined)
+            lower_rank = decision_rank[required] - 1
+            if lower_rank >= 0:
+                downgraded = copy.deepcopy(draft)
+                downgraded["risk"]["findings"] = [
+                    copy.deepcopy(left),
+                    copy.deepcopy(right_for_pair),
+                ]
+                downgraded["risk"]["decision"] = decisions[lower_rank]
+                rejects(
+                    downgraded,
+                    "aggregate minimum",
+                    "decision precedence downgrade accepted",
+                )
+
+    # Exact reviewer mutation: a credential/removal/block finding cannot be allowed.
+    reviewer_mutation = copy.deepcopy(draft)
+    reviewer_mutation["risk"]["findings"] = [copy.deepcopy(catalog_fixtures[8])]
+    reviewer_mutation["risk"]["decision"] = "allow"
+    rejects(reviewer_mutation, "aggregate minimum", "credential block was allowed")
+
+    for field, invalid, expected in (
+        ("rule_id", "PB-RISK-UNKNOWN", "unknown risk rule"),
+        ("dimension", "copyright", "catalog dimension"),
+        ("dimension", "unknown_dimension", "invalid enum"),
+        ("severity", "unknown_severity", "invalid enum"),
+        ("required_action", "unknown_action", "invalid enum"),
+        ("minimum_decision", "unknown_decision", "invalid enum"),
+    ):
+        malformed = copy.deepcopy(draft)
+        finding = copy.deepcopy(catalog_fixtures[0])
+        finding[field] = invalid
+        malformed["risk"]["findings"] = [finding]
+        malformed["risk"]["decision"] = "block"
+        rejects(malformed, expected, f"unknown risk {field} accepted")
+
+    for field, downgraded_value in (
+        ("severity", "medium"),
+        ("required_action", "private_only"),
+        ("minimum_decision", "private"),
+    ):
+        downgraded = copy.deepcopy(draft)
+        finding = copy.deepcopy(catalog_fixtures[8])
+        finding[field] = downgraded_value
+        downgraded["risk"]["findings"] = [finding]
+        downgraded["risk"]["decision"] = "block"
+        rejects(downgraded, "catalog floor", f"downgraded risk {field} accepted")
+
+    incompatible = copy.deepcopy(draft)
+    incompatible_finding = risk_finding(
+        "PB-RISK-REAL-INCIDENTAL", "real_person", "critical", "remove", "private"
+    )
+    incompatible["risk"]["findings"] = [incompatible_finding]
+    incompatible["risk"]["decision"] = "block"
+    rejects(
+        incompatible, "action/decision compatibility", "incompatible action accepted"
+    )
+
+    stale_digest = copy.deepcopy(draft)
+    stale_digest["risk"]["findings"] = [copy.deepcopy(catalog_fixtures[0])]
+    stale_digest["risk"]["findings"][0]["message"] += " changed"
+    stale_digest["risk"]["decision"] = "warn"
+    rejects(stale_digest, "content digest", "stale finding digest accepted")
+    malformed_id = copy.deepcopy(draft)
+    malformed_id["risk"]["findings"] = [copy.deepcopy(catalog_fixtures[0])]
+    malformed_id["risk"]["findings"][0]["finding_id"] = "unstable"
+    malformed_id["risk"]["decision"] = "warn"
+    rejects(malformed_id, "content digest", "malformed finding ID accepted")
+    duplicate_finding = copy.deepcopy(draft)
+    duplicate_finding["risk"]["findings"] = [
+        copy.deepcopy(catalog_fixtures[0]),
+        copy.deepcopy(catalog_fixtures[0]),
+    ]
+    duplicate_finding["risk"]["decision"] = "warn"
+    rejects(duplicate_finding, "unique", "duplicate finding ID accepted")
+
+    overstrict = copy.deepcopy(draft)
+    overstrict["risk"]["findings"] = [copy.deepcopy(catalog_fixtures[0])]
+    overstrict["risk"]["decision"] = "block"
+    generate(overstrict)
+
     require(
         canonical_slug("The Boundary Setter") == "the-boundary-setter", "ASCII slug"
     )
@@ -1663,20 +2076,8 @@ def self_test() -> None:
     operational["updated_at"] = "2099-01-02T00:00:00Z"
     operational["revision"] = 8
     operational["risk"]["input_revision"] = 8
-    operational["risk"]["classifier_version"] = "0.1.1-ui-only"
-    operational["risk"]["findings"] = [
-        {
-            "rule_id": "operational-rule",
-            "finding_id": "operational-rule-digest",
-            "dimension": "scope",
-            "severity": "low",
-            "evidence_field": "/identity/description",
-            "reason_code": "sentinel",
-            "message": "Non-output finding sentinel.",
-            "required_action": "none",
-            "minimum_decision": "allow",
-        }
-    ]
+    operational["risk"]["classifier_version"] = "0.1.0"
+    operational["risk"]["findings"] = []
     operational["rehearsal"]["last_session_id"] = "44444444-4444-4444-8444-444444444444"
     operational["validation"]["status"] = "stale"
     require(generate(operational) == baseline, "operational/UI fields changed bytes")
@@ -1688,6 +2089,12 @@ def self_test() -> None:
     require(changed == {"PROVENANCE.md"}, "risk decision changed unexpected files")
     require(
         b"- Risk decision: warn\n" in risk_files["PROVENANCE.md"], "risk decision bytes"
+    )
+    risk_report_changed = copy.deepcopy(risk_changed)
+    risk_report_changed["risk"]["findings"] = [copy.deepcopy(catalog_fixtures[0])]
+    require(
+        generate(risk_report_changed) == risk_files,
+        "valid risk findings changed bytes beyond decision",
     )
 
     for pointer, payload in (

@@ -69,8 +69,8 @@ bound is stated. Arrays contain at most 20 items unless specified otherwise.
   "draft_schema_version": "0.1",
   "draft_id": "UUIDv4 lowercase string",
   "revision": 0,
-  "created_at": "RFC 3339 UTC timestamp",
-  "updated_at": "RFC 3339 UTC timestamp",
+  "created_at": "canonical RFC 3339 UTC YYYY-MM-DDTHH:MM:SSZ",
+  "updated_at": "canonical RFC 3339 UTC YYYY-MM-DDTHH:MM:SSZ",
   "generator": {
     "template_id": "org.greenroom.template.boundary-setter",
     "template_version": "0.1.0",
@@ -96,7 +96,7 @@ bound is stated. Arrays contain at most 20 items unless specified otherwise.
     "unknown": ["string, 1..600 bytes"]
   },
   "knowledge": {
-    "cutoff": "YYYY-MM-DD",
+    "cutoff": "Gregorian date YYYY-MM-DD",
     "domains": ["string, 1..120 bytes"],
     "limitations": ["string, 1..300 bytes"]
   },
@@ -255,7 +255,13 @@ Slider integers use the bounded ranges defined by the selected template. For the
 Boundary Setter, the exact ranges and meanings are in
 [`boundary-setter.md`](boundary-setter.md). A parser MUST reject out-of-range
 values, duplicate trait IDs, duplicate scenario IDs, or a stale risk result whose
-`input_revision` differs from `revision`.
+`input_revision` differs from `revision`. `knowledge.cutoff` is an actual
+proleptic-Gregorian date in canonical ASCII `YYYY-MM-DD`; years are exactly
+`0001` through `9999`. `created_at` and `updated_at` are actual Gregorian instants
+in canonical ASCII `YYYY-MM-DDTHH:MM:SSZ`: UTC `Z` only, second precision, hours
+`00`..`23`, minutes/seconds `00`..`59`, and the same year range. Numeric offsets,
+fractional or omitted seconds, lowercase `t`/`z`, spaces, leap seconds, year
+`0000`, impossible month/day combinations, and non-zero-padded forms fail closed.
 
 It also rejects duplicate relationship target IDs, transform IDs/destinations,
 or citation IDs; an invalid/non-forward byte span; a transform whose note is
@@ -575,7 +581,7 @@ Each finding has stable fields:
 ```json
 {
   "rule_id": "PB-RISK-COPYRIGHT-COPIED-DIALOGUE",
-  "finding_id": "stable rule ID plus content digest",
+  "finding_id": "<rule_id>:<64-lowercase-hex content SHA-256>",
   "dimension": "real_person | copyright | professional_authority | sensitive_data | coercion_fraud_harassment",
   "severity": "low | medium | high | critical",
   "evidence_field": "JSON Pointer or override filename and line range",
@@ -587,8 +593,8 @@ Each finding has stable fields:
 ```
 
 Every emitted finding MUST contain all nine fields; none is inferred by the UI.
-The classifier rule catalog is closed and versioned. v0.1 requires at least these
-rules and exact floors:
+The classifier version is exactly `0.1.0` and its rule catalog is closed: v0.1
+accepts only these rules and floors:
 
 | Rule ID | Severity | Required action | Minimum decision |
 | --- | --- | --- | --- |
@@ -612,17 +618,36 @@ rules and exact floors:
 | Sensitive data | synthetic data | user-declared local personal data | credentials, doxxing, another person's highly sensitive data, export leakage |
 | Coercion/fraud/harassment | assertive disagreement | manipulative framing needing removal | threats, deception, humiliation, fake authority/evidence, discriminatory targeting |
 
-Decision precedence is `block > private > narrow > warn > allow`:
+Decision precedence is `block > private > narrow > warn > allow`. Severity floors
+use `critical > high > medium > low`. Action precedence and its required compatible
+decision are exact:
 
-For each finding, the rule catalog supplies a floor. The finding may be made more
-severe/private but never less. The final decision is the highest precedence among
-all `minimum_decision` values after any permitted escalation; user acknowledgment
-does not lower it. Ties do not depend on finding order. Missing/unknown rule ID,
-severity, action, floor, or a tuple below the catalog floor is itself a `block`
-classifier-contract failure. Thus a low warning can never mask a credential block,
-and `private` outranks `narrow` even when the narrow finding appears later.
+| Action | Compatible minimum decision |
+| --- | --- |
+| `none` | `allow` |
+| `acknowledge` | `warn` |
+| `narrow` | `narrow` |
+| `private_only` | `private` |
+| `remove` | `block` |
 
-| Highest finding floor after escalation | Required final decision | Gate |
+For each finding, `dimension` must exactly match its catalog rule. Severity, action,
+and minimum decision may equal or exceed their respective catalog floors, but the
+action and minimum decision must remain the same row of the compatibility table.
+The `finding_id` is the literal `rule_id`, a colon, and lowercase SHA-256 of
+canonical JSON over the other eight finding fields: UTF-8, sorted keys, no ASCII
+escaping, and separators `,` and `:` with no whitespace. Any content edit therefore
+requires a new ID; IDs must be unique within the report.
+
+The aggregate floor is the maximum-precedence `minimum_decision` across all
+findings, or `allow` for no findings. `risk.decision` may be stricter but MUST NOT
+rank below that aggregate. User acknowledgment does not lower it, ties do not
+depend on finding order, and a critical credential rule always carries
+`remove`/`block`, so it can never produce `allow`. A missing or unknown rule,
+dimension, severity, action, decision, stale/malformed digest, incompatible tuple,
+or value below a catalog floor fails schema validation closed before generation,
+rehearsal, save, or export.
+
+| Aggregate finding floor | Minimum final decision | Gate |
 | --- | --- | --- |
 | none | `allow` | generation, rehearsal, save, and export may continue |
 | `warn` | `warn` | acknowledgment before continuing |
@@ -856,8 +881,11 @@ Implementations must automate these tests with fixed fixtures:
     validate each replacement alone versus the effective merge; every case fails
     before rehearsal/save/export and the prior candidate remains unchanged.
 26. **PB-RISK-003:** Each mandatory rule fixture emits all nine fields at or above
-    its catalog floor; every pair/permutation produces the precedence-table maximum;
-    unknown/missing/downgraded tuples block.
+    its catalog floor with the exact catalog dimension, compatible action/decision,
+    and a recomputed stable content digest. Every pair/permutation produces the
+    precedence-table maximum; unknown/missing/downgraded/incompatible tuples,
+    duplicate/stale IDs, and any final decision below the aggregate floor fail
+    closed. The credential/remove/block reviewer mutation with final `allow` fails.
 27. **PB-PERSIST-003:** Two processes load revision N, synchronize at a barrier,
     and save different bytes. Exactly one commits N+1; the other receives a stale
     CAS conflict, active equals the winner, and backup equals byte-exact N.
@@ -873,6 +901,11 @@ Implementations must automate these tests with fixed fixtures:
     files, per-file byte counts/SHA-256 values, order, and candidate SHA-256 shown
     in `golden/boundary-setter-pack/hashes.json`; two independent output directories
     compare byte-identical.
+31. **PB-SCHEMA-003:** Calendar boundaries accept leap day `2000-02-29` and years
+    `0001`/`9999`; both timestamp fields reject invalid leap days, month/day/hour,
+    offsets, fractional/omitted seconds, lowercase separators, leap second, year
+    `0000`, and every noncanonical form. `knowledge.cutoff` rejects the equivalent
+    invalid Gregorian dates.
 
 The acceptance demo passes only when PB-PERSIST-002, PB-BOUNDARY-001/002,
 PB-VAL-001/002, PB-EXP-001, and PB-ROLE-001 pass together with no API key or
