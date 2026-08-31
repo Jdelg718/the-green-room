@@ -14,7 +14,7 @@
     "check": "npm run typecheck && npm run build && npm test",
     "start": "node dist/src/server.js",
     "dev": "npm run build && node --watch dist/src/server.js",
-    "acceptance": "npm test -- --test-name-pattern='config|health|static|bootstrap'"
+    "acceptance": "node scripts/accept-first-playable.mjs"
   },
   "dependencies": {
     "fastify": "5.12.1"

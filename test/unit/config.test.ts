@@ -7,10 +7,23 @@ test("config uses private loopback defaults", () => {
   const config = loadConfig({}, "/tmp/green-room-checkout");
 
   assert.deepEqual(config, {
+    acceptanceFixture: null,
     dataDir: "/tmp/green-room-checkout/.local/first-playable",
     host: "127.0.0.1",
     port: 8787,
   });
+});
+
+test("config admits only the fixed local acceptance fixture", () => {
+  assert.equal(
+    loadConfig({ GREENROOM_ACCEPTANCE_FIXTURE: "first-playable-v1" })
+      .acceptanceFixture,
+    "first-playable-v1",
+  );
+  assert.throws(
+    () => loadConfig({ GREENROOM_ACCEPTANCE_FIXTURE: "remote-provider" }),
+    /GREENROOM_ACCEPTANCE_FIXTURE/,
+  );
 });
 
 test("config accepts explicit IPv4 and IPv6 loopback hosts", () => {

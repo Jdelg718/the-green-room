@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { httpOrigin, loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
+import { AcceptanceFixtureProvider } from "./providers/acceptance-fixture.js";
 import { DeterministicMockProvider } from "./providers/mock.js";
 
 const config = loadConfig();
@@ -10,11 +11,20 @@ const store = openGreenRoomDatabase({
   dataDir: config.dataDir,
   migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
 });
+const provider = config.acceptanceFixture === null
+  ? new DeterministicMockProvider()
+  : new AcceptanceFixtureProvider({
+      onLatch(): void {
+        process.stdout.write(
+          `${JSON.stringify({ event: "acceptance_fixture_latched" })}\n`,
+        );
+      },
+    });
 const app = buildApp({
   allowedOrigin: httpOrigin(config),
   database: store.database,
   logger: true,
-  provider: new DeterministicMockProvider(),
+  provider,
   publicDir: fileURLToPath(new URL("../public", import.meta.url)),
 });
 

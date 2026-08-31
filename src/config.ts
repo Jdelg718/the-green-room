@@ -2,9 +2,24 @@ import { isIP } from "node:net";
 import { resolve } from "node:path";
 
 export interface AppConfig {
+  readonly acceptanceFixture: "first-playable-v1" | null;
   readonly dataDir: string;
   readonly host: string;
   readonly port: number;
+}
+
+function acceptanceFixture(
+  value: string | undefined,
+): "first-playable-v1" | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (value === "first-playable-v1") {
+    return value;
+  }
+  throw new Error(
+    "GREENROOM_ACCEPTANCE_FIXTURE must be first-playable-v1 when set",
+  );
 }
 
 export function httpOrigin(
@@ -57,6 +72,9 @@ export function loadConfig(
   cwd: string = process.cwd(),
 ): AppConfig {
   return {
+    acceptanceFixture: acceptanceFixture(
+      environment.GREENROOM_ACCEPTANCE_FIXTURE,
+    ),
     dataDir: dataDirectory(environment.GREENROOM_DATA_DIR, cwd),
     host: loopbackHost(environment.GREENROOM_HOST),
     port: listenPort(environment.GREENROOM_PORT),

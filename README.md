@@ -22,6 +22,18 @@ A private, local room with:
 - importable/exportable persona packs;
 - no autonomous shell, filesystem, or network access.
 
+## Run the first-playable acceptance
+
+With Node 24 and dependencies installed, run:
+
+```bash
+npm run acceptance
+```
+
+The command builds the app, exercises a fresh private room through the compiled
+loopback server, restarts it against the same temporary data, and removes its
+temporary data before exiting. A passing run ends with a single JSON summary.
+
 ## Documents
 
 - [Product brief](docs/PRODUCT-BRIEF.md)
