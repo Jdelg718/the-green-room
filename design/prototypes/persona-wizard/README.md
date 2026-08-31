@@ -16,7 +16,8 @@ The prototype itself has no build, model, API key, analytics, remote font, or ne
 - Goal, room role, traits and sliders, selected boundaries, voice, turn settings, editable tensions, and editable scenes all update one in-memory draft.
 - The current draft generates five runtime files and four metadata-only files. Opening Advanced does not freeze them: unmodified files keep regenerating, while only explicit per-file edits become labeled overrides with a reset action.
 - Directness, warmth, humor, and every selected turn-discipline rule map visibly and deterministically into generated pack content.
-- Prototype checks scan every draft field and all nine merged file contents, including overrides and `LICENSE`. Named file/location diagnostics cover coercion, credential assignments, private-data disclosure, prohibited tool access, immutable safety guidance, and the prototype license constraint.
+- Prototype checks scan every draft field and all nine merged file contents, including overrides and `LICENSE`. Every ordinary validation independently creates persistent named blockers for ambiguous private wording before export, and clears them only after the affected content is removed or redacted. Diagnostics also cover coercion, credential assignments, private-data disclosure, prohibited tool access, immutable safety guidance, and the prototype license constraint.
+- `AGENTS.md` must retain its exact canonical immutable safety block. Additional user-authored content is allowed only when it does not negate, waive, ignore, remove, or downgrade that invariant anywhere in the effective file.
 - Rehearsal preview text is calculated from its actual interruption, dominance, warmth, and no-humiliation controls. **Apply & retest** changes only the selected adjustment and preserves every other choice.
 - Scene regeneration is a pure deterministic function of canonical goal, role, template, and seed. Repeated identical inputs are byte-identical; changed inputs change output. User-edited scenes are retained only when **Preserve my edited scenes** is explicitly checked.
 - Named redaction scans scalar fields, nested arrays, scenes, tensions, rehearsal-local settings, and advanced overrides. High-confidence credential assignments can be comprehensively redacted; ambiguous private wording is located and blocked for manual review.
@@ -33,12 +34,13 @@ Install the pinned browser-test dependency once, then run the real browser asser
 ```bash
 cd design/prototypes/persona-wizard
 npm ci
-npm run verify
+npm run verify:focused # immutable/private-data blocker matrix only
+npm run verify         # focused matrix, then full Playwright/viewports/screenshots
 # compatibility entry point from repository root:
 python3 design/prototypes/persona-wizard/verify_prototype.py
 ```
 
-`verify_prototype.mjs` launches Chromium against a local HTTP server and asserts:
+`verify_blockers.mjs` exercises the exact contradiction vocabulary, canonical reset recovery, ordinary pre-export private scans across every effective file and representative nested draft locations, persistence across save/reload, benign discussion/prohibition exclusions, and stale-blocker clearing. `verify_prototype.mjs` then launches Chromium against a local HTTP server and asserts:
 
 - custom input → regenerated/overridden files → prototype checks → saved draft → minimized exported artifact;
 - rehearsal control behavior and single-adjustment preservation;

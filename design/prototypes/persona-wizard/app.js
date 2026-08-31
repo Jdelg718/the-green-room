@@ -77,12 +77,29 @@ const diagnosticPatterns=[
   ['prohibited tool access',/\b(?:use|access|invoke|run|enable)\s+(?:the\s+)?(?:browser|shell|filesystem|network|external tools?)\b/ig,true],
   ['private data disclosure',/\b(?:expose|reveal|publish|share|leak)\s+(?:my\s+|the\s+)?private\b/ig,true]
 ];
-function isBenignDiscussion(value,index){const start=Math.max(value.lastIndexOf('.',index-1),value.lastIndexOf('\n',index-1))+1;const endCandidates=[value.indexOf('.',index),value.indexOf('\n',index)].filter(x=>x>=0),end=endCandidates.length?Math.min(...endCandidates):value.length;const sentence=value.slice(start,end);return /\b(?:historical|history|discussion|discuss(?:es|ed|ing)?|account|quotation|analysis)\b/i.test(sentence)&&/\b(?:condemn(?:s|ed|ing)?|criticiz(?:e|es|ed|ing)|document(?:s|ed|ing)?|describ(?:e|es|ed|ing)|report(?:s|ed|ing)?)\b/i.test(sentence)}
-function valueDiagnostics(location,value){const out=[],s=String(value??'');for(const [label,re,negatable] of diagnosticPatterns){re.lastIndex=0;for(const match of s.matchAll(re)){if(label==='coercive language'&&isBenignDiscussion(s,match.index))continue;if(!negatable||!isNegated(s,match.index))out.push(`${location}: ${label}.`)}}return [...new Set(out)]}
+function sentenceAt(value,index){const start=Math.max(value.lastIndexOf('.',index-1),value.lastIndexOf('\n',index-1))+1;const endCandidates=[value.indexOf('.',index),value.indexOf('\n',index)].filter(x=>x>=0),end=endCandidates.length?Math.min(...endCandidates):value.length;return value.slice(start,end)}
+function isBenignDiscussion(value,index){const sentence=sentenceAt(value,index);return /\b(?:historical|history|discussion|discuss(?:es|ed|ing)?|account|quotation|analysis)\b/i.test(sentence)&&/\b(?:condemn(?:s|ed|ing)?|criticiz(?:e|es|ed|ing)?|document(?:s|ed|ing)?|describ(?:e|es|ed|ing)?|report(?:s|ed|ing)?)\b/i.test(sentence)}
+function isBenignPrivateReference(value,index){const sentence=sentenceAt(value,index);return isNegated(value,index)||(/\b(?:historical|history|discussion|discuss(?:es|ed|ing)?|quotation|analysis)\b/i.test(sentence)&&/\b(?:document(?:s|ed|ing)?|describ(?:e|es|ed|ing)?|report(?:s|ed|ing)?|mention(?:s|ed|ing)?|quote(?:s|d|ing)?)\b/i.test(sentence)&&/\b(?:without|no)\b/i.test(sentence))}
+function valueDiagnostics(location,value){const out=[],s=String(value??'');for(const [label,re,negatable] of diagnosticPatterns){re.lastIndex=0;for(const match of s.matchAll(re)){if(label==='coercive language'&&isBenignDiscussion(s,match.index))continue;if(label==='private data'&&isBenignPrivateReference(s,match.index))continue;if(!negatable||!isNegated(s,match.index))out.push(`${location}: ${label}.`)}}return [...new Set(out)]}
 function walk(value,location,visit){if(Array.isArray(value))value.forEach((v,i)=>walk(v,`${location}[${i}]`,visit));else if(value&&typeof value==='object')Object.entries(value).forEach(([k,v])=>walk(v,location?`${location}.${k}`:k,visit));else visit(location,value)}
 function draftForSafety(){return {name:data.name,goal:data.goal,role:data.role,traits:data.traits,traitTags:data.traitTags,rules:data.rules,boundary:data.boundary,voice:data.voice,turn:data.turn,tensions:data.tensions,scenes:data.scenes,sceneTemplate:data.sceneTemplate,sceneSeed:data.sceneSeed}}
 function normalizedInvariant(value){return String(value??'').trim().replace(/\s+/g,' ')}
 function hasCanonicalSafetyBlock(value){return String(value??'').split(/\n\s*\n/).filter(block=>/^\s*Immutable prototype safety constraints:/i.test(block)).some(block=>normalizedInvariant(block)===normalizedInvariant(IMMUTABLE_SAFETY_BLOCK))}
+function hasInvariantContradiction(value){
+  const reference=/\b(?:immutable prototype safety constraints?|immutable safety (?:constraints?|rules?|block)|safety (?:constraints?|rules?|block)|these (?:constraints?|rules?))\b/i;
+  const terms=/\b(?:ignore(?:d)?|disregard(?:ed)?|optional|non[- ]?binding|waive(?:d)?|downgrade(?:d)?|remove(?:d)?|change(?:d)?|modify|modified|override(?:n)?)\b/ig;
+  return String(value??'').split(/[.\n;]+/).some(sentence=>{
+    if(!reference.test(sentence))return false;
+    if(/\bdo\s+not\s+apply\b|\badvisory\s+only\b|\bexcept\s+when\s+(?:the\s+)?user\s+asks?\b/i.test(sentence))return true;
+    terms.lastIndex=0;
+    for(const match of sentence.matchAll(terms)){
+      const before=sentence.slice(Math.max(0,match.index-24),match.index);
+      if(/(?:\b(?:do|does|must|may|can|should)\s+not\s+(?:be\s+)?|\bnever\s+|\bcannot\s+(?:be\s+)?|\bnot\s+|\b(?:do|does|must|may|can|should)\s+not\s+(?:ignore(?:d)?|disregard(?:ed)?|waive(?:d)?|downgrade(?:d)?|remove(?:d)?|change(?:d)?|modify|modified|override(?:n)?)(?:\s+or\s+))$/i.test(before))continue;
+      return true;
+    }
+    return false;
+  });
+}
 function validate(){
   const messages=[];
   if(!data.goal.trim())messages.push('goal: required.');
@@ -95,9 +112,9 @@ function validate(){
   for(const [name,value] of Object.entries(files)){if(!String(value).trim())messages.push(`${name}: content is required.`);messages.push(...valueDiagnostics(name,value))}
   if(files.LICENSE!==CANONICAL_LICENSE)messages.push(`LICENSE: exact canonical text is required (prototype hash ${hash(CANONICAL_LICENSE)}); reset to canonical.`);
   if(!hasCanonicalSafetyBlock(files['AGENTS.md']))messages.push('AGENTS.md: canonical immutable safety block is missing or modified; reset to canonical.');
-  if(/Immutable prototype safety constraints[^\n]*(?:may|can)\s+be\s+(?:changed|modified|removed|overridden)|(?:change|modify|remove|override)[^\n]*immutable prototype safety constraints/i.test(files['AGENTS.md']))messages.push('AGENTS.md: immutable safety contradiction is not allowed; reset to canonical.');
-  const activeAmbiguous=privateFindings().filter(x=>x.ambiguous).map(x=>x.location);
-  data.unresolvedPrivate=(data.unresolvedPrivate||[]).filter(location=>activeAmbiguous.includes(location));
+  if(hasInvariantContradiction(files['AGENTS.md']))messages.push('AGENTS.md: immutable safety contradiction is not allowed; reset to canonical.');
+  const activeAmbiguous=[...new Set(privateFindings().filter(x=>x.ambiguous).map(x=>x.location))];
+  data.unresolvedPrivate=activeAmbiguous;
   for(const location of data.unresolvedPrivate)messages.push(`Unresolved private-data review: ${location}. Remove or redact the affected content before validation or export.`);
   data.validation={ok:messages.length===0,messages:messages.length?[...new Set(messages)]:['All nine merged files and every current draft location passed prototype checks. Export is available.']};return data.validation;
 }
@@ -140,7 +157,21 @@ function renderSteps(){const box=$('steps');box.innerHTML=titles.map((t,i)=>`<li
 function actions(){return `<div class="actions"><button class="btn" id="back" type="button" ${data.step===0?'disabled':''}>← Back</button><div class="right"><button class="btn" id="saveDraft" type="button">Save draft</button><button class="btn primary" id="next" type="button">${data.step===10?'Review complete':'Continue →'}</button></div></div>`}
 function render(){status.hidden=true;panel.hidden=false;panel.innerHTML=templates()[data.step]()+actions();renderSteps();$('mobileStep').textContent=`Step ${data.step+1} of 11`;$('mobileName').textContent=titles[data.step];$('railSaved').innerHTML=`${esc(savedLabel())}<br>No public publishing in this flow.`;wire();$('back').addEventListener('click',()=>{capture();if(data.step){data.step--;render();panel.querySelector('h3').focus()}});$('next').addEventListener('click',()=>{capture();if(data.step<10){data.step++;render();panel.querySelector('h3').focus()}else toast('Review complete. Save or export when ready.')});$('saveDraft').addEventListener('click',save);preview()}
 function toast(message){const box=$('toast');box.textContent=message;box.hidden=false;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>box.hidden=true,1800)}
-function privateFindings(){const findings=[];const source={name:data.name,goal:data.goal,role:data.role,traits:data.traits,traitTags:data.traitTags,rules:data.rules,boundary:data.boundary,voice:data.voice,turn:data.turn,tensions:data.tensions,scenes:data.scenes,sceneTemplate:data.sceneTemplate,sceneSeed:data.sceneSeed,rehearsal:data.rehearsal,fileOverrides:data.fileOverrides};walk(source,'',(location,value)=>{const text=String(value??'');credentialValue.lastIndex=0;ambiguousPrivate.lastIndex=0;if(credentialValue.test(text))findings.push({location,kind:'credential',ambiguous:false});if(ambiguousPrivate.test(text))findings.push({location,kind:'private wording',ambiguous:true})});return findings}
+function privateFindings(){
+  const findings=[],seen=new Set();
+  const add=(location,kind,ambiguous)=>{const key=`${location}|${kind}`;if(!seen.has(key)){seen.add(key);findings.push({location,kind,ambiguous})}};
+  const scan=(location,value)=>{
+    const text=String(value??'');
+    credentialValue.lastIndex=0;
+    if(credentialValue.test(text))add(location,'credential',false);
+    ambiguousPrivate.lastIndex=0;
+    for(const match of text.matchAll(ambiguousPrivate))if(!isBenignPrivateReference(text,match.index))add(location,'private wording',true);
+  };
+  const source={name:data.name,goal:data.goal,role:data.role,traits:data.traits,traitTags:data.traitTags,rules:data.rules,boundary:data.boundary,voice:data.voice,turn:data.turn,tensions:data.tensions,scenes:data.scenes,sceneTemplate:data.sceneTemplate,sceneSeed:data.sceneSeed,rehearsal:data.rehearsal,fileOverrides:data.fileOverrides};
+  walk(source,'',scan);
+  for(const [name,value] of Object.entries(currentFiles()))scan(name,value);
+  return findings;
+}
 function redactValue(value){if(Array.isArray(value))return value.map(redactValue);if(value&&typeof value==='object'){for(const key of Object.keys(value))value[key]=redactValue(value[key]);return value}return typeof value==='string'?value.replace(credentialValue,'[redacted]'):value}
 function redactAll(){for(const key of ['name','goal','role','traits','traitTags','rules','boundary','voice','turn','tensions','scenes','sceneTemplate','sceneSeed','rehearsal','fileOverrides'])data[key]=redactValue(data[key])}
 const states={error:['Generation paused','Regenerate scenes now'],unsafe:['Unsafe request blocked','Use safer wording'],'real-person':['Real-person imitation blocked','Build an original persona'],copyright:['Copyrighted character request blocked','Create an original version'],'private-data':['Private data scan','Redact detected credentials'],validator:['Validator blocked export','Open advanced review'],offline:['Offline editing available','Save offline draft']};

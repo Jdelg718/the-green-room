@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify": "node verify_prototype.mjs"
+    "verify:focused": "node verify_blockers.mjs",
+    "verify": "node verify_blockers.mjs && node verify_prototype.mjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
