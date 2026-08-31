@@ -95,13 +95,20 @@ function hasInvariantContradiction(value){
   const nominal=String.raw`(?:removal|change|modification|override|exception|disregard|waiver|downgrade)s?`;
   const grammar=[
     new RegExp(`${ref}\\s+(?:is|are|becomes?|remains?)\\s+(?!not\\b)(?:merely\\s+|only\\s+)?${qualifier}\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:serves?|should\\s+be\\s+treated)\\s+as\\s+(?!not\\b)(?:merely\\s+|only\\s+)?${qualifier}\\b`,'i'),
     new RegExp(`\\b(?:treat|regard|consider)\\s+${ref}\\s+as\\s+(?!not\\b)(?:merely\\s+|only\\s+)?${qualifier}\\b`,'i'),
     new RegExp(`\\b(?:ignore|disregard|waive|downgrade|remove|change|modify|override)\\s+${ref}\\b`,'i'),
     new RegExp(`${ref}\\s+(?:(?:may|can|must|should|is|are)\\s+)(?!not\\b)(?:be\\s+)?${action}\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\s+to\\s+be\\s+${action}\\b`,'i'),
     new RegExp(`\\b(?:a\\s+|an\\s+|the\\s+)?(?:ignoring|disregarding|waiving|downgrading|removing|changing|modifying|overriding|${nominal}\\s+of)\\s+${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\b`,'i'),
+    new RegExp(`\\b(?:a\\s+|an\\s+|the\\s+)?${nominal}\\s+(?:of|to)\\s+${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\b`,'i'),
     new RegExp(`\\b(?:allow|permit)(?:s|ted)?\\s+(?:the\\s+)?(?:${nominal}|ignoring|disregarding|waiving|downgrading|removing|changing|modifying|overriding)(?:\\s+of)?\\s+${ref}\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:allows?|permits?)\\s+(?:the\\s+)?${nominal}\\b`,'i'),
     new RegExp(`\\bexceptions?\\s+to\\s+${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\b`,'i'),
+    new RegExp(`\\b(?:a\\s+|an\\s+|the\\s+)?exceptions?\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\s+for\\s+${ref}\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:may|can)\\s+have\\s+exceptions?\\b`,'i'),
     new RegExp(`${ref}\\s+(?:does|do)\\s+not\\s+apply\\b`,'i'),
+    new RegExp(`${ref}\\s+need\\s+not\\s+apply\\b`,'i'),
     new RegExp(`${ref}\\s+appl(?:y|ies)\\s+except\\s+(?:when|if|for|to)\\b`,'i')
   ];
   const locallyNegated=(sentence,index)=>/(?:\b(?:do|does|must|may|should|will)\s+not|\bnever|\bcannot)\s+(?:(?:\w+|or)\s+){0,4}$/i.test(sentence.slice(Math.max(0,index-48),index));
