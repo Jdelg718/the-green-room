@@ -33,7 +33,7 @@ npm ci
 npm run verify
 ```
 
-The Playwright verifier checks interactivity, all three rehearsal classes, flaw challenge/adjust/retest, deterministic files, minimized export, local save/reload, keyboard focus, reduced motion, no cross-origin requests, and every step at 1440/390/320 for overflow, 44px controls, and WCAG AA normal-text contrast. It refreshes:
+The Playwright verifier checks interactivity, all three rehearsal classes, flaw challenge/adjust/retest, deterministic files, minimized export, local save/reload, keyboard focus, reduced motion, no cross-origin requests, and every step at 1440/390/320 for overflow, 44px controls, and WCAG AA normal-text contrast. It also injects a contradiction into every free-text authoring field and verifies that licensed-lawyer/legal-advice claims, immutable-safety bypasses, and operational criminal assistance remain blocked in generated files and after reload, while benign safety discussion and redaction/reset recover normally. It refreshes:
 
 - `screenshots/desktop-1440-gray-flaw-activated.png`
 - `screenshots/mobile-390-flaw-program.png`
