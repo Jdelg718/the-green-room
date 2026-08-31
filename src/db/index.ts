@@ -1,4 +1,9 @@
-export { appendEvent, type AppendedEvent } from "./events.js";
+export {
+  appendEvent,
+  appendEventInTransaction,
+  canonicalJson,
+  type AppendedEvent,
+} from "./events.js";
 export {
   openGreenRoomDatabase,
   type GreenRoomDatabase,
