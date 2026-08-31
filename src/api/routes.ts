@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { ServerResponse } from "node:http";
 import type { DatabaseSync } from "node:sqlite";
 
 import type {
@@ -82,6 +83,8 @@ export interface ApiRoutesOptions {
   readonly csrfToken: string;
   readonly database?: DatabaseSync;
   readonly onSseClientCountChange?: (count: number) => void;
+  readonly onSseQueueSizeChange?: (size: number) => void;
+  readonly onSseResponse?: (response: ServerResponse) => void;
   readonly provider?: GenerationProvider;
   readonly sseHeartbeatMs?: number;
   readonly ssePollIntervalMs?: number;
@@ -256,6 +259,8 @@ class SseClients {
   readonly #database: DatabaseSync;
   readonly #heartbeatMs: number;
   readonly #onCountChange: ((count: number) => void) | undefined;
+  readonly #onQueueSizeChange: ((size: number) => void) | undefined;
+  readonly #onResponse: ((response: ServerResponse) => void) | undefined;
   readonly #pollIntervalMs: number;
   readonly #queueLimit: number;
 
@@ -263,12 +268,16 @@ class SseClients {
     readonly database: DatabaseSync;
     readonly heartbeatMs: number;
     readonly onCountChange?: (count: number) => void;
+    readonly onQueueSizeChange?: (size: number) => void;
+    readonly onResponse?: (response: ServerResponse) => void;
     readonly pollIntervalMs: number;
     readonly queueLimit: number;
   }) {
     this.#database = options.database;
     this.#heartbeatMs = options.heartbeatMs;
     this.#onCountChange = options.onCountChange;
+    this.#onQueueSizeChange = options.onQueueSizeChange;
+    this.#onResponse = options.onResponse;
     this.#pollIntervalMs = options.pollIntervalMs;
     this.#queueLimit = options.queueLimit;
   }
@@ -292,6 +301,7 @@ class SseClients {
       "X-Accel-Buffering": "no",
       "X-Content-Type-Options": "nosniff",
     });
+    this.#onResponse?.(response);
 
     let cleaned = false;
     let lastQueued = after;
@@ -301,6 +311,13 @@ class SseClients {
     const notifyCount = (): void => {
       try {
         this.#onCountChange?.(this.#clients.size);
+      } catch {
+        // Observability callbacks must never affect stream lifecycle.
+      }
+    };
+    const notifyQueueSize = (): void => {
+      try {
+        this.#onQueueSizeChange?.(queue.length);
       } catch {
         // Observability callbacks must never affect stream lifecycle.
       }
@@ -319,6 +336,8 @@ class SseClients {
       clearInterval(pollTimer);
       clearInterval(heartbeatTimer);
       removeListeners();
+      queue.length = 0;
+      notifyQueueSize();
       this.#clients.delete(client);
       notifyCount();
       if (!response.destroyed) {
@@ -334,6 +353,7 @@ class SseClients {
         if (frame === undefined) {
           return;
         }
+        notifyQueueSize();
         try {
           if (!response.write(frame)) {
             waitingForDrain = true;
@@ -354,10 +374,6 @@ class SseClients {
         return;
       }
       const capacity = this.#queueLimit - queue.length;
-      if (capacity <= 0) {
-        cleanup();
-        return;
-      }
       try {
         const events = readEvents(
           this.#database,
@@ -372,6 +388,7 @@ class SseClients {
           queue.push(
             `id: ${event.sequence}\nevent: room-event\ndata: ${JSON.stringify(event)}\n\n`,
           );
+          notifyQueueSize();
           lastQueued = event.sequence;
         }
         flush();
@@ -490,6 +507,12 @@ export function registerApiRoutes(
       ...(options.onSseClientCountChange === undefined
         ? {}
         : { onCountChange: options.onSseClientCountChange }),
+      ...(options.onSseQueueSizeChange === undefined
+        ? {}
+        : { onQueueSizeChange: options.onSseQueueSizeChange }),
+      ...(options.onSseResponse === undefined
+        ? {}
+        : { onResponse: options.onSseResponse }),
     });
     api.addHook("preClose", async () => {
       streams.closeAll();

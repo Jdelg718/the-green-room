@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type AddressInfo } from "node:net";
@@ -28,6 +29,8 @@ interface ApiAppOptions {
   readonly ssePollIntervalMs?: number;
   readonly sseQueueLimit?: number;
   readonly onSseClientCountChange?: (count: number) => void;
+  readonly onSseQueueSizeChange?: (size: number) => void;
+  readonly onSseResponse?: (response: ServerResponse) => void;
 }
 
 class NeverSettlingProvider implements GenerationProvider {
@@ -108,6 +111,26 @@ async function availablePort(): Promise<number> {
     server.close((error) => (error === undefined ? resolveClose() : reject(error)));
   });
   return address.port;
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  message: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+  }
+  assert.fail(message);
+}
+
+function sseFrameIds(frames: readonly string[]): number[] {
+  return frames.flatMap((frame) => {
+    const id = /^id: (\d+)$/m.exec(frame)?.[1];
+    return id === undefined ? [] : [Number(id)];
+  });
 }
 
 test("api security rejects hostile authority, csrf, shapes, and size before side effects", async (context) => {
@@ -323,6 +346,24 @@ test("api rejects noncanonical configured origins and raw normalization bypasses
       () => buildApp({ allowedOrigin }),
       /allowedOrigin must be an HTTP origin/,
     );
+  }
+});
+
+test("api rejects unbounded SSE queue options", async (context) => {
+  const store = temporaryStore(context);
+  for (const sseQueueLimit of [0, -1, 1.5, Number.NaN, 1_001]) {
+    const app = buildApp({
+      database: store.database,
+      provider: new DeterministicMockProvider(),
+      sseQueueLimit,
+    });
+    await assert.rejects(
+      async () => {
+        await app.ready();
+      },
+      /sseQueueLimit must be a bounded positive integer/,
+    );
+    await app.close();
   }
 });
 
@@ -555,6 +596,108 @@ test("sse replays then streams only committed ordered events and cleans up on di
     ),
   ]);
   assert.deepEqual(clientCounts, [1, 0, 1, 0]);
+});
+
+test("sse bounds backpressure queue exactly, drains in order, and replays overflow", async (context) => {
+  const store = temporaryStore(context);
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "one" });
+  const clientCounts: number[] = [];
+  const queueSizes: number[] = [];
+  const responses: ServerResponse[] = [];
+  const writes: string[][] = [];
+  const port = await availablePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const app = apiApp({
+    allowedOrigin: baseUrl,
+    database: store.database,
+    provider: new DeterministicMockProvider(),
+    sseHeartbeatMs: 10_000,
+    ssePollIntervalMs: 5,
+    sseQueueLimit: 2,
+    onSseClientCountChange: (count) => clientCounts.push(count),
+    onSseQueueSizeChange: (size) => queueSizes.push(size),
+    onSseResponse: (response) => {
+      const connection = responses.length;
+      responses.push(response);
+      writes.push([]);
+      if (connection === 1) {
+        return;
+      }
+      response.write = ((chunk: string | Uint8Array) => {
+        writes[connection]?.push(String(chunk));
+        const writeCount = writes[connection]?.length;
+        return writeCount !== 1 && !(connection === 2 && writeCount === 4);
+      }) as typeof response.write;
+      response.flushHeaders();
+    },
+  });
+  context.after(() => app.close());
+  await app.listen({ host: "127.0.0.1", port });
+
+  const overflowed = await fetch(`${baseUrl}/api/rooms/${ROOM_ID}/stream?after=0`);
+  assert.equal(overflowed.status, 200);
+  await waitFor(() => sseFrameIds(writes[0] ?? []).length === 1, "initial SSE write missing");
+
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "two" });
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "three" });
+  await waitFor(() => queueSizes.includes(2), "SSE queue did not reach configured capacity");
+  assert.equal(clientCounts.at(-1), 1, "a full queue without a newer event must stay connected");
+  assert.ok(queueSizes.every((size) => size <= 2), "SSE queue exceeded its configured bound");
+  assert.deepEqual(sseFrameIds(writes[0] ?? []), [1]);
+
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "four" });
+  await waitFor(() => clientCounts.at(-1) === 0, "capacity+1 did not disconnect SSE");
+  assert.equal(queueSizes.at(-1), 0, "overflow cleanup did not clear the SSE queue");
+  assert.deepEqual(sseFrameIds(writes[0] ?? []), [1]);
+  assert.equal(responses[0]?.listenerCount("drain"), 0);
+  assert.equal(responses[0]?.listenerCount("close"), 0);
+  assert.equal(responses[0]?.listenerCount("error"), 0);
+
+  const replayed = await fetch(`${baseUrl}/api/rooms/${ROOM_ID}/stream?after=1`);
+  assert.ok(replayed.body);
+  const replayReader = replayed.body.getReader();
+  assert.deepEqual(await readSseEvents(replayReader, 3), [
+    { id: 2, data: { sequence: 2, event: { type: "test_event", value: "two" } } },
+    { id: 3, data: { sequence: 3, event: { type: "test_event", value: "three" } } },
+    { id: 4, data: { sequence: 4, event: { type: "test_event", value: "four" } } },
+  ]);
+  await replayReader.cancel();
+  await waitFor(() => clientCounts.at(-1) === 0, "replay SSE did not clean up");
+
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "five" });
+  const draining = await fetch(`${baseUrl}/api/rooms/${ROOM_ID}/stream?after=4`);
+  assert.equal(draining.status, 200);
+  await waitFor(() => sseFrameIds(writes[2] ?? []).length === 1, "drain probe did not backpressure");
+  const drainQueueSizesStart = queueSizes.length;
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "six" });
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "seven" });
+  await waitFor(
+    () => queueSizes.slice(drainQueueSizesStart).includes(2),
+    "drain queue did not reach configured capacity",
+  );
+  assert.equal(clientCounts.at(-1), 1);
+  responses[2]?.emit("drain");
+  await waitFor(() => sseFrameIds(writes[2] ?? []).length === 3, "queued SSE frames did not drain");
+  assert.deepEqual(sseFrameIds(writes[2] ?? []), [5, 6, 7]);
+
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "eight" });
+  await waitFor(() => sseFrameIds(writes[2] ?? []).length === 4, "app-close probe did not backpressure");
+  const closeQueueSizesStart = queueSizes.length;
+  appendEvent(store.database, ROOM_ID, { type: "test_event", value: "nine" });
+  await waitFor(
+    () => queueSizes.slice(closeQueueSizesStart).includes(1),
+    "app-close probe did not queue its unsent event",
+  );
+  await app.close();
+  assert.equal(clientCounts.at(-1), 0);
+  assert.equal(queueSizes.at(-1), 0, "app close did not clear the SSE queue");
+  assert.equal(responses[2]?.listenerCount("drain"), 0);
+  assert.equal(responses[2]?.listenerCount("close"), 0);
+  assert.equal(responses[2]?.listenerCount("error"), 0);
+  const writesAfterClose = writes[2]?.length;
+  responses[2]?.emit("drain");
+  await new Promise((resolveWait) => setTimeout(resolveWait, 15));
+  assert.equal(writes[2]?.length, writesAfterClose, "cleanup left SSE work active");
 });
 
 test("app close aborts API generation, releases its claim, and settles repeatedly", async (context) => {

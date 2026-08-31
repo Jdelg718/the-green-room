@@ -74,6 +74,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ...(options.onSseClientCountChange === undefined
       ? {}
       : { onSseClientCountChange: options.onSseClientCountChange }),
+    ...(options.onSseQueueSizeChange === undefined
+      ? {}
+      : { onSseQueueSizeChange: options.onSseQueueSizeChange }),
+    ...(options.onSseResponse === undefined
+      ? {}
+      : { onSseResponse: options.onSseResponse }),
   });
 
   for (const [url, asset] of Object.entries(assets)) {
