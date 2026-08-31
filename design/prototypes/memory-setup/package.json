@@ -1,0 +1,11 @@
+{
+  "name": "green-room-memory-setup-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node verify.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
