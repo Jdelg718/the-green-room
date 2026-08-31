@@ -233,22 +233,19 @@ test("api security rejects hostile authority, csrf, shapes, and size before side
   });
 });
 
-test("api canonicalizes configured origins once and rejects noncanonical request origins without side effects", async (context) => {
+test("api accepts canonical configured origins and rejects noncanonical request origins without side effects", async (context) => {
   const cases = [
     {
-      allowedOrigin: "http://127.0.0.1:80",
       canonicalOrigin: "http://127.0.0.1",
       host: "127.0.0.1",
       noncanonicalOrigin: "http://127.0.0.1:80",
     },
     {
-      allowedOrigin: "http://127.0.0.1:8787/",
       canonicalOrigin: "http://127.0.0.1:8787",
       host: "127.0.0.1:8787",
       noncanonicalOrigin: "http://127.0.0.1:8787/",
     },
     {
-      allowedOrigin: "http://[0:0:0:0:0:0:0:1]:8787",
       canonicalOrigin: "http://[::1]:8787",
       host: "[::1]:8787",
       noncanonicalOrigin: "http://[0:0:0:0:0:0:0:1]:8787",
@@ -258,7 +255,7 @@ test("api canonicalizes configured origins once and rejects noncanonical request
   for (const [index, originCase] of cases.entries()) {
     const store = temporaryStore(context);
     const app = apiApp({
-      allowedOrigin: originCase.allowedOrigin,
+      allowedOrigin: originCase.canonicalOrigin,
       database: store.database,
       provider: new DeterministicMockProvider(),
     });
@@ -304,12 +301,23 @@ test("api canonicalizes configured origins once and rejects noncanonical request
   }
 });
 
-test("api rejects configured origins containing credentials or non-origin components", async () => {
+test("api rejects noncanonical configured origins and raw normalization bypasses", async () => {
   for (const allowedOrigin of [
     "http://user@127.0.0.1:8787",
     "http://127.0.0.1:8787/path",
     "http://127.0.0.1:8787/?query=1",
     "http://127.0.0.1:8787/#hash",
+    " http://127.0.0.1:8787",
+    "http://127.0.0.1:8787 ",
+    "\thttp://127.0.0.1:8787",
+    "http://127.0.0.1:8787\n",
+    "http://127.0.0.1:8787\\",
+    "http://127.0.0.1:8787/",
+    "http://127.0.0.1:8787/%2e",
+    "http://127.0.0.1:8787/a/%2e%2e",
+    "http://127.0.0.1:8787//",
+    "http://127.0.0.1:80",
+    "http://[0:0:0:0:0:0:0:1]:8787",
   ]) {
     assert.throws(
       () => buildApp({ allowedOrigin }),

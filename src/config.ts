@@ -7,6 +7,13 @@ export interface AppConfig {
   readonly port: number;
 }
 
+export function httpOrigin(
+  config: Pick<AppConfig, "host" | "port">,
+): string {
+  const host = config.host.includes(":") ? `[${config.host}]` : config.host;
+  return new URL(`http://${host}:${config.port}`).origin;
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 function loopbackHost(value: string | undefined): string {

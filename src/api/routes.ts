@@ -107,6 +107,7 @@ function parseAllowedOrigin(origin: string): {
 } {
   const parsed = new URL(origin);
   if (
+    origin !== parsed.origin ||
     parsed.protocol !== "http:" ||
     parsed.username !== "" ||
     parsed.password !== "" ||
