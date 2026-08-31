@@ -73,11 +73,15 @@ export function openStopConfirmation(dialog) {
 export function controlAvailability(status, pending, _muted, personaId) {
   const stopped = status === "stopped";
   return Object.freeze({
-    canCompose: status === "active" && !pending.has("message"),
+    canCompose: status === "active" && !pending.has("message") && !pending.has("room"),
     canPauseResume: !stopped && !pending.has("room"),
     canStop: !stopped && !pending.has("room"),
     canToggleMute: !stopped && !pending.has("room") && !pending.has(`persona:${personaId ?? ""}`),
   });
+}
+
+export function canSubmitMessage(status, pending, text, submitDisabled) {
+  return !submitDisabled && text.trim().length > 0 && controlAvailability(status, pending).canCompose;
 }
 
 function validRecord(record) {
@@ -542,7 +546,7 @@ export function startBrowserApp() {
   elements.form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = elements.messageText.value;
-    if (room?.status !== "active" || text.trim().length === 0 || pending.has("message")) return;
+    if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
     const result = await mutate("message", API_PATHS.messages, {
       requestId: createRequestId("message"), text, wantsResponse: elements.wantsResponse.checked,
     }, "The director is considering the cue…");

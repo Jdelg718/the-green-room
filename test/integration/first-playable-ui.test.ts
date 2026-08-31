@@ -37,6 +37,12 @@ interface BrowserContract {
     readonly canStop: boolean;
     readonly canToggleMute: boolean;
   };
+  readonly canSubmitMessage: (
+    status: string | undefined,
+    pending: ReadonlySet<string>,
+    text: string,
+    submitDisabled: boolean,
+  ) => boolean;
   readonly createRoomEventChannel: (options: {
     readonly commit: (record: EventRecord) => void;
     readonly connect: (
@@ -467,6 +473,14 @@ test("first playable UI maps authoritative state, in-flight work, and stable rea
     false,
   );
   assert.equal(
+    contract.controlAvailability("active", new Set(["room"])).canCompose,
+    false,
+  );
+  assert.equal(
+    contract.controlAvailability("active", new Set(["persona:fixer"])).canCompose,
+    true,
+  );
+  assert.equal(
     contract.controlAvailability("active", new Set(["persona:fixer"]), false, "fixer")
       .canToggleMute,
     false,
@@ -474,6 +488,18 @@ test("first playable UI maps authoritative state, in-flight work, and stable rea
   assert.equal(contract.reasonLabel("deliberate_silence"), "A quiet beat was intentional.");
   assert.equal(contract.reasonLabel("budget_exhausted"), "The room has reached its reply limit.");
   assert.equal(contract.reasonLabel("internal_prompt_dump"), "The director held the room.");
+});
+
+test("first playable UI guards rapid room-control and stale submit interleaving", async () => {
+  const contract = await browserContract();
+  const pending = new Set<string>();
+
+  pending.add("room");
+  assert.equal(contract.canSubmitMessage("active", pending, "Race the pause.", false), false);
+
+  pending.delete("room");
+  assert.equal(contract.canSubmitMessage("active", pending, "Stale queued submit.", true), false);
+  assert.equal(contract.canSubmitMessage("active", pending, "Ready cue.", false), true);
 });
 
 test("first playable UI exercises bootstrap replay and exact mutation endpoints on real Fastify", async (context) => {
