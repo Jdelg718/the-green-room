@@ -251,6 +251,88 @@ def test_affirmative_capability_transitions_do_not_inherit_prior_negation(
 @pytest.mark.parametrize(
     "runtime_text",
     [
+        "Do not joke then browse the web for facts.\n",
+        "Do not joke and then browse the web for facts.\n",
+        "Do not joke but browse the web for facts.\n",
+        "Do not joke however browse the web for facts.\n",
+        "Never send paper letters but send email to the user instead.\n",
+    ],
+)
+def test_no_comma_capability_transitions_do_not_inherit_prior_negation(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    result = inspect_pack(pack_factory(files=files))
+
+    assert "forbidden_runtime_request" in {item.code for item in result.errors}
+
+
+@pytest.mark.parametrize(
+    ("prohibited", "safe_mutation"),
+    [
+        (
+            "Do not joke then browse the web for facts.\n",
+            "Do not joke then do not browse the web for facts.\n",
+        ),
+        (
+            "Do not joke and then browse the web for facts.\n",
+            "Do not joke and then do not browse the web for facts.\n",
+        ),
+        (
+            "Do not joke but browse the web for facts.\n",
+            "Do not joke but do not browse the web for facts.\n",
+        ),
+        (
+            "Do not joke however browse the web for facts.\n",
+            "Do not joke however do not browse the web for facts.\n",
+        ),
+        (
+            "Never send paper letters but send email to the user instead.\n",
+            "Never send paper letters but do not send email to the user instead.\n",
+        ),
+    ],
+)
+def test_no_comma_transition_mutations_change_only_negation_governance(
+    pack_factory: Callable[..., Path], prohibited: str, safe_mutation: str
+) -> None:
+    prohibited_files = minimal_files()
+    prohibited_files["AGENTS.md"] = prohibited.encode()
+    safe_files = minimal_files()
+    safe_files["AGENTS.md"] = safe_mutation.encode()
+
+    prohibited_result = inspect_pack(pack_factory(files=prohibited_files))
+    safe_result = inspect_pack(pack_factory(files=safe_files))
+
+    assert "forbidden_runtime_request" in {item.code for item in prohibited_result.errors}
+    assert safe_result.valid
+
+
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
+        "Do not joke then do not browse the web for facts.\n",
+        "Do not joke and then do not browse the web for facts.\n",
+        "Do not joke but do not browse the web for facts.\n",
+        "Do not joke however do not browse the web for facts.\n",
+        "Never send paper letters but do not send email to the user instead.\n",
+        "The memoir says she did not joke then browsed library shelves for facts.\n",
+        "The chronicle says she never sent paper letters but sent email decades later.\n",
+    ],
+)
+def test_no_comma_coordinated_prohibitions_and_historical_prose_remain_allowed(
+    pack_factory: Callable[..., Path], runtime_text: str
+) -> None:
+    files = minimal_files()
+    files["AGENTS.md"] = runtime_text.encode()
+
+    assert inspect_pack(pack_factory(files=files)).valid
+
+
+@pytest.mark.parametrize(
+    "runtime_text",
+    [
         "Do not use the browser or send email.\n",
         "Never browse online, fetch current facts, or message anyone.\n",
         "Never browse online, fetch current facts online, or message the user.\n",

@@ -108,7 +108,10 @@ SAFE_REFERENCE_REQUEST = re.compile(
     re.IGNORECASE,
 )
 CLAUSE_SPLIT = re.compile(rb"[.!?;]+")
-COMMA_SPLIT = re.compile(rb",")
+ACTION_SEGMENT_SPLIT = re.compile(
+    rb",|\s+(?=(?:(?:and\s+)?then|but|however)\b)",
+    re.IGNORECASE,
+)
 RUNTIME_NEGATION = re.compile(
     rb"\b(?:avoid|can(?:not|'t)|do(?:es)?\s+not|don't|forbid(?:den|s)?|may\s+not|"
     rb"must\s+not|never|no|not\s+available|without)\b",
@@ -163,7 +166,7 @@ def _forbidden_runtime_request(data: bytes) -> bool:
         for clause in CLAUSE_SPLIT.split(line):
             prohibition_context = False
             capability_prohibition_chain = False
-            for raw_segment in COMMA_SPLIT.split(clause):
+            for raw_segment in ACTION_SEGMENT_SPLIT.split(clause):
                 segment = raw_segment.strip()
                 if not segment:
                     continue
