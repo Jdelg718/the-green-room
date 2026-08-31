@@ -18,6 +18,7 @@ Green Room/
 │       ├── room.md
 │       ├── events/
 │       │   └── YYYY-MM.ndjson
+│       ├── records/revisions.ndjson
 │       ├── episodes/<record-id>.md
 │       ├── people/<persona-id>/<record-id>.md
 │       ├── relationships/<source-id>--<target-id>/<record-id>.md
@@ -28,6 +29,7 @@ Green Room/
 │   ├── operations.ndjson
 │   ├── quarantine/
 │   └── recovery/
+├── user-annotations/<room-id>/<record-id>.md
 └── .locks/
 ```
 
@@ -72,9 +74,13 @@ The group agreed to compare two approaches before deciding.
 
 YAML values are always quoted strings except `revision`, which is a decimal integer, and `source_event_ids`, which is a sorted block list of quoted strings. No anchors, aliases, tags, flow collections, multiline scalars, duplicate keys, or unknown properties are emitted or accepted as managed metadata. Obsidian properties support text, lists, numbers, dates, and related atomic types, but Markdown inside properties is intentionally unsupported; therefore prose remains in the body (source 2).
 
-`body_sha256` covers the UTF-8 bytes of the committed body only. `generated_sha256` covers bytes from immediately after the generated-start marker's LF through immediately before the generated-end marker. The fixture tree under [`fixtures/obsidian-vault`](fixtures/obsidian-vault/) is byte normative; `expected-bytes.json` contains every managed path, byte count, and SHA-256.
+`body_sha256` covers the UTF-8 bytes of the committed body only. `generated_sha256` covers bytes from immediately after the generated-start marker's LF through immediately before the generated-end marker. Markdown is only the latest human-readable projection. The authoritative derived-record store is `rooms/<room-id>/records/revisions.ndjson`: one full `record.schema.json` object per JCS line, sorted by `(record_id, revision)`. It contains every revision, including superseded and tombstoned revisions, and therefore preserves classification, exact scope and episode range, `created_by`, all derivation and compaction lineage fields, supersession, tombstone reason, and provenance. Updating a projection never removes or rewrites an authoritative line. Rebuilding projections and contract exports reads this sidecar, not Markdown frontmatter.
+
+The fixture tree under [`fixtures/obsidian-vault`](fixtures/obsidian-vault/) is byte normative; `expected-bytes.json` contains every managed path, byte count, and SHA-256. Its sidecar contains all four complete fixture revisions and is checked against the record schema and source fixtures.
 
 `room.md` and `README.md` follow the same marker rules. `state/*.json` and `.locks/` are hidden from normal human use but remain inside the disclosed subtree. State files are canonical JSON plus LF.
+
+`state/managed-files.json` has exact fields `contract_version`, monotonic `generation`, and sorted `files`. Every file entry has `path`, current UTF-8 byte length, `sha256`, and a monotonic per-file `revision`; Markdown entries additionally have `generated_sha256`. The manifest itself is implicitly adapter-managed and deliberately omitted from its own `files` array because a file cannot contain its own final byte length and digest without a circular definition. Its digest and length are protected by the operation journal and parent adapter state, and are included in `expected-bytes.json`. No other managed file may omit integrity metadata. A write changes the target entry and revision and then increments manifest generation in the same recovery protocol.
 
 ## Event segments
 
@@ -148,7 +154,11 @@ The adapter does not configure Obsidian Sync, Syncthing, iCloud, Git, or any clo
 
 **Disconnect:** flush and verify, release locks, remove only the local adapter configuration/secret reference, and leave the `Green Room/` subtree untouched. Show how to reconnect. Disconnect is not deletion.
 
-**Erase:** require scoped confirmation. First offer export. Delete only manifest-listed adapter-owned files using descriptor-relative no-follow operations, bottom-up; preserve unknown/user files and user annotations by default. If unknown files remain, leave the subtree and report them. External sync histories and independent backups are outside adapter control and must be disclosed, not claimed erased.
+**Erase:** require scoped confirmation. First offer export. Before deleting anything, acquire the adapter and room locks, verify every manifest entry, and scan only manifest-listed Markdown for exact user-notes markers. For each nonempty annotation, copy the bytes strictly between markers, without normalization, into a deterministic user-owned archive `user-annotations/<room-id>/<record-id>.md` (README and room annotations use fixed IDs `vault` and `room`). Archive files sort by source path and have a fixed generated header naming only room/record IDs; duplicate reruns with identical bytes are successful replays, while an existing different archive is a conflict. Unknown files are never scanned or folded into an archive.
+
+Archive creation is crash-safe: write each archive to `state/recovery/<operation-id>/annotations/`, sync it, journal its source digest and destination digest as `annotations_prepared`, atomically install it with no-follow/exclusive semantics, sync its directory, and journal `annotations_committed`. Only after every archive is committed may the erase journal enter `delete_prepared`. Recovery before that point completes or rolls back only temporary archive writes and deletes no managed data. Recovery at or after `delete_prepared` verifies installed archive digests and resumes idempotent bottom-up deletion. The archive is user-owned immediately after installation, is removed from the managed-files manifest, and is never deleted by the erase operation. If `preserve_annotations: false`, the confirmation token must separately bind that choice and no archive is made.
+
+Delete only manifest-listed adapter-owned files using descriptor-relative no-follow operations, bottom-up; preserve unknown/user files and the committed annotation archive. The erase response reports exact removed counts and archive relative path/bytes/digest, or `null`. If unknown files remain, leave the subtree and report them. External sync histories and independent backups are outside adapter control and must be disclosed, not claimed erased.
 
 ## Sources
 

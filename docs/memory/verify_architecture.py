@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #   "jsonschema==4.25.1",
+#   "rfc8785==0.1.4",
 # ]
 # ///
 """Run the architecture gate from any working directory via `uv run`."""

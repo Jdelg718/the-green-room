@@ -19,12 +19,17 @@
     {
       "bytes": 871,
       "path": "rooms/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/memories/018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd.md",
-      "sha256": "sha256:bddf95fb26ef166b52deb87e7988b1e403e18d88dd34bbd2f7a797d2c463f7a8"
+      "sha256": "sha256:216d56e42955c6fa0a89f687bc31f91c536b4e391792ba2ef42ee22c9a313cbc"
     },
     {
       "bytes": 873,
       "path": "rooms/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/people/018f0f6e-bbc1-78c1-a23a-46588c34f46e/018f0f70-5f1f-7b82-8d28-58a0f6ef370b.md",
       "sha256": "sha256:01fd4249022f83c960ab42e33d0ca224b8d03f0d7c81ece7317727bc37d66e51"
+    },
+    {
+      "bytes": 3430,
+      "path": "rooms/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/records/revisions.ndjson",
+      "sha256": "sha256:8e9d19b449427ad80d7554fc312e65a3be5227dd33170a9bac89b8b7d5090a5c"
     },
     {
       "bytes": 921,
@@ -42,9 +47,9 @@
       "sha256": "sha256:a6aaa5be9d6f1ef88b58261640fd705e63a40e222530c0dd10abde1dde7a1f22"
     },
     {
-      "bytes": 839,
+      "bytes": 2521,
       "path": "state/managed-files.json",
-      "sha256": "sha256:3b56baf59166b072f6c3371f95c557aa6c6b8c46e6b00d2ba2ccc6c5f728db7d"
+      "sha256": "sha256:661be062f5e5fc719f41489910b9cf8978e3f552ccb2017d4742f9d22ec8c4e7"
     },
     {
       "bytes": 155,

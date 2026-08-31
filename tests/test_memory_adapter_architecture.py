@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import re
 import sys
@@ -14,17 +15,27 @@ from urllib.parse import unquote, urlsplit
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
+import rfc8785
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORY = ROOT / "docs" / "memory"
 SCHEMAS = MEMORY / "schemas"
 FIXTURES = MEMORY / "fixtures"
 ADAPTER_FIXTURES = FIXTURES / "memory-adapter"
+HISTORY_FIXTURES = ADAPTER_FIXTURES / "history"
 VAULT = FIXTURES / "obsidian-vault" / "Green Room"
 EXPECTED_BYTES = FIXTURES / "obsidian-vault" / "expected-bytes.json"
+EXPECTED_ANNOTATIONS = FIXTURES / "obsidian-vault" / "expected-user-annotations.json"
 ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+ID_KEYS = {
+    "operation_id", "event_id", "room_id", "actor_id", "record_id",
+    "revision_id", "commit_id", "export_id", "persona_id",
+    "source_persona_id", "target_persona_id", "proposal_id",
+    "first_event_id", "last_event_id", "source_event_ids",
+    "source_revision_ids", "room_ids",
+}
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 FRONTMATTER_ORDER = [
     "greenroom_schema", "greenroom_kind", "room_id", "record_id",
@@ -46,8 +57,8 @@ def load_json(path: Path):
 
 
 def canonical_json_bytes(value) -> bytes:
-    """JCS bytes for the fixture subset (objects, arrays, strings, integers)."""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """RFC 8785 JSON Canonicalization Scheme bytes."""
+    return rfc8785.dumps(value)
 
 
 def sha256(data: bytes) -> str:
@@ -58,7 +69,7 @@ def schema_for_fixture(path: Path) -> Path:
     if path.name == "event.json":
         return SCHEMAS / "event.schema.json"
     if path.name == "retrieve-request.json":
-        return SCHEMAS / "retrieve.schema.json"
+        return SCHEMAS / "retrieve-request.schema.json"
     return SCHEMAS / "record.schema.json"
 
 
@@ -123,23 +134,73 @@ def validate_record_semantics(record: dict, events: dict[str, dict]) -> None:
         raise ValueError("body exceeds UTF-8 byte bound")
 
 
+def validate_retrieve_semantics(request: dict) -> None:
+    if len(request["query"].encode("utf-8")) > 4096:
+        raise ValueError("query exceeds UTF-8 byte bound")
+
+
 def test_schemas_and_fixtures() -> None:
     schemas = {}
     for path in sorted(SCHEMAS.glob("*.schema.json")):
         schema = load_json(path)
         Draft202012Validator.check_schema(schema)
         schemas[path.name] = schema
-    assert set(schemas) == {
-        "event.schema.json", "export-manifest.schema.json",
-        "record.schema.json", "retrieve.schema.json",
+    operations = [
+        "health", "append-events", "commit-records", "get-events",
+        "get-records", "retrieve", "export", "import", "migrate",
+        "reset", "erase",
+    ]
+    expected = {"event.schema.json", "export-manifest.schema.json", "record.schema.json", "error.schema.json"}
+    expected.update(f"{operation}-{direction}.schema.json" for operation in operations for direction in ("request", "response"))
+    assert set(schemas) == expected
+
+    envelopes = load_json(ADAPTER_FIXTURES / "valid" / "operation-envelopes.json")
+    assert [item["operation"].replace("_", "-") for item in envelopes] == operations
+    for item in envelopes:
+        stem = item["operation"].replace("_", "-")
+        Draft202012Validator(schemas[f"{stem}-request.schema.json"]).validate(item["request"])
+        Draft202012Validator(schemas[f"{stem}-response.schema.json"]).validate(item["response"])
+        error_response = {
+            "contract_version": "1.0",
+            "operation_id": item["request"]["operation_id"],
+            "operation": item["operation"],
+            "status": "error",
+            "error": {
+                "code": "invalid_request",
+                "message": "fixture rejection",
+                "retryable": False,
+                "operation_id": item["request"]["operation_id"],
+            },
+        }
+        Draft202012Validator(schemas[f"{stem}-response.schema.json"]).validate(error_response)
+        wrong = dict(item["request"], operation="unknown")
+        assert not Draft202012Validator(schemas[f"{stem}-request.schema.json"]).is_valid(wrong)
+
+    health_bad_error = {
+        "contract_version": "1.0",
+        "operation_id": envelopes[0]["request"]["operation_id"],
+        "operation": "health",
+        "status": "error",
+        "error": {
+            "code": "id_collision",
+            "message": "impossible for health",
+            "retryable": False,
+            "operation_id": envelopes[0]["request"]["operation_id"],
+        },
     }
+    assert not Draft202012Validator(schemas["health-response.schema.json"]).is_valid(health_bad_error)
+
+    mutators = {"append_events", "commit_records", "import", "migrate", "reset", "erase"}
+    for item in envelopes:
+        if item["operation"] in mutators:
+            assert {"idempotency_key", "request_digest"} <= item["request"].keys()
 
     event = load_json(ADAPTER_FIXTURES / "valid" / "event.json")
     events = {event["event_id"]: event}
     unsigned_event = {key: value for key, value in event.items() if key != "content_digest"}
     assert event["content_digest"] == sha256(canonical_json_bytes(unsigned_event))
 
-    valid = sorted((ADAPTER_FIXTURES / "valid").glob("*.json"))
+    valid = sorted(path for path in (ADAPTER_FIXTURES / "valid").glob("*.json") if path.name != "operation-envelopes.json")
     assert len(valid) == 6
     for path in valid:
         data = load_json(path)
@@ -165,11 +226,29 @@ def test_schemas_and_fixtures() -> None:
     missing_lineage["provenance"]["derivation"] = {"kind": "compaction", "producer": "fixture"}
     assert not record_schema.is_valid(missing_lineage), "compaction without lineage unexpectedly passed"
 
-    retrieve_schema = Draft202012Validator(schemas["retrieve.schema.json"])
+    retrieve_schema = Draft202012Validator(schemas["retrieve-request.schema.json"])
     half_direction = load_json(ADAPTER_FIXTURES / "valid" / "retrieve-request.json")
     half_direction.pop("persona_id")
     half_direction["source_persona_id"] = "018f0f6e-bbc1-78c1-a23a-46588c34f46e"
     assert not retrieve_schema.is_valid(half_direction), "half-directional retrieval scope unexpectedly passed"
+
+    export_manifest = Draft202012Validator(schemas["export-manifest.schema.json"])
+    manifest = {
+        "contract_version": "1.0",
+        "storage_version": 1,
+        "export_id": "018f0f71-0000-7000-8000-000000000029",
+        "created_at": "2026-08-30T16:04:00.000Z",
+        "snapshot_digest": "sha256:" + "c" * 64,
+        "scope": "events_and_derived",
+        "rooms": [event["room_id"]],
+        "counts": {"rooms": 1, "events": 1, "record_revisions": 4, "active_records": 4, "tombstones": 0},
+        "entries": [{"path": f"rooms/{event['room_id']}/events.ndjson", "bytes": 432, "sha256": "sha256:" + "d" * 64, "items": 1}],
+    }
+    export_manifest.validate(manifest)
+    for required in ("storage_version", "counts", "snapshot_digest"):
+        incomplete = dict(manifest)
+        incomplete.pop(required)
+        assert not export_manifest.is_valid(incomplete), f"manifest without {required} unexpectedly passed"
 
 
 def test_canonical_identifiers_and_times() -> None:
@@ -180,9 +259,12 @@ def test_canonical_identifiers_and_times() -> None:
             value = stack.pop()
             if isinstance(value, dict):
                 for key, child in value.items():
-                    if key.endswith("_id") or key.endswith("_ids"):
+                    if key in ID_KEYS:
                         values = child if isinstance(child, list) else [child]
                         for identifier in values:
+                            if identifier is None:
+                                assert key == "commit_id", f"{path}: only dry-run commit_id may be null"
+                                continue
                             assert isinstance(identifier, str), f"{path}: identifier is not a string"
                             assert ID_RE.fullmatch(identifier), f"{path}: noncanonical ID {identifier}"
                     if key.endswith("_at"):
@@ -192,6 +274,35 @@ def test_canonical_identifiers_and_times() -> None:
                     stack.append(child)
             elif isinstance(value, list):
                 stack.extend(value)
+
+
+def test_rfc8785_numeric_and_utf16_key_ordering() -> None:
+    assert canonical_json_bytes({"n": 1.0}) == b'{"n":1}'
+    assert canonical_json_bytes({"n": -0.0}) == b'{"n":0}'
+    assert canonical_json_bytes({"n": 1e30}) == b'{"n":1e+30}'
+    assert canonical_json_bytes({"\ue000": 1, "\U00010000": 2}) == '{"\U00010000":2,"\ue000":1}'.encode()
+
+
+def test_utf8_byte_limits_are_semantic() -> None:
+    event = load_json(ADAPTER_FIXTURES / "valid" / "event.json")
+    events = {event["event_id"]: event}
+    record = load_json(ADAPTER_FIXTURES / "valid" / "room-record.json")
+    record["body"] = "😀" * 4097
+    try:
+        validate_record_semantics(record, events)
+    except ValueError as exc:
+        assert "UTF-8" in str(exc)
+    else:
+        raise AssertionError("16 KiB+ UTF-8 record body unexpectedly accepted")
+
+    request = load_json(ADAPTER_FIXTURES / "valid" / "retrieve-request.json")
+    request["query"] = "😀" * 1025
+    try:
+        validate_retrieve_semantics(request)
+    except ValueError as exc:
+        assert "UTF-8" in str(exc)
+    else:
+        raise AssertionError("4 KiB+ UTF-8 query unexpectedly accepted")
 
 
 def test_obsidian_vault_exact_bytes_and_notes() -> None:
@@ -222,7 +333,16 @@ def test_obsidian_vault_exact_bytes_and_notes() -> None:
             assert not line.endswith(b" "), f"trailing space forbidden: {rel}"
 
     managed = load_json(VAULT / "state" / "managed-files.json")
-    assert [item["path"] for item in managed["files"]] == expected_paths
+    manifest_paths = [item["path"] for item in managed["files"]]
+    assert manifest_paths == [path for path in expected_paths if path != "state/managed-files.json"]
+    by_path = {item["path"]: item for item in entries}
+    for item in managed["files"]:
+        expected_item = by_path[item["path"]]
+        assert item["bytes"] == expected_item["bytes"]
+        assert item["sha256"] == expected_item["sha256"]
+        assert item["revision"] >= 1
+        if item["path"].endswith(".md"):
+            assert DIGEST_RE.fullmatch(item["generated_sha256"])
     assert canonical_json_bytes(managed) + b"\n" == (VAULT / "state" / "managed-files.json").read_bytes()
     assert canonical_json_bytes(load_json(VAULT / "state" / "adapter.json")) + b"\n" == (VAULT / "state" / "adapter.json").read_bytes()
     for line in (VAULT / "state" / "operations.ndjson").read_bytes().splitlines():
@@ -232,10 +352,22 @@ def test_obsidian_vault_exact_bytes_and_notes() -> None:
 
     note_paths = sorted(path for path in VAULT.rglob("*.md") if path.name not in {"README.md", "room.md"})
     assert len(note_paths) == 4
-    fixture_records = {
-        load_json(path)["record_id"]: load_json(path)
-        for path in sorted((ADAPTER_FIXTURES / "valid").glob("*-record.json"))
-    }
+    expected_revisions = [load_json(path) for path in sorted((ADAPTER_FIXTURES / "valid").glob("*-record.json"))]
+    expected_revisions.extend(load_json(path) for path in sorted(HISTORY_FIXTURES.glob("*.json")))
+    expected_revisions.sort(key=lambda record: (record["record_id"], record["revision"]))
+    fixture_records = {}
+    for record in expected_revisions:
+        fixture_records[record["record_id"]] = record
+    sidecars = sorted(VAULT.rglob("records/*.ndjson"))
+    assert len(sidecars) == 1
+    authoritative = [json.loads(line) for line in sidecars[0].read_bytes().splitlines()]
+    assert authoritative == sorted(authoritative, key=lambda record: (record["record_id"], record["revision"]))
+    assert authoritative == expected_revisions
+    room_history = [record for record in authoritative if record["record_id"] == "018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd"]
+    assert [record["revision"] for record in room_history] == [1, 2]
+    assert room_history[1]["supersedes_revision_id"] == room_history[0]["revision_id"]
+    for record in authoritative:
+        Draft202012Validator(load_json(SCHEMAS / "record.schema.json")).validate(record)
     for path in note_paths:
         text = path.read_text(encoding="utf-8")
         keys, metadata, body = parse_frontmatter(text, path)
@@ -269,6 +401,31 @@ def test_obsidian_vault_exact_bytes_and_notes() -> None:
         elif record["kind"] == "relationship":
             direction = f"{record['scope']['source_persona_id']}--{record['scope']['target_persona_id']}"
             assert f"relationships/{direction}/" in path.relative_to(VAULT).as_posix()
+
+
+def test_erase_annotation_preservation_fixture() -> None:
+    expected = load_json(EXPECTED_ANNOTATIONS)
+    actual = []
+    start_marker = b"<!-- greenroom:user-notes:start -->\n"
+    end_marker = b"<!-- greenroom:user-notes:end -->"
+    for path in sorted(VAULT.rglob("*.md")):
+        data = path.read_bytes()
+        assert data.count(start_marker) == data.count(end_marker) == 1
+        notes = data.split(start_marker, 1)[1].split(end_marker, 1)[0]
+        if notes.strip() and not notes.lstrip().startswith(b"<!--"):
+            metadata = None
+            if path.name not in {"README.md", "room.md"}:
+                _, metadata, _ = parse_frontmatter(data.decode(), path)
+            archive_name = metadata["record_id"] if metadata else path.stem
+            room_id = metadata["room_id"] if metadata else "vault"
+            actual.append({
+                "source_path": path.relative_to(VAULT).as_posix(),
+                "archive_path": f"user-annotations/{room_id}/{archive_name}.md",
+                "bytes": len(notes),
+                "sha256": sha256(notes),
+                "base64": base64.b64encode(notes).decode("ascii"),
+            })
+    assert actual == expected["annotations"]
 
 
 def test_required_security_and_contract_topics() -> None:
@@ -308,7 +465,10 @@ def main() -> int:
     tests = [
         test_schemas_and_fixtures,
         test_canonical_identifiers_and_times,
+        test_rfc8785_numeric_and_utf16_key_ordering,
+        test_utf8_byte_limits_are_semantic,
         test_obsidian_vault_exact_bytes_and_notes,
+        test_erase_annotation_preservation_fixture,
         test_required_security_and_contract_topics,
         test_local_markdown_links,
     ]

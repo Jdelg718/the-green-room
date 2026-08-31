@@ -55,7 +55,7 @@ IDs are lowercase UUIDv7 strings. Implementations MUST reject noncanonical spell
 
 Timestamps are UTC RFC 3339 strings with exactly three fractional digits and terminal `Z`, such as `2026-08-30T16:00:00.000Z`. They are descriptive, not ordering authorities. Per-room `event_sequence` is an unsigned integer allocated atomically by the adapter. Committed derived revisions use per-record `revision` integers starting at 1. Tie-breaking for retrieval is specified in section 9.
 
-An event's immutable identity covers canonical JCS bytes of all event fields except transport envelope. `event_id` is not content-addressed; the immutable `content_digest` is `sha256:<64 lowercase hex>` over those JCS bytes with `content_digest` omitted. Reusing an event ID with different bytes is `id_collision`.
+An event's immutable identity covers canonical JCS bytes of all event fields except transport envelope. JCS means RFC 8785 exactly, including ECMAScript number serialization and UTF-16 property-name ordering; ordinary language-native `sort_keys` JSON is not conformant. Adapters MUST reject values RFC 8785 cannot represent (including non-finite numbers and lone surrogates). `event_id` is not content-addressed; the immutable `content_digest` is `sha256:<64 lowercase hex>` over those JCS bytes with `content_digest` omitted. Reusing an event ID with different bytes is `id_collision`.
 
 ## 4. Record model
 
@@ -78,7 +78,7 @@ Kinds are:
 
 A derived revision contains stable `record_id`, immutable `revision_id`, monotonic `revision`, `room_id`, `kind`, exact scope, `body`, `status`, `provenance`, `created_at`, and `created_by`.
 
-`body` is UTF-8 text, at most 16 KiB. It is historical data, not an instruction channel. Relationship bodies SHOULD describe observable changes and MUST NOT claim symmetric state. Episode summaries MUST cite at least one event and include `event_range` whose endpoints exist.
+`body` is UTF-8 text, at most 16 KiB after UTF-8 encoding. JSON Schema `maxLength` is only an early code-point bound; every adapter and the harness MUST perform the normative encoded-byte check before allocation, digesting, or persistence. It is historical data, not an instruction channel. Relationship bodies SHOULD describe observable changes and MUST NOT claim symmetric state. Episode summaries MUST cite at least one event and include `event_range` whose endpoints exist.
 
 ### 4.3 Provenance
 
@@ -113,9 +113,13 @@ The closed operation set is:
 
 No operation accepts a command, script, module name, executable path, callback URL, arbitrary SQL, or plugin identifier.
 
+Every operation has a standalone, closed request and response schema named `<operation>-request.schema.json` and `<operation>-response.schema.json` in [`schemas/`](schemas/), with underscores rendered as hyphens. Each response schema accepts exactly either its operation-specific `status: "ok"` outcome or its operation-specific `status: "error"` envelope. [`error.schema.json`](schemas/error.schema.json) is the closed cross-operation error union. All schemas reject unknown fields and pin `contract_version`, `operation`, and outcome shape; dispatch MUST validate against the schema selected by the exact operation name and MUST NOT probe compatible shapes. The normative examples in [`operation-envelopes.json`](fixtures/memory-adapter/valid/operation-envelopes.json) cover all eleven pairs.
+
+The six mutators (`append_events`, `commit_records`, `import`, `migrate`, `reset`, and `erase`) require `idempotency_key` and `request_digest`. `append_events` and `commit_records` carry optional room-generation CAS, each record write carries `if_revision`, import carries per-room generations, reset carries room generation, migration binds an approved backup digest, and erase binds a fresh confirmation object. Their successful responses identify the durable commit and exact outcome. Read requests carry explicit snapshot/page/budget fields, and read responses carry snapshot, counts, bytes, truncation, and cursor state where applicable.
+
 ## 6. Idempotency, transactions, CAS, and conflicts
 
-Every mutating request carries an `idempotency_key` and `request_digest`. `request_digest` is SHA-256 over JCS canonical operation data excluding authentication and transport fields. The adapter retains the key, digest, and outcome for at least 30 days or until the enclosing room is physically erased.
+Every mutating request carries an `idempotency_key` and `request_digest`. `request_digest` is SHA-256 over JCS canonical request-envelope data with only `idempotency_key`, `request_digest`, authentication, and transport fields omitted; the contract version, operation ID/name, payload, CAS preconditions, and confirmation fields remain covered. The adapter retains the key, digest, and complete response outcome for at least 30 days or until the enclosing room is physically erased.
 
 - First valid use executes exactly once and stores the outcome.
 - Same key and same digest returns the original status/body and `commit_id` without re-execution.
@@ -155,7 +159,7 @@ An implementation MUST support lineage inspection and rebuilding derived state f
 `retrieve` is read-only and contains:
 
 - one `room_id` and optional persona/directional relationship scope;
-- a UTF-8 query of at most 4 KiB;
+- a query of at most 4 KiB after UTF-8 encoding (enforced semantically in addition to the schema code-point bound);
 - allowed kinds and classifications;
 - `as_of_event_sequence` for stable snapshots;
 - budgets: `max_items` (1–50), `max_total_bytes` (1–131072), `max_item_bytes` (1–16384), and `timeout_ms` (10–2000).
@@ -168,7 +172,7 @@ Returned text is verbatim committed memory, not synthesized at retrieval time. E
 
 ## 10. Enumeration and pagination
 
-`get_events` orders by `(event_sequence, event_id)`. `get_records` orders by `(record_id, revision)`. Opaque cursors bind adapter instance, filters, snapshot generation, and last key; they expire after at least 10 minutes. A cursor with changed filters or generation returns `cursor_invalid`, never an inconsistent page. Page count, byte limit, and timeout are mandatory.
+`get_events` orders by `(event_sequence, event_id)`. `get_records` orders by `(record_id, revision)`; `include_history: true` returns every superseded and tombstoned revision, while `false` returns only each record's current revision. Opaque cursors bind adapter instance, filters, snapshot generation, and last key; they expire after at least 10 minutes. A cursor with changed filters or generation returns `cursor_invalid`, never an inconsistent page. Page count, byte limit, and timeout are mandatory.
 
 ## 11. Deterministic export and import
 
@@ -180,7 +184,9 @@ rooms/<room-id>/events.ndjson
 rooms/<room-id>/records.ndjson
 ```
 
-Entries are lexicographically ordered, timestamps in ZIP headers are `1980-01-01T00:00:00`, permissions are normalized to `0644`, and compression is DEFLATE level 6. JSON lines are RFC 8785 JCS plus LF. Events sort by sequence/ID; revisions sort by record ID/revision. `manifest.json` lists contract/storage version, export scope, counts, SHA-256 and byte length for every other entry. Credentials, endpoint URLs, adapter auth, model API keys, local absolute paths, and nonselected classifications are excluded. Persona-pack export is separate and never includes memories unless explicitly selected.
+Entries are lexicographically ordered, timestamps in ZIP headers are `1980-01-01T00:00:00`, permissions are normalized to `0644`, and compression is DEFLATE level 6. JSON lines are RFC 8785 JCS plus LF. Events sort by sequence/ID; revisions sort by record ID/revision. `manifest.json` conforms to [`export-manifest.schema.json`](schemas/export-manifest.schema.json) and lists contract/storage version, export scope, aggregate room/event/revision/active/tombstone counts, and SHA-256, byte length, and item count for every other entry.
+
+Export identity and time are snapshot-derived, never wall-clock values generated for an export attempt. First form `snapshot_descriptor` as JCS of the exact sorted room IDs, each selected room generation and `as_of_event_sequence`, scope, classifications, contract version, and storage version. `snapshot_digest` is SHA-256 of those bytes. `export_id` is a deterministic lowercase UUIDv7: encode `created_at` Unix milliseconds in the first 48 bits, fill the remaining payload bits in order from `SHA-256("greenroom-export-v1" || snapshot_digest-bytes)`, and set the version and variant bits. `created_at` is the greatest `occurred_at` or record `created_at` included in that snapshot, or `1970-01-01T00:00:00.000Z` for an empty selected snapshot. Thus retrying or re-exporting the same snapshot produces the same manifest and ZIP bytes. Any change to selected snapshot state changes its descriptor. Credentials, endpoint URLs, adapter auth, model API keys, local absolute paths, and nonselected classifications are excluded. Persona-pack export is separate and never includes memories unless explicitly selected.
 
 Import rejects absolute/traversal/backslash/control-character paths, links/reparse entries, duplicate or case-fold-colliding names, unsupported compression, encrypted entries, extra entries, digest/count mismatch, uncompressed size over 64 MiB, more than 100,000 records, compression ratio over 100:1, schema errors, and cross-room references. `dry_run: true` returns a plan without writes. Commit is atomic and uses ID/digest/CAS semantics. Import never restores credentials.
 

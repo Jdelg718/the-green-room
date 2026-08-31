@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.local/schemas/memory/1.0/error.schema.json",
+  "title": "Green Room Memory Adapter error 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "operation_id",
+    "operation",
+    "status",
+    "error"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "operation": {
+      "enum": [
+        "health",
+        "append_events",
+        "commit_records",
+        "get_events",
+        "get_records",
+        "retrieve",
+        "export",
+        "import",
+        "migrate",
+        "reset",
+        "erase"
+      ]
+    },
+    "status": {
+      "const": "error"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "operation_id"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "unsupported",
+            "not_found",
+            "conflict",
+            "id_collision",
+            "idempotency_mismatch",
+            "budget_exceeded",
+            "timeout",
+            "unavailable",
+            "read_only",
+            "migration_required",
+            "corrupt_store",
+            "unsafe_path",
+            "unsafe_endpoint",
+            "auth_failed",
+            "internal_error"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "current_revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current_room_generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "migration_required": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}
