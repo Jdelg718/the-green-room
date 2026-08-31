@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.invalid/schemas/character-program-0.1.json",
+  "title": "Green Room Programmable Character Contract v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version", "program_id", "core", "virtues", "flaw", "worldview",
+    "epistemic_habits", "risk_appetite", "interaction", "uncertainty_posture",
+    "pressure_behavior", "relationship_hooks", "chemistry", "rehearsal_scenarios",
+    "immutable_safety_ref", "forbidden_effects"
+  ],
+  "properties": {
+    "contract_version": {"const": "0.1"},
+    "program_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"},
+    "core": {
+      "type": "object", "additionalProperties": false,
+      "required": ["drive", "fear"],
+      "properties": {
+        "drive": {"$ref": "#/$defs/line"},
+        "fear": {"$ref": "#/$defs/line"}
+      }
+    },
+    "virtues": {
+      "type": "array", "minItems": 1, "maxItems": 8,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "virtue", "behavior", "shadow_side"],
+        "properties": {
+          "id": {"$ref": "#/$defs/id"},
+          "virtue": {"$ref": "#/$defs/short"},
+          "behavior": {"$ref": "#/$defs/line"},
+          "shadow_side": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "flaw": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "label", "trigger", "temptation", "rationalizations", "escalation", "visible_tells", "consequences", "recovery", "policy"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/short"},
+        "trigger": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "cue", "behavior_bias"],
+            "properties": {
+              "id": {"$ref": "#/$defs/id"},
+              "cue": {"$ref": "#/$defs/line"},
+              "behavior_bias": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "temptation": {"$ref": "#/$defs/line"},
+        "rationalizations": {"$ref": "#/$defs/lines"},
+        "escalation": {
+          "type": "array", "minItems": 1, "maxItems": 3,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["level", "behavior_change", "stop_condition"],
+            "properties": {
+              "level": {"type": "integer", "minimum": 1, "maximum": 3},
+              "behavior_change": {"$ref": "#/$defs/line"},
+              "stop_condition": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "visible_tells": {"$ref": "#/$defs/lines"},
+        "consequences": {"$ref": "#/$defs/lines"},
+        "recovery": {
+          "type": "array", "minItems": 1, "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["step", "action"],
+            "properties": {
+              "step": {"type": "integer", "minimum": 1, "maximum": 5},
+              "action": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "policy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["activation_threshold", "max_activations_per_scene", "max_consecutive_influenced_turns", "cooldown_turns", "decay_after_unreinforced_turns"],
+          "properties": {
+            "activation_threshold": {"type": "integer", "minimum": 1, "maximum": 3},
+            "max_activations_per_scene": {"type": "integer", "minimum": 1, "maximum": 3},
+            "max_consecutive_influenced_turns": {"type": "integer", "minimum": 1, "maximum": 2},
+            "cooldown_turns": {"type": "integer", "minimum": 1, "maximum": 12},
+            "decay_after_unreinforced_turns": {"type": "integer", "minimum": 1, "maximum": 3}
+          }
+        }
+      }
+    },
+    "worldview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["beliefs", "counterweights"],
+      "properties": {
+        "beliefs": {"$ref": "#/$defs/lines"},
+        "counterweights": {"$ref": "#/$defs/lines"}
+      }
+    },
+    "epistemic_habits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assumptions", "evidence", "source_discipline", "correction", "authority_posture"],
+      "properties": {
+        "assumptions": {"$ref": "#/$defs/line"},
+        "evidence": {"$ref": "#/$defs/line"},
+        "source_discipline": {"$ref": "#/$defs/line"},
+        "correction": {"$ref": "#/$defs/line"},
+        "authority_posture": {"$ref": "#/$defs/line"}
+      }
+    },
+    "risk_appetite": {
+      "type": "array", "minItems": 1, "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["domain", "appetite", "decision_rule"],
+        "properties": {
+          "domain": {"$ref": "#/$defs/id"},
+          "appetite": {"enum": ["avoid", "conservative", "balanced", "exploratory", "aggressive"]},
+          "decision_rule": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "interaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dissent", "directness", "warmth", "humor"],
+      "properties": {
+        "dissent": {"$ref": "#/$defs/scale"},
+        "directness": {"$ref": "#/$defs/scale"},
+        "warmth": {"$ref": "#/$defs/scale"},
+        "humor": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
+    },
+    "uncertainty_posture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["default", "confidence_language", "unknown_action", "jurisdiction_or_context_action"],
+      "properties": {
+        "default": {"enum": ["cautious", "calibrated", "speculative_with_labels"]},
+        "confidence_language": {"$ref": "#/$defs/lines"},
+        "unknown_action": {"$ref": "#/$defs/line"},
+        "jurisdiction_or_context_action": {"$ref": "#/$defs/line"}
+      }
+    },
+    "pressure_behavior": {
+      "type": "object", "additionalProperties": false,
+      "required": ["under_time_pressure", "under_social_pressure", "under_conflict", "after_error"],
+      "properties": {
+        "under_time_pressure": {"$ref": "#/$defs/line"},
+        "under_social_pressure": {"$ref": "#/$defs/line"},
+        "under_conflict": {"$ref": "#/$defs/line"},
+        "after_error": {"$ref": "#/$defs/line"}
+      }
+    },
+    "relationship_hooks": {
+      "type": "array", "minItems": 1, "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "cue", "response"],
+        "properties": {
+          "id": {"$ref": "#/$defs/id"},
+          "cue": {"$ref": "#/$defs/line"},
+          "response": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "chemistry": {
+      "type": "array", "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["target_id", "dynamic", "friction", "repair"],
+        "properties": {
+          "target_id": {"$ref": "#/$defs/id"},
+          "dynamic": {"$ref": "#/$defs/line"},
+          "friction": {"$ref": "#/$defs/line"},
+          "repair": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "rehearsal_scenarios": {
+      "type": "array", "minItems": 3, "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["scenario_id", "title", "setup", "initial_state", "signals", "expected_states", "behavior_assertions", "safety_assertions"],
+        "properties": {
+          "scenario_id": {"$ref": "#/$defs/id"},
+          "title": {"$ref": "#/$defs/short"},
+          "setup": {"$ref": "#/$defs/line"},
+          "initial_state": {
+            "type": "object", "additionalProperties": false,
+            "required": ["state", "activation_count", "influenced_turns", "unreinforced_turns", "cooldown_remaining"],
+            "properties": {
+              "state": {"enum": ["baseline", "tempted", "escalated", "consequence", "recovering", "cooldown"]},
+              "activation_count": {"type": "integer", "minimum": 0, "maximum": 3},
+              "influenced_turns": {"type": "integer", "minimum": 0, "maximum": 2},
+              "unreinforced_turns": {"type": "integer", "minimum": 0, "maximum": 3},
+              "cooldown_remaining": {"type": "integer", "minimum": 0, "maximum": 12}
+            }
+          },
+          "signals": {
+            "type": "array", "minItems": 1, "maxItems": 12,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["event_id", "turn_id", "sequence", "event", "trigger_ids", "intensity", "reinforcement", "recovery_completed"],
+              "properties": {
+                "event_id": {"$ref": "#/$defs/id"},
+                "turn_id": {"$ref": "#/$defs/id"},
+                "sequence": {"type": "integer", "minimum": 1, "maximum": 12},
+                "event": {"enum": ["turn_open", "candidate_committed", "candidate_blocked", "turn_close"]},
+                "trigger_ids": {"type": "array", "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+                "intensity": {"type": "integer", "minimum": 0, "maximum": 3},
+                "reinforcement": {"type": "boolean"},
+                "recovery_completed": {"type": "boolean"}
+              }
+            }
+          },
+          "expected_states": {
+            "type": "array", "minItems": 1, "maxItems": 12,
+            "items": {"enum": ["baseline", "tempted", "escalated", "consequence", "recovering", "cooldown"]}
+          },
+          "behavior_assertions": {"$ref": "#/$defs/lines"},
+          "safety_assertions": {"$ref": "#/$defs/lines"}
+        }
+      }
+    },
+    "immutable_safety_ref": {"const": "org.greenroom.immutable-safe-defaults/0.1.0"},
+    "forbidden_effects": {
+      "type": "object", "additionalProperties": false,
+      "required": ["grant_tools", "change_capabilities", "override_safety", "fabricate_facts", "fabricate_authority", "coach_concealment_or_obstruction", "coach_fraud_or_harm"],
+      "properties": {
+        "grant_tools": {"const": false},
+        "change_capabilities": {"const": false},
+        "override_safety": {"const": false},
+        "fabricate_facts": {"const": false},
+        "fabricate_authority": {"const": false},
+        "coach_concealment_or_obstruction": {"const": false},
+        "coach_fraud_or_harm": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"},
+    "short": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\\r\\n\\t]+$"},
+    "line": {"type": "string", "minLength": 1, "maxLength": 600, "pattern": "^[^\\r\\n\\t]+$"},
+    "lines": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"$ref": "#/$defs/line"}},
+    "scale": {"type": "integer", "minimum": 0, "maximum": 4}
+  }
+}

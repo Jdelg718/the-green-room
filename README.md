@@ -29,6 +29,7 @@ A private, local room with:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hosting placement decision](docs/adr/0000-hosting-placement.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Programmable Character Contract v0.1](docs/programmable-character/README.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
