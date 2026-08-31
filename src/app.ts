@@ -4,10 +4,17 @@ import { resolve } from "node:path";
 
 import Fastify, { type FastifyInstance } from "fastify";
 
+import {
+  registerApiRoutes,
+  type ApiRoutesOptions,
+} from "./api/routes.js";
+
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
 
-interface BuildAppOptions {
+interface BuildAppOptions
+  extends Omit<ApiRoutesOptions, "allowedOrigin" | "csrfToken"> {
+  readonly allowedOrigin?: string;
   readonly logger?: boolean;
   readonly publicDir?: string;
 }
@@ -19,6 +26,7 @@ interface StaticAsset {
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({
+    exposeHeadRoutes: false,
     logger: options.logger ?? false,
     trustProxy: false,
   });
@@ -49,9 +57,23 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  app.get("/api/bootstrap", async (_request, reply) => {
-    reply.header("Cache-Control", "no-store");
-    return { csrfToken };
+  registerApiRoutes(app, {
+    allowedOrigin: options.allowedOrigin ?? "http://127.0.0.1:8787",
+    csrfToken,
+    ...(options.database === undefined ? {} : { database: options.database }),
+    ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(options.sseHeartbeatMs === undefined
+      ? {}
+      : { sseHeartbeatMs: options.sseHeartbeatMs }),
+    ...(options.ssePollIntervalMs === undefined
+      ? {}
+      : { ssePollIntervalMs: options.ssePollIntervalMs }),
+    ...(options.sseQueueLimit === undefined
+      ? {}
+      : { sseQueueLimit: options.sseQueueLimit }),
+    ...(options.onSseClientCountChange === undefined
+      ? {}
+      : { onSseClientCountChange: options.onSseClientCountChange }),
   });
 
   for (const [url, asset] of Object.entries(assets)) {

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
+import { DeterministicMockProvider } from "./providers/mock.js";
 
 const config = loadConfig();
 const store = openGreenRoomDatabase({
@@ -10,7 +11,10 @@ const store = openGreenRoomDatabase({
   migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
 });
 const app = buildApp({
+  allowedOrigin: `http://${config.host.includes(":") ? `[${config.host}]` : config.host}:${config.port}`,
+  database: store.database,
   logger: true,
+  provider: new DeterministicMockProvider(),
   publicDir: fileURLToPath(new URL("../public", import.meta.url)),
 });
 

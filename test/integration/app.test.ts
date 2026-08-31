@@ -26,8 +26,16 @@ test("bootstrap returns a stable per-process CSRF token", async (context) => {
   const app = buildApp();
   context.after(() => app.close());
 
-  const first = await app.inject({ method: "GET", url: "/api/bootstrap" });
-  const second = await app.inject({ method: "GET", url: "/api/bootstrap" });
+  const first = await app.inject({
+    method: "GET",
+    url: "/api/bootstrap",
+    headers: { host: "127.0.0.1:8787" },
+  });
+  const second = await app.inject({
+    method: "GET",
+    url: "/api/bootstrap",
+    headers: { host: "127.0.0.1:8787" },
+  });
   const token = first.json<{ csrfToken: string }>().csrfToken;
 
   assert.equal(first.statusCode, 200);
@@ -36,7 +44,11 @@ test("bootstrap returns a stable per-process CSRF token", async (context) => {
 
   const otherApp = buildApp();
   context.after(() => otherApp.close());
-  const other = await otherApp.inject({ method: "GET", url: "/api/bootstrap" });
+  const other = await otherApp.inject({
+    method: "GET",
+    url: "/api/bootstrap",
+    headers: { host: "127.0.0.1:8787" },
+  });
   assert.notEqual(other.json<{ csrfToken: string }>().csrfToken, token);
 });
 
