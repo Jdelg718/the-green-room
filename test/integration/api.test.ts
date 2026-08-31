@@ -9,6 +9,11 @@ import { test } from "node:test";
 import { buildApp } from "../../src/app.js";
 import { appendEvent, openGreenRoomDatabase } from "../../src/db/index.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
+import type {
+  GenerationProvider,
+  ProviderInvitation,
+  ProviderResult,
+} from "../../src/providers/provider.js";
 
 const ROOM_ID = "first-playable";
 const HOST = "127.0.0.1:8787";
@@ -18,11 +23,32 @@ const migrationsDir = resolve("migrations");
 interface ApiAppOptions {
   readonly allowedOrigin: string;
   readonly database: DatabaseSync;
-  readonly provider: DeterministicMockProvider;
+  readonly provider: GenerationProvider;
   readonly sseHeartbeatMs?: number;
   readonly ssePollIntervalMs?: number;
   readonly sseQueueLimit?: number;
   readonly onSseClientCountChange?: (count: number) => void;
+}
+
+class NeverSettlingProvider implements GenerationProvider {
+  readonly entered: Promise<void>;
+  signal: AbortSignal | undefined;
+  #announceEntered!: () => void;
+
+  constructor() {
+    this.entered = new Promise((resolveEntered) => {
+      this.#announceEntered = resolveEntered;
+    });
+  }
+
+  generate(
+    _invitation: ProviderInvitation,
+    signal: AbortSignal,
+  ): Promise<ProviderResult> {
+    this.signal = signal;
+    this.#announceEntered();
+    return new Promise(() => undefined);
+  }
 }
 
 function temporaryStore(context: { after(callback: () => void): void }) {
@@ -205,6 +231,91 @@ test("api security rejects hostile authority, csrf, shapes, and size before side
   assert.deepEqual(hostileRead.json(), {
     error: { code: "invalid_host", message: "Request host is not allowed" },
   });
+});
+
+test("api canonicalizes configured origins once and rejects noncanonical request origins without side effects", async (context) => {
+  const cases = [
+    {
+      allowedOrigin: "http://127.0.0.1:80",
+      canonicalOrigin: "http://127.0.0.1",
+      host: "127.0.0.1",
+      noncanonicalOrigin: "http://127.0.0.1:80",
+    },
+    {
+      allowedOrigin: "http://127.0.0.1:8787/",
+      canonicalOrigin: "http://127.0.0.1:8787",
+      host: "127.0.0.1:8787",
+      noncanonicalOrigin: "http://127.0.0.1:8787/",
+    },
+    {
+      allowedOrigin: "http://[0:0:0:0:0:0:0:1]:8787",
+      canonicalOrigin: "http://[::1]:8787",
+      host: "[::1]:8787",
+      noncanonicalOrigin: "http://[0:0:0:0:0:0:0:1]:8787",
+    },
+  ] as const;
+
+  for (const [index, originCase] of cases.entries()) {
+    const store = temporaryStore(context);
+    const app = apiApp({
+      allowedOrigin: originCase.allowedOrigin,
+      database: store.database,
+      provider: new DeterministicMockProvider(),
+    });
+    context.after(() => app.close());
+    const bootstrap = await app.inject({
+      method: "GET",
+      url: "/api/bootstrap",
+      headers: { host: originCase.host },
+    });
+    assert.equal(bootstrap.statusCode, 200, bootstrap.body);
+    const token = bootstrap.json<{ csrfToken: string }>().csrfToken;
+    const before = databaseSnapshot(store.database);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/rooms/${ROOM_ID}/pause`,
+      headers: {
+        host: originCase.host,
+        origin: originCase.noncanonicalOrigin,
+        "content-type": "application/json",
+        "x-csrf-token": token,
+      },
+      payload: { requestId: `noncanonical-${index}` },
+    });
+    assert.equal(rejected.statusCode, 403, rejected.body);
+    assert.deepEqual(rejected.json(), {
+      error: { code: "invalid_origin", message: "Request origin is not allowed" },
+    });
+    assert.deepEqual(databaseSnapshot(store.database), before);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/rooms/${ROOM_ID}/pause`,
+      headers: {
+        host: originCase.host,
+        origin: originCase.canonicalOrigin,
+        "content-type": "application/json",
+        "x-csrf-token": token,
+      },
+      payload: { requestId: `canonical-${index}` },
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+  }
+});
+
+test("api rejects configured origins containing credentials or non-origin components", async () => {
+  for (const allowedOrigin of [
+    "http://user@127.0.0.1:8787",
+    "http://127.0.0.1:8787/path",
+    "http://127.0.0.1:8787/?query=1",
+    "http://127.0.0.1:8787/#hash",
+  ]) {
+    assert.throws(
+      () => buildApp({ allowedOrigin }),
+      /allowedOrigin must be an HTTP origin/,
+    );
+  }
 });
 
 test("room api exposes only the fixed room and routes mutations through RoomService", async (context) => {
@@ -436,4 +547,52 @@ test("sse replays then streams only committed ordered events and cleans up on di
     ),
   ]);
   assert.deepEqual(clientCounts, [1, 0, 1, 0]);
+});
+
+test("app close aborts API generation, releases its claim, and settles repeatedly", async (context) => {
+  const store = temporaryStore(context);
+  const provider = new NeverSettlingProvider();
+  const app = apiApp({ allowedOrigin: ORIGIN, database: store.database, provider });
+  const token = await csrf(app);
+  const pendingResponse = app.inject({
+    method: "POST",
+    url: `/api/rooms/${ROOM_ID}/messages`,
+    headers: mutationHeaders(token),
+    payload: { requestId: "shutdown-generation", text: "Never finish this." },
+  });
+  await provider.entered;
+
+  await Promise.race([
+    Promise.all([app.close(), app.close()]),
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(
+        () => reject(new Error("App close did not settle promptly")),
+        250,
+      ).unref(),
+    ),
+  ]);
+  assert.equal(provider.signal?.aborted, true);
+  assert.equal((await pendingResponse).statusCode, 503);
+  assert.equal(
+    (
+      store.database
+        .prepare(
+          `SELECT count(*) AS count FROM commands
+           WHERE claim_owner IS NOT NULL OR claim_expires_at IS NOT NULL`,
+        )
+        .get() as { count: number }
+    ).count,
+    0,
+  );
+  assert.equal(
+    (
+      store.database
+        .prepare(
+          `SELECT count(*) AS count FROM events
+           WHERE json_extract(event_json, '$.type') = 'persona_message'`,
+        )
+        .get() as { count: number }
+    ).count,
+    0,
+  );
 });

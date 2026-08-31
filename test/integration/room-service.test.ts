@@ -945,6 +945,156 @@ test("stop promptly settles a command whose provider ignores abort forever", asy
   assert.equal(count(store.database, "events"), 2);
 });
 
+test("room service close aborts generation and waits, releases claims, rejects commands, and is idempotent", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const provider = new NeverSettlingProvider();
+  const controlledWait = new ControlledWait();
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    generationTimeoutMs: 10_000,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: controlledWait.wait,
+  });
+  const pending = service.sendMessage({
+    roomId: "first-playable",
+    requestId: "close-generation",
+    text: "Close this service.",
+  });
+  await provider.entered;
+  await waitFor(() => controlledWait.pendingMilliseconds.includes(30));
+
+  await within(Promise.all([service.close(), service.close()]));
+  await assert.rejects(pending, {
+    code: "ERR_ROOM_SERVICE_CLOSED",
+    name: "RoomServiceClosedError",
+    message: "Room service is closed",
+  });
+  assert.equal(provider.signal?.aborted, true);
+  assert.deepEqual(controlledWait.pendingMilliseconds, []);
+  assert.deepEqual(
+    {
+      ...store.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'close-generation'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+  assert.equal(count(store.database, "events"), 2);
+
+  for (const command of [
+    service.sendMessage({
+      roomId: "first-playable",
+      requestId: "closed-message",
+      text: "Do not accept this.",
+    }),
+    service.pause({ roomId: "first-playable", requestId: "closed-pause" }),
+    service.resume({ roomId: "first-playable", requestId: "closed-resume" }),
+    service.stop({ roomId: "first-playable", requestId: "closed-stop" }),
+    service.mute({
+      roomId: "first-playable",
+      requestId: "closed-mute",
+      personaId: "detective",
+    }),
+    service.unmute({
+      roomId: "first-playable",
+      requestId: "closed-unmute",
+      personaId: "detective",
+    }),
+  ]) {
+    await assert.rejects(command, {
+      code: "ERR_ROOM_SERVICE_CLOSED",
+      name: "RoomServiceClosedError",
+      message: "Room service is closed",
+    });
+  }
+  assert.equal(count(store.database, "commands"), 1);
+  assert.equal(count(store.database, "events"), 2);
+});
+
+test("room service close cancels pending claim polling without releasing another owner's claim", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const first = openGreenRoomDatabase({ dataDir, migrationsDir });
+  const second = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => first.close());
+  context.after(() => second.close());
+  const provider = new NeverSettlingProvider();
+  const firstWait = new ControlledWait();
+  const secondWait = new ControlledWait();
+  const firstService = new RoomService({
+    database: first.database,
+    provider,
+    generationTimeoutMs: 10_000,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: firstWait.wait,
+  });
+  const secondService = new RoomService({
+    database: second.database,
+    provider: new DeterministicMockProvider(),
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: secondWait.wait,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "observed-claim-on-close",
+    text: "Only the owner may release this claim.",
+  } as const;
+  const ownerPending = firstService.sendMessage(command);
+  await provider.entered;
+  const observerPending = secondService.sendMessage(command);
+  await waitFor(() => secondWait.pendingMilliseconds.includes(10));
+
+  await within(secondService.close());
+  await assert.rejects(observerPending, {
+    code: "ERR_ROOM_SERVICE_CLOSED",
+    name: "RoomServiceClosedError",
+    message: "Room service is closed",
+  });
+  assert.deepEqual(secondWait.pendingMilliseconds, []);
+  assert.equal(provider.signal?.aborted, false);
+  assert.equal(
+    (
+      first.database
+        .prepare(
+          `SELECT count(*) AS count FROM commands
+           WHERE request_id = 'observed-claim-on-close'
+             AND claim_owner IS NOT NULL AND claim_expires_at IS NOT NULL`,
+        )
+        .get() as { count: number }
+    ).count,
+    1,
+  );
+
+  await within(firstService.close());
+  await assert.rejects(ownerPending, {
+    code: "ERR_ROOM_SERVICE_CLOSED",
+    name: "RoomServiceClosedError",
+    message: "Room service is closed",
+  });
+  assert.equal(provider.signal?.aborted, true);
+  assert.deepEqual(firstWait.pendingMilliseconds, []);
+  assert.deepEqual(
+    {
+      ...first.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'observed-claim-on-close'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+  assert.equal(count(first.database, "events"), 2);
+});
+
 test("room service control retries do not abort newer work", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });

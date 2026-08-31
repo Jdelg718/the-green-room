@@ -101,7 +101,10 @@ function boundedPositiveInteger(
   return candidate;
 }
 
-function allowedAuthority(origin: string): string {
+function parseAllowedOrigin(origin: string): {
+  readonly authority: string;
+  readonly origin: string;
+} {
   const parsed = new URL(origin);
   if (
     parsed.protocol !== "http:" ||
@@ -113,7 +116,7 @@ function allowedAuthority(origin: string): string {
   ) {
     throw new TypeError("allowedOrigin must be an HTTP origin");
   }
-  return parsed.host;
+  return { authority: parsed.host, origin: parsed.origin };
 }
 
 function singleHeader(value: string | string[] | undefined): string | undefined {
@@ -407,7 +410,7 @@ export function registerApiRoutes(
   app: FastifyInstance,
   options: ApiRoutesOptions,
 ): void {
-  const authority = allowedAuthority(options.allowedOrigin);
+  const allowed = parseAllowedOrigin(options.allowedOrigin);
   const hasDatabase = options.database !== undefined;
   const hasProvider = options.provider !== undefined;
   if (hasDatabase !== hasProvider) {
@@ -416,11 +419,11 @@ export function registerApiRoutes(
 
   app.register(async (api) => {
     api.addHook("onRequest", async (request, reply) => {
-      if (singleHeader(request.headers.host) !== authority) {
+      if (singleHeader(request.headers.host) !== allowed.authority) {
         return reply.code(400).send(ERROR_RESPONSES.host);
       }
       if (request.method !== "GET") {
-        if (singleHeader(request.headers.origin) !== options.allowedOrigin) {
+        if (singleHeader(request.headers.origin) !== allowed.origin) {
           return reply.code(403).send(ERROR_RESPONSES.origin);
         }
         if (
@@ -487,7 +490,10 @@ export function registerApiRoutes(
         ? {}
         : { onCountChange: options.onSseClientCountChange }),
     });
-    api.addHook("preClose", async () => streams.closeAll());
+    api.addHook("preClose", async () => {
+      streams.closeAll();
+      await service.close();
+    });
 
     api.get(`/api/rooms/${ROOM_ID}`, async () => {
       const room = database

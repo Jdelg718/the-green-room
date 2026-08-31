@@ -150,6 +150,20 @@ interface ClaimMaintenanceState {
   lost: boolean;
 }
 
+interface OwnedClaim {
+  readonly roomId: string;
+  readonly requestId: string;
+}
+
+export class RoomServiceClosedError extends Error {
+  readonly code = "ERR_ROOM_SERVICE_CLOSED";
+
+  constructor() {
+    super("Room service is closed");
+    this.name = "RoomServiceClosedError";
+  }
+}
+
 function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolveWait, reject) => {
     if (signal.aborted) {
@@ -234,6 +248,10 @@ export class RoomService {
   readonly #wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly #inFlight = new Map<string, InFlightMessage>();
   readonly #controllers = new Map<string, Set<ActiveGeneration>>();
+  readonly #lifecycle = new AbortController();
+  readonly #ownedClaims = new Map<string, OwnedClaim>();
+  #closed = false;
+  #closePromise: Promise<void> | undefined;
 
   constructor(options: RoomServiceOptions) {
     if (
@@ -283,6 +301,9 @@ export class RoomService {
   }
 
   sendMessage(command: SendMessageCommand): Promise<SendMessageResult> {
+    if (this.#closed) {
+      return Promise.reject(new RoomServiceClosedError());
+    }
     const normalized = {
       kind: "sendMessage" as const,
       roomId: canonicalIdentifier(command.roomId, "roomId"),
@@ -337,6 +358,44 @@ export class RoomService {
     return this.#personaControl("unmute", command);
   }
 
+  close(): Promise<void> {
+    if (this.#closePromise !== undefined) {
+      return this.#closePromise;
+    }
+    this.#closed = true;
+    this.#closePromise = this.#close();
+    return this.#closePromise;
+  }
+
+  async #close(): Promise<void> {
+    const error = new RoomServiceClosedError();
+    this.#lifecycle.abort(error);
+    for (const controllers of this.#controllers.values()) {
+      for (const active of controllers) {
+        active.controller.abort(error);
+      }
+    }
+
+    let releaseError: unknown;
+    for (const [claimOwner, claim] of this.#ownedClaims) {
+      try {
+        this.#releaseClaim(claim.roomId, claim.requestId, claimOwner);
+      } catch (error) {
+        releaseError ??= error;
+      }
+    }
+
+    await Promise.allSettled(
+      [...this.#inFlight.values()].map(({ promise }) => promise),
+    );
+    this.#inFlight.clear();
+    this.#controllers.clear();
+    this.#ownedClaims.clear();
+    if (releaseError !== undefined) {
+      throw releaseError;
+    }
+  }
+
   async #executeMessage(
     command: {
       readonly roomId: string;
@@ -347,49 +406,58 @@ export class RoomService {
     requestDigest: string,
   ): Promise<SendMessageResult> {
     const claimOwner = randomUUID();
-    const observation = new AbortController();
     let generated = false;
     let providerResult: ProviderResult | undefined;
-    while (true) {
-      const prepared = this.#prepareMessage(command, requestDigest, claimOwner);
-      if (prepared.complete !== undefined) {
-        return prepared.complete;
-      }
-      if (prepared.pending === undefined) {
-        throw new Error("Message command was not prepared");
-      }
-      if (prepared.claimOwner === claimOwner) {
-        if (!generated) {
-          providerResult = await this.#generateMessage(
+    try {
+      while (true) {
+        this.#throwIfClosed();
+        const prepared = this.#prepareMessage(command, requestDigest, claimOwner);
+        if (prepared.complete !== undefined) {
+          return prepared.complete;
+        }
+        if (prepared.pending === undefined) {
+          throw new Error("Message command was not prepared");
+        }
+        if (prepared.claimOwner === claimOwner) {
+          this.#ownedClaims.set(claimOwner, {
+            roomId: command.roomId,
+            requestId: command.requestId,
+          });
+          if (!generated) {
+            providerResult = await this.#generateMessage(
+              command.roomId,
+              command.requestId,
+              prepared.pending,
+              claimOwner,
+            );
+            generated = true;
+          }
+          this.#throwIfClosed();
+          const complete = this.#completeMessage(
             command.roomId,
             command.requestId,
             prepared.pending,
+            providerResult,
             claimOwner,
           );
-          generated = true;
+          if (complete !== undefined) {
+            return complete;
+          }
+          generated = false;
+          providerResult = undefined;
+          continue;
         }
-        const complete = this.#completeMessage(
-          command.roomId,
-          command.requestId,
-          prepared.pending,
-          providerResult,
-          claimOwner,
+        const remaining = Math.max(
+          1,
+          (prepared.observedUntil ?? this.#currentTime()) - this.#currentTime(),
         );
-        if (complete !== undefined) {
-          return complete;
-        }
-        generated = false;
-        providerResult = undefined;
-        continue;
+        await this.#wait(
+          Math.min(this.#pendingWorkPollMs, remaining),
+          this.#lifecycle.signal,
+        );
       }
-      const remaining = Math.max(
-        1,
-        (prepared.observedUntil ?? this.#currentTime()) - this.#currentTime(),
-      );
-      await this.#wait(
-        Math.min(this.#pendingWorkPollMs, remaining),
-        observation.signal,
-      );
+    } finally {
+      this.#ownedClaims.delete(claimOwner);
     }
   }
 
@@ -715,6 +783,7 @@ export class RoomService {
     command: RoomCommand,
   ): Promise<RoomControlResult> {
     try {
+      this.#throwIfClosed();
       const roomId = canonicalIdentifier(command.roomId, "roomId");
       const requestId = canonicalIdentifier(command.requestId, "requestId");
       const requestDigest = digest({ kind, roomId, requestId });
@@ -781,6 +850,7 @@ export class RoomService {
     command: PersonaControlCommand,
   ): Promise<PersonaControlResult> {
     try {
+      this.#throwIfClosed();
       const roomId = canonicalIdentifier(command.roomId, "roomId");
       const requestId = canonicalIdentifier(command.requestId, "requestId");
       const personaId = canonicalIdentifier(command.personaId, "personaId");
@@ -897,6 +967,12 @@ export class RoomService {
       throw new TypeError("now must return a non-negative safe integer");
     }
     return now;
+  }
+
+  #throwIfClosed(): void {
+    if (this.#closed) {
+      throw new RoomServiceClosedError();
+    }
   }
 
   async #maintainClaim(
