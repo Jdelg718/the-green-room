@@ -16,8 +16,10 @@ import {
 } from "./director.js";
 
 const DEFAULT_AUTONOMOUS_TURN_BUDGET = 10;
+const DEFAULT_GENERATION_TIMEOUT_MS = 60_000;
 const DEFAULT_PENDING_WORK_LEASE_MS = 30_000;
 const DEFAULT_PENDING_WORK_POLL_MS = 50;
+const MAX_GENERATION_TIMEOUT_MS = 300_000;
 const MAX_PENDING_WORK_LEASE_MS = 300_000;
 
 export const ROOM_SERVICE_LIMITS = Object.freeze({
@@ -80,6 +82,7 @@ export interface PersonaControlResult {
 export interface RoomServiceOptions {
   readonly database: DatabaseSync;
   readonly provider: GenerationProvider;
+  readonly generationTimeoutMs?: number;
   readonly maxAutonomousTurns?: number;
   readonly now?: () => number;
   readonly pendingWorkLeaseMs?: number;
@@ -223,6 +226,7 @@ function roomError(status: RoomRow["status"]): Error {
 export class RoomService {
   readonly #database: DatabaseSync;
   readonly #provider: GenerationProvider;
+  readonly #generationTimeoutMs: number;
   readonly #maxAutonomousTurns: number;
   readonly #now: () => number;
   readonly #pendingWorkLeaseMs: number;
@@ -242,6 +246,17 @@ export class RoomService {
       options.pendingWorkLeaseMs ?? DEFAULT_PENDING_WORK_LEASE_MS;
     const pendingWorkPollMs =
       options.pendingWorkPollMs ?? DEFAULT_PENDING_WORK_POLL_MS;
+    const generationTimeoutMs =
+      options.generationTimeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
+    if (
+      !Number.isSafeInteger(generationTimeoutMs) ||
+      generationTimeoutMs <= 0 ||
+      generationTimeoutMs > MAX_GENERATION_TIMEOUT_MS
+    ) {
+      throw new TypeError(
+        "generationTimeoutMs must be a bounded positive integer",
+      );
+    }
     if (
       !Number.isSafeInteger(pendingWorkLeaseMs) ||
       pendingWorkLeaseMs <= 0 ||
@@ -258,6 +273,7 @@ export class RoomService {
     }
     this.#database = options.database;
     this.#provider = options.provider;
+    this.#generationTimeoutMs = generationTimeoutMs;
     this.#maxAutonomousTurns =
       options.maxAutonomousTurns ?? DEFAULT_AUTONOMOUS_TURN_BUDGET;
     this.#now = options.now ?? Date.now;
@@ -589,13 +605,13 @@ export class RoomService {
         return undefined;
       }
       try {
-        const result: unknown = await this.#provider.generate(
+        const result: unknown = await this.#raceProviderGeneration(
           {
             id: `${roomId}:${pending.generation}:${pending.humanEventSequence}:${speaker}`,
             personaId: speaker,
             prompt: pending.prompt,
           },
-          controller.signal,
+          controller,
         );
         if (claimMaintenanceState.lost) {
           return undefined;
@@ -976,6 +992,53 @@ export class RoomService {
       throw new TypeError("Provider text must be a nonempty bounded string");
     }
     return { kind: "text", text: result.text };
+  }
+
+  async #raceProviderGeneration(
+    invitation: {
+      readonly id: string;
+      readonly personaId: string;
+      readonly prompt: string;
+    },
+    controller: AbortController,
+  ): Promise<unknown> {
+    let timeout: NodeJS.Timeout | undefined;
+    let removeAbortListener = (): void => undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      const rejectAborted = (): void => {
+        reject(controller.signal.reason);
+      };
+      if (controller.signal.aborted) {
+        rejectAborted();
+        return;
+      }
+      controller.signal.addEventListener("abort", rejectAborted, { once: true });
+      removeAbortListener = (): void => {
+        controller.signal.removeEventListener("abort", rejectAborted);
+      };
+    });
+    const provider = Promise.resolve().then(() =>
+      this.#provider.generate(invitation, controller.signal),
+    );
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        const error = new Error(
+          `Provider generation exceeded ${this.#generationTimeoutMs}ms`,
+        );
+        error.name = "ProviderGenerationTimeoutError";
+        controller.abort(error);
+        reject(error);
+      }, this.#generationTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([provider, aborted, timedOut]);
+    } finally {
+      removeAbortListener();
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+    }
   }
 
   #isStale(roomId: string, generation: number, personaId: string): boolean {

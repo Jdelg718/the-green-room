@@ -65,6 +65,62 @@ class LatchingProvider implements GenerationProvider {
   }
 }
 
+class NeverSettlingProvider implements GenerationProvider {
+  readonly calls: ProviderInvitation[] = [];
+  signal: AbortSignal | undefined;
+  readonly entered: Promise<void>;
+  #announceEntered!: () => void;
+
+  constructor() {
+    this.entered = new Promise((resolve) => {
+      this.#announceEntered = resolve;
+    });
+  }
+
+  generate(
+    invitation: ProviderInvitation,
+    signal: AbortSignal,
+  ): Promise<ProviderResult> {
+    this.calls.push(invitation);
+    this.signal = signal;
+    this.#announceEntered();
+    return new Promise(() => undefined);
+  }
+}
+
+class LateRejectingProvider implements GenerationProvider {
+  readonly entered: Promise<void>;
+  signal: AbortSignal | undefined;
+  #announceEntered!: () => void;
+  #calls = 0;
+  #rejectFirst!: (error: Error) => void;
+
+  constructor() {
+    this.entered = new Promise((resolve) => {
+      this.#announceEntered = resolve;
+    });
+  }
+
+  rejectFirst(error: Error): void {
+    this.#rejectFirst(error);
+  }
+
+  generate(
+    _invitation: ProviderInvitation,
+    signal: AbortSignal,
+  ): Promise<ProviderResult> {
+    this.#calls += 1;
+    if (this.#calls === 1) {
+      this.signal = signal;
+      this.#announceEntered();
+      return new Promise((_resolve, reject) => {
+        this.#rejectFirst = reject;
+      });
+    }
+    return Promise.resolve({ kind: "text", text: "Recovered after timeout." });
+  }
+}
+
 class ControlledWait {
   readonly #pending = new Set<{
     readonly milliseconds: number;
@@ -114,6 +170,25 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
   }
   assert.fail("Condition did not become true");
+}
+
+async function within<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Operation exceeded ${milliseconds}ms`)),
+          milliseconds,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 test("room service commits scheduling before provider work and one persona result after it", async (context) => {
@@ -556,6 +631,81 @@ test("provider failure releases its durable claim for an immediate idempotent re
   assert.equal(count(store.database, "commands"), 1);
 });
 
+test("provider generation timeout is bounded and configurable", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const provider = new NeverSettlingProvider();
+
+  assert.doesNotThrow(
+    () => new RoomService({ database: store.database, provider }),
+  );
+  for (const generationTimeoutMs of [0, -1, 300_001, 1.5, Number.NaN]) {
+    assert.throws(
+      () =>
+        new RoomService({
+          database: store.database,
+          provider,
+          generationTimeoutMs,
+        }),
+      /generationTimeoutMs must be a bounded positive integer/,
+    );
+  }
+});
+
+test("provider timeout releases the claim for an exact retry and observes a late rejection", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const provider = new LateRejectingProvider();
+  const controlledWait = new ControlledWait();
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    generationTimeoutMs: 20,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: controlledWait.wait,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "timed-out-provider",
+    text: "Retry the same scheduled work.",
+  } as const;
+
+  const timedOut = service.sendMessage(command);
+  await provider.entered;
+  await assert.rejects(
+    within(timedOut),
+    /provider generation exceeded 20ms/i,
+  );
+  assert.equal(provider.signal?.aborted, true);
+  assert.equal(provider.signal?.reason?.name, "ProviderGenerationTimeoutError");
+  assert.deepEqual(controlledWait.pendingMilliseconds, []);
+  assert.deepEqual(
+    {
+      ...store.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'timed-out-provider'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+  assert.equal(count(store.database, "events"), 2);
+
+  const recovered = await within(service.sendMessage(command));
+  assert.equal(recovered.outcome, "text");
+  assert.equal(recovered.personaEventSequence, 3);
+  assert.equal(count(store.database, "events"), 3);
+  assert.equal(count(store.database, "commands"), 1);
+
+  provider.rejectFirst(new Error("late provider rejection"));
+  await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  assert.equal(count(store.database, "events"), 3);
+});
+
 test("provider output is bounded before it can enter durable events", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -734,16 +884,65 @@ test("stop fence aborts generation and a stale completion commits zero rows", as
   assert.deepEqual(controlledWait.pendingMilliseconds, []);
   const rowsAtStop = count(store.database, "events");
 
-  provider.release();
-  const result = await pending;
+  const result = await within(pending);
   assert.equal(result.outcome, "stale");
   assert.equal(result.personaEventSequence, null);
   assert.equal(count(store.database, "events"), rowsAtStop);
   assert.equal(rowsAtStop, 2);
+  provider.release();
+  await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  assert.equal(count(store.database, "events"), rowsAtStop);
   assert.deepEqual(
     { ...store.database.prepare("SELECT status, generation FROM rooms").get() },
     { status: "stopped", generation: 1 },
   );
+});
+
+test("stop promptly settles a command whose provider ignores abort forever", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const provider = new NeverSettlingProvider();
+  const controlledWait = new ControlledWait();
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    generationTimeoutMs: 10_000,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: controlledWait.wait,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "never-settling-provider",
+    text: "Stop this provider without its cooperation.",
+  } as const;
+
+  const pending = service.sendMessage(command);
+  await provider.entered;
+  await service.stop({ roomId: "first-playable", requestId: "stop-hang" });
+
+  const result = await within(pending);
+  assert.equal(result.outcome, "stale");
+  assert.equal(result.personaEventSequence, null);
+  assert.equal(provider.signal?.aborted, true);
+  assert.deepEqual(controlledWait.pendingMilliseconds, []);
+  assert.equal(count(store.database, "events"), 2);
+  assert.deepEqual(
+    {
+      ...store.database
+        .prepare(
+          `SELECT claim_owner, claim_expires_at FROM commands
+           WHERE request_id = 'never-settling-provider'`,
+        )
+        .get(),
+    },
+    { claim_owner: null, claim_expires_at: null },
+  );
+
+  assert.deepEqual(await within(service.sendMessage(command)), result);
+  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+  assert.equal(count(store.database, "events"), 2);
 });
 
 test("room service control retries do not abort newer work", async (context) => {
