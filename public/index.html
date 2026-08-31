@@ -3,19 +3,88 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A private local ensemble conversation room.">
     <title>The Green Room</title>
     <link rel="stylesheet" href="/styles.css">
-    <script src="/app.js" defer></script>
+    <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <main>
-      <p class="eyebrow">First playable</p>
-      <h1>The Green Room</h1>
-      <p>A private, local room for one human and a carefully paced ensemble.</p>
-      <section aria-labelledby="room-title">
-        <h2 id="room-title">The room is warming up</h2>
-        <p id="connection-status" role="status">Connecting to the local room…</p>
+    <a class="skip-link" href="#message-text">Skip to message composer</a>
+    <div class="topline" aria-hidden="true"></div>
+    <header class="masthead">
+      <div class="brand-lockup">
+        <span class="mark" aria-hidden="true">GR<span>//</span></span>
+        <div>
+          <p class="brand">The Green Room</p>
+          <p class="brand-note">Ensemble conversation workshop</p>
+        </div>
+      </div>
+      <div class="connection" data-connection="connecting">
+        <span class="cue-lamp" aria-hidden="true"></span>
+        <span id="connection-status" role="status" aria-live="polite">Opening the local room…</span>
+      </div>
+    </header>
+
+    <main class="room-shell" aria-labelledby="room-title">
+      <aside class="call-board" aria-labelledby="cast-heading">
+        <div class="section-heading">
+          <p class="kicker">Call board / live cast</p>
+          <h2 id="cast-heading">On deck</h2>
+        </div>
+        <section class="room-card" aria-labelledby="room-status-heading">
+          <div>
+            <p class="label" id="room-status-heading">Room status</p>
+            <p class="room-status"><span id="room-status-dot" aria-hidden="true"></span><span id="room-status">Loading</span></p>
+          </div>
+          <div class="room-controls" aria-label="Room controls">
+            <button class="button button-secondary" id="pause-resume" type="button" disabled>Pause room</button>
+            <button class="button button-danger" id="stop-room" type="button" disabled>Stop room</button>
+          </div>
+        </section>
+        <ul class="cast-list" id="cast-list" aria-label="Room participants" aria-busy="true">
+          <li class="cast-placeholder">The cast list is being posted.</li>
+        </ul>
+        <p class="privacy-note"><strong>Private rehearsal.</strong> This page uses only this local server. Stopping the room is permanent for this session.</p>
+      </aside>
+
+      <section class="stage" aria-labelledby="room-title">
+        <header class="stage-heading">
+          <div>
+            <p class="kicker">Room 01 / first playable</p>
+            <h1 id="room-title">The Green Room</h1>
+          </div>
+          <p class="pacing-note"><span aria-hidden="true">●</span> One voice at a time</p>
+        </header>
+        <div class="transcript-panel" id="transcript-panel" tabindex="-1">
+          <p class="empty-transcript" id="empty-transcript">The room is quiet. Set the first cue below.</p>
+          <ol class="transcript" id="transcript" aria-label="Room transcript" aria-live="polite"></ol>
+        </div>
+        <form class="composer" id="message-form">
+          <label for="message-text">Your line</label>
+          <textarea id="message-text" name="message" rows="3" maxlength="16384" placeholder="Say something to the room…" required disabled></textarea>
+          <div class="composer-footer">
+            <label class="response-choice" for="wants-response">
+              <input id="wants-response" type="checkbox" checked disabled>
+              Let the director cue a reply
+            </label>
+            <button class="button button-primary" id="send-message" type="submit" disabled>Send to room <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="form-note" id="composer-note">Messages are available while the room is active.</p>
+        </form>
+        <p class="action-status" id="action-status" role="status" aria-live="polite"></p>
       </section>
     </main>
+
+    <dialog id="stop-dialog" aria-labelledby="stop-dialog-title" aria-describedby="stop-dialog-copy">
+      <form method="dialog" class="stop-confirmation">
+        <p class="kicker">Final curtain</p>
+        <h2 id="stop-dialog-title">Stop this room?</h2>
+        <p id="stop-dialog-copy">This immediately ends generation and cannot be resumed. The transcript remains visible.</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" value="cancel">Keep room open</button>
+          <button class="button button-danger" id="confirm-stop" value="confirm">Stop permanently</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>
