@@ -57,6 +57,55 @@ export function reasonLabel(reason) {
   return REASON_LABELS[reason] ?? "The director held the room.";
 }
 
+function safeText(value) { return typeof value === "string" ? value : ""; }
+
+export function renderTranscriptEvent(record, participantName, documentRoot = document) {
+  const event = record.event;
+  const item = documentRoot.createElement("li");
+  item.className = "transcript-item";
+  item.dataset.sequence = String(record.sequence);
+  const sequence = documentRoot.createElement("span");
+  sequence.className = "event-sequence";
+  sequence.textContent = `#${String(record.sequence).padStart(3, "0")}`;
+  const body = documentRoot.createElement("div");
+  body.className = "event-body";
+  const speaker = documentRoot.createElement("h3");
+  speaker.className = "event-speaker";
+  const text = documentRoot.createElement("p");
+  text.className = "event-text";
+  body.append(speaker, text);
+  if (event.type === "human_message") {
+    item.classList.add("event-human");
+    speaker.textContent = participantName(safeText(event.participantId));
+    text.textContent = safeText(event.text);
+  } else if (event.type === "persona_message") {
+    item.classList.add("event-persona");
+    speaker.textContent = participantName(safeText(event.participantId));
+    text.textContent = safeText(event.text);
+  } else if (event.type === "director_decision") {
+    const reason = safeText(event.reason);
+    const reasonCopy = documentRoot.createElement("p");
+    reasonCopy.className = "event-reason";
+    reasonCopy.textContent = reasonLabel(reason);
+    body.append(reasonCopy);
+    if (typeof event.speaker === "string") {
+      item.classList.add("event-director");
+      speaker.textContent = "Director";
+      text.textContent = `Cue: ${participantName(event.speaker)}.`;
+    } else {
+      item.classList.add("event-silence");
+      speaker.textContent = "Silence";
+      text.textContent = reasonLabel(reason);
+    }
+  } else {
+    item.classList.add("event-director");
+    speaker.textContent = "Room update";
+    text.textContent = "The room recorded an update.";
+  }
+  item.append(sequence, body);
+  return item;
+}
+
 export function createRequestId(kind, uuid = crypto.randomUUID()) {
   const safeKind = String(kind).replaceAll(/[^a-z0-9-]/g, "-").slice(0, 24) || "action";
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid)) {
@@ -436,52 +485,8 @@ export function startBrowserApp() {
     renderControls();
   }
 
-  function safeText(value) { return typeof value === "string" ? value : ""; }
-
   function renderEvent(record) {
-    const event = record.event;
-    const item = document.createElement("li");
-    item.className = "transcript-item";
-    item.dataset.sequence = String(record.sequence);
-    const sequence = document.createElement("span");
-    sequence.className = "event-sequence";
-    sequence.textContent = `#${String(record.sequence).padStart(3, "0")}`;
-    const body = document.createElement("div");
-    body.className = "event-body";
-    const speaker = document.createElement("h3");
-    speaker.className = "event-speaker";
-    const text = document.createElement("p");
-    text.className = "event-text";
-    body.append(speaker, text);
-    if (event.type === "human_message") {
-      item.classList.add("event-human");
-      speaker.textContent = "You";
-      text.textContent = safeText(event.text);
-    } else if (event.type === "persona_message") {
-      item.classList.add("event-persona");
-      speaker.textContent = participantName(event.participantId);
-      text.textContent = safeText(event.text);
-    } else if (event.type === "director_decision") {
-      const reason = safeText(event.reason);
-      const reasonCopy = document.createElement("p");
-      reasonCopy.className = "event-reason";
-      reasonCopy.textContent = reasonLabel(reason);
-      body.append(reasonCopy);
-      if (typeof event.speaker === "string") {
-        item.classList.add("event-director");
-        speaker.textContent = "Director";
-        text.textContent = `Cue: ${participantName(event.speaker)}.`;
-      } else {
-        item.classList.add("event-silence");
-        speaker.textContent = "Silence";
-        text.textContent = reasonLabel(reason);
-      }
-    } else {
-      item.classList.add("event-director");
-      speaker.textContent = "Room update";
-      text.textContent = "The room recorded an update.";
-    }
-    item.prepend(sequence);
+    const item = renderTranscriptEvent(record, participantName);
     elements.transcript.append(item);
     elements.emptyTranscript.hidden = true;
     elements.transcriptPanel.scrollTop = elements.transcriptPanel.scrollHeight;

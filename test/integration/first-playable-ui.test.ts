@@ -78,11 +78,47 @@ interface BrowserContract {
   };
   readonly reasonLabel: (reason: string) => string;
   readonly openStopConfirmation: (dialog: { returnValue: string; showModal(): void }) => void;
+  readonly renderTranscriptEvent: (
+    record: EventRecord,
+    participantName: (participantId: string) => string,
+    documentRoot: FakeDocument,
+  ) => FakeElement;
 }
 
 interface EventRecord {
   readonly sequence: number;
   readonly event: unknown;
+}
+
+class FakeClassList {
+  constructor(private readonly element: FakeElement) {}
+
+  add(...names: string[]) {
+    const classes = new Set(this.element.className.split(/\s+/).filter(Boolean));
+    for (const name of names) classes.add(name);
+    this.element.className = [...classes].join(" ");
+  }
+}
+
+class FakeElement {
+  readonly children: FakeElement[] = [];
+  readonly classList = new FakeClassList(this);
+  readonly dataset: Record<string, string> = {};
+  className = "";
+  textContent = "";
+
+  constructor(readonly tagName: string) {}
+
+  append(...children: FakeElement[]) { this.children.push(...children); }
+  prepend(...children: FakeElement[]) { this.children.unshift(...children); }
+
+  byClass(className: string) {
+    return this.children.find((child) => child.className.split(/\s+/).includes(className));
+  }
+}
+
+class FakeDocument {
+  createElement(tagName: string) { return new FakeElement(tagName); }
 }
 
 function deferred<T>() {
@@ -488,6 +524,56 @@ test("first playable UI maps authoritative state, in-flight work, and stable rea
   assert.equal(contract.reasonLabel("deliberate_silence"), "A quiet beat was intentional.");
   assert.equal(contract.reasonLabel("budget_exhausted"), "The room has reached its reply limit.");
   assert.equal(contract.reasonLabel("internal_prompt_dump"), "The director held the room.");
+});
+
+test("first playable UI renders complete transcript event bodies with participant display names", async () => {
+  const contract = await browserContract();
+  const documentRoot = new FakeDocument();
+  const displayNames = new Map([
+    ["human", "Amy"],
+    ["detective", "The Detective"],
+  ]);
+  const participantName = (participantId: string) => displayNames.get(participantId) ?? "Cast member";
+  const cases: ReadonlyArray<{
+    record: EventRecord;
+    speaker: string;
+    text: string;
+    reason?: string;
+  }> = [
+    {
+      record: { sequence: 1, event: { type: "human_message", participantId: "human", text: "<em>Hello</em>" } },
+      speaker: "Amy",
+      text: "<em>Hello</em>",
+    },
+    {
+      record: { sequence: 2, event: { type: "director_decision", speaker: "detective", reason: "selected" } },
+      speaker: "Director",
+      text: "Cue: The Detective.",
+      reason: "A cast member was selected.",
+    },
+    {
+      record: { sequence: 3, event: { type: "persona_message", participantId: "detective", text: "Check the seam." } },
+      speaker: "The Detective",
+      text: "Check the seam.",
+    },
+    {
+      record: { sequence: 4, event: { type: "future_event", text: "untrusted update" } },
+      speaker: "Room update",
+      text: "The room recorded an update.",
+    },
+  ];
+
+  for (const { record, speaker, text, ...expected } of cases) {
+    const item = contract.renderTranscriptEvent(record, participantName, documentRoot);
+    assert.equal(item.children.length, 2);
+    assert.equal(item.children[0]?.className, "event-sequence");
+    assert.equal(item.children[0]?.textContent, `#${String(record.sequence).padStart(3, "0")}`);
+    const body = item.children[1];
+    assert.equal(body?.className, "event-body");
+    assert.equal(body?.byClass("event-speaker")?.textContent, speaker);
+    assert.equal(body?.byClass("event-text")?.textContent, text);
+    assert.equal(body?.byClass("event-reason")?.textContent, expected.reason);
+  }
 });
 
 test("first playable UI guards rapid room-control and stale submit interleaving", async () => {
