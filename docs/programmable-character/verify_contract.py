@@ -7,6 +7,8 @@ import argparse
 import copy
 import hashlib
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,51 @@ FORBIDDEN_KEYS = {
     "coach_fraud_or_harm",
 }
 STATES = {"baseline", "tempted", "escalated", "consequence", "recovering", "cooldown"}
+
+
+def markdown_block_marker(value: str) -> bool:
+    """Match Persona Builder's single-line Markdown/HTML block grammar."""
+    line = value.lstrip(" ")
+    return bool(
+        re.match(r"#{1,6}(?:\s|$)|[-*+](?:\s|$)|>(?:\s|$)", line)
+        or re.match(r"(?:`{3,}|~{3,})", line)
+        or re.fullmatch(r"(?:[-*_][ \t]*){3,}", line)
+        or re.match(r"\d{1,9}[.)](?:\s|$)", line)
+        or re.match(
+            r"<(?:!--|!\[CDATA\[|!DOCTYPE|\?|/?[A-Za-z][^>]*>)",
+            line,
+            re.IGNORECASE,
+        )
+    )
+
+
+def validate_authored_strings(value: Any, pointer: str = "") -> None:
+    """Apply Persona Builder canonical single-line slot rules recursively."""
+    if isinstance(value, str):
+        location = pointer or "/"
+        if unicodedata.normalize("NFC", value) != value:
+            raise ValueError(f"string is not NFC at {location}")
+        for character in value:
+            codepoint = ord(character)
+            if 0xD800 <= codepoint <= 0xDFFF:
+                raise ValueError(f"invalid Unicode scalar at {location}")
+            if 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in (
+                0xFFFE,
+                0xFFFF,
+            ):
+                raise ValueError(f"Unicode noncharacter at {location}")
+            if codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
+                raise ValueError(
+                    f"single-line field contains control character at {location}"
+                )
+        if markdown_block_marker(value):
+            raise ValueError(f"single-line Markdown block marker at {location}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            validate_authored_strings(item, f"{pointer}/{index}")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            validate_authored_strings(item, f"{pointer}/{key}")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -148,6 +195,7 @@ def reduce_scenario(
 
 
 def validate(program: dict[str, Any]) -> None:
+    validate_authored_strings(program)
     if set(program) != ROOT_KEYS:
         raise ValueError(f"root keys differ: {sorted(set(program) ^ ROOT_KEYS)}")
     if program["contract_version"] != "0.1":
@@ -577,6 +625,9 @@ def render_scenarios(p: dict[str, Any]) -> str:
 
 
 def project(p: dict[str, Any]) -> dict[str, Any]:
+    # Projection is a public trust boundary: never rely on callers remembering to
+    # run semantic validation before authored values enter Markdown files.
+    validate(p)
     digest = hashlib.sha256(canonical_bytes(p)).hexdigest()
     provenance = "\n".join(
         [
