@@ -88,16 +88,23 @@ function validRecord(record) {
 
 export function createRoomEventChannel(options) {
   let cursor = 0;
-  let source = null;
+  let connection = null;
   let timer = null;
   let attempt = 0;
   let stopped = true;
-  let catchUpPromise = null;
+  let generation = 0;
+  let controller = null;
+  let catchUpOperation = null;
   const setTimer = options.setTimer ?? ((callback, delay) => globalThis.setTimeout(callback, delay));
   const clearTimer = options.clearTimer ?? ((timerId) => globalThis.clearTimeout(timerId));
   const connectionChange = options.onConnectionChange ?? (() => undefined);
 
-  function commit(record) {
+  function isCurrent(operationGeneration) {
+    return !stopped && generation === operationGeneration;
+  }
+
+  function commit(record, operationGeneration) {
+    if (!isCurrent(operationGeneration)) return "stale";
     if (!validRecord(record) || record.sequence <= cursor) return "duplicate";
     if (record.sequence !== cursor + 1) return "gap";
     options.commit(record);
@@ -105,69 +112,95 @@ export function createRoomEventChannel(options) {
     return "committed";
   }
 
-  async function catchUp() {
-    if (catchUpPromise !== null) return catchUpPromise;
-    catchUpPromise = (async () => {
-      connectionChange("catching-up");
-      while (!stopped) {
-        const records = await options.fetchCatchUp(cursor);
-        if (!Array.isArray(records)) throw new TypeError("Replay response is invalid");
-        if (records.length === 0) return;
-        for (const record of records) {
-          if (commit(record) === "gap") throw new Error("Replay sequence is incomplete");
+  async function catchUp(operationGeneration) {
+    if (!isCurrent(operationGeneration)) return;
+    if (catchUpOperation?.generation === operationGeneration) return catchUpOperation.promise;
+    const operation = {
+      generation: operationGeneration,
+      promise: (async () => {
+        connectionChange("catching-up");
+        while (isCurrent(operationGeneration)) {
+          const records = await options.fetchCatchUp(cursor, { signal: controller?.signal });
+          if (!isCurrent(operationGeneration)) return;
+          if (!Array.isArray(records)) throw new TypeError("Replay response is invalid");
+          if (records.length === 0) return;
+          for (const record of records) {
+            if (!isCurrent(operationGeneration)) return;
+            if (commit(record, operationGeneration) === "gap") {
+              throw new Error("Replay sequence is incomplete");
+            }
+          }
         }
-      }
-    })();
+      })(),
+    };
+    catchUpOperation = operation;
     try {
-      await catchUpPromise;
+      await operation.promise;
     } finally {
-      catchUpPromise = null;
+      if (catchUpOperation === operation) catchUpOperation = null;
     }
   }
 
-  function scheduleReconnect() {
-    if (stopped || timer !== null) return;
+  function scheduleReconnect(operationGeneration) {
+    if (!isCurrent(operationGeneration) || timer !== null) return;
     connectionChange("reconnecting");
     const delay = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)];
     attempt += 1;
-    timer = setTimer(() => {
+    const scheduled = { id: null };
+    timer = scheduled;
+    scheduled.id = setTimer(() => {
+      if (timer !== scheduled || !isCurrent(operationGeneration)) return;
       timer = null;
-      void reconnect();
+      void reconnect(operationGeneration);
     }, delay);
   }
 
-  function disconnect(activeSource) {
-    if (stopped || source !== activeSource) return;
-    source = null;
-    activeSource.close();
-    scheduleReconnect();
+  function disconnect(activeConnection, operationGeneration) {
+    if (!isCurrent(operationGeneration) || connection !== activeConnection) return;
+    connection = null;
+    activeConnection.source?.close();
+    scheduleReconnect(operationGeneration);
   }
 
-  function attach() {
-    if (stopped || source !== null) return;
+  function attach(operationGeneration) {
+    if (!isCurrent(operationGeneration) || connection !== null) return;
     const after = cursor;
+    const activeConnection = { source: null };
+    connection = activeConnection;
     let activeSource;
-    activeSource = options.connect(after, {
-      onOpen() {
-        if (source !== activeSource || stopped) return;
-        attempt = 0;
-        connectionChange("connected");
-      },
-      onEvent(record) {
-        if (source !== activeSource || stopped) return;
-        if (commit(record) === "gap") disconnect(activeSource);
-      },
-      onError() { disconnect(activeSource); },
-    });
-    source = activeSource;
+    try {
+      activeSource = options.connect(after, {
+        onOpen() {
+          if (!isCurrent(operationGeneration) || connection !== activeConnection) return;
+          attempt = 0;
+          connectionChange("connected");
+        },
+        onEvent(record) {
+          if (!isCurrent(operationGeneration) || connection !== activeConnection) return;
+          if (commit(record, operationGeneration) === "gap") {
+            disconnect(activeConnection, operationGeneration);
+          }
+        },
+        onError() { disconnect(activeConnection, operationGeneration); },
+      });
+    } catch (error) {
+      if (connection === activeConnection) connection = null;
+      throw error;
+    }
+    activeConnection.source = activeSource;
+    if (!isCurrent(operationGeneration) || connection !== activeConnection) {
+      activeSource.close();
+      if (connection === activeConnection) connection = null;
+    }
   }
 
-  async function reconnect() {
+  async function reconnect(operationGeneration) {
     try {
-      await catchUp();
-      attach();
+      await catchUp(operationGeneration);
+      if (!isCurrent(operationGeneration)) return;
+      attach(operationGeneration);
     } catch {
-      scheduleReconnect();
+      scheduleReconnect(operationGeneration);
     }
   }
 
@@ -176,20 +209,67 @@ export function createRoomEventChannel(options) {
     async start() {
       if (!stopped) return;
       stopped = false;
-      await reconnect();
+      const operationGeneration = ++generation;
+      controller = typeof AbortController === "function" ? new AbortController() : null;
+      await reconnect(operationGeneration);
     },
-    async catchUp() { await catchUp(); },
+    async catchUp() { await catchUp(generation); },
     stop() {
+      generation += 1;
       stopped = true;
+      controller?.abort();
+      controller = null;
+      catchUpOperation = null;
       if (timer !== null) {
-        clearTimer(timer);
+        clearTimer(timer.id);
         timer = null;
       }
-      if (source !== null) {
-        source.close();
-        source = null;
+      if (connection !== null) {
+        const activeConnection = connection;
+        connection = null;
+        activeConnection.source?.close();
       }
       connectionChange("offline");
+    },
+  });
+}
+
+export function bindRoomChannelLifecycle(channel, target = globalThis) {
+  let disposed = false;
+  let ready = false;
+  let pageActive = true;
+
+  function removeListeners() {
+    if (disposed) return;
+    disposed = true;
+    target.removeEventListener("pagehide", onPageHide);
+    target.removeEventListener("pageshow", onPageShow);
+  }
+
+  function onPageHide(event) {
+    pageActive = false;
+    channel.stop();
+    if (!event.persisted) removeListeners();
+  }
+
+  function onPageShow(event) {
+    if (!event.persisted || disposed) return;
+    pageActive = true;
+    if (ready) void channel.start();
+  }
+
+  target.addEventListener("pagehide", onPageHide);
+  target.addEventListener("pageshow", onPageShow);
+
+  return Object.freeze({
+    async activate() {
+      ready = true;
+      if (pageActive && !disposed) await channel.start();
+    },
+    dispose() {
+      if (disposed) return;
+      removeListeners();
+      channel.stop();
     },
   });
 }
@@ -232,9 +312,9 @@ async function readJson(response) {
   return value;
 }
 
-async function getJson(path) {
+async function getJson(path, signal) {
   return readJson(await fetch(sameOriginPath(path), {
-    method: "GET", credentials: "same-origin", headers: { Accept: "application/json" },
+    method: "GET", credentials: "same-origin", headers: { Accept: "application/json" }, signal,
   }));
 }
 
@@ -247,7 +327,7 @@ async function postJson(path, body, csrfToken) {
   }));
 }
 
-function startBrowserApp() {
+export function startBrowserApp() {
   const elements = {
     actionStatus: document.querySelector("#action-status"), castList: document.querySelector("#cast-list"),
     composerNote: document.querySelector("#composer-note"), connection: document.querySelector(".connection"),
@@ -413,8 +493,8 @@ function startBrowserApp() {
     item.querySelector(".event-reason").textContent = "The cue ended in a deliberate quiet beat.";
   }
 
-  async function fetchReplay(after) {
-    const replay = await getJson(API_PATHS.events(after));
+  async function fetchReplay(after, operation) {
+    const replay = await getJson(API_PATHS.events(after), operation?.signal);
     if (replay === null || typeof replay !== "object" || !Array.isArray(replay.events)) {
       throw new RequestFailure("invalid_response");
     }
@@ -435,6 +515,7 @@ function startBrowserApp() {
     },
     onConnectionChange: setConnection,
   });
+  const lifecycle = bindRoomChannelLifecycle(channel, globalThis);
 
   async function refreshRoom() { renderRoom(await getJson(API_PATHS.room)); }
 
@@ -506,7 +587,7 @@ function startBrowserApp() {
       }
       csrfToken = bootstrap.csrfToken;
       await refreshRoom();
-      await channel.start();
+      await lifecycle.activate();
     } catch (error) {
       setConnection("offline");
       setActionStatus(userMessage(error), "error");

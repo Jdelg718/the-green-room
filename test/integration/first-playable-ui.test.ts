@@ -47,13 +47,28 @@ interface BrowserContract {
         readonly onOpen: () => void;
       },
     ) => { close(): void };
-    readonly fetchCatchUp: (after: number) => Promise<readonly EventRecord[]>;
+    readonly fetchCatchUp: (
+      after: number,
+      operation?: { readonly signal?: AbortSignal },
+    ) => Promise<readonly EventRecord[]>;
     readonly onConnectionChange?: (state: string) => void;
     readonly setTimer?: (callback: () => void, delay: number) => unknown;
+    readonly clearTimer?: (timerId: unknown) => void;
   }) => {
     readonly cursor: number;
     start(): Promise<void>;
+    catchUp(): Promise<void>;
     stop(): void;
+  };
+  readonly bindRoomChannelLifecycle: (
+    channel: { start(): Promise<void>; stop(): void },
+    target: {
+      addEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
+      removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
+    },
+  ) => {
+    activate(): Promise<void>;
+    dispose(): void;
   };
   readonly reasonLabel: (reason: string) => string;
   readonly openStopConfirmation: (dialog: { returnValue: string; showModal(): void }) => void;
@@ -62,6 +77,12 @@ interface BrowserContract {
 interface EventRecord {
   readonly sequence: number;
   readonly event: unknown;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
 }
 
 async function browserContract(): Promise<BrowserContract> {
@@ -220,6 +241,178 @@ test("first playable UI reconnect catches up before resubscribing and suppresses
   assert.equal(channel.cursor, 4);
   channel.stop();
   assert.equal(calls.at(-1), "close:4");
+});
+
+test("first playable UI stop aborts and fences an in-flight catch-up", async () => {
+  const contract = await browserContract();
+  const replay = deferred<readonly EventRecord[]>();
+  const committed: number[] = [];
+  const calls: string[] = [];
+  let replaySignal: AbortSignal | undefined;
+  const channel = contract.createRoomEventChannel({
+    commit: ({ sequence }) => committed.push(sequence),
+    fetchCatchUp: async (after, operation) => {
+      calls.push(`replay:${after}`);
+      replaySignal = operation?.signal;
+      return replay.promise;
+    },
+    connect: (after) => {
+      calls.push(`stream:${after}`);
+      return { close: () => calls.push(`close:${after}`) };
+    },
+  });
+
+  const starting = channel.start();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  channel.stop();
+  assert.equal(replaySignal?.aborted, true);
+  replay.resolve([{ sequence: 1, event: { type: "human_message" } }]);
+  await starting;
+
+  assert.deepEqual(committed, []);
+  assert.equal(channel.cursor, 0);
+  assert.deepEqual(calls, ["replay:0"]);
+});
+
+test("first playable UI ignores stale stream callbacks after reconnect and stop", async () => {
+  const contract = await browserContract();
+  const committed: number[] = [];
+  const states: string[] = [];
+  const handlers: Array<{
+    readonly onError: () => void;
+    readonly onEvent: (record: EventRecord) => void;
+    readonly onOpen: () => void;
+  }> = [];
+  const timers: Array<{ callback: () => void; delay: number }> = [];
+  const channel = contract.createRoomEventChannel({
+    commit: ({ sequence }) => committed.push(sequence),
+    fetchCatchUp: async () => [],
+    connect: (_after, nextHandlers) => {
+      handlers.push(nextHandlers);
+      return { close: () => undefined };
+    },
+    onConnectionChange: (state) => states.push(state),
+    setTimer: (callback, delay) => {
+      timers.push({ callback, delay });
+      return timers.length;
+    },
+  });
+
+  await channel.start();
+  handlers[0]?.onEvent({ sequence: 1, event: { type: "human_message" } });
+  handlers[0]?.onError();
+  timers[0]?.callback();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.equal(handlers.length, 2);
+
+  const stateCount = states.length;
+  handlers[0]?.onOpen();
+  handlers[0]?.onEvent({ sequence: 2, event: { type: "stale" } });
+  handlers[0]?.onError();
+  assert.deepEqual(committed, [1]);
+  assert.equal(channel.cursor, 1);
+  assert.equal(states.length, stateCount);
+  assert.equal(timers.length, 1);
+
+  channel.stop();
+  handlers[1]?.onOpen();
+  handlers[1]?.onEvent({ sequence: 2, event: { type: "stale" } });
+  handlers[1]?.onError();
+  assert.deepEqual(committed, [1]);
+  assert.equal(channel.cursor, 1);
+  assert.equal(states.at(-1), "offline");
+  assert.equal(timers.length, 1);
+});
+
+test("first playable UI restart cannot be corrupted by an older generation", async () => {
+  const contract = await browserContract();
+  const oldReplay = deferred<readonly EventRecord[]>();
+  const newReplay = deferred<readonly EventRecord[]>();
+  const committed: number[] = [];
+  let replayCall = 0;
+  const channel = contract.createRoomEventChannel({
+    commit: ({ sequence }) => committed.push(sequence),
+    fetchCatchUp: async () => {
+      replayCall += 1;
+      if (replayCall === 1) return oldReplay.promise;
+      if (replayCall === 2) return newReplay.promise;
+      return [];
+    },
+    connect: () => ({ close: () => undefined }),
+  });
+
+  const oldStart = channel.start();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  channel.stop();
+  const newStart = channel.start();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  newReplay.resolve([{ sequence: 1, event: { type: "current" } }]);
+  await newStart;
+  oldReplay.resolve([
+    { sequence: 1, event: { type: "stale" } },
+    { sequence: 2, event: { type: "stale" } },
+  ]);
+  await oldStart;
+
+  assert.deepEqual(committed, [1]);
+  assert.equal(channel.cursor, 1);
+  channel.stop();
+});
+
+test("first playable UI page lifecycle teardown closes the channel and cancels reconnect", async () => {
+  const contract = await browserContract();
+  const listeners = new Map<string, (event: { persisted?: boolean }) => void>();
+  const added: string[] = [];
+  const removed: string[] = [];
+  const closed: number[] = [];
+  const cleared: unknown[] = [];
+  const timers: Array<{ callback: () => void; delay: number; id: number }> = [];
+  let handlers: { readonly onError: () => void } | undefined;
+  const channel = contract.createRoomEventChannel({
+    commit: () => undefined,
+    fetchCatchUp: async () => [],
+    connect: (after, nextHandlers) => {
+      handlers = nextHandlers;
+      return { close: () => closed.push(after) };
+    },
+    setTimer: (callback, delay) => {
+      const id = timers.length + 1;
+      timers.push({ callback, delay, id });
+      return id;
+    },
+    clearTimer: (timerId) => cleared.push(timerId),
+  });
+  const target = {
+    addEventListener(type: string, listener: (event: { persisted?: boolean }) => void) {
+      added.push(type);
+      listeners.set(type, listener);
+    },
+    removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void) {
+      removed.push(type);
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  };
+
+  await channel.start();
+  const lifecycle = contract.bindRoomChannelLifecycle(channel, target);
+  await lifecycle.activate();
+  assert.deepEqual(added, ["pagehide", "pageshow"]);
+  listeners.get("pagehide")?.({ persisted: true });
+  assert.deepEqual(closed, [0]);
+  listeners.get("pageshow")?.({ persisted: true });
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  handlers?.onError();
+  assert.deepEqual(closed, [0, 0]);
+  assert.equal(timers.length, 1);
+  listeners.get("pagehide")?.({ persisted: true });
+  assert.deepEqual(cleared, [1]);
+  timers[0]?.callback();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.equal(closed.length, 2);
+
+  lifecycle.dispose();
+  assert.deepEqual(removed, ["pagehide", "pageshow"]);
+  assert.equal(listeners.size, 0);
 });
 
 test("first playable UI reconnect backoff remains bounded across repeated failures", async () => {
