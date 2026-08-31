@@ -142,6 +142,11 @@ interface ActiveGeneration {
   readonly controller: AbortController;
 }
 
+interface ClaimMaintenanceState {
+  error?: unknown;
+  lost: boolean;
+}
+
 function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolveWait, reject) => {
     if (signal.aborted) {
@@ -357,6 +362,8 @@ export class RoomService {
         if (complete !== undefined) {
           return complete;
         }
+        generated = false;
+        providerResult = undefined;
         continue;
       }
       const remaining = Math.max(
@@ -561,12 +568,20 @@ export class RoomService {
     const controller = new AbortController();
     const active = { controller };
     const stopLease = new AbortController();
+    const stopLeaseOnGenerationAbort = (): void => {
+      stopLease.abort(controller.signal.reason);
+    };
+    controller.signal.addEventListener("abort", stopLeaseOnGenerationAbort, {
+      once: true,
+    });
+    const claimMaintenanceState: ClaimMaintenanceState = { lost: false };
     const leaseMaintenance = this.#maintainClaim(
       roomId,
       requestId,
       claimOwner,
       controller,
       stopLease.signal,
+      claimMaintenanceState,
     );
     this.#addController(roomId, active);
     try {
@@ -582,16 +597,31 @@ export class RoomService {
           },
           controller.signal,
         );
+        if (claimMaintenanceState.lost) {
+          return undefined;
+        }
+        if (claimMaintenanceState.error !== undefined) {
+          this.#releaseClaim(roomId, requestId, claimOwner);
+          throw claimMaintenanceState.error;
+        }
         return this.#validatedProviderResult(result);
       } catch (error) {
         if (this.#isStale(roomId, pending.generation, speaker)) {
           return undefined;
+        }
+        if (claimMaintenanceState.lost) {
+          return undefined;
+        }
+        if (claimMaintenanceState.error !== undefined) {
+          this.#releaseClaim(roomId, requestId, claimOwner);
+          throw claimMaintenanceState.error;
         }
         this.#releaseClaim(roomId, requestId, claimOwner);
         throw error;
       }
     } finally {
       stopLease.abort();
+      controller.signal.removeEventListener("abort", stopLeaseOnGenerationAbort);
       await leaseMaintenance;
       this.#removeController(roomId, active);
     }
@@ -859,37 +889,48 @@ export class RoomService {
     claimOwner: string,
     controller: AbortController,
     stopSignal: AbortSignal,
+    state: ClaimMaintenanceState,
   ): Promise<void> {
     const interval = Math.max(1, Math.floor(this.#pendingWorkLeaseMs / 3));
     while (!stopSignal.aborted) {
       try {
         await this.#wait(interval, stopSignal);
-      } catch {
+      } catch (error) {
+        if (stopSignal.aborted) {
+          return;
+        }
+        state.error = error;
+        controller.abort(error);
         return;
       }
       if (stopSignal.aborted) {
         return;
       }
       try {
-        const renewed = withImmediateTransaction(this.#database, () =>
-          this.#database
+        const renewed = withImmediateTransaction(this.#database, () => {
+          const now = this.#currentTime();
+          return this.#database
             .prepare(
               `UPDATE commands SET claim_expires_at = ?
                WHERE room_id = ? AND request_id = ? AND claim_owner = ?
+                 AND claim_expires_at > ?
                  AND json_extract(result_json, '$.state') = 'pending'`,
             )
             .run(
-              this.#currentTime() + this.#pendingWorkLeaseMs,
+              now + this.#pendingWorkLeaseMs,
               roomId,
               requestId,
               claimOwner,
-            ).changes,
-        );
+              now,
+            ).changes;
+        });
         if (renewed !== 1) {
+          state.lost = true;
           controller.abort(new Error("Pending provider claim was lost"));
           return;
         }
       } catch (error) {
+        state.error = error;
         controller.abort(error);
         return;
       }

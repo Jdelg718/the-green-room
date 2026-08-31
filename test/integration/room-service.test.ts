@@ -65,6 +65,57 @@ class LatchingProvider implements GenerationProvider {
   }
 }
 
+class ControlledWait {
+  readonly #pending = new Set<{
+    readonly milliseconds: number;
+    readonly resolve: () => void;
+  }>();
+
+  readonly wait = (milliseconds: number, signal: AbortSignal): Promise<void> =>
+    new Promise((resolveWait, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const pending = {
+        milliseconds,
+        resolve: () => {
+          signal.removeEventListener("abort", abort);
+          this.#pending.delete(pending);
+          resolveWait();
+        },
+      };
+      const abort = (): void => {
+        this.#pending.delete(pending);
+        reject(signal.reason);
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      this.#pending.add(pending);
+    });
+
+  get pendingMilliseconds(): number[] {
+    return [...this.#pending].map(({ milliseconds }) => milliseconds);
+  }
+
+  resolveNext(milliseconds: number): void {
+    const pending = [...this.#pending].find(
+      (candidate) => candidate.milliseconds === milliseconds,
+    );
+    assert.ok(pending, `Missing controlled ${milliseconds}ms wait`);
+    pending.resolve();
+  }
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  }
+  assert.fail("Condition did not become true");
+}
+
 test("room service commits scheduling before provider work and one persona result after it", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -305,6 +356,165 @@ test("two room services race one durable request but invoke exactly one provider
   );
 });
 
+test("claim turnover cannot commit a provider result generated under an older claim", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const first = openGreenRoomDatabase({ dataDir, migrationsDir });
+  const second = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => first.close());
+  context.after(() => second.close());
+  let now = 1_000;
+  const firstWait = new ControlledWait();
+  const secondWait = new ControlledWait();
+  const firstCall = new LatchingProvider({
+    kind: "text",
+    text: "Stale result from A's expired claim.",
+  });
+  let firstCalls = 0;
+  const firstProvider: GenerationProvider = {
+    async generate(invitation, signal) {
+      firstCalls += 1;
+      if (firstCalls === 1) {
+        return firstCall.generate(invitation, signal);
+      }
+      return { kind: "text", text: "Fresh result from A's new claim." };
+    },
+  };
+  const secondProvider = new LatchingProvider({
+    kind: "text",
+    text: "Late result from B's expired claim.",
+  });
+  const firstService = new RoomService({
+    database: first.database,
+    provider: firstProvider,
+    now: () => now,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: firstWait.wait,
+  });
+  const secondService = new RoomService({
+    database: second.database,
+    provider: secondProvider,
+    now: () => now,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: secondWait.wait,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "turnover-race",
+    text: "Only a result from the current claim may commit.",
+  } as const;
+
+  const firstResult = firstService.sendMessage(command);
+  await firstCall.entered;
+  now = 1_090;
+  const secondResult = secondService.sendMessage(command);
+  await secondProvider.entered;
+
+  firstCall.release();
+  await waitFor(() => firstWait.pendingMilliseconds.includes(10));
+  now = 1_180;
+  firstWait.resolveNext(10);
+
+  const authoritative = await firstResult;
+  assert.equal(firstCalls, 2);
+  assert.equal(authoritative.outcome, "text");
+  assert.equal(authoritative.personaEventSequence, 3);
+  assert.match(
+    (
+      first.database
+        .prepare("SELECT event_json FROM events WHERE sequence = 3")
+        .get() as { event_json: string }
+    ).event_json,
+    /Fresh result from A's new claim/,
+  );
+  assert.doesNotMatch(
+    (
+      first.database
+        .prepare("SELECT event_json FROM events WHERE sequence = 3")
+        .get() as { event_json: string }
+    ).event_json,
+    /Stale result/,
+  );
+
+  secondProvider.release();
+  assert.deepEqual(await secondResult, authoritative);
+  assert.deepEqual(firstWait.pendingMilliseconds, []);
+  assert.deepEqual(secondWait.pendingMilliseconds, []);
+});
+
+test("active claim renewal keeps one slow provider authoritative past the base lease", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const first = openGreenRoomDatabase({ dataDir, migrationsDir });
+  const second = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => first.close());
+  context.after(() => second.close());
+  let now = 2_000;
+  const firstWait = new ControlledWait();
+  const secondWait = new ControlledWait();
+  const slowProvider = new LatchingProvider({
+    kind: "text",
+    text: "One slow healthy provider result.",
+  });
+  let competingCalls = 0;
+  const competingProvider: GenerationProvider = {
+    async generate() {
+      competingCalls += 1;
+      return { kind: "text", text: "Duplicate provider work." };
+    },
+  };
+  const firstService = new RoomService({
+    database: first.database,
+    provider: slowProvider,
+    now: () => now,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: firstWait.wait,
+  });
+  const secondService = new RoomService({
+    database: second.database,
+    provider: competingProvider,
+    now: () => now,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: secondWait.wait,
+  });
+  const command = {
+    roomId: "first-playable",
+    requestId: "slow-provider-renewal",
+    text: "Keep the live provider claim renewed.",
+  } as const;
+
+  const firstResult = firstService.sendMessage(command);
+  await slowProvider.entered;
+  const secondResult = secondService.sendMessage(command);
+  await waitFor(
+    () =>
+      firstWait.pendingMilliseconds.includes(30) &&
+      secondWait.pendingMilliseconds.includes(10),
+  );
+
+  for (const time of [2_030, 2_060, 2_090, 2_120]) {
+    now = time;
+    firstWait.resolveNext(30);
+    await waitFor(() => firstWait.pendingMilliseconds.includes(30));
+    secondWait.resolveNext(10);
+    await waitFor(() => secondWait.pendingMilliseconds.includes(10));
+    assert.equal(competingCalls, 0);
+  }
+  assert.equal(slowProvider.calls.length + competingCalls, 1);
+
+  slowProvider.release();
+  const authoritative = await firstResult;
+  secondWait.resolveNext(10);
+  assert.deepEqual(await secondResult, authoritative);
+  assert.equal(authoritative.outcome, "text");
+  assert.equal(slowProvider.calls.length, 1);
+  assert.equal(competingCalls, 0);
+  assert.deepEqual(firstWait.pendingMilliseconds, []);
+  assert.deepEqual(secondWait.pendingMilliseconds, []);
+});
+
 test("provider failure releases its durable claim for an immediate idempotent retry", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -499,7 +709,14 @@ test("stop fence aborts generation and a stale completion commits zero rows", as
     kind: "text",
     text: "This late answer must be discarded.",
   });
-  const service = new RoomService({ database: store.database, provider });
+  const controlledWait = new ControlledWait();
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    pendingWorkLeaseMs: 90,
+    pendingWorkPollMs: 10,
+    wait: controlledWait.wait,
+  });
   const pending = service.sendMessage({
     roomId: "first-playable",
     requestId: "stopped-message",
@@ -514,6 +731,7 @@ test("stop fence aborts generation and a stale completion commits zero rows", as
   assert.equal(stopped.status, "stopped");
   assert.equal(stopped.generation, 1);
   assert.equal(provider.signal?.aborted, true);
+  assert.deepEqual(controlledWait.pendingMilliseconds, []);
   const rowsAtStop = count(store.database, "events");
 
   provider.release();
