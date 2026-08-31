@@ -1,12 +1,39 @@
 import { isIP } from "node:net";
 import { resolve } from "node:path";
 
+import {
+  DEFAULT_LM_STUDIO_MODEL,
+  validateLMStudioModel,
+} from "./providers/lm-studio.js";
+
 export interface AppConfig {
   readonly acceptanceFixture: "first-playable-v1" | null;
   readonly allowedOrigin: string;
   readonly dataDir: string;
   readonly host: string;
+  readonly lmStudioModel: string;
   readonly port: number;
+  readonly provider: "mock" | "lmstudio";
+}
+
+function generationProvider(value: string | undefined): "mock" | "lmstudio" {
+  if (value === undefined || value === "mock") {
+    return "mock";
+  }
+  if (value === "lmstudio") {
+    return value;
+  }
+  throw new Error("GREENROOM_PROVIDER must be mock or lmstudio");
+}
+
+function lmStudioModel(value: string | undefined): string {
+  try {
+    return validateLMStudioModel(value ?? DEFAULT_LM_STUDIO_MODEL);
+  } catch {
+    throw new Error(
+      "GREENROOM_LMSTUDIO_MODEL must be a canonical ID of at most 128 characters",
+    );
+  }
 }
 
 function acceptanceFixture(
@@ -116,6 +143,8 @@ export function loadConfig(
     ),
     dataDir: dataDirectory(environment.GREENROOM_DATA_DIR, cwd),
     host,
+    lmStudioModel: lmStudioModel(environment.GREENROOM_LMSTUDIO_MODEL),
     port,
+    provider: generationProvider(environment.GREENROOM_PROVIDER),
   };
 }

@@ -11,8 +11,44 @@ test("config uses private loopback defaults", () => {
     allowedOrigin: "http://127.0.0.1:8787",
     dataDir: "/tmp/green-room-checkout/.local/first-playable",
     host: "127.0.0.1",
+    lmStudioModel: "qwen/qwen3.6-35b-a3b",
     port: 8787,
+    provider: "mock",
   });
+});
+
+test("config selects only mock or LM Studio and validates the optional model", () => {
+  assert.equal(loadConfig({ GREENROOM_PROVIDER: "mock" }).provider, "mock");
+  assert.equal(
+    loadConfig({ GREENROOM_PROVIDER: "lmstudio" }).provider,
+    "lmstudio",
+  );
+  assert.equal(
+    loadConfig({
+      GREENROOM_PROVIDER: "lmstudio",
+      GREENROOM_LMSTUDIO_MODEL: "qwen/local-model_2.0",
+    }).lmStudioModel,
+    "qwen/local-model_2.0",
+  );
+
+  for (const provider of ["", "openai", "LMSTUDIO", "lmstudio "]) {
+    assert.throws(
+      () => loadConfig({ GREENROOM_PROVIDER: provider }),
+      /GREENROOM_PROVIDER/,
+    );
+  }
+  for (const model of [
+    "",
+    "../model",
+    "owner//model",
+    "model ",
+    "x".repeat(129),
+  ]) {
+    assert.throws(
+      () => loadConfig({ GREENROOM_LMSTUDIO_MODEL: model }),
+      /GREENROOM_LMSTUDIO_MODEL/,
+    );
+  }
 });
 
 test("config accepts canonical private Tailscale Serve HTTPS origins", () => {

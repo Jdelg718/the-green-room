@@ -34,6 +34,24 @@ The command builds the app, exercises a fresh private room through the compiled
 loopback server, restarts it against the same temporary data, and removes its
 temporary data before exiting. A passing run ends with a single JSON summary.
 
+## Real local persona replies with LM Studio
+
+The default `mock` provider keeps development and automated tests deterministic;
+unmapped prompts deliberately produce silence. For real conversational replies,
+start LM Studio's OpenAI-compatible local server on `http://127.0.0.1:1235/v1`,
+load `qwen/qwen3.6-35b-a3b`, then run:
+
+```bash
+npm run build
+GREENROOM_PROVIDER=lmstudio npm start
+```
+
+Set `GREENROOM_LMSTUDIO_MODEL` to another canonical local model ID if needed.
+Green Room sends no API key or credentials, and the provider endpoint is fixed to
+loopback HTTP. The `GREENROOM_ACCEPTANCE_FIXTURE=first-playable-v1` setting is an
+exact, test-only gate that takes priority over provider selection; it returns
+canned acceptance text and is not conversational.
+
 ## Private Tailscale Serve access
 
 Green Room continues to listen only on loopback, but it can be shared privately
