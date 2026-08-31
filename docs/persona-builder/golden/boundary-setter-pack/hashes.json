@@ -1,5 +1,5 @@
 {
-  "candidate_sha256": "e1c857aca60e81314d856dcaa698c8d135886d4c2cdabef997d39bc644945f47",
+  "candidate_sha256": "5d9ce0098bfb68f66a6c6310c0ab3091c7ec681a592c2a0843fdbe99c6af2f9b",
   "file_order": [
     "persona.yaml",
     "AGENTS.md",
@@ -13,8 +13,8 @@
   ],
   "files": {
     "AGENTS.md": {
-      "bytes": 1990,
-      "sha256": "6b5b47afd395ef7a96ccf9a8b072e5874bafb0b92da019b0e800499ad5eb2e59"
+      "bytes": 2394,
+      "sha256": "06a9381818cae23bd58506eae57157204e8bb60e76d508cd2fa25a03d9b00593"
     },
     "BACKGROUND.md": {
       "bytes": 351,
@@ -25,20 +25,20 @@
       "sha256": "016ba7ea27c1196a7edc22848e519f0ff4d765443c64471d88c0a40f92f14fff"
     },
     "PROVENANCE.md": {
-      "bytes": 788,
-      "sha256": "99b3f46988a8d86cd1826cdf5326dcce4842257bd5f2629ac312954c0ff0ce01"
+      "bytes": 1065,
+      "sha256": "33a2a1933b70cef2c7e9bc160a006701b3aa33bc0510108818590c46737d7ae4"
     },
     "RELATIONSHIPS.md": {
       "bytes": 170,
       "sha256": "1398ade5fc3087d4d58b6230001de2eb283c7942ffa61574a21fe737ecc03bbd"
     },
     "SCENARIOS.md": {
-      "bytes": 468,
-      "sha256": "ee1b1169e14d9e3057d99a14d9858c70920c4711899690601f34fe012b5da164"
+      "bytes": 521,
+      "sha256": "014dda3d5e9483a7fc00123d81248e4452b2055dfc1fdf281a9af5c25a089e3f"
     },
     "SOURCES.md": {
-      "bytes": 326,
-      "sha256": "587c15957a3ecd37ae0b4d1dfa998806cebbeeb1735e7e009ac80626f6f4f58b"
+      "bytes": 339,
+      "sha256": "c93213f5919efaa20877659b25b74246d45db0b603639be2857cc093209b8ffd"
     },
     "VOICE.md": {
       "bytes": 751,

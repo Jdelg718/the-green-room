@@ -56,10 +56,13 @@ validator, runtime, or publication enforcement.
 
 ## Closed wizard-state schema
 
-The persisted root object MUST contain exactly these keys. Every nested object is
-closed: unknown keys fail parsing rather than being ignored. Strings are UTF-8;
-free-text fields are capped at 4,096 bytes unless a smaller bound is stated.
-Arrays contain at most 20 items unless specified otherwise.
+The persisted root object MUST contain exactly these keys. Every object at every
+depth, including array members and `source_span`, is recursively closed: missing
+or unknown keys fail parsing rather than being ignored. Primitive types are exact
+(`true`/`false` are not integers), every listed enum, format, uniqueness rule, and
+numeric bound is mandatory, and arrays are arrays rather than map-like objects.
+Strings are UTF-8; free-text fields are capped at 4,096 bytes unless a smaller
+bound is stated. Arrays contain at most 20 items unless specified otherwise.
 
 ```json
 {
@@ -303,6 +306,15 @@ Every v0.1 authored string has exactly one class:
 | Single-line metadata/enums/identifiers | All remaining draft JSON strings, including IDs, enum choices, references, hashes, JSON Pointers, timestamps, classifier finding strings, and validation/rehearsal pointers | Apply the same single-line Unicode/control rejection. These fields are never treated as Markdown. |
 | Multiline inert bodies | Separate source-note blob bodies and non-null complete-file `advanced.overrides` | Never interpolate into a generated Markdown slot. Preview as a literal fence whose delimiter is `~` repeated `max(3, 1 + longest run of ~ in the body)` times, followed by literal `text`, LF, the canonical body, LF, and the same delimiter. Because no body line can contain the selected delimiter run, authored headings, lists, frontmatter, and fences remain inert. An override is validated as a complete file after preview, not spliced into a template. |
 
+After NFC normalization and removal of leading U+0020 spaces for this check only,
+a single-line generated slot MUST also be rejected when it begins a Markdown block
+marker: one to six `#` followed by whitespace/end; `-`, `*`, `+`, or `>` followed
+by whitespace/end; three or more backticks or tildes; a complete thematic-break
+run of at least three `-`, `*`, or `_` markers separated only by spaces/tabs; one
+to nine digits plus `.` or `)` followed by whitespace/end; or an HTML-like block
+opener (`<!--`, `<![CDATA[`, `<!DOCTYPE`, `<?`, or an opening/closing ASCII tag).
+Ordinary data such as `#hashtag`, `-ish`, `<3`, or `Version 1.5` remains valid.
+
 There are no multiline generated authored slots in v0.1. Implementations MUST test
 scenario-title, scenario-list-item, and voice situation/example mutations containing
 LF plus headings, lists, thematic breaks/frontmatter, and fence text; each must fail
@@ -333,14 +345,14 @@ The base mapping is exact:
 
 | Draft data | Destination | Runtime? |
 | --- | --- | --- |
-| identity, summary, behavior controls, knowledge limits, capability booleans | typed fields in `persona.yaml` | no |
-| goals, role, traits, safe rules, tensions, turn discipline | `AGENTS.md` fixed headings | yes |
+| identity name/kind/description, author/license, behavior controls, knowledge, and fixed capability booleans | typed fields in `persona.yaml` | no |
+| identity description/role/references/credential flag, traits, goals/signals/non-goals, safe rules and boundary modes, tensions, turn discipline, and template preparation/refusal literals | `AGENTS.md` fixed headings | yes |
 | original identity/background supplied in wizard | `BACKGROUND.md` fixed headings | yes |
 | speaking controls and original examples | `VOICE.md` fixed headings | yes |
 | explicit relationship seeds | `RELATIONSHIPS.md` | yes |
-| scenario setup, success/failure/correction cases | `SCENARIOS.md` | yes |
-| authorship, generator disclosure, decisions, source-note hashes (never bodies) | `PROVENANCE.md` | no |
-| confirmed distributable citation records, or a fixed `No distributable external sources` statement | `SOURCES.md` | no |
+| scenario ID, title, mode, setup, success/failure/correction cases | `SCENARIOS.md` | yes |
+| author/attribution, authorship/source-use/generator disclosure, versions, risk decision, overrides, accepted transforms, and source-note record metadata/hashes (never bodies) | `PROVENANCE.md` | no |
+| confirmed citation ID/title/URL/author/rights/note linkage, or a fixed `No distributable external sources` statement | `SOURCES.md` | no |
 | selected license text | `LICENSE` | no |
 
 `persona.yaml` uses `schema_version: "0.1"`, version `0.1.0`, and a stable ID:
@@ -397,7 +409,8 @@ identical. Slot grammar is deliberately narrow:
 - YAML sequences preserve authored order and indent each item by four spaces;
 - optional `RELATIONSHIPS.md` and `SCENARIOS.md` are absent only for empty arrays;
 - `SCENARIOS.md` uses exactly `# Practice scenarios`, one `## <title>` per
-  scenario, and `### Mode`, `### Setup`, `### Success`, `### Failure`, and
+  scenario, a literal `Scenario ID:` prefix followed by the backtick-wrapped
+  scenario ID, and `### Mode`, `### Setup`, `### Success`, `### Failure`, and
   `### Correction` inside each scenario;
 - no replacement value is interpreted as Markdown template syntax, a path,
   include, instruction, or second slot.
@@ -910,11 +923,13 @@ paraphrased into an original template; no source prose is persona dialogue.
 These authoritative Program on Negotiation at Harvard Law School pages are checked
 by `python3 docs/persona-builder/verify_sources.py`. The verifier uses direct
 `HTTPSConnection` requests only to the exact `www.pon.harvard.edu` host, does not
-follow redirects, rejects any non-200 response or canonical-link mismatch, enforces
-one total monotonic deadline and a per-response byte cap, decodes strict UTF-8, and
-matches the versioned exact title substring and authority marker:
+follow redirects, rejects any non-200 response or non-unique canonical-link
+mismatch, reapplies the remaining one-total-deadline budget before every blocking
+request/response/read operation and checks it after each operation, enforces a
+per-response byte cap, decodes strict UTF-8, and requires equality with each
+versioned exact title plus the authority marker:
 
-[1] https://www.pon.harvard.edu/daily/batna/translate-your-batna-to-the-current-deal/ — What is BATNA?
-[2] https://www.pon.harvard.edu/tag/reservation-point/ — Reservation Point
-[3] https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value/ — Principled Negotiation
-[4] https://www.pon.harvard.edu/daily/negotiation-skills-daily/four-strategies-for-making-concessions/ — Making Concessions
+[1] https://www.pon.harvard.edu/daily/batna/translate-your-batna-to-the-current-deal/ — What is BATNA? How to Find Your Best Alternative to a Negotiated Agreement - PON - Program on Negotiation at Harvard Law School
+[2] https://www.pon.harvard.edu/tag/reservation-point/ — What is the Reservation Point in Negotiation? - PON - Program on Negotiation at Harvard Law School
+[3] https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value/ — Principled Negotiation: Focus on Interests to Create Value - PON - Program on Negotiation at Harvard Law School
+[4] https://www.pon.harvard.edu/daily/negotiation-skills-daily/four-strategies-for-making-concessions/ — Four Strategies for Making Concessions in Negotiation - PON - Program on Negotiation at Harvard Law School

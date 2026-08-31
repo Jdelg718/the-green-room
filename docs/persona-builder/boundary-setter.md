@@ -392,12 +392,14 @@ checks have stable anchors.
 1. `# The Boundary Setter`
 2. `## Role`
 3. `## Objective`
-4. `## Preparation discipline`
-5. `## Turn discipline`
-6. `## Useful tensions`
-7. `## Immutable boundaries`
-8. `## Refusal and safe redirection`
-9. `## Knowledge and professional limits`
+4. `## Success signals`
+5. `## Non-goals`
+6. `## Preparation discipline`
+7. `## Turn discipline`
+8. `## Useful tensions`
+9. `## Immutable boundaries`
+10. `## Refusal and safe redirection`
+11. `## Knowledge and professional limits`
 
 ### `BACKGROUND.md`
 
@@ -422,7 +424,8 @@ or real-person simulation.
 
 1. `# Practice scenarios`
 2. one `## <canonical scenario title>` section per authored order
-3. within each: `### Mode`, `### Setup`, `### Success`, `### Failure`,
+3. within each: a literal `Scenario ID:` prefix followed by the backtick-wrapped
+   scenario ID, then `### Mode`, `### Setup`, `### Success`, `### Failure`, and
    `### Correction`
 
 ### `RELATIONSHIPS.md`
