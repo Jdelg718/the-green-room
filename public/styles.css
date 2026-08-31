@@ -1,0 +1,41 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #12100f;
+  color: #f7efe4;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at top, #382b28, #12100f 65%);
+}
+
+main {
+  width: min(42rem, calc(100% - 3rem));
+}
+
+.eyebrow {
+  color: #efb45c;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin-block: 0.25rem;
+  font-family: Georgia, serif;
+  font-size: clamp(2.75rem, 10vw, 5.5rem);
+  line-height: 0.95;
+}
+
+section {
+  margin-top: 3rem;
+  padding: 1.5rem;
+  border: 1px solid #725849;
+  border-radius: 0.75rem;
+  background: rgb(26 22 20 / 80%);
+}

@@ -24,6 +24,7 @@ deploy/private/
 backups/
 data/
 volumes/
+.local/
 
 # Tool and editor state
 .DS_Store

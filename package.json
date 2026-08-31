@@ -1,0 +1,26 @@
+{
+  "name": "the-green-room",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private-first ensemble conversation playground",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build --silent && node --test dist/test/**/*.test.js",
+    "check": "npm run typecheck && npm run build && npm test",
+    "start": "node dist/src/server.js",
+    "dev": "npm run build && node --watch dist/src/server.js",
+    "acceptance": "npm test -- --test-name-pattern='config|health|static|bootstrap'"
+  },
+  "dependencies": {
+    "fastify": "5.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}
