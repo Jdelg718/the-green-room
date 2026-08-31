@@ -86,18 +86,32 @@ function draftForSafety(){return {name:data.name,goal:data.goal,role:data.role,t
 function normalizedInvariant(value){return String(value??'').trim().replace(/\s+/g,' ')}
 function hasCanonicalSafetyBlock(value){return String(value??'').split(/\n\s*\n/).filter(block=>/^\s*Immutable prototype safety constraints:/i.test(block)).some(block=>normalizedInvariant(block)===normalizedInvariant(IMMUTABLE_SAFETY_BLOCK))}
 function hasInvariantContradiction(value){
-  const reference=/\b(?:immutable prototype safety constraints?|immutable safety (?:constraints?|rules?|block)|safety (?:constraints?|rules?|block)|these (?:constraints?|rules?))\b/i;
-  const terms=/\b(?:ignore(?:d)?|disregard(?:ed)?|optional|non[- ]?binding|waive(?:d)?|downgrade(?:d)?|remove(?:d)?|change(?:d)?|modify|modified|override(?:n)?)\b/ig;
-  return String(value??'').split(/[.\n;]+/).some(sentence=>{
-    if(!reference.test(sentence))return false;
-    if(/\bdo\s+not\s+apply\b|\badvisory\s+only\b|\bexcept\s+when\s+(?:the\s+)?user\s+asks?\b/i.test(sentence))return true;
-    terms.lastIndex=0;
-    for(const match of sentence.matchAll(terms)){
-      const before=sentence.slice(Math.max(0,match.index-24),match.index);
-      if(/(?:\b(?:do|does|must|may|can|should)\s+not\s+(?:be\s+)?|\bnever\s+|\bcannot\s+(?:be\s+)?|\bnot\s+|\b(?:do|does|must|may|can|should)\s+not\s+(?:ignore(?:d)?|disregard(?:ed)?|waive(?:d)?|downgrade(?:d)?|remove(?:d)?|change(?:d)?|modify|modified|override(?:n)?)(?:\s+or\s+))$/i.test(before))continue;
-      return true;
-    }
-    return false;
+  // This is intentionally a small intent grammar, not a general language parser.
+  // Every production binds a named invariant reference to a contradiction predicate
+  // in the same sentence/clause so unrelated uses of words like "advisory" stay benign.
+  const ref=String.raw`\b(?:(?:this|these|the|a|an)\s+)?(?:immutable prototype safety constraints?|immutable safety (?:constraints?|rules?|block)|immutable constraints?|safety (?:constraints?|rules?|block)|(?:this|these) (?:constraints?|rules?))\b`;
+  const qualifier=String.raw`(?:advisory(?:\s+guidance)?|optional|non[- ]?binding|suggestions?)`;
+  const action=String.raw`(?:ignor(?:e|ed|ing)|disregard(?:ed|ing)?|waiv(?:e|ed|ing)|downgrad(?:e|ed|ing)|remov(?:e|ed|ing)|chang(?:e|ed|ing)|modify|modified|modifying|overrid(?:e|den|ing))`;
+  const nominal=String.raw`(?:removal|change|modification|override|exception|disregard|waiver|downgrade)s?`;
+  const grammar=[
+    new RegExp(`${ref}\\s+(?:is|are|becomes?|remains?)\\s+(?!not\\b)(?:merely\\s+|only\\s+)?${qualifier}\\b`,'i'),
+    new RegExp(`\\b(?:treat|regard|consider)\\s+${ref}\\s+as\\s+(?!not\\b)(?:merely\\s+|only\\s+)?${qualifier}\\b`,'i'),
+    new RegExp(`\\b(?:ignore|disregard|waive|downgrade|remove|change|modify|override)\\s+${ref}\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:(?:may|can|must|should|is|are)\\s+)(?!not\\b)(?:be\\s+)?${action}\\b`,'i'),
+    new RegExp(`\\b(?:a\\s+|an\\s+|the\\s+)?(?:ignoring|disregarding|waiving|downgrading|removing|changing|modifying|overriding|${nominal}\\s+of)\\s+${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\b`,'i'),
+    new RegExp(`\\b(?:allow|permit)(?:s|ted)?\\s+(?:the\\s+)?(?:${nominal}|ignoring|disregarding|waiving|downgrading|removing|changing|modifying|overriding)(?:\\s+of)?\\s+${ref}\\b`,'i'),
+    new RegExp(`\\bexceptions?\\s+to\\s+${ref}\\s+(?:is|are)\\s+(?!not\\b)(?:allowed|permitted)\\b`,'i'),
+    new RegExp(`${ref}\\s+(?:does|do)\\s+not\\s+apply\\b`,'i'),
+    new RegExp(`${ref}\\s+appl(?:y|ies)\\s+except\\s+(?:when|if|for|to)\\b`,'i')
+  ];
+  const locallyNegated=(sentence,index)=>/(?:\b(?:do|does|must|may|should|will)\s+not|\bnever|\bcannot)\s+(?:(?:\w+|or)\s+){0,4}$/i.test(sentence.slice(Math.max(0,index-48),index));
+  const clearlyRejectedQuotation=sentence=>/[“”"'][^“”"']*(?:immutable|safety)[^“”"']*[“”"']/i.test(sentence)&&/\b(?:reject(?:ed|s)?|prohibit(?:ed|s)?|forbid(?:den|s)?|not allowed)\b/i.test(sentence)&&/\b(?:phrase|quote(?:s|d)?|quotation|discussion|records?)\b/i.test(sentence);
+  return String(value??'').split(/[.!?\n;]+/).some(sentence=>{
+    if(clearlyRejectedQuotation(sentence))return false;
+    return grammar.some(pattern=>{
+      const match=pattern.exec(sentence);
+      return Boolean(match)&&!locallyNegated(sentence,match.index);
+    });
   });
 }
 function validate(){
