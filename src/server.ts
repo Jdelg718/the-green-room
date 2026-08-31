@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -7,9 +7,12 @@ import { openGreenRoomDatabase } from "./db/index.js";
 const config = loadConfig();
 const store = openGreenRoomDatabase({
   dataDir: config.dataDir,
-  migrationsDir: resolve("migrations"),
+  migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
 });
-const app = buildApp({ logger: true });
+const app = buildApp({
+  logger: true,
+  publicDir: fileURLToPath(new URL("../public", import.meta.url)),
+});
 
 let closing = false;
 async function shutdown(signal: string): Promise<void> {

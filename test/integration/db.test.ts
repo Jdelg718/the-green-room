@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { Worker } from "node:worker_threads";
 
 import {
   appendEvent,
@@ -32,6 +33,64 @@ function queryValue<T>(database: DatabaseSync, sql: string): T {
   const row = database.prepare(sql).get() as Record<string, T>;
   return Object.values(row)[0] as T;
 }
+
+interface WorkerResult {
+  readonly error?: string;
+  readonly status: "ready" | "opened" | "failed";
+}
+
+function nextWorkerMessage(worker: Worker): Promise<WorkerResult> {
+  return new Promise((resolveMessage, reject) => {
+    worker.once("message", resolveMessage);
+    worker.once("error", reject);
+  });
+}
+
+test("concurrent first opens serialize migration history and both succeed", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const concurrentMigrations = join(dataDir, "concurrent-migrations");
+  const migrationDatabase = join(dataDir, "greenroom.sqlite");
+  cpSync(migrationsDir, concurrentMigrations, { recursive: true });
+  writeFileSync(
+    join(concurrentMigrations, "0001-first-playable.sql"),
+    `CREATE TABLE race_probe(value INTEGER PRIMARY KEY);
+     WITH RECURSIVE counter(value) AS (
+       VALUES(1) UNION ALL SELECT value + 1 FROM counter WHERE value < 250000
+     ) INSERT INTO race_probe SELECT value FROM counter;`,
+  );
+
+  const gate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+  const workerUrl = new URL("../helpers/open-database-worker.js", import.meta.url);
+  const workers = [
+    new Worker(workerUrl, { workerData: { dataDir, gate, migrationsDir: concurrentMigrations } }),
+    new Worker(workerUrl, { workerData: { dataDir, gate, migrationsDir: concurrentMigrations } }),
+  ];
+  context.after(async () => {
+    await Promise.all(workers.map(async (worker) => worker.terminate()));
+  });
+
+  assert.deepEqual(
+    await Promise.all(workers.map(async (worker) => nextWorkerMessage(worker))),
+    [{ status: "ready" }, { status: "ready" }],
+  );
+  Atomics.store(new Int32Array(gate), 0, 1);
+  const resultMessages = workers.map(async (worker) => nextWorkerMessage(worker));
+  Atomics.notify(new Int32Array(gate), 0, workers.length);
+
+  const results = await Promise.all(resultMessages);
+  assert.deepEqual(results, [{ status: "opened" }, { status: "opened" }]);
+
+  const verified = new DatabaseSync(migrationDatabase);
+  context.after(() => verified.close());
+  assert.deepEqual(
+    verified
+      .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
+      .all()
+      .map((row) => ({ ...row })),
+    [{ version: 1, name: "0001-first-playable.sql" }],
+  );
+  assert.equal(queryValue<number>(verified, "SELECT count(*) FROM race_probe"), 250_000);
+});
 
 test("sqlite open creates an owner-only authoritative database with bounded durability pragmas", (context) => {
   const dataDir = temporaryDirectory(context);
@@ -80,7 +139,7 @@ test("migration checksums reject changed files and unknown newer schema versions
   );
 });
 
-test("migration failure rolls back only the failing migration", (context) => {
+test("migration failure rolls back every pending migration", (context) => {
   const dataDir = temporaryDirectory(context);
   const copiedMigrations = join(dataDir, "migration-copy");
   cpSync(migrationsDir, copiedMigrations, { recursive: true });
@@ -98,7 +157,7 @@ test("migration failure rolls back only the failing migration", (context) => {
   context.after(() => raw.close());
   assert.equal(
     queryValue<number>(raw, "SELECT count(*) FROM schema_migrations WHERE version = 1"),
-    1,
+    0,
   );
   assert.equal(
     queryValue<number>(

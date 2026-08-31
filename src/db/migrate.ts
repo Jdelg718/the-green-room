@@ -63,44 +63,44 @@ export function migrate(database: DatabaseSync, migrationsDirectory: string): vo
   const migrations = loadMigrations(migrationsDirectory);
   ensureMigrationTable(database);
 
-  const applied = database
-    .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
-    .all() as unknown as AppliedMigration[];
+  withImmediateTransaction(database, () => {
+    const applied = database
+      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+      .all() as unknown as AppliedMigration[];
 
-  for (let index = 0; index < applied.length; index += 1) {
-    const recorded = applied[index];
-    if (recorded === undefined || recorded.version !== index + 1) {
-      throw new Error("Database migration history is not a consecutive prefix");
-    }
-    const expected = migrations.find(({ version }) => version === recorded.version);
-    if (expected === undefined) {
-      throw new Error(`Database contains unknown newer migration ${recorded.version}`);
-    }
-    if (recorded.name !== expected.name) {
-      throw new Error(`Name mismatch for migration ${recorded.version}`);
-    }
-    if (recorded.checksum !== expected.checksum) {
-      throw new Error(`Checksum mismatch for migration ${recorded.version}`);
-    }
-  }
-
-  const appliedVersions = new Set(applied.map(({ version }) => version));
-  for (const migration of migrations) {
-    if (appliedVersions.has(migration.version)) {
-      continue;
+    for (let index = 0; index < applied.length; index += 1) {
+      const recorded = applied[index];
+      if (recorded === undefined || recorded.version !== index + 1) {
+        throw new Error("Database migration history is not a consecutive prefix");
+      }
+      const expected = migrations.find(({ version }) => version === recorded.version);
+      if (expected === undefined) {
+        throw new Error(`Database contains unknown newer migration ${recorded.version}`);
+      }
+      if (recorded.name !== expected.name) {
+        throw new Error(`Name mismatch for migration ${recorded.version}`);
+      }
+      if (recorded.checksum !== expected.checksum) {
+        throw new Error(`Checksum mismatch for migration ${recorded.version}`);
+      }
     }
 
-    try {
-      withImmediateTransaction(database, () => {
+    const appliedVersions = new Set(applied.map(({ version }) => version));
+    for (const migration of migrations) {
+      if (appliedVersions.has(migration.version)) {
+        continue;
+      }
+
+      try {
         database.exec(migration.sql);
         database
           .prepare(
             "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)",
           )
           .run(migration.version, migration.name, migration.checksum);
-      });
-    } catch (error) {
-      throw new Error(`Failed to apply migration ${migration.version}`, { cause: error });
+      } catch (error) {
+        throw new Error(`Failed to apply migration ${migration.version}`, { cause: error });
+      }
     }
-  }
+  });
 }
