@@ -1,50 +1,1518 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Backstage Electric — a Green Room brand exploration built like a working rehearsal call board.">
-<title>Backstage Electric — The Green Room</title>
-<style>
-:root{--paper:#f3efdf;--paper-2:#e7e0cb;--ink:#121411;--acid:#b9ff29;--acid-dark:#71a900;--red:#ed4f37;--blue:#3d5afe;--muted:#655f51;--rule:3px solid var(--ink);--shadow:7px 7px 0 var(--ink);--display:Impact,"Arial Black",Haettenschweiler,sans-serif;--sans:Arial,Helvetica,sans-serif;--mono:"Courier New",monospace}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.35;background-image:linear-gradient(90deg,rgba(18,20,17,.035) 1px,transparent 1px),linear-gradient(rgba(18,20,17,.035) 1px,transparent 1px);background-size:21px 21px}button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,a:focus-visible{outline:4px solid var(--blue);outline-offset:3px}.skip{position:absolute;top:-80px;left:16px;background:var(--acid);color:var(--ink);padding:12px 18px;border:var(--rule);z-index:100}.skip:focus{top:12px}.topline{height:12px;background:repeating-linear-gradient(90deg,var(--ink) 0 38px,var(--acid) 38px 76px)}header{border-bottom:var(--rule);background:var(--paper);position:relative}.mast{max-width:1500px;margin:auto;min-height:92px;padding:16px 28px;display:flex;align-items:center;gap:18px}.mark{width:58px;height:58px;display:grid;place-items:center;background:var(--ink);color:var(--acid);font:bold 24px/1 var(--mono);position:relative;transform:rotate(-2deg)}.mark:after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:var(--acid);right:-6px;top:-6px;border:3px solid var(--ink)}.brand{font:clamp(28px,4vw,52px)/.85 var(--display);letter-spacing:-.02em;text-transform:uppercase}.brand small{display:block;font:700 10px/1.2 var(--mono);letter-spacing:.18em;margin-top:8px}.show-status{margin-left:auto;display:flex;align-items:center;gap:10px;font:700 12px var(--mono);text-transform:uppercase}.cue-lamp{width:22px;height:22px;border-radius:50%;background:var(--acid);border:3px solid var(--ink);box-shadow:0 0 0 5px rgba(185,255,41,.22)}.hero{max-width:1500px;margin:auto;padding:38px 28px 34px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.7fr);gap:34px;overflow:hidden}.eyebrow{display:inline-flex;align-items:center;gap:10px;background:var(--acid);border:var(--rule);padding:9px 13px;font:800 12px var(--mono);text-transform:uppercase;transform:rotate(-1deg);box-shadow:4px 4px 0 var(--ink)}h1{font:clamp(64px,9.5vw,148px)/.76 var(--display);letter-spacing:-.035em;text-transform:uppercase;margin:26px 0 25px;max-width:1000px}.slash{color:var(--paper);-webkit-text-stroke:3px var(--ink);text-shadow:7px 7px 0 var(--acid)}.hero-copy{font-size:clamp(18px,2vw,25px);font-weight:800;max-width:710px;border-left:9px solid var(--red);padding-left:18px;margin:0}.call-slip{align-self:center;background:var(--paper-2);border:var(--rule);padding:22px;box-shadow:var(--shadow);transform:rotate(2deg);position:relative}.call-slip:before{content:"PINNED";position:absolute;top:-15px;right:24px;background:var(--red);color:white;border:var(--rule);padding:5px 9px;font:800 11px var(--mono);transform:rotate(-5deg)}.call-slip h2{font:36px/.9 var(--display);text-transform:uppercase;margin:0 0 15px}.call-slip dl{display:grid;grid-template-columns:90px 1fr;margin:0;font:700 13px/1.5 var(--mono)}.call-slip dt{color:var(--muted)}.call-slip dd{margin:0;border-bottom:1px dashed var(--muted)}.thesis{background:var(--ink);color:var(--paper);border-block:10px solid var(--acid);padding:13px 28px;font:clamp(20px,3vw,38px)/1 var(--display);letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;overflow:hidden}.thesis span{color:var(--acid)}main{max-width:1500px;margin:auto;padding:44px 28px 80px}.workspace{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(340px,.65fr);gap:34px;align-items:start}.section-kicker{font:800 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}h2.section-title{font:clamp(45px,6vw,82px)/.82 var(--display);text-transform:uppercase;margin:5px 0 18px}.subline{display:flex;gap:16px;justify-content:space-between;align-items:end;border-bottom:7px solid var(--ink);padding-bottom:14px;margin-bottom:18px}.subline p{margin:0;max-width:580px;font-weight:700}.count{white-space:nowrap;font:800 13px var(--mono);background:var(--acid);border:2px solid var(--ink);padding:7px 10px}.filters{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:12px;margin:18px 0 22px}.search{min-height:48px;border:var(--rule);background:#fffdf4;padding:0 15px;font-weight:700;min-width:0}.chips{display:flex;flex-wrap:wrap;gap:8px}.chip{min-height:48px;border:var(--rule);background:transparent;padding:8px 13px;font:800 12px var(--mono);text-transform:uppercase}.chip[aria-pressed="true"]{background:var(--ink);color:var(--acid)}.cast-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.cast-card{background:#fffdf4;border:var(--rule);min-width:0;display:flex;flex-direction:column;position:relative;transition:transform .16s ease,box-shadow .16s ease}.cast-card:hover{transform:translate(-3px,-3px);box-shadow:6px 6px 0 var(--ink)}.cast-card.selected{box-shadow:inset 0 0 0 6px var(--acid)}.cast-card.selected:before{content:"CALLED";position:absolute;z-index:3;right:-4px;top:10px;background:var(--acid);border:2px solid var(--ink);padding:5px 8px;font:900 11px var(--mono);transform:rotate(3deg)}.portrait{height:154px;border-bottom:var(--rule);background:var(--tone);position:relative;overflow:hidden;display:grid;place-items:center}.portrait:before{content:"";position:absolute;inset:-30px;background:repeating-linear-gradient(var(--angle),transparent 0 14px,rgba(18,20,17,.18) 14px 18px)}.portrait:after{content:"";position:absolute;width:98px;height:120px;bottom:-45px;background:var(--ink);border-radius:50% 50% 8% 8%;box-shadow:0 -45px 0 -15px var(--ink)}.initials{z-index:1;color:var(--paper);font:56px var(--display);mix-blend-mode:difference;transform:rotate(-5deg)}.card-body{padding:15px;display:flex;flex-direction:column;flex:1}.card-meta{font:700 10px var(--mono);text-transform:uppercase;color:var(--muted);letter-spacing:.05em}.cast-card h3{font:28px/.9 var(--display);text-transform:uppercase;margin:7px 0}.card-line{font-size:14px;font-weight:700;margin:0 0 15px;min-height:56px}.card-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:auto}.card-actions button{min-height:46px;border:2px solid var(--ink);font:800 11px var(--mono);text-transform:uppercase;background:transparent;padding:7px}.card-actions .call{background:var(--ink);color:var(--paper)}.card-actions .call[aria-pressed="true"]{background:var(--acid);color:var(--ink)}.room-board{position:sticky;top:18px;background:var(--ink);color:var(--paper);border:5px solid var(--ink);box-shadow:9px 9px 0 var(--acid)}.board-head{background:var(--acid);color:var(--ink);padding:17px;border-bottom:5px solid var(--ink);position:relative}.board-head:after{content:"3 MAX";position:absolute;right:13px;top:13px;border:2px solid var(--ink);padding:5px;font:900 10px var(--mono);transform:rotate(4deg)}.board-head .section-kicker{color:var(--ink)}.board-head h2{font:45px/.85 var(--display);text-transform:uppercase;margin:5px 0}.board-body{padding:18px}.room-name{font:700 13px var(--mono);text-transform:uppercase;border-bottom:1px dashed #777;padding-bottom:11px;margin-bottom:14px}.tray{display:grid;gap:9px}.tray-seat{min-height:72px;border:2px solid var(--paper);display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;padding:8px}.seat-num{width:44px;height:44px;display:grid;place-items:center;background:var(--paper);color:var(--ink);font:24px var(--display)}.seat-name{display:block;font-weight:900;text-transform:uppercase}.seat-role{display:block;font:11px var(--mono);color:#bdb8aa}.remove{width:44px;height:44px;border:2px solid var(--paper);background:transparent;color:var(--paper);font-size:20px}.empty-seat{color:#9d988d;border-style:dashed}.continuity{margin:22px -18px 0;background:var(--paper);color:var(--ink);padding:17px;border-top:5px solid var(--acid)}.continuity h3{font:25px/.9 var(--display);text-transform:uppercase;margin:0 0 12px}.memory{border-left:8px solid var(--red);padding-left:11px;margin:12px 0}.memory p{font:700 13px/1.3 var(--mono);margin:0}.memory small{display:block;color:var(--muted);margin-top:5px;font:11px var(--mono)}.memory .link{display:inline-block;background:var(--acid);padding:2px 5px;font-weight:bold}.start{width:100%;min-height:58px;border:3px solid var(--acid);background:var(--acid);color:var(--ink);font:25px var(--display);text-transform:uppercase;margin-top:16px;box-shadow:5px 5px 0 var(--paper)}.start:disabled{opacity:.5;cursor:not-allowed}.trust{font:11px/1.45 var(--mono);color:#c8c2b5;margin-top:15px}.trust strong{color:var(--acid)}.no-results{display:none;border:var(--rule);padding:30px;font-weight:800;background:#fffdf4}.room-flash{min-height:22px;color:var(--acid);font:700 12px var(--mono);margin-top:10px}.legend{margin-top:55px;border-top:8px solid var(--ink);padding-top:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:24px}.legend h3{font:26px var(--display);text-transform:uppercase;margin:0 0 6px}.legend p{margin:0;font:13px/1.5 var(--mono)}footer{background:var(--acid);border-top:5px solid var(--ink);padding:20px 28px;font:800 12px var(--mono);text-transform:uppercase}footer div{max-width:1500px;margin:auto;display:flex;justify-content:space-between;gap:20px}
-dialog{width:min(720px,calc(100% - 28px));max-height:calc(100vh - 28px);padding:0;border:5px solid var(--ink);background:var(--paper);box-shadow:12px 12px 0 var(--acid);color:var(--ink)}dialog::backdrop{background:rgba(18,20,17,.78)}.dialog-head{background:var(--ink);color:var(--paper);padding:18px;display:flex;justify-content:space-between;gap:15px;align-items:start}.dialog-head h2{font:42px/.9 var(--display);text-transform:uppercase;margin:0}.close{min-width:44px;height:44px;border:2px solid var(--paper);background:transparent;color:var(--paper);font-size:22px}.dialog-body{padding:22px}.dialog-tag{font:800 12px var(--mono);text-transform:uppercase;color:var(--muted)}.dialog-quote{font:800 24px/1.25 var(--sans);border-left:10px solid var(--red);padding-left:15px}.facts{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.fact{border:2px solid var(--ink);padding:12px}.fact b{display:block;font:11px var(--mono);text-transform:uppercase;color:var(--muted);margin-bottom:5px}.notice{background:var(--paper-2);border-top:3px solid var(--ink);padding:14px 22px;font:11px/1.5 var(--mono)}
-@media(max-width:1050px){.cast-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace{grid-template-columns:minmax(0,1fr) 330px}.hero{grid-template-columns:1fr}.call-slip{max-width:620px;transform:none}.filters{grid-template-columns:1fr}.chips{justify-content:flex-start}}
-@media(max-width:760px){.mast{padding:13px 16px;min-height:78px}.mark{width:48px;height:48px}.brand{font-size:27px}.brand small{font-size:8px}.show-status span:last-child{display:none}.hero{padding:28px 16px 30px;gap:27px}h1{font-size:clamp(61px,20vw,91px)}.hero-copy{font-size:18px}.call-slip{padding:18px}.thesis{font-size:20px;padding-inline:16px}main{padding:34px 16px 65px}.workspace{display:flex;flex-direction:column}.gallery,.room-board{width:100%}.room-board{position:relative;top:auto;order:-1;margin-bottom:23px;box-shadow:7px 7px 0 var(--acid)}h2.section-title{font-size:54px}.subline{display:block}.count{display:inline-block;margin-top:12px}.cast-grid{grid-template-columns:1fr}.portrait{height:168px}.card-line{min-height:0}.filters{position:relative}.chips{gap:6px}.chip{flex:1;min-width:92px}.legend{grid-template-columns:1fr;gap:20px}.facts{grid-template-columns:1fr}footer div{display:block}footer span{display:block;margin-top:8px}.dialog-head h2{font-size:34px}}
-@media(max-width:420px){.mast{gap:11px}.brand{font-size:24px}.hero h1{font-size:66px}.call-slip dl{grid-template-columns:76px 1fr}.card-actions{grid-template-columns:1fr 1fr}.tray-seat{grid-template-columns:44px 1fr auto}.workspace{gap:20px}}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
-</style>
-</head>
-<body>
-<a class="skip" href="#main">Skip to casting board</a><div class="topline" aria-hidden="true"></div>
-<header><div class="mast"><div class="mark" aria-hidden="true">GR//</div><div class="brand">The Green Room<small>Ensemble conversation workshop</small></div><div class="show-status"><span class="cue-lamp" aria-hidden="true"></span><span>Rehearsal mode · local</span></div></div>
-<div class="hero"><section><span class="eyebrow">Direction 01 · Backstage Electric</span><h1>Find the <span class="slash">friction.</span><br>Call the room.</h1><p class="hero-copy">Not a shelf of chatbots. A live ensemble with cues, chemistry, memory—and the good sense to let silence have a turn.</p></section><aside class="call-slip" aria-label="Today's call sheet"><h2>Today’s call</h2><dl><dt>Scene</dt><dd>The impossible machine</dd><dt>Call time</dt><dd>Whenever you’re ready</dd><dt>Places</dt><dd>One human + three voices</dd><dt>House rule</dt><dd>Evidence over imitation</dd><dt>Safety</dt><dd>No tools. Stop means stop.</dd></dl></aside></div></header>
-<div class="thesis" aria-hidden="true">The room—not a single chatbot—is the product. <span>● Stand by. ●</span> The room—not a single chatbot—is the product.</div>
-<main id="main"><div class="workspace"><section class="gallery" aria-labelledby="gallery-title"><span class="section-kicker">The Call Board / available voices</span><h2 class="section-title" id="gallery-title">Cast the friction</h2><div class="subline"><p>Historical interpretations with visible provenance. Choose up to three; difference makes the scene move.</p><span class="count" id="resultCount" aria-live="polite">8 voices posted</span></div>
-<div class="filters"><label><span class="section-kicker">Search the board</span><input class="search" id="search" type="search" placeholder="Name, era, or pressure point" aria-label="Search the cast"></label><div><span class="section-kicker">Filter by department</span><div class="chips" role="group" aria-label="Filter cast"><button class="chip" aria-pressed="true" data-filter="all">All calls</button><button class="chip" aria-pressed="false" data-filter="makers">Makers</button><button class="chip" aria-pressed="false" data-filter="writers">Writers</button><button class="chip" aria-pressed="false" data-filter="power">Power</button></div></div></div>
-<div class="cast-grid" id="castGrid"></div><div class="no-results" id="noResults"><h3>No one answers that call.</h3><p>Try another name, era, or department.</p><button class="chip" id="resetFilter">Reset the board</button></div></section>
-<aside class="room-board" aria-labelledby="room-title"><div class="board-head"><span class="section-kicker">On deck / selected room</span><h2 id="room-title">The impossible machine</h2></div><div class="board-body"><div class="room-name">Room code GR-028 · private rehearsal</div><div class="tray" id="tray" aria-live="polite"></div><section class="continuity" aria-labelledby="continuity-title"><span class="section-kicker">Margin notes / room memory</span><h3 id="continuity-title">What the room remembers</h3><div class="memory"><p><span class="link">Respect +2</span> Ada noticed Douglass turn Newton’s “universal law” back toward human institutions.</p><small>Linked to Room event 18 · inspect · erase</small></div><div class="memory"><p><span class="link">Suspicion +1</span> Newton thinks Ada’s machine smuggles metaphor into mathematics.</p><small>Linked to Room event 11 · inspect · erase</small></div></section><button class="start" id="startRoom">Cue the room →</button><div class="room-flash" id="roomFlash" aria-live="polite"></div><p class="trust"><strong>Candidate interpretations.</strong> Generated dialogue is never an authentic quotation. Memory stays visible, linked, and erasable.</p></div></aside></div>
-<section class="legend" aria-label="Brand language"><div><span class="section-kicker">Gallery</span><h3>The Call Board</h3><p>Installed voices are posted, not warehoused. Provenance and readiness travel with every name.</p></div><div><span class="section-kicker">Room builder + start</span><h3>On Deck / Cue the Room</h3><p>Three places, one deliberate cue. The language borrows from rehearsal discipline—not theater décor.</p></div><div><span class="section-kicker">Memory + relationships</span><h3>Margin Notes / Chemistry</h3><p>Continuity is annotated evidence. Pairwise tension appears as a changing note, never an opaque score.</p></div></section></main>
-<footer><div>Direction 01 / Backstage Electric <span>Original shapes · system type · no portrait assets</span></div></footer>
-<dialog id="personaDialog" aria-labelledby="dialogName"><div class="dialog-head"><div><span class="section-kicker">Sides / persona detail</span><h2 id="dialogName"></h2></div><button class="close" id="closeDialog" aria-label="Close persona details">×</button></div><div class="dialog-body"><div class="dialog-tag" id="dialogMeta"></div><p class="dialog-quote" id="dialogLine"></p><div class="facts"><div class="fact"><b>Pressure point</b><span id="dialogPressure"></span></div><div class="fact"><b>Room behavior</b><span id="dialogBehavior"></span></div><div class="fact"><b>Pack state</b><span>Candidate / draft</span></div><div class="fact"><b>Knowledge boundary</b><span>Cut off at lifetime evidence</span></div></div></div><div class="notice">Educational creative interpretation. Historical identity is not blanket permission: source facts, direct quotations, creative inference, and assets require separate review.</div></dialog>
-<script>
-const people=[
-{id:'ada',name:'Ada Lovelace',initials:'AL',years:'1815–1852',group:'makers writers',tone:'#ed4f37',angle:'22deg',line:'The machine can arrange symbols. The harder question is what we ask it to mean.',pressure:'Imagination versus mechanical limits',behavior:'Translates abstractions, challenges small ambitions.'},
-{id:'newton',name:'Isaac Newton',initials:'IN',years:'1643–1727',group:'makers power',tone:'#3d5afe',angle:'-18deg',line:'First define the force. Then we may quarrel about its consequence.',pressure:'Proof versus private obsession',behavior:'Narrows claims, guards priority, resists metaphor.'},
-{id:'douglass',name:'Frederick Douglass',initials:'FD',years:'1818–1895',group:'writers power',tone:'#f5a623',angle:'35deg',line:'A principle that bends before power was never a principle at all.',pressure:'Moral clarity versus political compromise',behavior:'Tests universal claims against lived consequence.'},
-{id:'shelley',name:'Mary Shelley',initials:'MS',years:'1797–1851',group:'writers makers',tone:'#9c7af2',angle:'12deg',line:'Every creation inherits the conditions of its abandonment.',pressure:'Creation versus responsibility',behavior:'Finds the human cost inside technical triumph.'},
-{id:'franklin',name:'Benjamin Franklin',initials:'BF',years:'1706–1790',group:'makers power',tone:'#00a984',angle:'-32deg',line:'Useful experiments have a way of embarrassing polished theories.',pressure:'Practical utility versus public virtue',behavior:'Bargains, jokes, prototypes, then asks who benefits.'},
-{id:'austen',name:'Jane Austen',initials:'JA',years:'1775–1817',group:'writers power',tone:'#f06e9c',angle:'42deg',line:'People reveal their systems most faithfully while pretending to discuss manners.',pressure:'Social performance versus private motive',behavior:'Notices status games and punctures solemnity.'},
-{id:'leonardo',name:'Leonardo da Vinci',initials:'LV',years:'1452–1519',group:'makers',tone:'#33b7d4',angle:'-10deg',line:'Turn the question over. Its hidden mechanism is often underneath.',pressure:'Observation versus completion',behavior:'Sketches connections, changes scale, leaves doors open.'},
-{id:'elizabeth',name:'Elizabeth I',initials:'EI',years:'1533–1603',group:'power writers',tone:'#d1a900',angle:'28deg',line:'Ambiguity is not indecision when every answer moves the court.',pressure:'Sovereignty versus dependence',behavior:'Reads alliances, withholds commitment, controls the frame.'}
-];
-let selected=['ada','newton','douglass'],filter='all';
-const grid=document.querySelector('#castGrid'),tray=document.querySelector('#tray'),search=document.querySelector('#search'),dialog=document.querySelector('#personaDialog');
-function renderCards(){const q=search.value.trim().toLowerCase();let visible=0;grid.innerHTML='';people.forEach(p=>{const show=(filter==='all'||p.group.includes(filter))&&(`${p.name} ${p.years} ${p.line} ${p.pressure}`.toLowerCase().includes(q));if(!show)return;visible++;const card=document.createElement('article');card.className='cast-card'+(selected.includes(p.id)?' selected':'');card.style.setProperty('--tone',p.tone);card.style.setProperty('--angle',p.angle);card.dataset.id=p.id;card.innerHTML=`<div class="portrait" aria-hidden="true"><span class="initials">${p.initials}</span></div><div class="card-body"><span class="card-meta">${p.years} · candidate / draft</span><h3>${p.name}</h3><p class="card-line">${p.pressure}</p><div class="card-actions"><button class="details" data-id="${p.id}">Read sides</button><button class="call" data-id="${p.id}" aria-pressed="${selected.includes(p.id)}">${selected.includes(p.id)?'On deck':'Call them'}</button></div></div>`;grid.append(card)});document.querySelector('#resultCount').textContent=`${visible} voice${visible===1?'':'s'} posted`;document.querySelector('#noResults').style.display=visible?'none':'block';grid.style.display=visible?'grid':'none'}
-function renderTray(){tray.innerHTML='';for(let i=0;i<3;i++){const p=people.find(x=>x.id===selected[i]);const seat=document.createElement('div');seat.className='tray-seat'+(p?'':' empty-seat');seat.innerHTML=p?`<span class="seat-num">${i+1}</span><span><span class="seat-name">${p.name}</span><span class="seat-role">${p.pressure}</span></span><button class="remove" data-id="${p.id}" aria-label="Remove ${p.name} from room">×</button>`:`<span class="seat-num">${i+1}</span><span><span class="seat-name">Open place</span><span class="seat-role">Call a voice from the board</span></span>`;tray.append(seat)}document.querySelector('#startRoom').disabled=selected.length===0}
-function toggle(id){if(selected.includes(id))selected=selected.filter(x=>x!==id);else if(selected.length<3)selected.push(id);else{document.querySelector('#roomFlash').textContent='Three places only. Strike one name before calling another.';return}document.querySelector('#roomFlash').textContent='';renderCards();renderTray()}
-function openDetails(id){const p=people.find(x=>x.id===id);document.querySelector('#dialogName').textContent=p.name;document.querySelector('#dialogMeta').textContent=`${p.years} · ${p.group.replace(' ',' / ')}`;document.querySelector('#dialogLine').textContent=`“${p.line}”`;document.querySelector('#dialogPressure').textContent=p.pressure;document.querySelector('#dialogBehavior').textContent=p.behavior;dialog.showModal()}
-grid.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;b.classList.contains('details')?openDetails(b.dataset.id):toggle(b.dataset.id)});tray.addEventListener('click',e=>{const b=e.target.closest('button');if(b)toggle(b.dataset.id)});search.addEventListener('input',renderCards);document.querySelectorAll('.chip[data-filter]').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter;document.querySelectorAll('.chip[data-filter]').forEach(x=>x.setAttribute('aria-pressed',x===b));renderCards()}));document.querySelector('#resetFilter').addEventListener('click',()=>{search.value='';filter='all';document.querySelectorAll('.chip[data-filter]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.filter==='all'));renderCards();search.focus()});document.querySelector('#closeDialog').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close()});document.querySelector('#startRoom').addEventListener('click',()=>{document.querySelector('#roomFlash').textContent=`Cue received. ${selected.length} voices standing by; you hold the first line.`});renderCards();renderTray();
-</script>
-</body>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta
+      name="description"
+      content="Backstage Electric — a Green Room brand exploration built like a working rehearsal call board."
+    >
+    <title>Backstage Electric — The Green Room</title>
+    <style>
+      :root {
+        --paper: #f3efdf;
+        --paper-2: #e7e0cb;
+        --ink: #121411;
+        --acid: #b9ff29;
+        --acid-dark: #71a900;
+        --red: #ed4f37;
+        --blue: #3d5afe;
+        --muted: #655f51;
+        --rule: 3px solid var(--ink);
+        --shadow: 7px 7px 0 var(--ink);
+        --display: Impact, "Arial Black", Haettenschweiler, sans-serif;
+        --sans: Arial, Helvetica, sans-serif;
+        --mono: "Courier New", monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.35;
+        background-image:
+          linear-gradient(90deg, rgba(18, 20, 17, 0.035) 1px, transparent 1px),
+          linear-gradient(rgba(18, 20, 17, 0.035) 1px, transparent 1px);
+        background-size: 21px 21px;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      a:focus-visible {
+        outline: 4px solid var(--blue);
+        outline-offset: 3px;
+      }
+      .skip {
+        position: absolute;
+        top: -80px;
+        left: 16px;
+        background: var(--acid);
+        color: var(--ink);
+        padding: 12px 18px;
+        border: var(--rule);
+        z-index: 100;
+      }
+      .skip:focus {
+        top: 12px;
+      }
+      .topline {
+        height: 12px;
+        background: repeating-linear-gradient(
+          90deg,
+          var(--ink) 0 38px,
+          var(--acid) 38px 76px
+        );
+      }
+      header {
+        border-bottom: var(--rule);
+        background: var(--paper);
+        position: relative;
+      }
+      .mast {
+        max-width: 1500px;
+        margin: auto;
+        min-height: 92px;
+        padding: 16px 28px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+      .mark {
+        width: 58px;
+        height: 58px;
+        display: grid;
+        place-items: center;
+        background: var(--ink);
+        color: var(--acid);
+        font: bold 24px/1 var(--mono);
+        position: relative;
+        transform: rotate(-2deg);
+      }
+      .mark:after {
+        content: "";
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--acid);
+        right: -6px;
+        top: -6px;
+        border: 3px solid var(--ink);
+      }
+      .brand {
+        font: clamp(28px, 4vw, 52px) / 0.85 var(--display);
+        letter-spacing: -0.02em;
+        text-transform: uppercase;
+      }
+      .brand small {
+        display: block;
+        font: 700 10px/1.2 var(--mono);
+        letter-spacing: 0.18em;
+        margin-top: 8px;
+      }
+      .show-status {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font: 700 12px var(--mono);
+        text-transform: uppercase;
+      }
+      .cue-lamp {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--acid);
+        border: 3px solid var(--ink);
+        box-shadow: 0 0 0 5px rgba(185, 255, 41, 0.22);
+      }
+      .hero {
+        max-width: 1500px;
+        margin: auto;
+        padding: 38px 28px 34px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+        gap: 34px;
+        overflow: hidden;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--acid);
+        border: var(--rule);
+        padding: 9px 13px;
+        font: 800 12px var(--mono);
+        text-transform: uppercase;
+        transform: rotate(-1deg);
+        box-shadow: 4px 4px 0 var(--ink);
+      }
+      h1 {
+        font: clamp(64px, 9.5vw, 148px) / 0.76 var(--display);
+        letter-spacing: -0.035em;
+        text-transform: uppercase;
+        margin: 26px 0 25px;
+        max-width: 1000px;
+      }
+      .slash {
+        color: var(--paper);
+        -webkit-text-stroke: 3px var(--ink);
+        text-shadow: 7px 7px 0 var(--acid);
+      }
+      .hero-copy {
+        font-size: clamp(18px, 2vw, 25px);
+        font-weight: 800;
+        max-width: 710px;
+        border-left: 9px solid var(--red);
+        padding-left: 18px;
+        margin: 0;
+      }
+      .call-slip {
+        align-self: center;
+        background: var(--paper-2);
+        border: var(--rule);
+        padding: 22px;
+        box-shadow: var(--shadow);
+        transform: rotate(2deg);
+        position: relative;
+      }
+      .call-slip:before {
+        content: "PINNED";
+        position: absolute;
+        top: -15px;
+        right: 24px;
+        background: var(--red);
+        color: white;
+        border: var(--rule);
+        padding: 5px 9px;
+        font: 800 11px var(--mono);
+        transform: rotate(-5deg);
+      }
+      .call-slip h2 {
+        font: 36px/0.9 var(--display);
+        text-transform: uppercase;
+        margin: 0 0 15px;
+      }
+      .call-slip dl {
+        display: grid;
+        grid-template-columns: 90px 1fr;
+        margin: 0;
+        font: 700 13px/1.5 var(--mono);
+      }
+      .call-slip dt {
+        color: var(--muted);
+      }
+      .call-slip dd {
+        margin: 0;
+        border-bottom: 1px dashed var(--muted);
+      }
+      .thesis {
+        background: var(--ink);
+        color: var(--paper);
+        border-block: 10px solid var(--acid);
+        padding: 13px 28px;
+        font: clamp(20px, 3vw, 38px) / 1 var(--display);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .thesis span {
+        color: var(--acid);
+      }
+      main {
+        max-width: 1500px;
+        margin: auto;
+        padding: 44px 28px 80px;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.65fr);
+        gap: 34px;
+        align-items: start;
+      }
+      .section-kicker {
+        font: 800 12px var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      h2.section-title {
+        font: clamp(45px, 6vw, 82px) / 0.82 var(--display);
+        text-transform: uppercase;
+        margin: 5px 0 18px;
+      }
+      .subline {
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        align-items: end;
+        border-bottom: 7px solid var(--ink);
+        padding-bottom: 14px;
+        margin-bottom: 18px;
+      }
+      .subline p {
+        margin: 0;
+        max-width: 580px;
+        font-weight: 700;
+      }
+      .count {
+        white-space: nowrap;
+        font: 800 13px var(--mono);
+        background: var(--acid);
+        border: 2px solid var(--ink);
+        padding: 7px 10px;
+      }
+      .filters {
+        display: grid;
+        grid-template-columns: minmax(180px, 1fr) auto;
+        gap: 12px;
+        margin: 18px 0 22px;
+      }
+      .search {
+        min-height: 48px;
+        border: var(--rule);
+        background: #fffdf4;
+        padding: 0 15px;
+        font-weight: 700;
+        min-width: 0;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chip {
+        min-height: 48px;
+        border: var(--rule);
+        background: transparent;
+        padding: 8px 13px;
+        font: 800 12px var(--mono);
+        text-transform: uppercase;
+      }
+      .chip[aria-pressed="true"] {
+        background: var(--ink);
+        color: var(--acid);
+      }
+      .cast-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .cast-card {
+        background: #fffdf4;
+        border: var(--rule);
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        transition:
+          transform 0.16s ease,
+          box-shadow 0.16s ease;
+      }
+      .cast-card:hover {
+        transform: translate(-3px, -3px);
+        box-shadow: 6px 6px 0 var(--ink);
+      }
+      .cast-card.selected {
+        box-shadow: inset 0 0 0 6px var(--acid);
+      }
+      .cast-card.selected:before {
+        content: "CALLED";
+        position: absolute;
+        z-index: 3;
+        right: -4px;
+        top: 10px;
+        background: var(--acid);
+        border: 2px solid var(--ink);
+        padding: 5px 8px;
+        font: 900 11px var(--mono);
+        transform: rotate(3deg);
+      }
+      .portrait {
+        aspect-ratio: 4 / 5;
+        border-bottom: var(--rule);
+        background: var(--ink);
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+      }
+      .portrait img,
+      .dialog-portrait img {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: var(--crop, 50% 35%);
+        filter: contrast(1.08) saturate(0.82);
+      }
+      .portrait:before {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        inset: 0;
+        background: var(--acid);
+        mix-blend-mode: color;
+        opacity: 0.22;
+      }
+      .portrait:after {
+        content: "";
+        position: absolute;
+        z-index: 3;
+        inset: 0;
+        border: 4px solid var(--paper);
+        background-image:
+          radial-gradient(rgba(243, 239, 223, 0.2) 0.8px, transparent 0.8px),
+          repeating-linear-gradient(
+            0deg,
+            transparent 0 4px,
+            rgba(18, 20, 17, 0.24) 4px 5px
+          );
+        background-size:
+          5px 5px,
+          100% 5px;
+        pointer-events: none;
+      }
+      .initials {
+        z-index: 0;
+        color: var(--paper);
+        font: 56px var(--display);
+        transform: rotate(-5deg);
+      }
+      .call-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: -1px -1px 10px;
+        border: 2px solid var(--ink);
+        background: var(--tone);
+        color: var(--ink);
+        padding: 6px 8px;
+        font: 900 10px var(--mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .card-body {
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+      }
+      .card-meta {
+        font: 700 10px var(--mono);
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: 0.05em;
+      }
+      .cast-card h3 {
+        font: 28px/0.9 var(--display);
+        text-transform: uppercase;
+        margin: 7px 0;
+      }
+      .card-line {
+        font-size: 14px;
+        font-weight: 700;
+        margin: 0 0 15px;
+        min-height: 56px;
+      }
+      .card-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+        margin-top: auto;
+      }
+      .card-actions button {
+        min-height: 46px;
+        border: 2px solid var(--ink);
+        font: 800 11px var(--mono);
+        text-transform: uppercase;
+        background: transparent;
+        padding: 7px;
+      }
+      .card-actions .call {
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .card-actions .call[aria-pressed="true"] {
+        background: var(--acid);
+        color: var(--ink);
+      }
+      .room-board {
+        position: sticky;
+        top: 18px;
+        background: var(--ink);
+        color: var(--paper);
+        border: 5px solid var(--ink);
+        box-shadow: 9px 9px 0 var(--acid);
+      }
+      .board-head {
+        background: var(--acid);
+        color: var(--ink);
+        padding: 17px;
+        border-bottom: 5px solid var(--ink);
+        position: relative;
+      }
+      .board-head:after {
+        content: "3 MAX";
+        position: absolute;
+        right: 13px;
+        top: 13px;
+        border: 2px solid var(--ink);
+        padding: 5px;
+        font: 900 10px var(--mono);
+        transform: rotate(4deg);
+      }
+      .board-head .section-kicker {
+        color: var(--ink);
+      }
+      .board-head h2 {
+        font: 45px/0.85 var(--display);
+        text-transform: uppercase;
+        margin: 5px 0;
+      }
+      .board-body {
+        padding: 18px;
+      }
+      .room-name {
+        font: 700 13px var(--mono);
+        text-transform: uppercase;
+        border-bottom: 1px dashed #777;
+        padding-bottom: 11px;
+        margin-bottom: 14px;
+      }
+      .tray {
+        display: grid;
+        gap: 9px;
+      }
+      .tray-seat {
+        min-height: 72px;
+        border: 2px solid var(--paper);
+        display: grid;
+        grid-template-columns: 48px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 8px;
+      }
+      .seat-num {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        background: var(--paper);
+        color: var(--ink);
+        font: 24px var(--display);
+      }
+      .seat-name {
+        display: block;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+      .seat-role {
+        display: block;
+        font: 11px var(--mono);
+        color: #bdb8aa;
+      }
+      .remove {
+        width: 44px;
+        height: 44px;
+        border: 2px solid var(--paper);
+        background: transparent;
+        color: var(--paper);
+        font-size: 20px;
+      }
+      .empty-seat {
+        color: #9d988d;
+        border-style: dashed;
+      }
+      .continuity {
+        margin: 22px -18px 0;
+        background: var(--paper);
+        color: var(--ink);
+        padding: 17px;
+        border-top: 5px solid var(--acid);
+      }
+      .continuity h3 {
+        font: 25px/0.9 var(--display);
+        text-transform: uppercase;
+        margin: 0 0 12px;
+      }
+      .memory {
+        border-left: 8px solid var(--red);
+        padding-left: 11px;
+        margin: 12px 0;
+      }
+      .memory p {
+        font: 700 13px/1.3 var(--mono);
+        margin: 0;
+      }
+      .memory small {
+        display: block;
+        color: var(--muted);
+        margin-top: 5px;
+        font: 11px var(--mono);
+      }
+      .memory .link {
+        display: inline-block;
+        background: var(--acid);
+        padding: 2px 5px;
+        font-weight: bold;
+      }
+      .start {
+        width: 100%;
+        min-height: 58px;
+        border: 3px solid var(--acid);
+        background: var(--acid);
+        color: var(--ink);
+        font: 25px var(--display);
+        text-transform: uppercase;
+        margin-top: 16px;
+        box-shadow: 5px 5px 0 var(--paper);
+      }
+      .start:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .trust {
+        font: 11px/1.45 var(--mono);
+        color: #c8c2b5;
+        margin-top: 15px;
+      }
+      .trust strong {
+        color: var(--acid);
+      }
+      .no-results {
+        display: none;
+        border: var(--rule);
+        padding: 30px;
+        font-weight: 800;
+        background: #fffdf4;
+      }
+      .room-flash {
+        min-height: 22px;
+        color: var(--acid);
+        font: 700 12px var(--mono);
+        margin-top: 10px;
+      }
+      .legend {
+        margin-top: 55px;
+        border-top: 8px solid var(--ink);
+        padding-top: 20px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+      }
+      .legend h3 {
+        font: 26px var(--display);
+        text-transform: uppercase;
+        margin: 0 0 6px;
+      }
+      .legend p {
+        margin: 0;
+        font: 13px/1.5 var(--mono);
+      }
+      footer {
+        background: var(--acid);
+        border-top: 5px solid var(--ink);
+        padding: 20px 28px;
+        font: 800 12px var(--mono);
+        text-transform: uppercase;
+      }
+      footer div {
+        max-width: 1500px;
+        margin: auto;
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      dialog {
+        width: min(720px, calc(100% - 28px));
+        max-height: calc(100vh - 28px);
+        padding: 0;
+        border: 5px solid var(--ink);
+        background: var(--paper);
+        box-shadow: 12px 12px 0 var(--acid);
+        color: var(--ink);
+      }
+      dialog::backdrop {
+        background: rgba(18, 20, 17, 0.78);
+      }
+      .dialog-head {
+        background: var(--ink);
+        color: var(--paper);
+        padding: 18px;
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        align-items: start;
+      }
+      .dialog-head h2 {
+        font: 42px/0.9 var(--display);
+        text-transform: uppercase;
+        margin: 0;
+      }
+      .close {
+        min-width: 44px;
+        height: 44px;
+        border: 2px solid var(--paper);
+        background: transparent;
+        color: var(--paper);
+        font-size: 22px;
+      }
+      .dialog-body {
+        padding: 22px;
+      }
+      .dialog-portrait {
+        --crop: 50% 35%;
+        position: relative;
+        aspect-ratio: 16 / 7;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        margin: 12px 0 20px;
+        border: 4px solid var(--ink);
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .dialog-portrait:after {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        inset: 0;
+        border: 4px solid var(--paper);
+        background:
+          linear-gradient(rgba(185, 255, 41, 0.18), rgba(185, 255, 41, 0.18)),
+          repeating-linear-gradient(
+            0deg,
+            transparent 0 4px,
+            rgba(18, 20, 17, 0.28) 4px 5px
+          );
+        mix-blend-mode: screen;
+        pointer-events: none;
+      }
+      .dialog-initials {
+        z-index: 0;
+        font: 72px var(--display);
+      }
+      .dialog-tag {
+        font: 800 12px var(--mono);
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .dialog-quote {
+        font: 800 24px/1.25 var(--sans);
+        border-left: 10px solid var(--red);
+        padding-left: 15px;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .fact {
+        border: 2px solid var(--ink);
+        padding: 12px;
+      }
+      .fact b {
+        display: block;
+        font: 11px var(--mono);
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      .notice {
+        background: var(--paper-2);
+        border-top: 3px solid var(--ink);
+        padding: 14px 22px;
+        font: 11px/1.5 var(--mono);
+      }
+      @media (max-width: 1050px) {
+        .cast-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .workspace {
+          grid-template-columns: minmax(0, 1fr) 330px;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+        }
+        .call-slip {
+          max-width: 620px;
+          transform: none;
+        }
+        .filters {
+          grid-template-columns: 1fr;
+        }
+        .chips {
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 760px) {
+        .mast {
+          padding: 13px 16px;
+          min-height: 78px;
+        }
+        .mark {
+          width: 48px;
+          height: 48px;
+        }
+        .brand {
+          font-size: 27px;
+        }
+        .brand small {
+          font-size: 8px;
+        }
+        .show-status span:last-child {
+          display: none;
+        }
+        .hero {
+          padding: 28px 16px 30px;
+          gap: 27px;
+        }
+        h1 {
+          font-size: clamp(61px, 20vw, 91px);
+        }
+        .hero-copy {
+          font-size: 18px;
+        }
+        .call-slip {
+          padding: 18px;
+        }
+        .thesis {
+          font-size: 20px;
+          padding-inline: 16px;
+        }
+        main {
+          padding: 34px 16px 65px;
+        }
+        .workspace {
+          display: flex;
+          flex-direction: column;
+        }
+        .gallery,
+        .room-board {
+          width: 100%;
+        }
+        .room-board {
+          position: relative;
+          top: auto;
+          order: -1;
+          margin-bottom: 23px;
+          box-shadow: 7px 7px 0 var(--acid);
+        }
+        h2.section-title {
+          font-size: 54px;
+        }
+        .subline {
+          display: block;
+        }
+        .count {
+          display: inline-block;
+          margin-top: 12px;
+        }
+        .cast-grid {
+          grid-template-columns: 1fr;
+        }
+        .portrait {
+          aspect-ratio: 1 / 1;
+        }
+        .card-line {
+          min-height: 0;
+        }
+        .filters {
+          position: relative;
+        }
+        .chips {
+          gap: 6px;
+        }
+        .chip {
+          flex: 1;
+          min-width: 92px;
+        }
+        .legend {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        .facts {
+          grid-template-columns: 1fr;
+        }
+        footer div {
+          display: block;
+        }
+        footer span {
+          display: block;
+          margin-top: 8px;
+        }
+        .dialog-head h2 {
+          font-size: 34px;
+        }
+      }
+      @media (max-width: 420px) {
+        .mast {
+          gap: 11px;
+        }
+        .brand {
+          font-size: 24px;
+        }
+        .hero h1 {
+          font-size: 66px;
+        }
+        .call-slip dl {
+          grid-template-columns: 76px 1fr;
+        }
+        .card-actions {
+          grid-template-columns: 1fr 1fr;
+        }
+        .tray-seat {
+          grid-template-columns: 44px 1fr auto;
+        }
+        .workspace {
+          gap: 20px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        *,
+        *:before,
+        *:after {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to casting board</a>
+    <div class="topline" aria-hidden="true"></div>
+    <header>
+      <div class="mast">
+        <div class="mark" aria-hidden="true">GR//</div>
+        <div class="brand">
+          The Green Room<small>Ensemble conversation workshop</small>
+        </div>
+        <div class="show-status">
+          <span class="cue-lamp" aria-hidden="true"></span
+          ><span>Rehearsal mode · local</span>
+        </div>
+      </div>
+      <div class="hero">
+        <section>
+          <span class="eyebrow">Direction 01 · Backstage Electric</span>
+          <h1>
+            Find the <span class="slash">friction.</span><br>Call the room.
+          </h1>
+          <p class="hero-copy">
+            Not a shelf of chatbots. A live ensemble with cues, chemistry,
+            memory—and the good sense to let silence have a turn.
+          </p>
+        </section>
+        <aside class="call-slip" aria-label="Today's call sheet">
+          <h2>Today’s call</h2>
+          <dl>
+            <dt>Scene</dt>
+            <dd>The impossible machine</dd>
+            <dt>Call time</dt>
+            <dd>Whenever you’re ready</dd>
+            <dt>Places</dt>
+            <dd>One human + three voices</dd>
+            <dt>House rule</dt>
+            <dd>Evidence over imitation</dd>
+            <dt>Safety</dt>
+            <dd>No tools. Stop means stop.</dd>
+          </dl>
+        </aside>
+      </div>
+    </header>
+    <div class="thesis" aria-hidden="true">
+      The room—not a single chatbot—is the product.
+      <span>● Stand by. ●</span> The room—not a single chatbot—is the product.
+    </div>
+    <main id="main">
+      <div class="workspace">
+        <section class="gallery" aria-labelledby="gallery-title">
+          <span class="section-kicker">The Call Board / available voices</span>
+          <h2 class="section-title" id="gallery-title">Cast the friction</h2>
+          <div class="subline">
+            <p>
+              Historical interpretations with visible provenance. Choose up to
+              three; difference makes the scene move.
+            </p>
+            <span class="count" id="resultCount" aria-live="polite"
+              >12 voices posted</span
+            >
+          </div>
+          <div class="filters">
+            <label
+              ><span class="section-kicker">Search the board</span
+              ><input
+                class="search"
+                id="search"
+                type="search"
+                placeholder="Name, era, or pressure point"
+                aria-label="Search the cast"
+            ></label>
+            <div>
+              <span class="section-kicker">Filter by department</span>
+              <div class="chips" role="group" aria-label="Filter cast">
+                <button type="button" class="chip" aria-pressed="true" data-filter="all">
+                  All calls</button
+                ><button type="button" class="chip" aria-pressed="false" data-filter="makers">
+                  Makers</button
+                ><button
+                  type="button"
+                  class="chip"
+                  aria-pressed="false"
+                  data-filter="writers"
+                >
+                  Writers</button
+                ><button type="button" class="chip" aria-pressed="false" data-filter="power">
+                  Power
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="cast-grid" id="castGrid"></div>
+          <div class="no-results" id="noResults">
+            <h3>No one answers that call.</h3>
+            <p>Try another name, era, or department.</p>
+            <button type="button" class="chip" id="resetFilter">Reset the board</button>
+          </div>
+        </section>
+        <aside class="room-board" aria-labelledby="room-title">
+          <div class="board-head">
+            <span class="section-kicker">On deck / selected room</span>
+            <h2 id="room-title">The impossible machine</h2>
+          </div>
+          <div class="board-body">
+            <div class="room-name">Room code GR-028 · private rehearsal</div>
+            <div class="tray" id="tray" aria-live="polite"></div>
+            <section class="continuity" aria-labelledby="continuity-title">
+              <span class="section-kicker">Margin notes / room memory</span>
+              <h3 id="continuity-title">What the room remembers</h3>
+              <div class="memory">
+                <p>
+                  <span class="link">Respect +2</span> Ada noticed Douglass turn
+                  Newton’s “universal law” back toward human institutions.
+                </p>
+                <small>Linked to Room event 18 · inspect · erase</small>
+              </div>
+              <div class="memory">
+                <p>
+                  <span class="link">Suspicion +1</span> Newton thinks Ada’s
+                  machine smuggles metaphor into mathematics.
+                </p>
+                <small>Linked to Room event 11 · inspect · erase</small>
+              </div>
+            </section>
+            <button type="button" class="start" id="startRoom">Cue the room →</button>
+            <div class="room-flash" id="roomFlash" aria-live="polite"></div>
+            <p class="trust">
+              <strong>Candidate interpretations.</strong> Generated dialogue is
+              never an authentic quotation. Memory stays visible, linked, and
+              erasable.
+            </p>
+          </div>
+        </aside>
+      </div>
+      <section class="legend" aria-label="Brand language">
+        <div>
+          <span class="section-kicker">Gallery</span>
+          <h3>The Call Board</h3>
+          <p>
+            Installed voices are posted, not warehoused. Provenance and
+            readiness travel with every name.
+          </p>
+        </div>
+        <div>
+          <span class="section-kicker">Room builder + start</span>
+          <h3>On Deck / Cue the Room</h3>
+          <p>
+            Three places, one deliberate cue. The language borrows from
+            rehearsal discipline—not theater décor.
+          </p>
+        </div>
+        <div>
+          <span class="section-kicker">Memory + relationships</span>
+          <h3>Margin Notes / Chemistry</h3>
+          <p>
+            Continuity is annotated evidence. Pairwise tension appears as a
+            changing note, never an opaque score.
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div>
+        Direction 01 / Backstage Electric
+        <span
+          >12 provenance-tracked portrait candidates · local assets only</span
+        >
+      </div>
+    </footer>
+    <dialog id="personaDialog" aria-labelledby="dialogName">
+      <div class="dialog-head">
+        <div>
+          <span class="section-kicker">Sides / persona detail</span>
+          <h2 id="dialogName">Persona details</h2>
+        </div>
+        <button
+          type="button"
+          class="close"
+          id="closeDialog"
+          aria-label="Close persona details"
+        >
+          ×
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div class="dialog-tag" id="dialogMeta"></div>
+        <div class="dialog-portrait" id="dialogPortrait">
+          <span
+            class="dialog-initials"
+            id="dialogInitials"
+            aria-hidden="true"
+          ></span>
+          <img
+            id="dialogImage"
+            src="assets/portraits/optimized/ada-lovelace.webp"
+            alt="Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress."
+          >
+        </div>
+        <p class="dialog-quote" id="dialogLine"></p>
+        <div class="facts">
+          <div class="fact">
+            <b>Pressure point</b><span id="dialogPressure"></span>
+          </div>
+          <div class="fact">
+            <b>Room behavior</b><span id="dialogBehavior"></span>
+          </div>
+          <div class="fact">
+            <b>Pack state</b><span>Candidate / draft</span>
+          </div>
+          <div class="fact">
+            <b>Knowledge boundary</b><span>Cut off at lifetime evidence</span>
+          </div>
+        </div>
+      </div>
+      <div class="notice">
+        Educational creative interpretation. Historical identity is not blanket
+        permission: source facts, direct quotations, creative inference, and
+        assets require separate review.
+      </div>
+    </dialog>
+    <script>
+      const people = [
+        {
+          id: "ada",
+          name: "Ada Lovelace",
+          initials: "AL",
+          years: "1815–1852",
+          group: "makers writers",
+          tone: "#ed4f37",
+          angle: "22deg",
+          line: "The machine can arrange symbols. The harder question is what we ask it to mean.",
+          pressure: "Imagination versus mechanical limits",
+          behavior: "Translates abstractions, challenges small ambitions.",
+        },
+        {
+          id: "galileo",
+          name: "Galileo Galilei",
+          initials: "GG",
+          years: "1564–1642",
+          group: "makers power",
+          tone: "#ff7a32",
+          angle: "-24deg",
+          line: "An instrument extends the eye; it does not excuse the judgment.",
+          pressure: "Observation versus institutional authority",
+          behavior:
+            "Demands testable consequences and contests inherited certainty.",
+        },
+        {
+          id: "newton",
+          name: "Isaac Newton",
+          initials: "IN",
+          years: "1643–1727",
+          group: "makers power",
+          tone: "#3d5afe",
+          angle: "-18deg",
+          line: "First define the force. Then we may quarrel about its consequence.",
+          pressure: "Proof versus private obsession",
+          behavior: "Narrows claims, guards priority, resists metaphor.",
+        },
+        {
+          id: "douglass",
+          name: "Frederick Douglass",
+          initials: "FD",
+          years: "1818–1895",
+          group: "writers power",
+          tone: "#f5a623",
+          angle: "35deg",
+          line: "A principle that bends before power was never a principle at all.",
+          pressure: "Moral clarity versus political compromise",
+          behavior: "Tests universal claims against lived consequence.",
+        },
+        {
+          id: "shelley",
+          name: "Mary Shelley",
+          initials: "MS",
+          years: "1797–1851",
+          group: "writers makers",
+          tone: "#9c7af2",
+          angle: "12deg",
+          line: "Every creation inherits the conditions of its abandonment.",
+          pressure: "Creation versus responsibility",
+          behavior: "Finds the human cost inside technical triumph.",
+        },
+        {
+          id: "franklin",
+          name: "Benjamin Franklin",
+          initials: "BF",
+          years: "1706–1790",
+          group: "makers power",
+          tone: "#00a984",
+          angle: "-32deg",
+          line: "Useful experiments have a way of embarrassing polished theories.",
+          pressure: "Practical utility versus public virtue",
+          behavior: "Bargains, jokes, prototypes, then asks who benefits.",
+        },
+        {
+          id: "washington",
+          name: "George Washington",
+          initials: "GW",
+          years: "1732–1799",
+          group: "power makers",
+          tone: "#6f87ff",
+          angle: "18deg",
+          line: "Discipline is tested where command meets uncertainty and consequence.",
+          pressure: "Civic restraint versus executive power",
+          behavior:
+            "Weighs logistics, precedent, reputation, and institutional trust.",
+        },
+        {
+          id: "austen",
+          name: "Jane Austen",
+          initials: "JA",
+          years: "1775–1817",
+          group: "writers power",
+          tone: "#f06e9c",
+          angle: "42deg",
+          line: "People reveal their systems most faithfully while pretending to discuss manners.",
+          pressure: "Social performance versus private motive",
+          behavior: "Notices status games and punctures solemnity.",
+        },
+        {
+          id: "leonardo",
+          name: "Leonardo da Vinci",
+          initials: "LV",
+          years: "1452–1519",
+          group: "makers",
+          tone: "#33b7d4",
+          angle: "-10deg",
+          line: "Turn the question over. Its hidden mechanism is often underneath.",
+          pressure: "Observation versus completion",
+          behavior: "Sketches connections, changes scale, leaves doors open.",
+        },
+        {
+          id: "elizabeth",
+          name: "Elizabeth I",
+          initials: "EI",
+          years: "1533–1603",
+          group: "power writers",
+          tone: "#d1a900",
+          angle: "28deg",
+          line: "Ambiguity is not indecision when every answer moves the court.",
+          pressure: "Sovereignty versus dependence",
+          behavior:
+            "Reads alliances, withholds commitment, controls the frame.",
+        },
+        {
+          id: "copernicus",
+          name: "Nicolaus Copernicus",
+          initials: "NC",
+          years: "1473–1543",
+          group: "makers",
+          tone: "#d83a2e",
+          angle: "32deg",
+          line: "Before we fix the heavens, let us ask which motion belongs to the observer.",
+          pressure: "Coherent order versus inherited arrangement",
+          behavior:
+            "Separates observation, calculation, model, and physical claim.",
+        },
+        {
+          id: "jefferson",
+          name: "Thomas Jefferson",
+          initials: "TJ",
+          years: "1743–1826",
+          group: "writers power",
+          tone: "#e4854a",
+          angle: "-14deg",
+          line: "A declaration must be measured against the power and exclusions it preserves.",
+          pressure: "Declared liberty versus lived contradiction",
+          behavior:
+            "Frames systems expansively while exposing their unresolved costs.",
+        },
+      ];
+      const portraitAssets = {
+        ada: {
+          src: "assets/portraits/optimized/ada-lovelace.webp",
+          alt: "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.",
+          crop: "50% 33%",
+          call: "CALL 01",
+          discipline: "MAKER / WRITER",
+          width: 840,
+          height: 1200,
+        },
+        galileo: {
+          src: "assets/portraits/optimized/galileo-galilei.webp",
+          alt: "Creative historical portrait of Galileo Galilei, white-bearded and seated beside books and a candle.",
+          crop: "50% 26%",
+          call: "CALL 02",
+          discipline: "OBSERVER / MAKER",
+          width: 840,
+          height: 1200,
+        },
+        franklin: {
+          src: "assets/portraits/optimized/benjamin-franklin.webp",
+          alt: "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.",
+          crop: "50% 36%",
+          call: "CALL 03",
+          discipline: "MAKER / POWER",
+          width: 768,
+          height: 1024,
+        },
+        douglass: {
+          src: "assets/portraits/optimized/frederick-douglass.webp",
+          alt: "Creative historical portrait of Frederick Douglass with swept gray hair and a dark formal suit.",
+          crop: "50% 25%",
+          call: "CALL 04",
+          discipline: "WRITER / POWER",
+          width: 768,
+          height: 1024,
+        },
+        elizabeth: {
+          src: "assets/portraits/optimized/elizabeth-i.webp",
+          alt: "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.",
+          crop: "50% 32%",
+          call: "CALL 05",
+          discipline: "POWER / WRITER",
+          width: 840,
+          height: 1200,
+        },
+        washington: {
+          src: "assets/portraits/optimized/george-washington.webp",
+          alt: "Creative historical portrait of George Washington in a dark blue Continental-era coat beside surveying instruments.",
+          crop: "50% 36%",
+          call: "CALL 06",
+          discipline: "POWER / MAKER",
+          width: 768,
+          height: 1024,
+        },
+        leonardo: {
+          src: "assets/portraits/optimized/leonardo-da-vinci.webp",
+          alt: "Creative historical portrait of Leonardo da Vinci, white-bearded with one hand raised in thought.",
+          crop: "50% 48%",
+          call: "CALL 07",
+          discipline: "ARTIST / MAKER",
+          width: 840,
+          height: 1200,
+        },
+        newton: {
+          src: "assets/portraits/optimized/isaac-newton.webp",
+          alt: "Creative historical portrait of Isaac Newton in a dark coat, seated at a candlelit desk.",
+          crop: "50% 38%",
+          call: "CALL 08",
+          discipline: "MAKER / POWER",
+          width: 840,
+          height: 1200,
+        },
+        copernicus: {
+          src: "assets/portraits/optimized/nicolaus-copernicus.webp",
+          alt: "Creative historical portrait of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes.",
+          crop: "50% 29%",
+          call: "CALL 09",
+          discipline: "MAKER / OBSERVER",
+          width: 768,
+          height: 1024,
+        },
+        austen: {
+          src: "assets/portraits/optimized/jane-austen.webp",
+          alt: "Creative historical portrait of Jane Austen in a modest cap and dark shawl beside a writing desk.",
+          crop: "50% 29%",
+          call: "CALL 10",
+          discipline: "WRITER / POWER",
+          width: 768,
+          height: 1024,
+        },
+        shelley: {
+          src: "assets/portraits/optimized/mary-shelley.webp",
+          alt: "Creative historical portrait of Mary Shelley in a black period dress at a storm-lit writing desk.",
+          crop: "50% 32%",
+          call: "CALL 11",
+          discipline: "WRITER / MAKER",
+          width: 768,
+          height: 1024,
+        },
+        jefferson: {
+          src: "assets/portraits/optimized/thomas-jefferson.webp",
+          alt: "Creative historical portrait of Thomas Jefferson in a dark period coat in an architectural study.",
+          crop: "50% 31%",
+          call: "CALL 12",
+          discipline: "WRITER / POWER",
+          width: 768,
+          height: 1024,
+        },
+      };
+      let selected = ["ada", "newton", "douglass"],
+        filter = "all";
+      const grid = document.querySelector("#castGrid"),
+        tray = document.querySelector("#tray"),
+        search = document.querySelector("#search"),
+        dialog = document.querySelector("#personaDialog");
+      function renderCards() {
+        const q = search.value.trim().toLowerCase();
+        let visible = 0;
+        grid.innerHTML = "";
+        people.forEach((p) => {
+          const asset = portraitAssets[p.id];
+          const show =
+            (filter === "all" || p.group.includes(filter)) &&
+            `${p.name} ${p.years} ${p.line} ${p.pressure} ${asset.discipline}`
+              .toLowerCase()
+              .includes(q);
+          if (!show) return;
+          visible++;
+          const card = document.createElement("article");
+          card.className =
+            "cast-card" + (selected.includes(p.id) ? " selected" : "");
+          card.style.setProperty("--tone", p.tone);
+          card.style.setProperty("--angle", p.angle);
+          card.style.setProperty("--crop", asset.crop);
+          card.dataset.id = p.id;
+          card.innerHTML = `<div class="portrait"><span class="initials" aria-hidden="true">${p.initials}</span><img src="${asset.src}" alt="${asset.alt}" width="${asset.width}" height="${asset.height}" loading="lazy" decoding="async"></div><div class="card-body"><div class="call-strip"><span>${asset.call}</span><span>${asset.discipline}</span></div><span class="card-meta">${p.years} · candidate / draft</span><h3>${p.name}</h3><p class="card-line">${p.pressure}</p><div class="card-actions"><button type="button" class="details" data-id="${p.id}">Read sides</button><button type="button" class="call" data-id="${p.id}" aria-pressed="${selected.includes(p.id)}">${selected.includes(p.id) ? "On deck" : "Call them"}</button></div></div>`;
+          const image = card.querySelector("img");
+          image.addEventListener("error", () => {
+            image.hidden = true;
+          });
+          grid.append(card);
+        });
+        document.querySelector("#resultCount").textContent =
+          `${visible} voice${visible === 1 ? "" : "s"} posted`;
+        document.querySelector("#noResults").style.display = visible
+          ? "none"
+          : "block";
+        grid.style.display = visible ? "grid" : "none";
+      }
+      function renderTray() {
+        tray.innerHTML = "";
+        for (let i = 0; i < 3; i++) {
+          const p = people.find((x) => x.id === selected[i]);
+          const seat = document.createElement("div");
+          seat.className = "tray-seat" + (p ? "" : " empty-seat");
+          seat.innerHTML = p
+            ? `<span class="seat-num">${i + 1}</span><span><span class="seat-name">${p.name}</span><span class="seat-role">${p.pressure}</span></span><button type="button" class="remove" data-id="${p.id}" aria-label="Remove ${p.name} from room">×</button>`
+            : `<span class="seat-num">${i + 1}</span><span><span class="seat-name">Open place</span><span class="seat-role">Call a voice from the board</span></span>`;
+          tray.append(seat);
+        }
+        document.querySelector("#startRoom").disabled = selected.length === 0;
+      }
+      function toggle(id) {
+        if (selected.includes(id)) selected = selected.filter((x) => x !== id);
+        else if (selected.length < 3) selected.push(id);
+        else {
+          document.querySelector("#roomFlash").textContent =
+            "Three places only. Strike one name before calling another.";
+          return;
+        }
+        document.querySelector("#roomFlash").textContent = "";
+        renderCards();
+        renderTray();
+      }
+      function openDetails(id) {
+        const p = people.find((x) => x.id === id);
+        const asset = portraitAssets[p.id];
+        document.querySelector("#dialogName").textContent = p.name;
+        document.querySelector("#dialogMeta").textContent =
+          `${asset.call} · ${p.years} · ${asset.discipline} · candidate / draft`;
+        document.querySelector("#dialogInitials").textContent = p.initials;
+        const dialogPortrait = document.querySelector("#dialogPortrait");
+        dialogPortrait.style.setProperty("--crop", asset.crop);
+        dialogPortrait.style.setProperty("--tone", p.tone);
+        const dialogImage = document.querySelector("#dialogImage");
+        dialogImage.hidden = false;
+        dialogImage.src = asset.src;
+        dialogImage.alt = asset.alt;
+        dialogImage.width = asset.width;
+        dialogImage.height = asset.height;
+        document.querySelector("#dialogLine").textContent = `“${p.line}”`;
+        document.querySelector("#dialogPressure").textContent = p.pressure;
+        document.querySelector("#dialogBehavior").textContent = p.behavior;
+        dialog.showModal();
+      }
+      document.querySelector("#dialogImage").addEventListener("error", (e) => {
+        e.currentTarget.hidden = true;
+      });
+      grid.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        b.classList.contains("details")
+          ? openDetails(b.dataset.id)
+          : toggle(b.dataset.id);
+      });
+      tray.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (b) toggle(b.dataset.id);
+      });
+      search.addEventListener("input", renderCards);
+      document.querySelectorAll(".chip[data-filter]").forEach((b) =>
+        b.addEventListener("click", () => {
+          filter = b.dataset.filter;
+          document
+            .querySelectorAll(".chip[data-filter]")
+            .forEach((x) => x.setAttribute("aria-pressed", x === b));
+          renderCards();
+        }),
+      );
+      document.querySelector("#resetFilter").addEventListener("click", () => {
+        search.value = "";
+        filter = "all";
+        document
+          .querySelectorAll(".chip[data-filter]")
+          .forEach((x) =>
+            x.setAttribute("aria-pressed", x.dataset.filter === "all"),
+          );
+        renderCards();
+        search.focus();
+      });
+      document
+        .querySelector("#closeDialog")
+        .addEventListener("click", () => dialog.close());
+      dialog.addEventListener("click", (e) => {
+        if (e.target === dialog) dialog.close();
+      });
+      document.querySelector("#startRoom").addEventListener("click", () => {
+        document.querySelector("#roomFlash").textContent =
+          `Cue received. ${selected.length} voices standing by; you hold the first line.`;
+      });
+      renderCards();
+      renderTray();
+    </script>
+  </body>
 </html>
