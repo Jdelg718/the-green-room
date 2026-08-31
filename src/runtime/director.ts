@@ -2,6 +2,12 @@ const EVENT_PROOF = Symbol("trusted-director-event");
 const ONE_EVENT_COOLDOWN = 1;
 const DEFAULT_AUTONOMOUS_TURN_BUDGET = 10;
 
+export const DIRECTOR_LIMITS = Object.freeze({
+  MAX_NAMESPACE_LENGTH: 128,
+  MAX_EVENT_ID_LENGTH: 256,
+  MAX_TRACKED_EVENT_IDENTITIES: 500,
+} as const);
+
 export const DIRECTOR_REASON = Object.freeze({
   SELECTED: "selected",
   CANCELLED: "cancelled",
@@ -45,9 +51,16 @@ class VerifiedDirectorEvent implements DirectorEvent {
   }
 }
 
-function requireCanonicalIdentifier(value: string, field: string): string {
+function requireCanonicalIdentifier(
+  value: string,
+  field: string,
+  maxLength?: number,
+): string {
   if (value.length === 0 || value.trim() !== value) {
     throw new TypeError(`${field} must be a canonical nonblank string`);
+  }
+  if (maxLength !== undefined && value.length > maxLength) {
+    throw new TypeError(`${field} must be at most ${maxLength} characters`);
   }
   return value;
 }
@@ -56,7 +69,11 @@ export class TrustedEventAdapter {
   readonly #namespace: string;
 
   constructor(namespace: string) {
-    this.#namespace = requireCanonicalIdentifier(namespace, "namespace");
+    this.#namespace = requireCanonicalIdentifier(
+      namespace,
+      "namespace",
+      DIRECTOR_LIMITS.MAX_NAMESPACE_LENGTH,
+    );
   }
 
   humanEvent(
@@ -79,7 +96,11 @@ export class TrustedEventAdapter {
   ): DirectorEvent {
     return new VerifiedDirectorEvent(
       this.#namespace,
-      requireCanonicalIdentifier(eventId, "eventId"),
+      requireCanonicalIdentifier(
+        eventId,
+        "eventId",
+        DIRECTOR_LIMITS.MAX_EVENT_ID_LENGTH,
+      ),
       isHuman,
       text,
       wantsResponse,
@@ -104,6 +125,7 @@ export class Director {
   readonly #muted = new Set<string>();
   readonly #lastSelectedAt = new Map<string, number>();
   readonly #seenByNamespace = new Map<string, Set<string>>();
+  readonly #seenOrder: Array<readonly [namespace: string, eventId: string]> = [];
   readonly #maxAutonomousTurns: number;
   #autonomousTurns = 0;
   #acceptedHumanEventNumber = 0;
@@ -131,6 +153,10 @@ export class Director {
 
   cancel(): void {
     this.#cancelled = true;
+  }
+
+  get duplicateTrackingCount(): number {
+    return this.#seenOrder.length;
   }
 
   setMuted(personaId: string, muted: boolean): void {
@@ -215,8 +241,27 @@ export class Director {
     const namespaceEvents = this.#seenByNamespace.get(namespace);
     if (namespaceEvents === undefined) {
       this.#seenByNamespace.set(namespace, new Set([eventId]));
+    } else {
+      namespaceEvents.add(eventId);
+    }
+    this.#seenOrder.push([namespace, eventId]);
+
+    if (
+      this.#seenOrder.length <=
+      DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES
+    ) {
       return;
     }
-    namespaceEvents.add(eventId);
+
+    const oldest = this.#seenOrder.shift();
+    if (oldest === undefined) {
+      return;
+    }
+    const [oldestNamespace, oldestEventId] = oldest;
+    const oldestNamespaceEvents = this.#seenByNamespace.get(oldestNamespace);
+    oldestNamespaceEvents?.delete(oldestEventId);
+    if (oldestNamespaceEvents?.size === 0) {
+      this.#seenByNamespace.delete(oldestNamespace);
+    }
   }
 }

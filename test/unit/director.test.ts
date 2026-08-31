@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { ORIGINAL_CAST } from "../../src/personas/original-cast.js";
 import {
+  DIRECTOR_LIMITS,
   DIRECTOR_REASON,
   Director,
   TrustedEventAdapter,
@@ -142,7 +143,71 @@ test("director rejects unverified events and validates canonical identities", ()
     { speaker: null, reason: DIRECTOR_REASON.UNVERIFIED_EVENT },
   );
   assert.throws(() => new TrustedEventAdapter(" relay"), /namespace/);
+  assert.throws(() => new TrustedEventAdapter(""), /namespace/);
+  assert.throws(
+    () => new TrustedEventAdapter("n".repeat(DIRECTOR_LIMITS.MAX_NAMESPACE_LENGTH + 1)),
+    /namespace/,
+  );
   assert.throws(() => adapter.humanEvent("", "Missing id"), /eventId/);
+  assert.throws(
+    () =>
+      adapter.humanEvent(
+        "e".repeat(DIRECTOR_LIMITS.MAX_EVENT_ID_LENGTH + 1),
+        "Oversized id",
+      ),
+    /eventId/,
+  );
+});
+
+test("director bounds duplicate tracking across blocked and exhausted events", () => {
+  const director = new Director(roster, { maxAutonomousTurns: 1 });
+  const streamSize = DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES * 3;
+
+  assert.equal(
+    director.schedule(adapter.humanEvent("selected", "Use the budget")).reason,
+    DIRECTOR_REASON.SELECTED,
+  );
+
+  for (let index = 0; index < streamSize; index += 1) {
+    const source = new TrustedEventAdapter(`source-${index}`);
+    const event =
+      index % 2 === 0
+        ? source.nonHumanEvent(`blocked-${index}`, "Do not self-trigger")
+        : source.humanEvent(`exhausted-${index}`, "No budget remains");
+    const expectedReason =
+      index % 2 === 0
+        ? DIRECTOR_REASON.SELF_TRIGGER_BLOCKED
+        : DIRECTOR_REASON.BUDGET_EXHAUSTED;
+
+    assert.equal(director.schedule(event).reason, expectedReason);
+    assert.ok(
+      director.duplicateTrackingCount <=
+        DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES,
+    );
+  }
+
+  assert.equal(
+    director.duplicateTrackingCount,
+    DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES,
+  );
+  assert.equal(
+    director.schedule(
+      new TrustedEventAdapter("source-0").nonHumanEvent(
+        "blocked-0",
+        "Old identity was evicted",
+      ),
+    ).reason,
+    DIRECTOR_REASON.SELF_TRIGGER_BLOCKED,
+  );
+  assert.equal(
+    director.schedule(
+      new TrustedEventAdapter(`source-${streamSize - 1}`).humanEvent(
+        `exhausted-${streamSize - 1}`,
+        "Recent identity remains tracked",
+      ),
+    ).reason,
+    DIRECTOR_REASON.DUPLICATE,
+  );
 });
 
 test("director keeps event namespaces distinct and handles an empty roster", () => {
