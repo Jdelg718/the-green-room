@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "record_id": "018f0f72-0011-7000-8000-000000000011",
+  "revision_id": "018f0f72-0012-7000-8000-000000000012",
+  "revision": 2,
+  "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+  "kind": "room",
+  "scope": {},
+  "body": "A tombstone must not retain private body text.",
+  "status": "tombstoned",
+  "supersedes_revision_id": "018f0f70-a2c4-7ff8-972a-30543e84b43c",
+  "tombstone_reason": "User forgot record",
+  "provenance": {"source_event_ids": ["018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"], "derivation": {"kind": "correction", "producer": "human"}},
+  "created_at": "2026-08-30T16:05:00.000Z",
+  "created_by": "user"
+}
