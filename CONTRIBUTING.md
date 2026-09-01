@@ -25,7 +25,7 @@ Before a hybrid Node/Python release, start from clean installs and run the exact
 release gate:
 
 ```bash
-npm ci && uv sync --locked && npm run check:release
+npm ci --strict-allow-scripts=true && uv sync --locked && npm run check:release
 ```
 
 `check:release` runs `check:all` and then the first-playable acceptance.

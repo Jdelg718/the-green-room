@@ -60,7 +60,7 @@ body:
       placeholder: |
         - [ ] Observable outcome
         - [ ] Focused tests
-        - [ ] npm ci && uv sync --locked && npm run check:release
+        - [ ] npm ci --strict-allow-scripts=true && uv sync --locked && npm run check:release
     validations:
       required: true
   - type: checkboxes

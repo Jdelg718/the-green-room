@@ -1,10 +1,11 @@
 import { isIP } from "node:net";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import {
   DEFAULT_LM_STUDIO_MODEL,
   validateLMStudioModel,
 } from "./providers/lm-studio.js";
+import { resolveDataRoot, type RuntimeMode } from "./platform/paths.js";
 
 export interface AppConfig {
   readonly acceptanceFixture: "first-playable-v1" | null;
@@ -18,6 +19,7 @@ export interface AppConfig {
   readonly personaInspectionTempParent: string;
   readonly port: number;
   readonly provider: "mock" | "lmstudio";
+  readonly runtimeMode: RuntimeMode;
 }
 
 function personaInspectionMode(
@@ -111,13 +113,6 @@ function listenPort(value: string | undefined): number {
   return port;
 }
 
-function dataDirectory(value: string | undefined, cwd: string): string {
-  if (value === "") {
-    throw new Error("GREENROOM_DATA_DIR must not be empty");
-  }
-
-  return resolve(cwd, value ?? ".local/first-playable");
-}
 
 function allowedOrigin(value: string | undefined, fallback: string): string {
   if (value === undefined) {
@@ -157,9 +152,9 @@ export function loadConfig(
 ): AppConfig {
   const host = loopbackHost(environment.GREENROOM_HOST);
   const port = listenPort(environment.GREENROOM_PORT);
-  const dataDir = dataDirectory(environment.GREENROOM_DATA_DIR, cwd);
+  const { dataDir, runtimeMode } = resolveDataRoot({ cwd, environment });
   const personaInspectionRoot = join(dataDir, "runtime", "persona-inspection");
-  return {
+  return Object.freeze({
     acceptanceFixture: acceptanceFixture(
       environment.GREENROOM_ACCEPTANCE_FIXTURE,
     ),
@@ -180,5 +175,6 @@ export function loadConfig(
     personaInspectionTempParent: join(personaInspectionRoot, "tmp"),
     port,
     provider: generationProvider(environment.GREENROOM_PROVIDER),
-  };
+    runtimeMode,
+  });
 }

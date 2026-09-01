@@ -29,7 +29,7 @@ Check every applicable statement; explain any exception above.
 - [ ] I ran the exact clean-install Node 24 hybrid gate, or explained why a maintainer must run it:
 
 ```bash
-npm ci && uv sync --locked && npm run check:release
+npm ci --strict-allow-scripts=true && uv sync --locked && npm run check:release
 ```
 
 Result:

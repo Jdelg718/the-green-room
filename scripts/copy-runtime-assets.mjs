@@ -24,3 +24,16 @@ cpSync(
   resolve(repositoryRoot, "tests/fixtures/persona-validator/valid-minimal.greenroom"),
   fixtureDestination,
 );
+
+const scriptDestination = resolve(repositoryRoot, "dist/scripts/source-clean-host.mjs");
+mkdirSync(dirname(scriptDestination), { recursive: true });
+cpSync(resolve(repositoryRoot, "scripts/source-clean-host.mjs"), scriptDestination);
+
+for (const relativePath of [
+  "scripts/package/verify-release-manifest.mjs",
+  "packaging/release-manifest.schema.json",
+]) {
+  const destination = resolve(repositoryRoot, "dist", relativePath);
+  mkdirSync(dirname(destination), { recursive: true });
+  cpSync(resolve(repositoryRoot, relativePath), destination);
+}

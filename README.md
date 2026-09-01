@@ -32,12 +32,17 @@ temporary data before exiting. A passing run ends with a single JSON summary.
 
 ## Run from a clean source checkout with persona inspection
 
-Node 24 and `uv` are required. Prepare the JavaScript dependencies, create the
-locked repository virtual environment, build the Node runtime and its fixed
-preflight asset, then use the reviewed local-source launcher:
+Node 24, exact npm 11.19.0, and `uv` are required. From a fresh checkout,
+run the dependency-free preflight against an absent canonical data root before
+any package-manager install. The preflight rejects npm versions that do not
+enforce the committed strict install-script policy. Then prepare the locked
+dependencies, build, and use the reviewed local-source launcher:
 
 ```bash
-npm ci
+node --version
+npm --version
+node scripts/source-clean-host.mjs --data-root=/absolute/disposable/greenroom-data
+npm ci --strict-allow-scripts=true
 uv sync --locked --no-dev
 npm run build
 npm run start:local

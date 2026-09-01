@@ -1,11 +1,13 @@
-# Proposed ADR: Downloadable alpha packaging and lifecycle boundary
+# ADR: Downloadable alpha packaging and lifecycle boundary
 
-- **Status:** Proposed — architecture and spike authorization only
+- **Status:** Accepted — bounded implementation spike authorization only
 - **Date:** 2026-09-01
 - **Decision owners:** Green Room maintainer and release owner
 - **Planning baseline:** `98d882a3f7df373457e6031f9f39ac544dbadfb4`
 - **Supersedes:** the packaging assumptions in closed PR #52; it does not supersede accepted ADR 0002
 - **Implements:** no installer, release, deployment, provider, or update service
+
+Acceptance authorizes only the private Tasks 1–25 implementation and evidence sequence below. It is not a claim that a downloadable artifact exists, that any platform is supported, or that signing, notarization, publication, deployment, or release approval has occurred.
 
 ## Decision summary
 
@@ -32,7 +34,7 @@ The current `start:local` workflow is valid source operation, not a relocatable 
 
 | Option | What it can honestly deliver now | Principal cost or blocker | Decision |
 | --- | --- | --- | --- |
-| Locked source checkout + managed `.venv` | Auditable operator alpha on named OSes; exact `npm ci`, `uv sync --locked`, build and source launcher | Online dependency acquisition unless caches are prepared; requires Node 24 and `uv`; not nontechnical and not relocatable | **Adopt first** and prove on clean macOS arm64 and Ubuntu 24.04 x64 |
+| Locked source checkout + managed `.venv` | Auditable operator alpha on named OSes; exact `npm ci --strict-allow-scripts=true`, `uv sync --locked`, build and source launcher | Online dependency acquisition unless caches are prepared; requires Node 24 and `uv`; not nontechnical and not relocatable | **Adopt first** and prove on clean macOS arm64 and Ubuntu 24.04 x64 |
 | Docker Compose | Pinned, isolated operator image with repeatable app dependencies; Docker Desktop includes Engine, CLI and Compose on macOS/Windows/Linux.[25] | Large prerequisite; Docker Desktop policy/licensing and virtualization are outside Green Room; host LM Studio routing differs; OS credential stores and desktop integration are awkward | **Optional later**, not the default download and not a universal-support claim |
 | Desktop wrapper + ordinary bundled Node and validator runtimes | Reuses the actual Node server and web UI; preserves ordinary ESM/assets; no host Node/Python requirement | Per-platform payloads, signing, lifecycle supervision, runtime patch ownership, platform credential work | **Chosen bounded spike** on macOS arm64 only |
 | Node SEA + bundled validator sidecar | Potentially reduces the Node payload to one executable | Node 24 SEA is still marked active development, injects one CommonJS script, restricts injected-script module loading, needs explicit embedded assets, and modifies a copied Node binary that must be re-signed.[1] Current Green Room is ESM with filesystem assets and production packages | **Defer** until the ordinary bundle is measured; a later throwaway SEA probe may test bundle compatibility, never replace gates by assumption |
@@ -131,7 +133,7 @@ Every candidate artifact has:
 - exact source commit, runner image/OS, compiler/tool versions, Node/Python inputs, build commands, signing identity metadata (not secrets) and notarization result;
 - a GitHub artifact attestation for each final digest and an SBOM attestation when the public-repository release workflow is approved; GitHub supports build and SBOM attestations and CLI verification.[22]
 
-`npm ci` is the locked Node input gate because it requires a lockfile, fails on package/lock mismatch and does not rewrite dependency metadata.[24] `npm sbom` can produce SPDX or CycloneDX dependency inventories,[23] but final payload inventory must additionally include non-npm runtimes and native launcher files. “Reproducible” is not claimed until two clean native builds produce byte-identical unsigned payloads or all differences are explained and normalized. Signatures/notarization timestamps are compared as signed semantics, not expected byte identity.
+`npm ci --strict-allow-scripts=true` under exact npm 11.19.0 is the locked Node input gate because it requires a lockfile, fails on package/lock mismatch, does not rewrite dependency metadata, and fails before an unapproved lifecycle script executes.[24] `npm sbom` can produce SPDX or CycloneDX dependency inventories,[23] but final payload inventory must additionally include non-npm runtimes and native launcher files. “Reproducible” is not claimed until two clean native builds produce byte-identical unsigned payloads or all differences are explained and normalized. Signatures/notarization timestamps are compared as signed semantics, not expected byte identity.
 
 ## Threat model and hard stops
 

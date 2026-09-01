@@ -9,6 +9,11 @@ import {
   type PersonaPackInspectionRuntime,
 } from "./personas/persona-pack-inspection-runtime.js";
 import { selectProvider } from "./providers/select-provider.js";
+import {
+  acquireDataRootWriterLock,
+  DataRootInUseError,
+  type DataRootWriterLock,
+} from "./runtime/data-root-lock.js";
 
 const config = loadConfig();
 const historicalCatalog = loadHistoricalCatalog(
@@ -18,6 +23,7 @@ const historicalCatalog = loadHistoricalCatalog(
 let store: ReturnType<typeof openGreenRoomDatabase> | undefined;
 let runtime: PersonaPackInspectionRuntime | undefined;
 let app: ReturnType<typeof buildApp> | undefined;
+let dataRootLock: DataRootWriterLock | undefined;
 let closing = false;
 
 async function closeResources(): Promise<void> {
@@ -51,6 +57,15 @@ async function closeResources(): Promise<void> {
       errors.push(error);
     }
   }
+  const currentDataRootLock = dataRootLock;
+  dataRootLock = undefined;
+  if (currentDataRootLock) {
+    try {
+      currentDataRootLock.release();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
   if (errors.length > 0) throw new AggregateError(errors, "resource cleanup failed");
 }
 
@@ -69,6 +84,7 @@ async function shutdown(signal: string): Promise<void> {
 }
 
 try {
+  dataRootLock = acquireDataRootWriterLock(config.dataDir);
   // Inspection validates and prepares its owned data-directory boundary before
   // SQLite can create or migrate anything beneath an explicitly symlinked path.
   runtime = await buildPersonaPackInspectionRuntime(config);
@@ -108,7 +124,10 @@ try {
 
   await app.listen({ host: config.host, port: config.port });
 } catch (error) {
-  if (app) app.log.error(error, "startup failed");
+  if (error instanceof DataRootInUseError) {
+    process.stderr.write(`${JSON.stringify({ code: error.code })}\n`);
+    process.exitCode = 73;
+  } else if (app) app.log.error(error, "startup failed");
   else process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
   try {
     await closeResources();
@@ -117,5 +136,5 @@ try {
       `Startup cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`,
     );
   }
-  process.exitCode = 1;
+  if (!(error instanceof DataRootInUseError)) process.exitCode = 1;
 }
