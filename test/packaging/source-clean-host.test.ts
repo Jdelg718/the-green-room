@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -99,6 +100,50 @@ test("clean-host preflight requires the exact native install-script policy", asy
     })}\n`,
   );
   await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_native_script_policy_invalid");
+});
+
+test("npm strict allow-scripts blocks an unapproved local install script before execution", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-strict-install-script-"));
+  const app = join(root, "app");
+  const dependency = join(root, "unapproved-package");
+  const marker = join(root, "install-script-ran");
+  mkdirSync(app);
+  mkdirSync(dependency);
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const npmrc = readFileSync(join(process.cwd(), ".npmrc"), "utf8");
+  assert.equal(npmrc, "strict-allow-scripts=true\n");
+  writeFileSync(join(app, ".npmrc"), npmrc);
+  writeFileSync(
+    join(app, "package.json"),
+    `${JSON.stringify({
+      name: "strict-script-policy-fixture",
+      version: "1.0.0",
+      private: true,
+      dependencies: { "unapproved-install-fixture": "file:../unapproved-package" },
+      allowScripts: { "fs-ext@2.1.1": true },
+    })}\n`,
+  );
+  writeFileSync(
+    join(dependency, "package.json"),
+    `${JSON.stringify({
+      name: "unapproved-install-fixture",
+      version: "1.0.0",
+      scripts: { install: "node install.cjs" },
+    })}\n`,
+  );
+  writeFileSync(join(dependency, "install.cjs"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
+
+  const result = spawnSync("npm", ["install", "--offline", "--no-audit", "--no-fund"], {
+    cwd: app,
+    encoding: "utf8",
+    env: { PATH: process.env.PATH ?? "" },
+    shell: false,
+    timeout: 30_000,
+  });
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /ESTRICTALLOWSCRIPTS|strict allow scripts/i);
+  assert.equal(existsSync(marker), false, "unapproved install script must not execute");
 });
 
 test("clean-host preflight rejects relative, existing, symlinked, and unwritable data roots", async (context) => {
