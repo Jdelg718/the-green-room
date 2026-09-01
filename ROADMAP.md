@@ -11,7 +11,7 @@ The current executable baseline provides:
 - durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
 - a fixed-loopback LM Studio private provider plus deterministic test providers;
 - 12 strictly validated historical candidate packs and a text/monogram cast gallery; and
-- the current integrated release gate: 192 passing Node tests, 227 passing Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance.
+- the current integrated release gate: 211 passing Node tests, 228 passing Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance.
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
 
@@ -80,15 +80,15 @@ This establishes technical viability. It does not approve historical candidates 
 
 ## R5 — greenroomai.net and community release
 
-**Outcome:** establish `greenroomai.net` as the intended static public project, documentation, download, and contribution surface while the application continues to run locally.
+**Outcome:** maintain the live `greenroomai.net` static public project, documentation, download, and contribution surface while the application continues to run locally.
 
-- Publish static project information, verified downloads, setup docs, contribution paths, and security/contact guidance after separate operator approval.
+- Keep static project information, setup docs, contribution paths, and security/contact guidance current; publish downloads only after separate artifact and operator approval.
 - After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
 - Let the local application download only approved catalog definitions, verify the expected digest, validate again locally, inspect, and install with explicit approval.
 - Keep provider keys, transcripts, room state, memory, and pack drafts out of the website and its storage.
 - Treat any optional hosted or invite service as a future, separately reviewed multi-tenant architecture that is never required for local use.
 
-**Acceptance criteria:** DNS and deployment are claimed only after independent verification; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; and public contribution/catalog paths enforce the content policy.
+**Acceptance criteria:** live DNS and deployment claims remain independently verified; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; public contribution/catalog paths enforce the content policy; and source-only integration does not trigger a redeploy.
 
 The portable-character and community boundary is specified in [ADR 0003](docs/adr/0003-portable-characters-and-community-library.md) and the [Character Wizard and community library delivery plan](docs/plans/2026-09-01-character-wizard-community-library.md).
 

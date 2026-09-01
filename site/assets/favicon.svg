@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">The Green Room GR slash mark</title>
+  <rect width="64" height="64" fill="#121411"/>
+  <text x="7" y="39" fill="#b9ff29" font-family="monospace" font-size="19" font-weight="700">GR//</text>
+  <circle cx="55" cy="9" r="6" fill="#b9ff29" stroke="#121411" stroke-width="3"/>
+</svg>

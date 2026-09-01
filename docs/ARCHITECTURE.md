@@ -9,7 +9,7 @@ The verified alpha is a Node 24 application using Fastify and `node:sqlite`. Buz
 ## Deployment and trust planes
 
 ```text
-greenroomai.net (intended static project/control-information/distribution plane)
+greenroomai.net (live static project/control-information/distribution plane)
     project information · docs · verified downloads · contribution guidance
     no keys · no transcripts · no room state · no model proxy
 
@@ -22,7 +22,7 @@ Local companion (data and inference-control plane)
                            +--> local SQLite data and local secret references
 ```
 
-`greenroomai.net` is the intended public project and distribution domain; DNS or deployment is not asserted here. The local companion owns user data, provider configuration, and credentials. A user-selected cloud provider may receive the bounded persona and room context needed for inference, but project-operated web infrastructure does not.
+`greenroomai.net` is live as the static public project and distribution-information domain. Its reviewed source is isolated under `site/`, and `wrangler.jsonc` is the repository-owned Cloudflare static-assets configuration. The local companion owns user data, provider configuration, and credentials. A user-selected cloud provider may receive the bounded persona and room context needed for inference, but project-operated web infrastructure does not. Integrating this source and configuration does not itself redeploy the already-live site.
 
 Any future hosted or invite service requires a separate architecture decision, authentication and abuse controls, tenant isolation, data lifecycle, incident response, and provider-secret design. It is optional and never a prerequisite for local use.
 
