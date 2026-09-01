@@ -255,7 +255,8 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
   assert.match(workflow, /SOURCE_REF="\$GITHUB_REF"/);
   assert.match(workflow, /greenroom-user-owned-snapshot/);
-  assert.match(workflow, /test ! -s "\$errors"/);
+  assert.match(workflow, /sudo test ! -s "\$errors"/);
+  assert.match(workflow, /sudo cat "\$errors"/);
   assert.match(workflow, /sha256/);
   assert.match(workflow, /symlinkTarget/);
   assert.match(workflow, /git clone --filter=blob:none --no-checkout/);
@@ -293,7 +294,8 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.ok(processAssertion >= 0 && afterSnapshot > processAssertion, "UID-wide process inventory must precede the after snapshot");
   assert.match(workflow, /\/bin\/ps -axo uid=,pid=,ppid=,command=/);
   assert.match(workflow, /i\.processes\.length!==0/);
-  assert.match(workflow, /--process-inventory="\$process_inventory"/);
+  assert.match(workflow, /--process-inventory="\$cleanup_inventory"/);
+  assert.match(workflow, /sudo test -f "\$EVIDENCE_ROOT\/evidence\/harness-evidence\.json"/);
   assert.match(workflow, /processes-after-source\.json/);
   assert.doesNotMatch(workflow, /sudo -u "\$EVIDENCE_USER" (?:rmdir|rm -f)/);
   assert.match(workflow, /setup failed before the root control plane was available/);
