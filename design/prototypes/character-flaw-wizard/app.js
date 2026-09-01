@@ -87,6 +87,11 @@
     data.knowledge, data.limitations, data.customBoundary, data.relationshipHook
   ];
   const safe = (value) => secretPattern.test(String(value)) ? '[REDACTED SENSITIVE VALUE]' : String(value ?? '');
+  const safeSlug = (value) => {
+    const sanitized = safe(value);
+    if (sanitized === '[REDACTED SENSITIVE VALUE]') return 'redacted-sensitive-value';
+    return clean(sanitized).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'untitled-original';
+  };
   const hash = (value) => {
     let out = 2166136261;
     for (const char of value) { out ^= char.charCodeAt(0); out = Math.imul(out, 16777619); }
@@ -111,7 +116,7 @@
     const pairs = data.virtues.map(([virtue, shadow]) => `- ${safe(virtue)} → under pressure: ${safe(shadow)}`).join('\n');
     const safety = requiredSafety.map((line) => `- ${line}`).join('\n');
     const version = '0.1.0';
-    const idSlug = clean(data.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'untitled-original';
+    const idSlug = safeSlug(data.name);
     const manifest = `schema_version: "0.1"\nid: ${yaml(`local.greenroom.${idSlug}.prototype`)}\nname: ${yaml(safe(data.name))}\nversion: "${version}"\nauthor: "Local draft author"\nlicense: "CC-BY-4.0"\nsummary: ${yaml(safe(data.purpose))}\n\nidentity:\n  type: "original"\n  age_band: "not specified"\n  setting: ${yaml(safe(data.setting))}\n\nbehavior:\n  initiative: 0.55\n  interruption: 0.10\n  verbosity: ${(1 - data.voice.brevity / 120).toFixed(2)}\n  agreeableness: ${(data.voice.warmth / 100).toFixed(2)}\n  emotional_range: 0.55\n  max_consecutive_turns: 1\n\nknowledge:\n  cutoff: "2026-01-01"\n  domains:\n    - "original fictional setting"\n    - "user-supplied synthetic rehearsal"\n  limitations:\n    - ${yaml(safe(data.limitations))}\n\nboundaries:\n  external_tools: false\n  impersonates_real_person: false\n  copied_dialogue: false\n\nassets: {}\n`;
     const agents = `# ${safe(data.name)}\n\n## Room role\n\n${safe(data.role)} — ${safe(data.purpose)}\n\n## Core drive and fear\n\nDrive: ${safe(data.drive)}\n\nFear: ${safe(data.fear)}\n\n## Virtue and shadow\n\n${pairs}\n\n## Flaw under pressure\n\n- Trigger: ${safe(data.flaw.trigger)}\n- Temptation: ${safe(data.flaw.temptation)}\n- Rationalization: ${safe(data.flaw.rationalization)}\n- Escalation: ${safe(data.flaw.escalation)}\n- Observable tell: ${safe(data.flaw.tell)}\n- Consequence: ${safe(data.flaw.consequence)}\n- Recovery: ${safe(data.flaw.recovery)}\n\n## Immutable boundaries\n\n${safety}\n- ${safe(data.customBoundary)}\n\n## Turn discipline\n\nSpeak when invited or when a concise intervention prevents avoidable confusion. Maximum consecutive turns: 1. Leave room for silence and dissent.\n`;
     const background = `# Background\n\n${safe(data.name)} is a wholly original fictional ${safe(data.role)} in ${safe(data.setting)}\n\nTheir formative tension is the conflict between this drive—${safe(data.drive)}—and this fear—${safe(data.fear)}\n\nThis draft contains no claim to a protected character, real person, performer likeness, professional identity, endorsement, private fact, or copied source material.\n`;

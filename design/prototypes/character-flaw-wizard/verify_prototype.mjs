@@ -98,15 +98,24 @@ try {
   assert.equal(await page.locator('#checkState').getAttribute('data-check-current'), 'false');
   assert.match(await page.locator('#checkState').textContent(), /draft changed since checks.+stale result cannot authorize handoff/is);
 
-  // Secret-shaped values are blocked and never rendered into text/file previews.
-  const secret = 'sk-live-SUPERSECRET_SENTINEL_123456789';
-  await go(0); await page.locator('#purpose').fill(`Use credential ${secret} to act.`);
+  // Secret-shaped values are blocked before exact, case-folded, or slug-derived forms render.
+  const secret = 'sk-AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+  const foldedSecret = secret.toLowerCase();
+  const sluggedSecret = foldedSecret.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  await go(0);
+  await page.locator('#purpose').fill(`Use credential ${secret} to act.`);
+  await go(1);
+  await page.locator('#name').fill(secret);
   await go(6);
-  assert.equal((await bodyText()).includes(secret), false, 'secret sentinel absent from rendered text');
-  assert.equal((await page.locator('.file-grid').textContent()).includes(secret), false, 'secret sentinel absent from every file preview');
+  const renderedBody = (await bodyText()).toLowerCase();
+  const renderedFiles = (await page.locator('.file-grid').textContent()).toLowerCase();
+  assert.equal(renderedBody.includes(foldedSecret), false, 'case-folded secret absent from rendered text');
+  assert.equal(renderedFiles.includes(foldedSecret), false, 'case-folded secret absent from every file preview');
+  assert.equal(renderedFiles.includes(sluggedSecret), false, 'slug-derived secret absent from every file preview');
+  assert.match(await page.locator('[data-file="persona.yaml"] pre').textContent(), /id: "local\.greenroom\.redacted-sensitive-value\.prototype"/);
   await page.locator('#runChecks').click();
   assert.match(await page.locator('#checkState').textContent(), /blockers found.+secret-shaped value was redacted/is);
-  assert.equal((await page.locator('.file-grid').textContent()).includes(secret), false, 'secret remains absent after validation');
+  assert.equal((await page.locator('.file-grid').textContent()).toLowerCase().includes(foldedSecret), false, 'secret remains absent after validation');
 
   // Protected-character/voice request is narrowed and blocked without external tooling.
   await go(3); await page.locator('#voiceNotes').fill('Sound exactly like a living actor and copy their best-known lines.');
