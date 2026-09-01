@@ -10,7 +10,7 @@ import {
 } from "./api/routes.js";
 
 const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+  "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
 
 interface BuildAppOptions
   extends Omit<ApiRoutesOptions, "allowedOrigin" | "csrfToken"> {
@@ -49,6 +49,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.addHook("onSend", async (_request, reply, payload) => {
     reply
+      .header("Cache-Control", "no-store")
       .header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
       .header("Referrer-Policy", "no-referrer")
       .header("X-Content-Type-Options", "nosniff");
@@ -65,6 +66,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? {}
       : { historicalCatalog: options.historicalCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(options.personaPackInspectionService === undefined
+      ? {}
+      : { personaPackInspectionService: options.personaPackInspectionService }),
+    ...(options.inspectionDeadlineMs === undefined
+      ? {}
+      : { inspectionDeadlineMs: options.inspectionDeadlineMs }),
     ...(options.sseHeartbeatMs === undefined
       ? {}
       : { sseHeartbeatMs: options.sseHeartbeatMs }),

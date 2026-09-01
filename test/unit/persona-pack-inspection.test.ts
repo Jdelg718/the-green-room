@@ -132,7 +132,7 @@ test("accepts exactly 4 MiB across chunk boundaries and reads only the first byt
   });
 });
 
-test("rejects empty input and hostile stream failures without validating or leaking causes", async () => {
+test("passes empty candidate content to the validator and sanitizes hostile stream failures", async () => {
   await withTempParent(async (tempParent) => {
     let validations = 0;
     const service = new PersonaPackInspectionService({
@@ -142,10 +142,9 @@ test("rejects empty input and hostile stream failures without validating or leak
         return VALID_REPORT;
       }),
     });
-    await assert.rejects(
-      service.inspect(Readable.from([]), new AbortController().signal),
-      hasCode("inspection_empty"),
-    );
+    const empty = await service.inspect(Readable.from([]), new AbortController().signal);
+    assert.equal(empty.uploadedBytes, 0);
+    assert.equal(validations, 1);
 
     const hostile = async function* () {
       yield Buffer.from("partial");
@@ -161,7 +160,7 @@ test("rejects empty input and hostile stream failures without validating or leak
     assert.equal(caught.code, "inspection_stream_error");
     assert.equal(String(caught).includes("SECRET"), false);
     assert.equal(String(caught).includes("/private/file.greenroom"), false);
-    assert.equal(validations, 0);
+    assert.equal(validations, 1);
     await assertClean(tempParent);
   });
 });

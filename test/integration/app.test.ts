@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { buildApp } from "../../src/app.js";
 
 const expectedSecurityHeaders = {
-  "content-security-policy": "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+  "content-security-policy": "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 };
