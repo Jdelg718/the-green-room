@@ -2,7 +2,7 @@
 
 ## Status
 
-This contract covers the standalone prototype at `design/prototypes/provider-setup/index.html`. It is an implementation-ready design exploration, not deployed functionality, an accepted API contract, or permission to wire production provider routes. Kent must approve the direction before implementation handoff.
+This contract covers the standalone prototype at `design/prototypes/provider-setup/index.html`. It is a design exploration aligned to the provider data contracts now on `main`, not deployed functionality, a provider-management API contract, or permission to wire production provider routes. Maintainer approval and a separate route/secret-store handoff are still required before implementation.
 
 The prototype is intentionally self-contained. It uses synthetic labels and in-memory interaction state; it makes no provider request, stores no credential, uses no browser storage, and changes no room or provider record. Its default state is untested: the result and saved-profile preview are hidden and Save is unavailable.
 
@@ -39,7 +39,23 @@ Applied constraints:
 - The ordinary path accepts only adapter-owned loopback endpoints or approved cloud definitions. It does not accept arbitrary provider request URLs, redirects, arbitrary headers, or query-string credentials.
 - Provider credentials are excluded from browser storage, URLs, room SQLite data, events, exports, logs, diagnostics, packs, and decision snapshots.
 - No portrait, historical identity, persona pack, remote font, remote script, or remote asset appears in this prototype.
-- Production wiring waits for Amy’s frozen provider contracts and route handoff.
+- The frozen provider data contracts allow only local adapters `openai-compatible` and `ollama`, approved provider definitions `openai` and `anthropic`, exact positive revision references, and the model capabilities `chat`, `json-output`, `streaming`, and `system-messages`.
+- Production wiring still waits for a provider-management route, persistence, test-evidence, activation/status, and secret-store handoff. Those behaviors are not present in the current data contracts.
+
+## Current provider-contract alignment
+
+The prototype was re-audited against `src/providers/profile-contracts.ts` after the provider-contract merge. Its visible choices map to the closed contract as follows:
+
+| Prototype choice | Current contract target | Adapter evidence |
+| --- | --- | --- |
+| LM Studio / compatible local | `{ class: "local-endpoint", adapter: "openai-compatible" }` | `openai-compatible` |
+| Ollama | `{ class: "local-endpoint", adapter: "ollama" }` | `ollama` |
+| OpenAI | `{ class: "approved-provider", definitionId: "openai" }` | `openai-compatible` |
+| Anthropic | `{ class: "approved-provider", definitionId: "anthropic" }` | `anthropic` |
+
+The endpoint text shown for local choices is adapter-owned presentation data, not a user-editable URL and not a field in the current `ConnectionProfile`. The model test copy treats `chat` as the required model capability. Cancellation remains a host/runtime invariant rather than a `ModelCapability` value.
+
+The current contracts validate non-secret shape and exact revision linkage only: `ConnectionProfile` → `ModelProfile` → `RoomBinding` → immutable `DecisionSnapshot`. They do **not** define connection-test evidence, draft tokens, active/disabled state, deletion, persistence, authorization, or routes. The prototype's test/save/disable/delete behavior is therefore an in-memory UX proposal. Production must add and review those server-enforced lifecycle contracts rather than inferring them from this page.
 
 ## Journey
 
@@ -48,7 +64,7 @@ Entry: local companion onboarding or Settings → Models and providers.
 Happy path:
 
 1. User chooses local or cloud inference.
-2. User chooses LM Studio/OpenAI-compatible local, Ollama, approved OpenAI-compatible cloud, or Anthropic.
+2. User chooses LM Studio/OpenAI-compatible local, Ollama, the approved OpenAI definition, or Anthropic.
 3. The adapter supplies a fixed loopback endpoint or approved cloud definition.
 4. User chooses or discovers a model.
 5. A local user optionally discloses that their loopback server requires a key. A cloud user enters a key and acknowledges which bounded context may leave the machine.
@@ -214,7 +230,7 @@ npm ci
 npm run verify
 ```
 
-The Playwright verifier covers the truthful default, delayed stale-result discard, every invalidating input, save gating, exact-revision success, test failure, no fabricated local/cloud success, key non-rendering, browser-storage absence, request URL/header/body absence, horizontal overflow, console errors, and refreshed default-state screenshots at 1440×1100 and 390×844.
+The Playwright verifier covers the truthful default, delayed stale-result discard, every invalidating input, save gating, exact-revision success, displayed failure fixtures, no fabricated local/cloud success, provider/path secret clearing, truthful cloud labels, disable/delete presentation behavior, native-dialog Escape/focus behavior, key non-rendering, browser-storage absence, request URL/header/body absence, horizontal overflow and 44px controls at 320/390/760/1050/1440px, console errors, and refreshed default-state screenshots at 1440×1100 and 390×844.
 
 ## Implementation inventory and non-goals
 

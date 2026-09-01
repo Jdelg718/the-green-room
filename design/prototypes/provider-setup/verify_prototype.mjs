@@ -55,6 +55,12 @@ try {
   assert.equal(await saveDisabled(), true);
   assert.equal((await page.locator('body').innerText()).includes('Active · tested'), false);
 
+  // Visible provider/capability choices stay within the frozen main contracts.
+  assert.deepEqual(await page.locator('input[name="provider"]').evaluateAll(inputs => inputs.map(input => input.value)), ['lmstudio', 'ollama', 'openai-cloud', 'anthropic']);
+  assert.equal(await page.locator('#endpoint').isEditable(), false, 'adapter-owned endpoint must not become an arbitrary URL input');
+  assert.match(await page.locator('.capability').innerText(), /required model capability\s+chat/i);
+  assert.match(await page.locator('.capability').innerText(), /cancellation.+local runtime/i);
+
   // A delayed test belongs to one immutable draft token and cannot bless a changed draft.
   await page.locator('#test-button').click();
   assert.match(await page.locator('#result-title').textContent(), /testing connection/i);
@@ -95,12 +101,32 @@ try {
   assert.match(await page.locator('#profile-status').textContent(), /active · tested/i);
   assert.equal(await page.locator('#profile-model').textContent(), 'qwen/qwen3.6-35b-a3b');
 
-  // Failure fixtures never grant save eligibility.
+  // Every displayed failure fixture stays non-saveable and identifies its recovery state.
+  for (const [fixture, title] of [['invalid-key', /key was not accepted/i], ['model-unavailable', /model unavailable/i], ['offline', /local server offline/i]]) {
+    await reload();
+    await chooseFixture(fixture);
+    assert.equal(await saveDisabled(), true, `${fixture} cannot grant save eligibility`);
+    assert.equal(await profileHidden(), true, `${fixture} cannot create a profile preview`);
+    assert.match(await page.locator('#result-title').textContent(), title);
+  }
+
+  // Capability-limitation fixture is saveable only because its copy explicitly claims safe deterministic fallbacks.
   await reload();
-  await chooseFixture('invalid-key');
-  assert.equal(await saveDisabled(), true);
-  assert.equal(await profileHidden(), true);
-  assert.match(await page.locator('#result-title').textContent(), /key was not accepted/i);
+  await chooseFixture('limited');
+  assert.equal(await saveDisabled(), false);
+  assert.match(await page.locator('#result-title').textContent(), /connected with limitations/i);
+
+  // Cloud labels remain truthful, and sensitive draft state is cleared across provider paths.
+  await reload();
+  await page.locator('input[name="path"][value="cloud"]').check();
+  assert.equal(await page.locator('#endpoint-label').textContent(), 'Provider definition');
+  assert.equal(await page.locator('#key-label').textContent(), 'Provider API key');
+  await page.locator('#provider-key').fill('discard-on-path-change');
+  await page.locator('#cloud-ack').check();
+  await page.locator('input[name="path"][value="local"]').check();
+  assert.equal(await page.locator('#provider-key').inputValue(), '');
+  assert.equal(await page.locator('#needs-local-key').isChecked(), false);
+  assert.equal(await page.locator('#key-field').isHidden(), true);
 
   // Neither local nor cloud default test controls can invent provider success in this offline prototype.
   for (const pathValue of ['local', 'cloud']) {
@@ -132,14 +158,44 @@ try {
   assert.deepEqual([...new Set(requests.map(request => new URL(request.url).origin).filter(requestOrigin => requestOrigin !== origin))], []);
   assert.deepEqual([...new Set(requests.map(request => request.method).filter(method => method !== 'GET'))], []);
 
-  // Refresh truthful default screenshots and check narrow/desktop geometry.
+  // Refresh truthful default screenshots and check documented responsive geometry/targets.
   await reload();
   await fs.mkdir(path.join(ROOT, 'screenshots'), {recursive: true});
-  for (const [width, height, name] of [[1440, 1100, 'provider-setup-desktop-1440x1100.png'], [390, 844, 'provider-setup-mobile-390x844.png']]) {
+  for (const [width, height, name] of [[320, 844, null], [390, 844, 'provider-setup-mobile-390x844.png'], [760, 900, null], [1050, 900, null], [1440, 1100, 'provider-setup-desktop-1440x1100.png']]) {
     await page.setViewportSize({width, height});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px horizontal overflow`);
-    await page.screenshot({path: path.join(ROOT, 'screenshots', name), fullPage: true});
+    const undersized = await page.locator('button, select, input:not([type="radio"]):not([type="checkbox"]), label.toggle, label.choice').evaluateAll(controls => controls.filter(control => {
+      const style = getComputedStyle(control);
+      const bounds = control.getBoundingClientRect();
+      if (style.display === 'none' || style.visibility === 'hidden' || control.closest('[hidden]') || bounds.width === 0 || bounds.height === 0) return false;
+      return bounds.height < 44;
+    }).map(control => control.id || control.outerHTML.slice(0, 80)));
+    assert.deepEqual(undersized, [], `${width}px visible controls and checkbox labels must be at least 44px high`);
+    if (name) await page.screenshot({path: path.join(ROOT, 'screenshots', name), fullPage: true});
   }
+
+  // Native dialog keyboard cancellation is nondestructive and restores focus.
+  await reload();
+  await chooseFixture('success');
+  await page.locator('#save-button').click();
+  await page.locator('#disable-button').click();
+  assert.match(await page.locator('#profile-status').textContent(), /disabled · no calls/i);
+  await page.locator('#disable-button').click();
+  assert.match(await page.locator('#profile-status').textContent(), /active · tested/i);
+  await page.locator('#delete-button').click();
+  assert.equal(await page.locator('#delete-dialog').getAttribute('open'), '');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'keep-button');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'confirm-delete');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'keep-button');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#delete-dialog').getAttribute('open'), null);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'delete-button');
+  await page.locator('#delete-button').click();
+  await page.locator('#confirm-delete').click();
+  assert.equal(await profileHidden(), true);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'test-button');
 
   assert.deepEqual(errors, [], `console/page errors: ${errors}`);
   console.log('PASS truthful default, stale delayed result, and every current-draft invalidation');
