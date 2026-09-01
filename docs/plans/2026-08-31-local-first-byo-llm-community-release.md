@@ -8,6 +8,8 @@ Tracked planning inputs are [issue #30](https://github.com/Jdelg718/the-green-ro
 
 This plan does not authorize a push, DNS change, live deployment, portrait release, or provider implementation by itself.
 
+Native Apple clients and invitations for additional human participants are deliberately downstream future pillars. They do not expand this plan's R0–R5 implementation scope. Their discovery gates and sequencing are defined in [the 2026-09-01 future-track plan](2026-09-01-apple-client-and-human-room-invitations.md); implementation waits for the stable API, packaging, multi-room/event, and release foundations described here.
+
 ## Ownership and worktrees
 
 Amy is the integration anchor and sole owner of governing docs, shared schemas/contracts, merge order, and release evidence. The authorized R0 work remains in the current integration worktree. Subsequent lanes use one focused `agent/<role>-<lane>` branch in `/Users/amyhermes/AI/worktrees/greenroom-<role>-<lane>`; read-only lanes use detached worktrees and no writer branch.
@@ -47,6 +49,8 @@ Amy contract batch
 
 R4 catalog/artwork review is independent and held from production.
 greenroomai.net publication waits for explicit human DNS/deployment approval.
+Apple-client and invited-human implementation follows these release foundations;
+only bounded research, threat modeling, and contract spikes may run earlier.
 ```
 
 ### Batch 0 — integration anchor
