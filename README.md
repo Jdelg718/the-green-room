@@ -8,11 +8,11 @@ The room—not a single chatbot—is the product.
 
 ## Status
 
-**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. Its 145-test suite and private acceptance deployment have passed at the current executable baseline.
+**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The pre-validator Node baseline is 151 tests; the integrated hybrid baseline passes those 151 Node tests plus 227 Python validator tests and the private first-playable acceptance.
 
 This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 
-`greenroomai.net` is the intended public project, documentation, download, and contribution domain. DNS and deployment are operator work; this repository does not claim that the domain resolves or is live. The application runs locally, where the runtime owns room data and provider credentials. The public website must never collect model keys, transcripts, room events, or memory.
+`greenroomai.net` is live as the public project, documentation, download, and contribution domain. The application still runs locally, where the runtime owns room data and provider credentials. The public website must never collect model keys, transcripts, room events, or memory. Its approved historical portraits are presentation assets only: website or local-app use does not admit a persona pack to the Official Catalog or authorize portrait redistribution in downloadable packs.
 
 See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md) and [community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md).
 
@@ -73,6 +73,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
 - [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
@@ -87,7 +88,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 6. **Original examples, explicit admission.** The public repository contains original or public-domain persona source, not copyrighted television-character packs. Source presence is not official-catalog approval: only an approved, version-and-digest-specific entry in the versioned Official Catalog Manifest admits a pack.
 7. **Fork-friendly.** Apache-2.0 licensing, documented setup, and no proprietary lock-in.
 
-No Official Catalog Manifest exists yet. The runtime strictly validates 12 historical candidate packs, including Benjamin Franklin and Nicolaus Copernicus, but validation is not catalog admission. Existing portrait files are design-exploration candidates only. All 12 are held from production, pack, website, and catalog distribution until each asset has an item-specific rights basis, the required independent reviews, and an approved version-and-digest-specific Official Catalog Manifest entry.
+No Official Catalog Manifest exists yet. The runtime strictly validates 12 historical candidate packs, including Benjamin Franklin and Nicolaus Copernicus, but validation is not catalog admission. The approved pinned portraits used by `greenroomai.net` and the local app are presentation assets distinct from the candidate packs. Portrait inclusion in downloadable packs and Official Catalog redistribution remains held until the separate item-specific rights, review, asset-manifest, and version-and-digest admission gates pass.
 
 Community packs are externally authored and distributed unofficial packs, not content hosted, indexed, or redistributed by project-operated infrastructure; private local imports remain the user's responsibility. Any future project-hosted public community catalog must use the official gate or a separately approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary.
 
