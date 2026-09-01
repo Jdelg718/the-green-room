@@ -83,6 +83,7 @@ interface BrowserContract {
     record: EventRecord,
     participantName: (participantId: string) => string,
     documentRoot: FakeDocument,
+    participantIdentity?: (participantId: string) => { readonly personaSlug?: string } | null,
   ) => FakeElement;
 }
 
@@ -105,7 +106,12 @@ class FakeElement {
   readonly children: FakeElement[] = [];
   readonly classList = new FakeClassList(this);
   readonly dataset: Record<string, string> = {};
+  readonly style: Record<string, string> = {};
+  alt = "";
   className = "";
+  hidden = false;
+  onerror: (() => void) | null = null;
+  src = "";
   textContent = "";
 
   constructor(readonly tagName: string) {}
@@ -571,6 +577,48 @@ test("first playable UI renders complete transcript event bodies with participan
     assert.equal(body?.byClass("event-speaker")?.textContent, speaker);
     assert.equal(body?.byClass("event-text")?.textContent, text);
     assert.equal(body?.byClass("event-reason")?.textContent, expected.reason);
+  }
+});
+
+test("historical persona dialogue keeps trusted portrait identity and broken-image fallback", async () => {
+  const contract = await browserContract();
+  const documentRoot = new FakeDocument();
+  const item = contract.renderTranscriptEvent(
+    { sequence: 7, event: { type: "persona_message", participantId: "ada", text: "Let us inspect the symbols." } },
+    () => "Ada Lovelace",
+    documentRoot,
+    () => ({ personaSlug: "ada-lovelace" }),
+  );
+  const body = item.children[1];
+  const portrait = body?.byClass("portrait-transcript");
+  assert.ok(portrait);
+  assert.equal(portrait.children[0]?.tagName, "img");
+  assert.equal(portrait.children[0]?.src, "/assets/portraits/ada-lovelace.webp");
+  assert.equal(portrait.children[0]?.alt, "");
+  assert.equal(portrait.children[1]?.textContent, "AL");
+  assert.equal(portrait.children[1]?.hidden, true);
+  portrait.children[0]?.onerror?.();
+  assert.equal(portrait.children[0]?.hidden, true);
+  assert.equal(portrait.children[1]?.hidden, false);
+  assert.equal(body?.byClass("event-speaker")?.textContent, "Ada Lovelace");
+});
+
+test("prototype-key persona IDs render monogram fallback instead of trusted portrait paths", async () => {
+  const contract = await browserContract();
+  for (const personaSlug of ["constructor", "__proto__", "toString"]) {
+    const documentRoot = new FakeDocument();
+    const item = contract.renderTranscriptEvent(
+      { sequence: 8, event: { type: "persona_message", participantId: "custom", text: "Fallback safely." } },
+      () => "Prototype Attempt",
+      documentRoot,
+      () => ({ personaSlug }),
+    );
+    const portrait = item.children[1]?.byClass("portrait-transcript");
+    assert.ok(portrait);
+    assert.equal(portrait.children.length, 1);
+    assert.equal(portrait.children[0]?.tagName, "span");
+    assert.equal(portrait.children[0]?.textContent, "PA");
+    assert.equal(portrait.children[0]?.hidden, false);
   }
 });
 
