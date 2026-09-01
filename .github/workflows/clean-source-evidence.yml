@@ -33,11 +33,18 @@ jobs:
       SOURCE_SHA: ${{ github.sha }}
       SOURCE_REF_PROTECTED: ${{ github.ref_protected }}
       EVIDENCE_USER: greenroomci
-      EVIDENCE_ROOT: ${{ runner.temp }}/greenroom-clean-source-evidence
       TRUSTED_CHECKOUT: ${{ github.workspace }}/trusted-source
-      UPLOAD_ROOT: ${{ runner.temp }}/greenroom-clean-source-upload
 
     steps:
+      - name: Initialize runner-scoped evidence paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNNER_TEMP"
+          printf 'EVIDENCE_ROOT=%s\nUPLOAD_ROOT=%s\n' \
+            "$RUNNER_TEMP/greenroom-clean-source-evidence" \
+            "$RUNNER_TEMP/greenroom-clean-source-upload" >> "$GITHUB_ENV"
+
       - name: Require a protected-main dispatch
         shell: bash
         run: |
