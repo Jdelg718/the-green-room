@@ -243,6 +243,11 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /os: ubuntu-24\.04/);
   assert.match(workflow, /SOURCE_SHA: \$\{\{ github\.sha \}\}/);
   assert.match(workflow, /SOURCE_REF_PROTECTED: \$\{\{ github\.ref_protected \}\}/);
+  const jobEnvironment = workflow.match(/    env:\n(?<body>(?:      .+\n)+)/)?.groups?.body ?? "";
+  assert.doesNotMatch(jobEnvironment, /\$\{\{ runner\./);
+  assert.match(workflow, /EVIDENCE_ROOT=%s\\nUPLOAD_ROOT=%s/);
+  assert.match(workflow, /\$RUNNER_TEMP\/greenroom-clean-source-evidence/);
+  assert.match(workflow, /\$RUNNER_TEMP\/greenroom-clean-source-upload/);
   assert.match(workflow, /test "\$SOURCE_REF_PROTECTED" = true/);
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
   assert.match(workflow, /SOURCE_REF="\$GITHUB_REF"/);
