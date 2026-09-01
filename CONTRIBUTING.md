@@ -1,46 +1,47 @@
 # Contributing
 
-The Green Room is in planning and feasibility work. Contributions should make the first playable room smaller, clearer, safer, or more fun.
+The Green Room has a verified private/local alpha and is moving toward a downloadable local-first release. Contributions should keep the ensemble coherent, the runtime inspectable, and local ownership of data and credentials explicit.
 
 ## Workflow
 
-1. Open or claim an issue before substantial work.
-2. Create a focused branch from `main`.
-3. Keep changes small and documented.
-4. Add or update tests with behavior changes.
-5. Run the repository's documented verification commands.
-6. Open a pull request describing intent, implementation, evidence, and risks.
-7. Do not merge your own change without review once code work begins.
+1. Open or claim an issue before substantial work and name the owner.
+2. Create one focused branch and, for parallel work, one dedicated worktree.
+3. Confirm file ownership and hand off before editing another lane's shared files.
+4. Keep provider-specific behavior behind adapters and add tests for behavior changes.
+5. Run the repository's documented verification commands and record actual output.
+6. Open a pull request describing intent, implementation, evidence, failure paths, and risks.
+7. Do not merge your own change without review.
 
-## Agent collaboration
+## Local-first and provider rules
 
-Amy, Skip, and other coding agents should:
+- The local runtime owns room data, provider configuration, and credentials.
+- Never put credentials in browser storage, URLs, SQLite room data, events, logs, diagnostics, exports, packs, fixtures, screenshots, or public issues.
+- Provider keys may be entered only through loopback/native local setup and must never be collected by `greenroomai.net` or other hosted website code.
+- Use opaque local secret references, redact failures, and disclose when a selected cloud provider receives bounded room context.
+- Do not add arbitrary request URLs. Provider endpoints and any advanced custom-endpoint path must follow the accepted SSRF policy in [ADR 0002](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md).
+- Preserve the deterministic director and runtime-enforced turn, cancellation, and budget limits.
 
-- identify themselves in commits or PR notes when practical;
-- read `AGENTS.md` and the active plan before editing;
-- avoid simultaneous edits to the same files without an explicit handoff;
-- record tested commands and actual results;
-- never claim a test, build, or deployment passed without real output;
-- use branches and pull requests rather than pushing competing work directly to `main`.
+## Parallel-agent discipline
 
-Suggested branch prefixes:
+- One agent owns a task, branch, worktree, and file set at a time.
+- Avoid simultaneous edits to `package.json`, the lockfile, migrations, central schemas, routes, or app composition; the integration owner assigns and merges those changes.
+- Rebase a lane immediately before review, let the original owner resolve its conflicts, and merge or cherry-pick one reviewed unit at a time.
+- Read `AGENTS.md` and the active plan before editing. Read-only researchers and reviewers do not become opportunistic writers.
 
-- `amy/`
-- `skip/`
-- `agent/`
-- `docs/`
-- `spike/`
+Suggested branch prefixes include `agent/`, `docs/`, and `spike/`.
 
-## Content contributions
+## Persona and artwork contributions
 
-Only original or properly licensed persona content belongs in this repository. Read [Content and Legal Boundaries](docs/CONTENT-BOUNDARIES.md) before proposing a persona pack.
+Read [Content and Legal Boundaries](docs/CONTENT-BOUNDARIES.md) and the [Official Persona Catalog Policy](docs/PERSONA-CATALOG.md). Submit persona text and visual assets through the catalog review path. An asset stays a candidate until item-level provenance and rights, required independent reviews, and exact digest approval are recorded. Random web images, upstream assets covered only by a repository software license, and generated images without documented authorship and terms are not shippable.
+
+Private local import is not project approval, and repository presence is not Official Catalog admission.
 
 ## Commit messages
 
 Use concise conventional commits where possible:
 
 ```text
-docs: clarify phase 0 exit criteria
+docs: clarify local provider boundary
 feat: add persona manifest validator
 test: cover director cooldown behavior
 fix: stop autonomous turn loop after cancellation
@@ -48,4 +49,4 @@ fix: stop autonomous turn loop after cancellation
 
 ## Security
 
-Do not open public issues containing vulnerabilities, secrets, private room transcripts, or personal data. A private reporting channel will be documented before executable releases.
+Do not open public issues containing vulnerabilities, secrets, private room transcripts, personal data, or private-infrastructure details. Use the documented private reporting channel when one is available; until then, contact a maintainer privately before disclosure.

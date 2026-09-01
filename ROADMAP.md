@@ -1,92 +1,99 @@
 # The Green Room Roadmap
 
-This roadmap prioritizes a small, playable ensemble experience before platform work. Dates remain intentionally unset until the Phase 0 spike measures the actual Buzz integration cost.
+This is a status-based roadmap for the standalone, local-first application. Releases advance only when their acceptance criteria are verified; dates are intentionally unset.
 
-## Phase 0 — Foundation decision
+## Completed — verified first playable
 
-**Goal:** prove the cheapest maintainable way to build on Buzz.
+The current executable baseline provides:
 
-- Pin and record an upstream Buzz commit.
-- Run Buzz locally from its documented toolchain.
-- Create two harmless test personas and place them in one room.
-- Inspect `buzz-persona`, ACP integration, relay events, room membership, and persistence.
-- Prototype a director that can observe a room and select zero or one next speaker.
-- Measure setup time, idle resources, message latency, and model-call count.
-- Write an architecture decision record choosing:
-  1. thin extension/plugin;
-  2. maintained Buzz fork; or
-  3. standalone application using selected Buzz components/protocols.
+- a standalone Node 24, Fastify, and `node:sqlite` application;
+- a bounded deterministic director that selects zero or one speaker;
+- durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
+- a fixed-loopback LM Studio private provider plus deterministic test providers;
+- 12 strictly validated historical candidate packs and a text/monogram cast gallery; and
+- security, integration, and acceptance coverage totaling 145 passing tests at baseline.
 
-**Exit criteria:** a recorded screen session shows one human and two agents exchanging at least ten coherent turns without every agent replying to every message.
+This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
 
-## Phase 1 — First playable room
+## R0 — reconcile and publish the executable baseline
 
-**Goal:** make the core idea fun in one private room.
+**Outcome:** make the executable first-playable baseline reviewable as one focused pull request, update governing docs, and reconcile prerequisite contracts in a safe order instead of creating one collision-heavy change.
 
-- Three original personas with conflicting goals and recognizable voices.
-- Director-controlled turn selection, interruption budget, cooldowns, and silence.
-- Manual pause, mute, remove, reset, and “ask everyone” controls.
-- Room transcript and per-persona short-term memory.
-- Hard prohibition on entertainment personas receiving shell, filesystem, browser, credential, or messaging tools.
-- Token/cost meter and room-level generation limits.
+**Acceptance criteria:**
 
-**Exit criteria:** a 20-minute session remains coherent, each persona is identifiable without name labels, and the user can stop all generation immediately.
+- the baseline PR identifies the exact head and preserves actual check and acceptance evidence;
+- governing docs consistently describe the standalone local-first architecture;
+- prerequisite persona, memory, and downloadable-alpha work is rebased or cherry-picked one focused contract at a time;
+- duplicate ADR numbers, migrations, routes, dependency files, and stale planning assumptions are resolved by their designated owner; and
+- the integrated `npm run check` and `npm run acceptance` pass after each collision-prone merge.
 
-## Phase 2 — Portable persona packs
+## R1 — local-first BYO LLM
 
-**Goal:** let people create and share characters without editing application code.
+**Outcome:** let users connect their own local or cloud model provider through stable, revisioned contracts.
 
-- Versioned persona manifest and validation CLI.
-- Import/export as a directory or `.greenroom` archive.
-- Fields for identity, worldview, voice, motivations, contradictions, boundaries, knowledge limits, and optional relationship seeds.
-- Pack linting for copied scripts, secrets, unsafe tool requests, and missing provenance.
-- Original starter cast and one public-domain demonstration cast.
+- Add Connection Profile, Model Profile, Room Binding, and immutable Decision Snapshot contracts.
+- Support OpenAI-compatible local and approved cloud definitions, then Ollama, then Anthropic behind adapters.
+- Add bounded connection tests, model discovery where supported, and a capability matrix with deterministic fallbacks.
+- Persist room/provider snapshots so replay and restart identify the exact non-secret configuration used.
+- Keep credentials local and exclude them from the room database, events, exports, logs, diagnostics, persona packs, and snapshots.
+- Reject arbitrary request URLs. Allow loopback endpoints and approved remote provider definitions by default; require explicit advanced opt-in plus DNS, IP, redirect, and connected-peer SSRF defenses for custom endpoints.
+- Keep the director deterministic by default and preserve host-enforced scheduling limits across provider failures.
 
-**Exit criteria:** a new pack can be installed, validated, used, exported, and reinstalled on a clean instance.
+**Acceptance criteria:** profiles and exact revisions survive restart; each adapter passes the shared contract and failure suite; connection-test results are useful without leaking secrets; secret sentinels are absent from persistence and output surfaces; SSRF tests cover redirects, rebinding, metadata and reserved addresses; cloud-provider disclosure is explicit; and provider failure cannot corrupt or incorrectly advance the room.
 
-## Phase 3 — Relationships and scenes
+## R2 — packaging and onboarding
 
-**Goal:** create continuity rather than disposable group chat.
+**Outcome:** make local installation, setup, recovery, and removal understandable to non-specialists.
 
-- Pairwise relationship state: trust, irritation, respect, suspicion, familiarity.
-- Evidence-linked memory summaries with user inspection and deletion.
-- Scene cards: dinner, investigation, debate, writers' room, intervention.
-- Director pacing modes and scene objectives.
-- Branch/replay from an earlier room event.
+- Ship Docker Compose and a local web bundle first.
+- Evaluate a desktop wrapper only after the bundle is reliable.
+- Add guided local provider setup, backup/restore, export, and delete flows.
+- Bind locally by default and make remote/private-network exposure explicit.
 
-**Exit criteria:** relationships measurably influence later turns, and users can inspect and erase the state causing that behavior.
+**Acceptance criteria:** a clean supported machine can install and start the app from documentation; setup works without sending keys to project infrastructure; backup → upgrade → restore is verified; export and delete are testable; and uninstall/recovery limitations are documented.
 
-## Phase 4 — Open-source release quality
+## R3 — rooms and bounded memory
 
-**Goal:** make self-hosting boring—in the complimentary sense.
+**Outcome:** support a library of multiple local rooms with inspectable continuity.
 
-- One-command local development setup.
-- Docker Compose deployment for a private server.
-- Threat model, security review, dependency audit, backups, and restore test.
-- E2E tests covering multi-agent turns, cancellation, memory deletion, pack import, and failure recovery.
-- Contributor guide, issue templates, changelog, release artifacts, and signed checksums.
-- Clear upstream-sync procedure if Buzz is forked.
+- Add local room create/list/archive/delete flows.
+- Add bounded summaries and relationship memory linked to source events.
+- Make memory inspectable, correctable, exportable, and deletable.
+- Preserve deterministic scheduling and per-room provider snapshots.
 
-**Exit criteria:** a clean machine can install the release from documentation, run the acceptance suite, and restore a backup.
+**Acceptance criteria:** rooms remain isolated across restart and export; memory influence is attributable to visible evidence; deleting room or memory state removes it from future context; and boundedness and failure recovery pass adversarial tests.
 
-## Phase 5 — Community experimentation
+## R4 — persona catalog and artwork
 
-**Goal:** support other people's creativity without becoming a copyrighted-character warehouse.
+**Outcome:** safely validate and import portable persona packs, then admit only reviewed content and assets to the official catalog.
 
-- Community pack registry containing metadata and links, not necessarily hosted content.
-- Optional local-only private packs excluded from sync and telemetry.
-- Pack compatibility matrix and semantic versioning.
-- Moderation/reporting hooks if any public discovery service is added.
-- Optional voice and avatar adapters with explicit provenance and consent fields.
+- Integrate the strict persona validator and safe import flow.
+- Define a portrait asset manifest binding exact bytes to provenance, rights basis, attribution, and review records.
+- Continue design exploration with text/monogram production fallbacks.
+- Hold all 12 existing production-portrait candidates until item-specific rights review, independent historical/content and provenance/rights reviews, and an approved Official Catalog Manifest entry.
 
-**Exit criteria:** an independent contributor can build a compatible original persona pack and share it without project-maintainer intervention.
+**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; held portraits do not enter production, packs, website assets, or catalog distribution; and visual use passes accessibility and failure-fallback review.
 
-## Explicitly not in the first release
+## R5 — greenroomai.net and community release
 
-- Monetization or subscriptions.
-- Official television-character packs.
-- Actor voice cloning or actor likeness generation.
-- Unsupervised posting to external services.
-- Mobile applications.
-- A general-purpose autonomous-agent platform.
-- Twenty agents yelling at once because someone confused activity with entertainment.
+**Outcome:** establish `greenroomai.net` as the intended static public project, documentation, download, and contribution surface while the application continues to run locally.
+
+- Publish static project information, verified downloads, setup docs, contribution paths, and security/contact guidance after separate operator approval.
+- Keep provider keys, transcripts, room state, memory, and pack drafts out of the website and its storage.
+- Treat any optional hosted or invite service as a future, separately reviewed multi-tenant architecture that is never required for local use.
+
+**Acceptance criteria:** DNS and deployment are claimed only after independent verification; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; and public contribution/catalog paths enforce the content policy.
+
+## Buzz boundary
+
+Keep the existing Buzz revision pin and research as evidence. Integrate a relay or protocol surface only after a bounded spike demonstrates concrete value that outweighs complexity. Do not establish a maintained Buzz fork without a new accepted ADR and measured evidence. No Buzz source is incorporated today.
+
+## Non-goals
+
+- Mandatory accounts, hosted inference, or dependence on `greenroomai.net` to run locally.
+- Browser-direct storage of provider credentials or arbitrary model request URLs.
+- A public multi-tenant room service in the local release architecture.
+- Official television-character packs, actor voice clones, or unreviewed likenesses.
+- Shipping any historical portrait merely because the subject is old, the image exists, or the pack validates.
+- Unsupervised external posting or a general-purpose autonomous-agent platform.
+- Every persona answering every event.

@@ -9,11 +9,19 @@ This document defines the normative file-role, validation, prompt-assembly, and
 inspection contract for a future validator and persona loader. The words
 **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
-No runtime loader or validator is claimed to enforce this contract yet.
-Implementation belongs to the strict validator/inspection work in
-[issue #27](https://github.com/Jdelg718/the-green-room/issues/27); a loader MUST
-NOT submit a pack to a model provider until that strict validation and the
-loader checks specified here exist.
+The runtime includes one deliberately narrower validator for the twelve bundled
+directories under `personas/historical/`. That built-in profile requires the
+repository's exact twelve-directory catalog, exact nine-file/no-assets layout,
+strict closed 0.1 manifests, bounded runtime text, and the prompt assembly rules
+below before LM Studio submission.
+
+It is **not** a `.greenroom`/ZIP importer or a general pack validator. In
+particular, directory enumeration cannot validate duplicate archive members,
+central-directory/local-header agreement, extra fields, data descriptors,
+compression ratios, encryption, or extraction behavior. Those archive-only
+requirements remain assigned to the strict validator/inspection work in
+[issue #27](https://github.com/Jdelg718/the-green-room/issues/27), and no archive
+may be submitted to a provider until that complete import gate exists.
 
 ## Directory layout
 

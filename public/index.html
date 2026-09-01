@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="A private local ensemble conversation room.">
+    <title>The Green Room</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" id="skip-link" href="#message-text">Skip to message composer</a>
+    <div class="topline" aria-hidden="true"></div>
+    <header class="masthead">
+      <div class="brand-lockup">
+        <span class="mark" aria-hidden="true">GR<span>//</span></span>
+        <div><p class="brand">The Green Room</p><p class="brand-note">Ensemble conversation workshop</p></div>
+      </div>
+      <div class="connection" data-connection="connecting">
+        <span class="cue-lamp" aria-hidden="true"></span>
+        <span id="connection-status" role="status" aria-live="polite">Opening the local room…</span>
+      </div>
+    </header>
+
+    <main id="live-view" class="room-shell" aria-labelledby="room-title">
+      <aside class="call-board" aria-labelledby="cast-heading">
+        <div class="section-heading"><p class="kicker">Call board / live cast</p><h2 id="cast-heading">On deck</h2></div>
+        <section class="room-card" aria-labelledby="room-status-heading">
+          <div><p class="label" id="room-status-heading">Room status</p><p class="room-status"><span id="room-status-dot" aria-hidden="true"></span><span id="room-status">Loading</span></p></div>
+          <div class="room-controls" aria-label="Room controls">
+            <button class="button button-secondary" id="pause-resume" type="button" disabled>Pause room</button>
+            <button class="button button-danger" id="stop-room" type="button" disabled>Stop room</button>
+          </div>
+        </section>
+        <ul class="cast-list" id="cast-list" aria-label="Room participants" aria-busy="true"><li class="cast-placeholder">The cast list is being posted.</li></ul>
+        <button class="button button-primary cast-setup-action" id="open-cast-setup" type="button" disabled>Build historical room</button>
+        <p class="privacy-note"><strong>Private rehearsal.</strong> This page uses only this local server. Opening cast setup does not stop or change this room.</p>
+      </aside>
+      <section class="stage" aria-labelledby="room-title">
+        <header class="stage-heading"><div><p class="kicker">Room 01 / first playable</p><h1 id="room-title">The Green Room</h1></div><p class="pacing-note"><span aria-hidden="true">●</span> One voice at a time</p></header>
+        <div class="transcript-panel" id="transcript-panel" tabindex="-1">
+          <p class="empty-transcript" id="empty-transcript">The room is quiet. Set the first cue below.</p>
+          <ol class="transcript" id="transcript" aria-label="Room transcript" aria-live="polite"></ol>
+        </div>
+        <form class="composer" id="message-form">
+          <label for="message-text">Your line</label>
+          <textarea id="message-text" name="message" rows="3" maxlength="16384" placeholder="Say something to the room…" required disabled></textarea>
+          <div class="composer-footer">
+            <label class="response-choice" for="wants-response"><input id="wants-response" type="checkbox" checked disabled> Request one persona reply</label>
+            <button class="button button-primary" id="send-message" type="submit" disabled>Send to room <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="form-note response-note">Unchecked saves your line without an AI response.</p>
+          <p class="form-note" id="composer-note">Messages are available while the room is active.</p>
+        </form>
+        <p class="action-status" id="action-status" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <main id="cast-setup-view" class="gallery-shell" aria-labelledby="gallery-heading" hidden>
+      <header class="gallery-intro">
+        <div><p class="kicker">Historical room builder</p><h1 id="gallery-heading" tabindex="-1">Choose the conversation</h1><p class="gallery-lede">Build one bounded room with you and up to three source-informed historical perspectives.</p></div>
+        <button class="button button-secondary" id="cancel-cast-setup" type="button">Cancel</button>
+      </header>
+      <div class="catalog-reality"><strong>Candidate · draft catalog.</strong> These twelve interpretations are not approved Official Catalog releases. Their independent reviews remain outstanding.</div>
+      <div class="gallery-layout">
+        <section class="gallery-workspace" aria-labelledby="candidates-heading">
+          <h2 id="candidates-heading">Historical candidates</h2>
+          <form class="gallery-filters" id="gallery-filters" role="search">
+            <div class="filter-search"><label for="persona-search">Search candidates</label><input id="persona-search" type="search" autocomplete="off" placeholder="Name, setting, summary, or domain"></div>
+            <div><label for="horizon-filter">Knowledge horizon</label><select id="horizon-filter"><option value="all">All horizons</option></select></div>
+            <div><label for="domain-filter">Domain</label><select id="domain-filter"><option value="all">All domains</option></select></div>
+          </form>
+          <p class="result-count" id="gallery-results" role="status" aria-live="polite">Loading 12 candidates…</p>
+          <div class="persona-grid" id="persona-grid" aria-busy="true"><div class="gallery-state"><strong>Loading historical candidates…</strong><span>The safe local catalog is being checked.</span></div></div>
+        </section>
+        <aside class="cast-builder" id="cast-builder" aria-labelledby="cast-builder-heading">
+          <a class="back-to-gallery" id="back-to-gallery" href="#gallery-heading">← Back to gallery</a>
+          <p class="kicker">Your bounded room</p><h2 id="cast-builder-heading" tabindex="-1">Set the cast</h2>
+          <div class="human-seat"><span class="seat-number" aria-hidden="true">YOU</span><div><strong>You</strong><span>Human participant · fixed</span></div></div>
+          <ol class="builder-seats" id="builder-seats" aria-label="Selected historical personas"></ol>
+          <p class="builder-status" id="builder-status" role="status" aria-live="polite">0 of 3 persona seats filled. Choose at least one.</p>
+          <p class="builder-boundary">Selected perspectives will share one bounded room. One persona may be cued for each requested reply.</p>
+          <button class="button button-primary start-room" id="start-historical-room" type="button" disabled>Start historical room</button>
+          <p class="builder-error" id="builder-error" role="status" aria-live="polite"></p>
+        </aside>
+      </div>
+    </main>
+
+    <div class="mobile-room-action" id="mobile-room-action" hidden><button class="button button-primary" id="view-room" type="button" aria-controls="cast-builder">View room (0 of 3)</button></div>
+
+    <dialog id="persona-details" aria-labelledby="persona-details-title">
+      <article class="details-panel">
+        <header class="details-header"><div><p class="kicker">Candidate details</p><h2 id="persona-details-title">Historical candidate</h2></div><button class="button button-secondary details-close" id="details-close-top" type="button" aria-label="Close persona details">Close</button></header>
+        <div id="persona-details-content"></div>
+        <div class="dialog-actions"><button class="button button-secondary details-close" id="details-close-bottom" type="button">Close details</button><button class="button button-primary" id="details-add" type="button">Add to room</button></div>
+      </article>
+    </dialog>
+
+    <dialog id="stop-dialog" aria-labelledby="stop-dialog-title" aria-describedby="stop-dialog-copy">
+      <form method="dialog" class="stop-confirmation"><p class="kicker">Final curtain</p><h2 id="stop-dialog-title">Stop this room?</h2><p id="stop-dialog-copy">This immediately ends generation and cannot be resumed. The transcript remains visible.</p><div class="dialog-actions"><button class="button button-secondary" value="cancel">Keep room open</button><button class="button button-danger" id="confirm-stop" value="confirm">Stop permanently</button></div></form>
+    </dialog>
+  </body>
+</html>
