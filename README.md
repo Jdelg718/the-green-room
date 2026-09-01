@@ -42,7 +42,7 @@ dependencies, build, and use the reviewed local-source launcher:
 node --version
 npm --version
 node scripts/source-clean-host.mjs --data-root=/absolute/disposable/greenroom-data
-npm ci --strict-allow-scripts=true
+npm ci --strict-allow-scripts=true --foreground-scripts
 uv sync --locked --no-dev
 npm run build
 npm run start:local

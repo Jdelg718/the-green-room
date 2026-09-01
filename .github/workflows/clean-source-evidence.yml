@@ -1,0 +1,196 @@
+name: Clean-source evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-source-evidence-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  clean-source:
+    name: clean-source-${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-14-arm64
+            os: macos-14
+            expected_platform: darwin
+            expected_arch: arm64
+          - target: ubuntu-24.04-x64
+            os: ubuntu-24.04
+            expected_platform: linux
+            expected_arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      SOURCE_REPOSITORY: Jdelg718/the-green-room
+      SOURCE_URL: https://github.com/Jdelg718/the-green-room.git
+      SOURCE_SHA: ${{ github.sha }}
+      EVIDENCE_USER: greenroomci
+      EVIDENCE_ROOT: ${{ runner.temp }}/greenroom-clean-source-evidence
+
+    steps:
+      - name: Require a protected-main dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Set up Node.js 24.20.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.20.0
+          package-manager-cache: false
+
+      - name: Set up uv 0.12.8
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: 0.12.8
+          enable-cache: false
+
+      - name: Prepare a globally readable exact toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.19.0 --ignore-scripts --no-audit --no-fund
+          test "$(node --version)" = v24.20.0
+          test "$(npm --version)" = 11.19.0
+          [[ "$(uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
+          test "$(node -p 'process.platform')" = "${{ matrix.expected_platform }}"
+          test "$(node -p 'process.arch')" = "${{ matrix.expected_arch }}"
+          NODE_BIN="$(dirname "$(command -v node)")"
+          UV_BIN="$(dirname "$(command -v uv)")"
+          sudo chmod -R a+rX "$(dirname "$NODE_BIN")" "$(dirname "$UV_BIN")"
+          TOOL_PATH="$NODE_BIN:$UV_BIN:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          printf 'EVIDENCE_TOOL_PATH=%s\n' "$TOOL_PATH" >> "$GITHUB_ENV"
+
+      - name: Create a separate non-admin evidence user
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            uid=550
+            while dscl . -search /Users UniqueID "$uid" | grep -q .; do uid=$((uid + 1)); done
+            sudo dscl . -create "/Users/$EVIDENCE_USER"
+            sudo dscl . -create "/Users/$EVIDENCE_USER" UniqueID "$uid"
+            sudo dscl . -create "/Users/$EVIDENCE_USER" PrimaryGroupID 20
+            sudo dscl . -create "/Users/$EVIDENCE_USER" NFSHomeDirectory "/Users/$EVIDENCE_USER"
+            sudo dscl . -create "/Users/$EVIDENCE_USER" UserShell /usr/bin/false
+            sudo dscl . -create "/Users/$EVIDENCE_USER" RealName "Green Room evidence user"
+            sudo dscl . -create "/Users/$EVIDENCE_USER" Password '*'
+            sudo dscl . -create "/Users/$EVIDENCE_USER" AuthenticationAuthority ';DisabledUser;'
+            sudo createhomedir -c -u "$EVIDENCE_USER"
+            EVIDENCE_HOME="/Users/$EVIDENCE_USER"
+            if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q 'yes'; then
+              echo "temporary evidence user unexpectedly belongs to admin" >&2
+              exit 1
+            fi
+          else
+            sudo useradd --create-home --shell /usr/sbin/nologin --user-group "$EVIDENCE_USER"
+            sudo passwd --lock "$EVIDENCE_USER"
+            EVIDENCE_HOME="/home/$EVIDENCE_USER"
+            ! id -nG "$EVIDENCE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|adm|wheel)$'
+          fi
+          EVIDENCE_UID="$(id -u "$EVIDENCE_USER")"
+          sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT"
+          printf 'EVIDENCE_HOME=%s\nEVIDENCE_UID=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_UID" >> "$GITHUB_ENV"
+          sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" /usr/bin/id
+          test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
+          test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
+          [[ "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
+          test "$EVIDENCE_UID" -ne 0
+
+      - name: Record the new-user ownership baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit="$EVIDENCE_ROOT/audit-before.txt"
+          errors="$EVIDENCE_ROOT/audit-before-errors.log"
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            sudo /bin/bash -c 'set -euo pipefail; find /Users /private/tmp /private/var /System/Volumes/Data -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$audit"
+          else
+            sudo /bin/bash -c 'set -euo pipefail; find / /home /tmp /var/tmp /opt /usr/local /run -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$audit"
+          fi
+          sudo chmod 0600 "$audit" "$errors"
+
+      - name: Public-clone and run the exact dispatched source as the evidence user
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkout="$EVIDENCE_ROOT/checkout"
+          evidence="$EVIDENCE_ROOT/evidence"
+          data_root="$EVIDENCE_ROOT/disposable-data"
+          sudo -u "$EVIDENCE_USER" env \
+            HOME="$EVIDENCE_HOME" \
+            PATH="$EVIDENCE_TOOL_PATH" \
+            SOURCE_URL="$SOURCE_URL" \
+            SOURCE_SHA="$SOURCE_SHA" \
+            CHECKOUT="$checkout" \
+            EVIDENCE="$evidence" \
+            DATA_ROOT="$data_root" \
+            WORK_ROOT="$EVIDENCE_ROOT" \
+            /bin/bash -c '
+              set -euo pipefail
+              test ! -e "$CHECKOUT"
+              git clone --filter=blob:none --no-checkout "$SOURCE_URL" "$CHECKOUT"
+              git -C "$CHECKOUT" checkout --detach "$SOURCE_SHA"
+              test "$(git -C "$CHECKOUT" rev-parse HEAD)" = "$SOURCE_SHA"
+              git -C "$CHECKOUT" merge-base --is-ancestor "$SOURCE_SHA" origin/main
+              exec node "$CHECKOUT/scripts/clean-source-evidence.mjs" run \
+                --repo-root="$CHECKOUT" \
+                --evidence-root="$EVIDENCE" \
+                --work-root="$WORK_ROOT" \
+                --data-root="$DATA_ROOT" \
+                --repository=Jdelg718/the-green-room \
+                --sha="$SOURCE_SHA"
+            '
+
+      - name: Audit writes and finalize machine-readable evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          after="$EVIDENCE_ROOT/audit-after.txt"
+          errors="$EVIDENCE_ROOT/audit-after-errors.log"
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            sudo /bin/bash -c 'set -euo pipefail; find /Users /private/tmp /private/var /System/Volumes/Data -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$after"
+          else
+            sudo /bin/bash -c 'set -euo pipefail; find / /home /tmp /var/tmp /opt /usr/local /run -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$after"
+          fi
+          sudo chmod 0600 "$after" "$errors"
+          script="$EVIDENCE_ROOT/checkout/scripts/clean-source-evidence.mjs"
+          status=0
+          if [[ -f "$script" && -f "$EVIDENCE_ROOT/evidence/harness-evidence.json" ]]; then
+            sudo env PATH="$EVIDENCE_TOOL_PATH" node "$script" finalize \
+              --evidence-root="$EVIDENCE_ROOT/evidence" \
+              --audit-before="$EVIDENCE_ROOT/audit-before.txt" \
+              --audit-after="$after" || status=$?
+          else
+            echo "Harness evidence is unavailable; clone or harness startup failed." >&2
+            status=1
+          fi
+          sudo chown -R "$(id -u):$(id -g)" "$EVIDENCE_ROOT"
+          chmod -R u+rwX "$EVIDENCE_ROOT"
+          exit "$status"
+
+      - name: Upload clean-source evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: clean-source-evidence-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/greenroom-clean-source-evidence/evidence
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before.txt
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before-errors.log
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after.txt
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after-errors.log
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30

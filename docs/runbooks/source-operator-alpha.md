@@ -15,7 +15,7 @@ Windows inspection remains intentionally unavailable, and no conclusion about ot
 - Native build prerequisites for the locked `fs-ext` writer-lock dependency: Xcode Command Line Tools on macOS; Python 3, `make`, and a C/C++ compiler (for example Ubuntu's `build-essential`) on Ubuntu. This requirement remains until a reviewed packaged payload supplies its own native lock implementation.
 - Standard-user write access to the checkout and to a new, absolute, canonical data-root path.
 
-The setup uses `npm ci --strict-allow-scripts=true` and `uv sync --locked --no-dev`. It does not copy a virtual environment, and the resulting checkout is not relocatable.
+The setup uses `npm ci --strict-allow-scripts=true --foreground-scripts` and `uv sync --locked --no-dev`. The foreground lifecycle log is required evidence that only the reviewed pinned `fs-ext@2.1.1` native script ran. It does not copy a virtual environment, and the resulting checkout is not relocatable.
 
 ## Preflight and prepare
 
@@ -23,7 +23,8 @@ Choose a disposable, absent data-root path. The preflight is shell-free Node cod
 
 ```bash
 node scripts/source-clean-host.mjs --data-root="$HOME/greenroom-operator-alpha-data"
-npm ci --strict-allow-scripts=true
+npm ci --strict-allow-scripts=true --foreground-scripts
+npm install-scripts ls --json
 uv sync --locked --no-dev
 npm run build
 ```
@@ -54,4 +55,6 @@ After stopping, remove only the disposable path you chose and verified above. Ne
 
 ## Evidence still required
 
-For each named target, release evidence must record the exact OS build/architecture and source commit, then run `npm ci --strict-allow-scripts=true`, locked `uv` sync, build, start/readiness, first-playable acceptance, validator inspection, restart, and understood cleanup from a clean standard-user host. This repository change does not claim those runs occurred.
+The manual **Clean-source evidence** GitHub workflow is `workflow_dispatch` only. Dispatch it from protected `main` after this workflow is merged. Each matrix job creates a separate temporary non-admin user, makes a fresh public clone, and checks out the **exact dispatched protected-main SHA** in detached mode; because adding the workflow changes `main`, the older implementation base is not an evidence target. GitHub-hosted runners are fresh VMs with preinstalled host software, not blank OS images, and the evidence records that limitation.
+
+For each named target, release evidence must record the exact OS build/architecture and dispatched protected-main SHA, then run `npm ci --strict-allow-scripts=true --foreground-scripts`, require exact `npm install-scripts ls --json` output with no unreviewed scripts, perform locked `uv` sync, build, foreign-CWD start/readiness, real validator inspection, SIGTERM process/listener cleanup, first-playable acceptance with restart continuity, and the declared-write-root audit. The workflow uploads deterministic JSON and command logs, but this repository change does not claim either target passed: only a completed run at the newly merged protected-main SHA can supply that evidence.
