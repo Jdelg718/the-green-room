@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import {
   access,
@@ -46,6 +47,16 @@ const EXPECTED_INSPECTION = Object.freeze({
     providerContacted: false,
   },
 });
+const EXPECTED_COMMAND_LOG_NAMES = Object.freeze([
+  "01-preflight.log",
+  "02-npm-ci.log",
+  "03-install-scripts.json",
+  "04-uv-sync.log",
+  "05-build.log",
+  "06-source-launcher.log",
+  "07-acceptance.log",
+]);
+const MAX_COMMAND_LOG_BYTES = 50 * 1024 * 1024;
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -716,6 +727,51 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
   return harness;
 }
 
+export async function finalizeCommandLogs({ harnessRoot, outputRoot }) {
+  const logsRoot = join(harnessRoot, "logs");
+  const logsRootStat = await lstat(logsRoot);
+  assert.ok(logsRootStat.isDirectory() && !logsRootStat.isSymbolicLink(), "command logs root must be a real directory");
+  assert.equal(await realpath(logsRoot), logsRoot, "command logs root must be canonical");
+  const entries = await readdir(logsRoot, { withFileTypes: true });
+  assert.deepEqual(entries.map(({ name }) => name).sort(), [...EXPECTED_COMMAND_LOG_NAMES], "command logs directory has an unexpected entry set");
+
+  const validated = [];
+  for (const name of EXPECTED_COMMAND_LOG_NAMES) {
+    const entry = entries.find((candidate) => candidate.name === name);
+    assert.ok(entry?.isFile() && !entry.isSymbolicLink(), `${name} must be a regular non-symlink file`);
+    const source = join(logsRoot, name);
+    assert.equal(dirname(source), logsRoot, `${name} escaped the exact command logs directory`);
+    assert.equal(await realpath(source), source, `${name} must resolve within the exact command logs directory`);
+    const sourceStat = await lstat(source);
+    assert.ok(sourceStat.isFile() && !sourceStat.isSymbolicLink(), `${name} must be a regular non-symlink file`);
+    assert.equal(sourceStat.nlink, 1, `${name} must not be hard-linked outside the command logs directory`);
+    assert.ok(sourceStat.size <= MAX_COMMAND_LOG_BYTES, `${name} exceeds the command log size limit`);
+    const bytes = await readFile(source);
+    assert.equal(bytes.byteLength, sourceStat.size, `${name} changed while it was finalized`);
+    validated.push({
+      name,
+      bytes,
+      manifest: {
+        path: join("logs", name),
+        sizeBytes: bytes.byteLength,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+    });
+  }
+
+  const finalizedLogsRoot = join(outputRoot, "logs");
+  await mkdir(finalizedLogsRoot, { mode: 0o700 });
+  for (const { name, bytes } of validated) {
+    await writeFile(join(finalizedLogsRoot, name), bytes, { flag: "wx", mode: 0o600 });
+  }
+  return {
+    schemaVersion: 1,
+    expectedNames: [...EXPECTED_COMMAND_LOG_NAMES],
+    maxFileBytes: MAX_COMMAND_LOG_BYTES,
+    files: validated.map(({ manifest }) => manifest),
+  };
+}
+
 async function finalizeEvidence(options) {
   const harnessPath = requiredAbsolute(options, "harness-evidence");
   const outputRoot = requiredAbsolute(options, "output-root");
@@ -765,17 +821,21 @@ async function finalizeEvidence(options) {
     inventory: processInventory,
     requirement: "No process may remain owned by the audited UID when the source command has completed and before the after snapshot is taken.",
   };
+  assert.equal(processClosure.passed, true, "audited UID still owns a process; command logs are not safe to finalize");
+  await mkdir(outputRoot, { mode: 0o700 });
+  const commandLogs = await finalizeCommandLogs({ harnessRoot, outputRoot });
   const finalEvidence = {
     schemaVersion: 1,
     issue: 87,
     passed: harness.passed === true && processClosure.passed && sourcePhaseAudit.passed,
     protectedMain: harness.sourceRefProtected === true,
     harness,
+    commandLogs,
     sourcePhaseProcessClosure: processClosure,
     sourcePhaseWriteAudit: sourcePhaseAudit,
   };
-  await mkdir(outputRoot, { mode: 0o700 });
   await writeFile(join(outputRoot, "harness-evidence.json"), harnessBytes, { flag: "wx", mode: 0o600 });
+  await writeFile(join(outputRoot, "command-logs-manifest.json"), stableJson(commandLogs), { flag: "wx", mode: 0o600 });
   await writeFile(join(outputRoot, "source-phase-write-audit.json"), stableJson(sourcePhaseAudit), { flag: "wx", mode: 0o600 });
   await writeFile(join(outputRoot, "final-evidence.json"), stableJson(finalEvidence), { flag: "wx", mode: 0o600 });
   if (!finalEvidence.passed) process.exitCode = 1;

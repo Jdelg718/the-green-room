@@ -62,7 +62,11 @@ jobs:
           test "$(realpath "$TRUSTED_CHECKOUT")" = "$TRUSTED_CHECKOUT"
           test "$(git -C "$TRUSTED_CHECKOUT" rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git -C "$TRUSTED_CHECKOUT" status --porcelain)"
-          test "$(git -C "$TRUSTED_CHECKOUT" remote get-url origin)" = "$SOURCE_URL"
+          trusted_origin="$(git -C "$TRUSTED_CHECKOUT" remote get-url origin)"
+          case "$trusted_origin" in
+            https://github.com/Jdelg718/the-green-room|https://github.com/Jdelg718/the-green-room.git) ;;
+            *) echo "unexpected trusted checkout origin: $trusted_origin" >&2; exit 1 ;;
+          esac
           test -f "$TRUSTED_CHECKOUT/scripts/clean-source-evidence.mjs"
 
       - name: Set up Node.js 24.20.0
@@ -389,7 +393,7 @@ jobs:
             "$CONTROL_ROOT/audit-after.json"
             "$CONTROL_ROOT/audit-after-errors.log"
           )
-          for finalized in harness-evidence.json source-phase-write-audit.json final-evidence.json; do
+          for finalized in harness-evidence.json command-logs-manifest.json source-phase-write-audit.json final-evidence.json; do
             if sudo test -f "$CONTROL_ROOT/finalized/$finalized"; then
               controlled+=("$CONTROL_ROOT/finalized/$finalized")
             fi
@@ -401,8 +405,22 @@ jobs:
             sudo install -m 0600 -o root -g root "$source" "$destination"
             sudo cmp -s "$source" "$destination"
             digest="$(sudo /usr/local/bin/node -e 'const fs=require("node:fs"),c=require("node:crypto"); process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$source")"
-            printf '%s  %s\n' "$digest" "$(basename "$source")" | sudo tee -a "$manifest" >/dev/null
+            size="$(sudo /usr/local/bin/node -e 'process.stdout.write(String(require("node:fs").statSync(process.argv[1]).size))' "$source")"
+            printf '%s  %s  %s\n' "$digest" "$size" "$(basename "$source")" | sudo tee -a "$manifest" >/dev/null
           done
+          if sudo test -f "$CONTROL_ROOT/finalized/command-logs-manifest.json"; then
+            sudo install -d -m 0700 -o root -g root "$UPLOAD_ROOT/logs"
+            for log_name in 01-preflight.log 02-npm-ci.log 03-install-scripts.json 04-uv-sync.log 05-build.log 06-source-launcher.log 07-acceptance.log; do
+              source="$CONTROL_ROOT/finalized/logs/$log_name"
+              sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(!s.isFile()||s.isSymbolicLink()) process.exit(1)' "$source"
+              destination="$UPLOAD_ROOT/logs/$log_name"
+              sudo install -m 0600 -o root -g root "$source" "$destination"
+              sudo cmp -s "$source" "$destination"
+              digest="$(sudo /usr/local/bin/node -e 'const fs=require("node:fs"),c=require("node:crypto"); process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$source")"
+              size="$(sudo /usr/local/bin/node -e 'process.stdout.write(String(require("node:fs").statSync(process.argv[1]).size))' "$source")"
+              printf '%s  %s  %s\n' "$digest" "$size" "logs/$log_name" | sudo tee -a "$manifest" >/dev/null
+            done
+          fi
           sudo chmod 0600 "$manifest"
           sudo install -m 0600 -o root -g root "$manifest" "$UPLOAD_ROOT/artifact-sha256.txt"
           sudo chown -R "$(id -u):$(id -g)" "$UPLOAD_ROOT"

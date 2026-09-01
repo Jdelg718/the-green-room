@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -12,8 +13,19 @@ const {
   assertProtectedDispatch,
   descendantProcesses,
   evaluateSourcePhaseAudit,
+  finalizeCommandLogs,
   pathsOutsideRoots,
 } = await import(pathToFileURL(join(process.cwd(), "scripts/clean-source-evidence.mjs")).href) as typeof import("../../scripts/clean-source-evidence.mjs");
+
+const EXPECTED_COMMAND_LOGS = [
+  "01-preflight.log",
+  "02-npm-ci.log",
+  "03-install-scripts.json",
+  "04-uv-sync.log",
+  "05-build.log",
+  "06-source-launcher.log",
+  "07-acceptance.log",
+];
 
 test("clean-source evidence accepts only the exact npm lifecycle policy", () => {
   const result = assertInstallPolicy(
@@ -191,6 +203,36 @@ test("protected dispatch requires the exact true value", () => {
   assert.throws(() => assertProtectedDispatch(undefined));
 });
 
+test("root finalizer copies and hashes only the exact bounded command log set", async () => {
+  const temporary = realpathSync(mkdtempSync(join(tmpdir(), "greenroom-command-logs-")));
+  try {
+    const harnessRoot = join(temporary, "evidence");
+    const logsRoot = join(harnessRoot, "logs");
+    const outputRoot = join(temporary, "finalized");
+    mkdirSync(logsRoot, { recursive: true });
+    mkdirSync(outputRoot);
+    for (const [index, name] of EXPECTED_COMMAND_LOGS.entries()) {
+      writeFileSync(join(logsRoot, name), `command log ${index}\n`);
+    }
+    const manifest = await finalizeCommandLogs({ harnessRoot, outputRoot });
+    assert.deepEqual(manifest.expectedNames, EXPECTED_COMMAND_LOGS);
+    assert.deepEqual(manifest.files.map(({ path }) => path), EXPECTED_COMMAND_LOGS.map((name) => join("logs", name)));
+    for (const file of manifest.files) {
+      assert.equal(file.sizeBytes, readFileSync(join(outputRoot, file.path)).byteLength);
+      assert.match(file.sha256, /^[0-9a-f]{64}$/);
+    }
+
+    writeFileSync(join(logsRoot, "unexpected.log"), "not allowed\n");
+    await assert.rejects(finalizeCommandLogs({ harnessRoot, outputRoot: join(temporary, "rejected-extra") }));
+    rmSync(join(logsRoot, "unexpected.log"));
+    rmSync(join(logsRoot, EXPECTED_COMMAND_LOGS[0]!));
+    symlinkSync(join(logsRoot, EXPECTED_COMMAND_LOGS[1]!), join(logsRoot, EXPECTED_COMMAND_LOGS[0]!));
+    await assert.rejects(finalizeCommandLogs({ harnessRoot, outputRoot: join(temporary, "rejected-symlink") }));
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("manual workflow preserves the evidence-only GitHub boundary", () => {
   const workflow = readFileSync(".github/workflows/clean-source-evidence.yml", "utf8");
   assert.match(workflow, /on:\n  workflow_dispatch:\n/);
@@ -224,6 +266,9 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /TRUSTED_CHECKOUT: \$\{\{ github\.workspace \}\}\/trusted-source/);
   assert.match(workflow, /test "\$\(git -C "\$TRUSTED_CHECKOUT" rev-parse HEAD\)" = "\$SOURCE_SHA"/);
+  assert.match(workflow, /https:\/\/github\.com\/Jdelg718\/the-green-room\|https:\/\/github\.com\/Jdelg718\/the-green-room\.git/);
+  assert.match(workflow, /unexpected trusted checkout origin/);
+  assert.doesNotMatch(workflow, /test "\$\(git -C "\$TRUSTED_CHECKOUT" remote get-url origin\)" = "\$SOURCE_URL"/);
   assert.match(workflow, /CONTROL_ROOT="\$control_parent\/greenroom-clean-source-control-/);
   assert.match(workflow, /install -d -m 0700 -o root -g root "\$CONTROL_ROOT"/);
   assert.match(workflow, /case "\$CONTROL_ROOT\/" in "\$EVIDENCE_ROOT\/"\*/);
@@ -245,6 +290,11 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.doesNotMatch(workflow, /sudo[^\n]*\$EVIDENCE_ROOT\/checkout\/scripts/);
   assert.doesNotMatch(workflow, /script="\$EVIDENCE_ROOT\/checkout/);
   assert.match(workflow, /sudo cmp -s "\$source" "\$destination"/);
+  assert.match(workflow, /command-logs-manifest\.json/);
+  assert.match(workflow, /source="\$CONTROL_ROOT\/finalized\/logs\/\$log_name"/);
+  assert.match(workflow, /destination="\$UPLOAD_ROOT\/logs\/\$log_name"/);
+  assert.match(workflow, /createHash\("sha256"\)/);
+  assert.match(workflow, /statSync\(process\.argv\[1\]\)\.size/);
   assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/greenroom-clean-source-upload/);
   assert.doesNotMatch(workflow, /path: \|\n(?:.*\n)*?\$\{\{ runner\.temp \}\}\/greenroom-clean-source-evidence/);
 });
@@ -261,6 +311,14 @@ test("root finalizer treats harness JSON as an exact untrusted contract", () => 
   assert.match(harness, /before: JSON\.parse\(await readFile\(beforePath/);
   assert.match(harness, /after: JSON\.parse\(await readFile\(afterPath/);
   assert.match(harness, /processInventory\.processes\.length === 0/);
+  for (const name of EXPECTED_COMMAND_LOGS) assert.match(harness, new RegExp(`"${name.replace(".", "\\.")}"`));
+  assert.match(harness, /entries\.map\(\(\{ name \}\) => name\)\.sort\(\), \[\.\.\.EXPECTED_COMMAND_LOG_NAMES\]/);
+  assert.match(harness, /isFile\(\) && !entry\.isSymbolicLink\(\)/);
+  assert.match(harness, /sourceStat\.nlink, 1/);
+  assert.match(harness, /sourceStat\.size <= MAX_COMMAND_LOG_BYTES/);
+  assert.match(harness, /createHash\("sha256"\).*digest\("hex"\)/);
+  assert.match(harness, /sizeBytes: bytes\.byteLength/);
+  assert.match(harness, /writeFile\(join\(outputRoot, "command-logs-manifest\.json"\)/);
   assert.match(harness, /writeFile\(join\(outputRoot, "harness-evidence\.json"\), harnessBytes, \{ flag: "wx"/);
   assert.doesNotMatch(harness, /writeFile\(join\(evidenceRoot, "final-evidence\.json"/);
 });

@@ -59,3 +59,13 @@ export interface ProcessEntry {
 }
 
 export function descendantProcesses(table: ProcessEntry[], rootPid: number): ProcessEntry[];
+
+export function finalizeCommandLogs(options: {
+  harnessRoot: string;
+  outputRoot: string;
+}): Promise<{
+  schemaVersion: number;
+  expectedNames: string[];
+  maxFileBytes: number;
+  files: Array<{ path: string; sizeBytes: number; sha256: string }>;
+}>;
