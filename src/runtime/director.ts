@@ -204,7 +204,13 @@ export class Director {
       return decision(null, DIRECTOR_REASON.NO_ELIGIBLE_PERSONA);
     }
 
-    const speaker = this.#deterministicEligibleSpeaker();
+    const onlyUnmuted = unmuted.length === 1 ? unmuted[0] : undefined;
+    const speaker = onlyUnmuted === undefined
+      ? this.#deterministicEligibleSpeaker()
+      : {
+          personaId: onlyUnmuted,
+          index: this.#personas.indexOf(onlyUnmuted),
+        };
     if (speaker === null) {
       return decision(null, DIRECTOR_REASON.COOLDOWN);
     }

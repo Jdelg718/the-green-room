@@ -704,6 +704,12 @@ export class RoomService {
     if (unmuted.length === 0) {
       return { speaker: null, reason: DIRECTOR_REASON.NO_ELIGIBLE_PERSONA };
     }
+    if (unmuted.length === 1) {
+      return {
+        speaker: unmuted[0]!.id,
+        reason: DIRECTOR_REASON.SELECTED,
+      };
+    }
 
     const lastIndex = personas.findIndex(({ id }) => id === state.last_speaker_id);
     const startIndex = lastIndex < 0 ? 0 : (lastIndex + 1) % personas.length;

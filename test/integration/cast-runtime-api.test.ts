@@ -177,13 +177,14 @@ test("selected historical slug reaches provider while durable participant id sta
   });
   assert.equal(eligible.decision.speaker, participant.id);
   assert.equal(provider.calls.length, 2);
-  const cooldown = await service.sendMessage({
+  const consecutive = await service.sendMessage({
     roomId: replaced.sessionId,
     requestId: "eligible-message",
     text: "Now again?",
   });
-  assert.equal(cooldown.decision.reason, "cooldown");
-  assert.equal(provider.calls.length, 2);
+  assert.equal(consecutive.decision.speaker, participant.id);
+  assert.equal(consecutive.decision.reason, "selected");
+  assert.equal(provider.calls.length, 3);
 });
 
 test("three-person casts schedule only selected slugs while preserving mute, cooldown, and budget policy", async (context) => {
