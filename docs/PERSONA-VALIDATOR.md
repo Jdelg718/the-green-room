@@ -19,7 +19,7 @@ network, credential, container, or deployment integration.
 The verified application workflow uses a locked repository virtual environment:
 
 ```sh
-npm ci
+npm ci --strict-allow-scripts=true
 uv sync --locked --no-dev
 npm run build
 npm run start:local

@@ -132,7 +132,7 @@ Exact names may change only through an ADR/plan patch before implementation; do 
 1. Add RED dry-run tests that require exact Node 24 major, locked `uv`, writable canonical data root and absent prepared artifacts.
 2. Implement a shell-free preflight with stable error codes.
 3. Document macOS arm64 and Ubuntu 24.04 x64 prerequisites, online dependency requirement and cleanup.
-4. Run in clean containers/VMs: `npm ci`, `uv sync --locked --no-dev`, `npm run build`, `npm run start:local`, readiness, first-playable acceptance and validator inspection.
+4. Run in clean containers/VMs: `npm ci --strict-allow-scripts=true`, `uv sync --locked --no-dev`, `npm run build`, `npm run start:local`, readiness, first-playable acceptance and validator inspection.
 5. Save sanitized CI evidence outside source docs; commit: `docs: define source operator alpha targets`.
 
 **Gate:** both named source targets pass; no “all POSIX” claim.
@@ -552,7 +552,7 @@ These tasks may be performed read-only after the macOS payload gate; they do not
 These commands are target contracts; they do not exist merely because this plan names them.
 
 ```bash
-npm ci
+npm ci --strict-allow-scripts=true
 uv sync --locked
 npm run check:release
 npm run test:packaging

@@ -15,7 +15,7 @@ Windows inspection remains intentionally unavailable, and no conclusion about ot
 - Native build prerequisites for the locked `fs-ext` writer-lock dependency: Xcode Command Line Tools on macOS; Python 3, `make`, and a C/C++ compiler (for example Ubuntu's `build-essential`) on Ubuntu. This requirement remains until a reviewed packaged payload supplies its own native lock implementation.
 - Standard-user write access to the checkout and to a new, absolute, canonical data-root path.
 
-The setup uses `npm ci` and `uv sync --locked --no-dev`. It does not copy a virtual environment, and the resulting checkout is not relocatable.
+The setup uses `npm ci --strict-allow-scripts=true` and `uv sync --locked --no-dev`. It does not copy a virtual environment, and the resulting checkout is not relocatable.
 
 ## Preflight and prepare
 
@@ -23,7 +23,7 @@ Choose a disposable, absent data-root path. The preflight is shell-free Node cod
 
 ```bash
 node scripts/source-clean-host.mjs --data-root="$HOME/greenroom-operator-alpha-data"
-npm ci
+npm ci --strict-allow-scripts=true
 uv sync --locked --no-dev
 npm run build
 ```
@@ -54,4 +54,4 @@ After stopping, remove only the disposable path you chose and verified above. Ne
 
 ## Evidence still required
 
-For each named target, release evidence must record the exact OS build/architecture and source commit, then run `npm ci`, locked `uv` sync, build, start/readiness, first-playable acceptance, validator inspection, restart, and understood cleanup from a clean standard-user host. This repository change does not claim those runs occurred.
+For each named target, release evidence must record the exact OS build/architecture and source commit, then run `npm ci --strict-allow-scripts=true`, locked `uv` sync, build, start/readiness, first-playable acceptance, validator inspection, restart, and understood cleanup from a clean standard-user host. This repository change does not claim those runs occurred.

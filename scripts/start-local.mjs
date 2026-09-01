@@ -20,7 +20,7 @@ try {
   accessSync(server, constants.R_OK);
 } catch {
   process.stderr.write(
-    "Local source runtime is not prepared. Run npm ci, uv sync --locked --no-dev, and npm run build first.\n",
+    "Local source runtime is not prepared. Run npm ci --strict-allow-scripts=true, uv sync --locked --no-dev, and npm run build first.\n",
   );
   process.exit(1);
 }
