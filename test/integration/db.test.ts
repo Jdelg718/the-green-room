@@ -54,6 +54,7 @@ test("concurrent first opens serialize migration history and both succeed", asyn
   rmSync(join(concurrentMigrations, "0002-claim-pending-work.sql"));
   rmSync(join(concurrentMigrations, "0003-room-cast.sql"));
   rmSync(join(concurrentMigrations, "0004-human-emoji.sql"));
+  rmSync(join(concurrentMigrations, "0005-human-avatar.sql"));
   writeFileSync(
     join(concurrentMigrations, "0001-first-playable.sql"),
     `CREATE TABLE race_probe(value INTEGER PRIMARY KEY);
@@ -118,11 +119,12 @@ test("migration checksums reject changed files and unknown newer schema versions
   const applied = first.database
     .prepare("SELECT version, name, checksum FROM schema_migrations")
     .all() as Array<{ version: number; name: string; checksum: string }>;
-  assert.equal(applied.length, 4);
+  assert.equal(applied.length, 5);
   assert.deepEqual(applied[0]?.version, 1);
   assert.deepEqual(applied[1]?.version, 2);
   assert.deepEqual(applied[2]?.version, 3);
   assert.deepEqual(applied[3]?.version, 4);
+  assert.deepEqual(applied[4]?.version, 5);
   assert.match(applied[0]?.checksum ?? "", /^[a-f0-9]{64}$/);
   first.close();
 
@@ -136,12 +138,12 @@ test("migration checksums reject changed files and unknown newer schema versions
   writeFileSync(migrationPath, readFileSync(join(migrationsDir, "0001-first-playable.sql")));
   const raw = new DatabaseSync(join(dataDir, "greenroom.sqlite"));
   raw.prepare(
-    "INSERT INTO schema_migrations(version, name, checksum) VALUES (5, 'future', ?)",
+    "INSERT INTO schema_migrations(version, name, checksum) VALUES (6, 'future', ?)",
   ).run("0".repeat(64));
   raw.close();
   assert.throws(
     () => openGreenRoomDatabase({ dataDir, migrationsDir: copiedMigrations }),
-    /unknown.*migration.*5|newer.*5/i,
+    /unknown.*migration.*6|newer.*6/i,
   );
 });
 
@@ -150,13 +152,13 @@ test("migration failure rolls back every pending migration", (context) => {
   const copiedMigrations = join(dataDir, "migration-copy");
   cpSync(migrationsDir, copiedMigrations, { recursive: true });
   writeFileSync(
-    join(copiedMigrations, "0005-broken.sql"),
+    join(copiedMigrations, "0006-broken.sql"),
     "CREATE TABLE rollback_probe(value TEXT); INSERT INTO missing_table VALUES (1);",
   );
 
   assert.throws(
     () => openGreenRoomDatabase({ dataDir, migrationsDir: copiedMigrations }),
-    /migration 5/i,
+    /migration 6/i,
   );
 
   const raw = new DatabaseSync(join(dataDir, "greenroom.sqlite"));
@@ -181,6 +183,7 @@ test("forward migration preserves legacy pending commands and adds empty claims"
   rmSync(join(legacyMigrations, "0002-claim-pending-work.sql"));
   rmSync(join(legacyMigrations, "0003-room-cast.sql"));
   rmSync(join(legacyMigrations, "0004-human-emoji.sql"));
+  rmSync(join(legacyMigrations, "0005-human-avatar.sql"));
   const legacy = openGreenRoomDatabase({
     dataDir,
     migrationsDir: legacyMigrations,
@@ -208,6 +211,7 @@ test("forward migration preserves legacy pending commands and adds empty claims"
       { version: 2, name: "0002-claim-pending-work.sql" },
       { version: 3, name: "0003-room-cast.sql" },
       { version: 4, name: "0004-human-emoji.sql" },
+      { version: 5, name: "0005-human-avatar.sql" },
     ],
   );
   assert.deepEqual(
