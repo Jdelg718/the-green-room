@@ -1,0 +1,16 @@
+{
+  "fixture_version": "1",
+  "authority_sequence": 10,
+  "room_generation": 1,
+  "restart_reopen": {"integrity_verified": true, "authority_sequence": 10, "active_revision": 1},
+  "reconnect_replay": {"idempotency_replay": true, "acknowledged_sequence": 10, "lag": 0, "logical_digest_match": true},
+  "conflict": {"projection_stopped": true, "overwrite": false, "continuation_allowed": false},
+  "unavailable": {"authority_acknowledged": true, "outbox_pending": 1, "fallback_writer": false, "continuation_allowed": false},
+  "disconnect_preflight": {"pending_operations": 0, "authority_sequence": 10, "projection_sequence": 10, "configuration_only": true},
+  "rebuild": {"source": "sqlite-authority", "target": "new-or-reset-sink", "logical_digest_match": true},
+  "backend_scopes": {
+    "local": "authority only; no optional projection",
+    "obsidian": "11 manifest-listed fixture files under Green Room/",
+    "http": "one room-scoped projection at fixed loopback endpoint"
+  }
+}
