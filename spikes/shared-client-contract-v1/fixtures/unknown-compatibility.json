@@ -1,0 +1,180 @@
+{
+  "contractVersion": "1.1",
+  "schema": "greenroom.compatibility_cases",
+  "schemaVersion": "1.0",
+  "cases": [
+    {
+      "name": "unknown_optional_field",
+      "expected": "read_write",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.catch_up_gap",
+        "schemaVersion": "1.0",
+        "roomId": "first-playable",
+        "requestedAfterCursor": "17",
+        "earliestAvailableCursor": "31",
+        "authorityHeadCursor": "44",
+        "snapshotRequired": true,
+        "reason": "retention_gap",
+        "futurePresentationHint": "safe-to-ignore"
+      }
+    },
+    {
+      "name": "unknown_required_extension",
+      "expected": "read_only",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.catch_up_gap",
+        "schemaVersion": "1.0",
+        "roomId": "first-playable",
+        "requestedAfterCursor": "17",
+        "earliestAvailableCursor": "31",
+        "authorityHeadCursor": "44",
+        "snapshotRequired": true,
+        "reason": "retention_gap",
+        "extensions": {
+          "greenroom.future.authority_rule": {
+            "required": true,
+            "value": "future-rule"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_optional_event",
+      "expected": "read_only",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.event_page",
+        "schemaVersion": "1.0",
+        "roomId": "first-playable",
+        "afterCursor": "42",
+        "nextCursor": "43",
+        "authorityHeadCursor": "43",
+        "hasMore": false,
+        "events": [
+          {
+            "eventId": "event-43",
+            "position": "43",
+            "occurredAt": "2026-09-01T16:04:08.000Z",
+            "criticality": "optional",
+            "source": { "type": "system", "displayName": "System" },
+            "event": { "type": "future_reaction_summary", "summaryCount": 2 }
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_mandatory_event",
+      "expected": "unsupported",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.event_page",
+        "schemaVersion": "1.0",
+        "roomId": "first-playable",
+        "afterCursor": "43",
+        "nextCursor": "44",
+        "authorityHeadCursor": "44",
+        "hasMore": false,
+        "events": [
+          {
+            "eventId": "event-44",
+            "position": "44",
+            "occurredAt": "2026-09-01T16:04:09.000Z",
+            "criticality": "mandatory",
+            "source": { "type": "system", "displayName": "System" },
+            "event": { "type": "future_membership_authority_changed" }
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_optional_schema",
+      "expected": "read_only",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.future_presentation",
+        "schemaVersion": "1.0",
+        "schemaCriticality": "optional"
+      }
+    },
+    {
+      "name": "unknown_mandatory_schema",
+      "expected": "unsupported",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.future_authority",
+        "schemaVersion": "1.0",
+        "schemaCriticality": "mandatory"
+      }
+    },
+    {
+      "name": "unknown_contract_major",
+      "expected": "unsupported",
+      "document": {
+        "contractVersion": "2.0",
+        "schema": "greenroom.future_presentation",
+        "schemaVersion": "1.0",
+        "schemaCriticality": "optional"
+      }
+    },
+    {
+      "name": "newer_schema_minor",
+      "expected": "read_only",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.catch_up_gap",
+        "schemaVersion": "1.1",
+        "roomId": "first-playable",
+        "requestedAfterCursor": "17",
+        "earliestAvailableCursor": "31",
+        "authorityHeadCursor": "44",
+        "snapshotRequired": true,
+        "reason": "retention_gap"
+      }
+    },
+    {
+      "name": "unknown_schema_major",
+      "expected": "unsupported",
+      "document": {
+        "contractVersion": "1.0",
+        "schema": "greenroom.catch_up_gap",
+        "schemaVersion": "2.0",
+        "roomId": "first-playable",
+        "requestedAfterCursor": "17",
+        "earliestAvailableCursor": "31",
+        "authorityHeadCursor": "44",
+        "snapshotRequired": true,
+        "reason": "retention_gap"
+      }
+    },
+    {
+      "name": "old_minor_client",
+      "expected": "read_only",
+      "clientVersion": "1.0",
+      "authorityCapabilities": {
+        "contractVersion": "1.1",
+        "schema": "greenroom.capabilities",
+        "schemaVersion": "1.0",
+        "authorityId": "companion-018f1f8e",
+        "authorityRole": "sole_writer_scheduler",
+        "supportedContractMajors": [1],
+        "minimumMutationVersion": "1.1",
+        "maximumMutationVersion": "1.3",
+        "eventPositionEncoding": "decimal_string_uint64",
+        "timestampEncoding": "rfc3339_utc_milliseconds",
+        "catchUp": {
+          "pageSizeMaximum": 100,
+          "declaresAuthorityHead": true,
+          "declaresRetentionGap": true
+        },
+        "transport": {
+          "httpCatchUp": true,
+          "foregroundSse": true,
+          "offlineMutation": false
+        },
+        "knownRequiredExtensions": []
+      }
+    }
+  ]
+}

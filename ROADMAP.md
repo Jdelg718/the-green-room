@@ -101,6 +101,8 @@ This establishes technical viability. It does not approve historical candidates 
 
 **Acceptance criteria:** an accepted Apple-client ADR fixes authority and API-versioning boundaries; contract tests prove event compatibility with the local companion; supported iPhone and iPad layouts pass accessibility review; suspension, termination, reconnect, and authority-unreachable cases do not lose or falsely acknowledge actions; local-network prompts are contextual and least-privilege; credential sentinels are absent outside an explicitly approved Keychain item and transient use and never appear in diagnostics; offline state is unmistakable and read-only; and App Store/privacy disclosures match measured data flows.
 
+Phase A fixture evidence and the provisional compatibility recommendation are recorded in the [shared Node/Swift client contract fixture spike](docs/spikes/2026-09-01-shared-node-swift-client-contract-fixtures.md). That spike does not authorize production client or API implementation.
+
 ## Future pillar — invited human participants
 
 **Sequence:** discovery and threat-model work may proceed alongside the Apple contract spike, but implementation waits for stable multi-room/event contracts and the current local-first/community release foundations. Remote invitation work also waits for accepted identity, authority, transport, encryption, and data-lifecycle decisions.
