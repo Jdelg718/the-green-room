@@ -43,6 +43,14 @@ interface BrowserContract {
     text: string,
     submitDisabled: boolean,
   ) => boolean;
+  readonly shouldSubmitComposerKey: (event: {
+    readonly key: string;
+    readonly shiftKey?: boolean;
+    readonly altKey?: boolean;
+    readonly ctrlKey?: boolean;
+    readonly metaKey?: boolean;
+    readonly isComposing?: boolean;
+  }) => boolean;
   readonly reserveMutation: (pending: Set<string>, key: string) => boolean;
   readonly createRoomEventChannel: (options: {
     readonly commit: (record: EventRecord) => void;
@@ -230,6 +238,15 @@ test("first playable UI bounds request IDs and resets irreversible stop confirma
   contract.openStopConfirmation(dialog);
   assert.equal(dialog.returnValue, "cancel");
   assert.equal(opened, true);
+});
+
+test("composer Enter shortcut sends without stealing multiline or composed input", async () => {
+  const contract = await browserContract();
+  assert.equal(contract.shouldSubmitComposerKey({ key: "Enter" }), true);
+  assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", shiftKey: true }), false);
+  assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", isComposing: true }), false);
+  assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", ctrlKey: true }), false);
+  assert.equal(contract.shouldSubmitComposerKey({ key: "a" }), false);
 });
 
 test("first playable UI reconnect catches up before resubscribing and suppresses duplicate events", async () => {

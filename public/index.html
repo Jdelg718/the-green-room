@@ -48,12 +48,13 @@
         </div>
         <form class="composer" id="message-form">
           <label for="message-text">Your line</label>
-          <textarea id="message-text" name="message" rows="3" maxlength="16384" placeholder="Say something to the room…" required disabled></textarea>
+          <textarea id="message-text" name="message" rows="2" maxlength="16384" placeholder="Say something to the room…" aria-describedby="composer-shortcut response-note composer-note" required disabled></textarea>
           <div class="composer-footer">
             <label class="response-choice" for="wants-response"><input id="wants-response" type="checkbox" checked disabled> Request one persona reply</label>
             <button class="button button-primary" id="send-message" type="submit" disabled>Send to room <span aria-hidden="true">→</span></button>
           </div>
-          <p class="form-note response-note">Unchecked saves your line without an AI response.</p>
+          <p class="form-note composer-shortcut" id="composer-shortcut"><strong>Enter sends</strong> · Shift+Enter starts a new line.</p>
+          <p class="form-note response-note" id="response-note">Unchecked saves your line without an AI response.</p>
           <p class="form-note" id="composer-note">Messages are available while the room is active.</p>
         </form>
         <p class="action-status" id="action-status" role="status" aria-live="polite"></p>

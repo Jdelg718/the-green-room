@@ -449,6 +449,11 @@ export function canSubmitMessage(status, pending, text, submitDisabled) {
   return !submitDisabled && text.trim().length > 0 && controlAvailability(status, pending).canCompose;
 }
 
+export function shouldSubmitComposerKey(event) {
+  return event.key === "Enter" && !event.shiftKey && !event.altKey &&
+    !event.ctrlKey && !event.metaKey && !event.isComposing;
+}
+
 function validRecord(record) {
   return record !== null && typeof record === "object" && Number.isSafeInteger(record.sequence) &&
     record.sequence > 0 && record.event !== null && typeof record.event === "object" &&
@@ -1324,6 +1329,11 @@ export function startBrowserApp() {
     if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
     const result = await mutate("message", API_PATHS.messages, { requestId: createRequestId("message"), text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
     if (result !== null) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
+  });
+  elements.messageText.addEventListener("keydown", (event) => {
+    if (!shouldSubmitComposerKey(event)) return;
+    event.preventDefault();
+    elements.form.requestSubmit();
   });
   elements.pauseResume.addEventListener("click", async () => {
     if (room === null || room.status === "stopped" || pending.size !== 0) return;
