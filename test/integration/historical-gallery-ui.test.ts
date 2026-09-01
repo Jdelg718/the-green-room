@@ -155,7 +155,7 @@ test("duplicate cast starts are rejected and dialog focus returns only to a live
   assert.equal(focusCount, 1);
 });
 
-test("cast response validation fails before transition and success stops-clears-renders-starts in order", async () => {
+test("cast response validation fails before transition and lifecycle starts a validated room in order", async () => {
   const ui = await contract();
   const selected = ["ada-lovelace"];
   const response = {
@@ -170,28 +170,31 @@ test("cast response validation fails before transition and success stops-clears-
     selectedCast: [{ participantId: "persona-room-123", slug: "ada-lovelace", name: "Ada Lovelace", sortOrder: 1 }],
   };
   const calls: string[] = [];
-  const oldChannel = { stop: () => calls.push("old.stop") };
   const newChannel = { cursor: 0, start: async () => { calls.push("new.start:0"); } };
-  const result = await ui.transitionRoomSession({
+  const lifecycle = {
+    replace: (channel: unknown) => { assert.equal(channel, newChannel); calls.push("replace"); },
+    startIfActive: async () => { await newChannel.start(); },
+  };
+  const outcome = ui.reconcileHistoricalRoomAttempt({
     response, requestId: "ui-cast-123", personaSlugs: selected, oldSessionId: "first-playable",
-    oldChannel,
+  });
+  assert.equal(outcome.kind, "committed");
+  const result = await ui.transitionRoomSession({
+    room: outcome.room, oldSessionId: "first-playable", lifecycle,
     clearSession: () => calls.push("clear"),
     renderRoom: () => calls.push("render"),
     createChannel: () => { calls.push("create"); return newChannel; },
   });
   assert.equal(result.sessionId, "room-123");
   assert.equal(result.channel, newChannel);
-  assert.deepEqual(calls, ["old.stop", "clear", "render", "create", "new.start:0"]);
+  assert.deepEqual(calls, ["create", "replace", "clear", "render", "new.start:0"]);
 
   const malformed = structuredClone(response);
   malformed.sessionId = "first-playable";
   const untouched: string[] = [];
-  await assert.rejects(ui.transitionRoomSession({
+  assert.equal(ui.reconcileHistoricalRoomAttempt({
     response: malformed, requestId: "ui-cast-123", personaSlugs: selected, oldSessionId: "first-playable",
-    oldChannel: { stop: () => untouched.push("stop") },
-    clearSession: () => untouched.push("clear"), renderRoom: () => untouched.push("render"),
-    createChannel: () => ({ cursor: 0, start: async () => undefined }),
-  }), /invalid cast response/i);
+  }).kind, "unknown");
   assert.deepEqual(untouched, []);
 
   const extraPersona = structuredClone(response);
@@ -201,6 +204,52 @@ test("cast response validation fails before transition and success stops-clears-
   assert.throws(() => ui.validateCastResponse(extraPersona, {
     requestId: "ui-cast-123", personaSlugs: selected, oldSessionId: "first-playable",
   }), /invalid cast response/i);
+});
+
+test("historical room reconciliation is authoritative, strict, private, and deterministic", async () => {
+  const ui = await contract();
+  const oldSessionId = "old-room";
+  const requestId = "ui-cast-idempotent";
+  const personaSlugs = ["ada-lovelace"];
+  const room = {
+    id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+    participants: [
+      { id: "human-new", kind: "human", displayName: "You", muted: false },
+      { id: "ada-new", kind: "persona", displayName: "Ada Lovelace", muted: false, personaSlug: "ada-lovelace" },
+    ],
+  };
+  const response = {
+    kind: "cast", requestId, sessionId: "new-room", room,
+    selectedCast: [{ participantId: "ada-new", slug: "ada-lovelace", name: "Ada Lovelace", sortOrder: 1 }],
+  };
+  const input = { requestId, personaSlugs, oldSessionId };
+
+  const direct = ui.reconcileHistoricalRoomAttempt({ ...input, response });
+  assert.deepEqual(direct, ui.reconcileHistoricalRoomAttempt({ ...input, response }));
+  assert.deepEqual({ kind: direct.kind, recovered: direct.recovered, requestedCast: direct.requestedCast },
+    { kind: "committed", recovered: false, requestedCast: true });
+  const lostResponse = ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: room });
+  assert.deepEqual({ kind: lostResponse.kind, recovered: lostResponse.recovered, requestedCast: lostResponse.requestedCast },
+    { kind: "committed", recovered: true, requestedCast: true });
+  const malformedCommitted = ui.reconcileHistoricalRoomAttempt({
+    ...input, response: { privateError: "do not expose" }, authoritativeRoom: room,
+  });
+  assert.equal(malformedCommitted.kind, "committed");
+
+  const unchangedRoom = structuredClone(room); unchangedRoom.sessionId = oldSessionId;
+  assert.equal(ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: unchangedRoom }).kind, "unchanged");
+  assert.equal(ui.reconcileHistoricalRoomAttempt(input).kind, "unknown");
+  assert.equal(ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: { ...room, secret: "no" } }).kind, "unknown");
+
+  const concurrentRoom = structuredClone(room);
+  concurrentRoom.sessionId = "concurrent-room";
+  concurrentRoom.participants[1] = {
+    id: "newton-concurrent", kind: "persona", displayName: "Isaac Newton", muted: false, personaSlug: "isaac-newton",
+  };
+  const concurrent = ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: concurrentRoom });
+  assert.deepEqual({ kind: concurrent.kind, recovered: concurrent.recovered, requestedCast: concurrent.requestedCast },
+    { kind: "committed", recovered: true, requestedCast: false });
+  assert.doesNotMatch(JSON.stringify(concurrent), /privateError|secret/);
 });
 
 test("replacement lifecycle follows only the new channel and stale old-session commits are fenced", async () => {
@@ -237,14 +286,14 @@ test("replacement lifecycle follows only the new channel and stale old-session c
     selectedCast: [{ participantId: "ada-replacement", slug: "ada-lovelace", name: "Ada Lovelace", sortOrder: 1 }],
   };
   await ui.transitionRoomSession({
-    response, requestId: "ui-cast-lifecycle", personaSlugs: ["ada-lovelace"], oldSessionId: "original-room",
-    oldChannel, channelHolder: holder, clearSession: () => calls.push("clear"), renderRoom: () => calls.push("render"),
+    room: response.room, oldSessionId: "original-room", lifecycle,
+    clearSession: () => calls.push("clear"), renderRoom: () => calls.push("render"),
     createChannel: () => { calls.push("create"); return newChannel; },
   });
   listeners.get("pagehide")?.({ persisted: true });
   listeners.get("pageshow")?.({ persisted: true });
   await new Promise((resolveTurn) => setImmediate(resolveTurn));
-  assert.deepEqual(calls, ["old.start", "old.stop", "clear", "render", "create", "new.start", "new.stop", "new.start"]);
+  assert.deepEqual(calls, ["old.start", "create", "old.stop", "clear", "render", "new.start", "new.stop", "new.start"]);
   assert.equal(calls.filter((call) => call === "old.stop").length, 1);
 
   let currentSession = "replacement-room";
@@ -258,6 +307,82 @@ test("replacement lifecycle follows only the new channel and stale old-session c
   newCommit({ sequence: 2 });
   assert.deepEqual(committed, ["new"]);
   lifecycle.dispose();
+});
+
+test("persisted pagehide defers a cast replacement transport until one BFCache pageshow", async () => {
+  const ui = await contract();
+  const calls: string[] = [];
+  const listeners = new Map<string, (event: { persisted?: boolean }) => void>();
+  const channel = (name: string) => ({
+    cursor: 0,
+    start: async () => { calls.push(`${name}.start`); },
+    catchUp: async () => undefined,
+    stop: () => { calls.push(`${name}.stop`); },
+  });
+  const oldChannel = channel("old");
+  const newChannel = channel("new");
+  const holder = ui.createRoomChannelHolder(oldChannel);
+  const target = {
+    addEventListener(type: string, listener: (event: { persisted?: boolean }) => void) { listeners.set(type, listener); },
+    removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  };
+  const lifecycle = ui.bindRoomChannelLifecycle(holder, target);
+  await lifecycle.activate();
+  listeners.get("pagehide")?.({ persisted: true });
+  await ui.transitionRoomSession({
+    room: {
+      id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+      participants: [{ id: "human-new", kind: "human", displayName: "You", muted: false }],
+    },
+    oldSessionId: "old-room", lifecycle, clearSession: () => calls.push("clear"),
+    renderRoom: () => calls.push("render"), createChannel: () => newChannel,
+  });
+  assert.deepEqual(calls, ["old.start", "old.stop", "clear", "render"]);
+  listeners.get("pageshow")?.({ persisted: true });
+  listeners.get("pageshow")?.({ persisted: true });
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.deepEqual(calls, ["old.start", "old.stop", "clear", "render", "new.start"]);
+  lifecycle.dispose();
+  assert.equal(calls.filter((call) => call === "old.stop").length, 1);
+  assert.equal(calls.filter((call) => call === "new.stop").length, 1);
+});
+
+test("nonpersisted pagehide disposes before a cast replacement and never starts it", async () => {
+  const ui = await contract();
+  const calls: string[] = [];
+  const listeners = new Map<string, (event: { persisted?: boolean }) => void>();
+  const channel = (name: string) => ({
+    cursor: 0,
+    start: async () => { calls.push(`${name}.start`); },
+    catchUp: async () => undefined,
+    stop: () => { calls.push(`${name}.stop`); },
+  });
+  const holder = ui.createRoomChannelHolder(channel("old"));
+  const target = {
+    addEventListener(type: string, listener: (event: { persisted?: boolean }) => void) { listeners.set(type, listener); },
+    removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  };
+  const lifecycle = ui.bindRoomChannelLifecycle(holder, target);
+  await lifecycle.activate();
+  const pageShow = listeners.get("pageshow");
+  listeners.get("pagehide")?.({ persisted: false });
+  await ui.transitionRoomSession({
+    room: {
+      id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+      participants: [{ id: "human-new", kind: "human", displayName: "You", muted: false }],
+    },
+    oldSessionId: "old-room", lifecycle, clearSession: () => calls.push("clear"),
+    renderRoom: () => calls.push("render"), createChannel: () => channel("new"),
+  });
+  pageShow?.({ persisted: true });
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.deepEqual(calls, ["old.start", "old.stop", "clear", "render"]);
+  assert.equal(lifecycle.isDisposed, true);
+  assert.equal(holder.current.cursor, 0);
 });
 
 test("real Fastify catalog to cast to unchecked message uses the closed UI contracts", async (context) => {

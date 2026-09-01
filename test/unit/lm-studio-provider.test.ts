@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
-import { LMStudioProvider } from "../../src/providers/lm-studio.js";
+import { boundedCompleteResponse, LMStudioProvider } from "../../src/providers/lm-studio.js";
 import type { ProviderInvitation } from "../../src/providers/provider.js";
 
 const invitation: ProviderInvitation = {
@@ -218,6 +218,48 @@ test("LM Studio strictly rejects HTTP, content-type, JSON, and response-shape fa
       name,
     );
   }
+});
+
+test("LM Studio bounds response transport before decoding or JSON parsing", async () => {
+  const oversizedJson = JSON.stringify({ padding: "x".repeat(70 * 1024) });
+  const cases: ReadonlyArray<readonly [string, Response]> = [
+    ["declared oversized", new Response("{}", {
+      headers: { "content-type": "application/json", "content-length": "65537" },
+    })],
+    ["actual oversized with misleading length", new Response(oversizedJson, {
+      headers: { "content-type": "application/json", "content-length": "2" },
+    })],
+    ["invalid UTF-8", new Response(Uint8Array.from([0x7b, 0x22, 0xff, 0x22, 0x7d]), {
+      headers: { "content-type": "application/json" },
+    })],
+  ];
+
+  for (const [name, response] of cases) {
+    const provider = new LMStudioProvider({ fetch: async () => response });
+    await assert.rejects(
+      provider.generate(invitation, new AbortController().signal),
+      /LM Studio response was invalid/,
+      name,
+    );
+  }
+});
+
+test("LM Studio bounds content bytes before sentence processing", async () => {
+  const provider = new LMStudioProvider({
+    fetch: async () => jsonResponse({
+      choices: [{ message: { content: `${"é".repeat(8_192)}.` } }],
+    }),
+  });
+  await assert.rejects(
+    provider.generate(invitation, new AbortController().signal),
+    /LM Studio response was invalid/,
+  );
+});
+
+test("LM Studio completion scan remains bounded on punctuation-heavy input", () => {
+  const content = `${"A. ".repeat(5_000)}Final.`;
+  assert.throws(() => boundedCompleteResponse(content), /LM Studio response was invalid/);
+  assert.equal(boundedCompleteResponse(`${"What?! ".repeat(6)}Trailing fragment`), "What?! What?! What?! What?! What?!");
 });
 
 test("LM Studio keeps only complete sentences when generation reaches the token limit", async () => {

@@ -456,14 +456,18 @@ export function createRoomEventChannel(options) {
 
 export function createRoomChannelHolder(initialChannel = null) {
   let channel = initialChannel;
+  function assertChannel(nextChannel) {
+    if (nextChannel === null || typeof nextChannel !== "object" ||
+      typeof nextChannel.start !== "function" || typeof nextChannel.stop !== "function" ||
+      typeof nextChannel.catchUp !== "function" || !Number.isSafeInteger(nextChannel.cursor) || nextChannel.cursor < 0) {
+      throw new TypeError("Invalid room event channel");
+    }
+  }
+  if (initialChannel !== null) assertChannel(initialChannel);
   return Object.freeze({
     get current() { return channel; },
     replace(nextChannel) {
-      if (nextChannel === null || typeof nextChannel !== "object" ||
-        typeof nextChannel.start !== "function" || typeof nextChannel.stop !== "function" ||
-        typeof nextChannel.catchUp !== "function" || !Number.isSafeInteger(nextChannel.cursor) || nextChannel.cursor < 0) {
-        throw new TypeError("Invalid room event channel");
-      }
+      assertChannel(nextChannel);
       channel = nextChannel;
     },
     async start() { await channel?.start(); },
@@ -473,9 +477,37 @@ export function createRoomChannelHolder(initialChannel = null) {
 }
 
 export function bindRoomChannelLifecycle(channelHolder, target = globalThis) {
+  if (channelHolder === null || typeof channelHolder !== "object" || !("current" in channelHolder)) {
+    channelHolder = createRoomChannelHolder(channelHolder);
+  }
   let disposed = false;
   let ready = false;
   let pageActive = true;
+  let currentStarted = false;
+
+  function assertChannel(channel) {
+    const probe = createRoomChannelHolder();
+    probe.replace(channel);
+  }
+
+  function stopCurrent() {
+    if (!currentStarted) return;
+    currentStarted = false;
+    channelHolder.stop();
+  }
+
+  async function startIfActive() {
+    if (!ready || !pageActive || disposed || currentStarted || channelHolder.current === null) return false;
+    const channel = channelHolder.current;
+    currentStarted = true;
+    try {
+      await channel.start();
+      return true;
+    } catch (error) {
+      if (channelHolder.current === channel) currentStarted = false;
+      throw error;
+    }
+  }
 
   function removeListeners() {
     if (disposed) return;
@@ -486,28 +518,42 @@ export function bindRoomChannelLifecycle(channelHolder, target = globalThis) {
 
   function onPageHide(event) {
     pageActive = false;
-    channelHolder.stop();
+    stopCurrent();
     if (!event.persisted) removeListeners();
   }
 
   function onPageShow(event) {
     if (!event.persisted || disposed) return;
     pageActive = true;
-    if (ready) void channelHolder.start();
+    if (ready) void startIfActive().catch(() => undefined);
   }
 
   target.addEventListener("pagehide", onPageHide);
   target.addEventListener("pageshow", onPageShow);
 
   return Object.freeze({
+    get isActive() { return pageActive && !disposed; },
+    get isDisposed() { return disposed; },
     async activate() {
       ready = true;
-      if (pageActive && !disposed) await channelHolder.start();
+      await startIfActive();
+    },
+    replace(channel) {
+      assertChannel(channel);
+      if (channelHolder.current === channel) return;
+      stopCurrent();
+      channelHolder.replace(channel);
+      currentStarted = false;
+    },
+    startIfActive,
+    suspend() {
+      ready = false;
+      stopCurrent();
     },
     dispose() {
       if (disposed) return;
+      stopCurrent();
       removeListeners();
-      channelHolder.stop();
     },
   });
 }
@@ -613,16 +659,42 @@ export function validateCastResponse(value, { requestId, personaSlugs, oldSessio
   return value;
 }
 
+export function reconcileHistoricalRoomAttempt(options) {
+  if (!boundedText(options?.requestId, 128) || !Array.isArray(options?.personaSlugs) ||
+    options.personaSlugs.length < 1 || options.personaSlugs.length > 3 ||
+    options.personaSlugs.some((slug) => !PERSONA_ID.test(slug)) ||
+    !boundedText(options.oldSessionId, 128)) {
+    throw new TypeError("Invalid historical room reconciliation");
+  }
+  if (options.response !== undefined) {
+    try {
+      const response = validateCastResponse(options.response, options);
+      return Object.freeze({ kind: "committed", recovered: false, requestedCast: true, room: response.room });
+    } catch { /* An authoritative room is required for an ambiguous response. */ }
+  }
+  if (options.authoritativeRoom === undefined) return Object.freeze({ kind: "unknown" });
+  let room;
+  try { room = validateRoomDto(options.authoritativeRoom); }
+  catch { return Object.freeze({ kind: "unknown" }); }
+  if (room.sessionId === options.oldSessionId) return Object.freeze({ kind: "unchanged", room });
+  const authoritativeCast = room.participants.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => personaSlug);
+  const requestedCast = authoritativeCast.length === options.personaSlugs.length &&
+    authoritativeCast.every((slug, index) => slug === options.personaSlugs[index]);
+  return Object.freeze({ kind: "committed", recovered: true, requestedCast, room });
+}
+
 export async function transitionRoomSession(options) {
-  const response = validateCastResponse(options.response, options);
-  options.oldChannel.stop();
-  options.clearSession();
-  options.renderRoom(response.room);
-  const channel = options.createChannel(response.sessionId);
+  const room = validateRoomDto(options.room);
+  if (room.sessionId === options.oldSessionId) throw new TypeError("A replacement room must use a new session");
+  const channel = options.createChannel(room.sessionId);
   if (channel.cursor !== 0) throw new TypeError("A new session channel must begin at cursor 0");
-  options.channelHolder?.replace(channel);
-  await channel.start();
-  return Object.freeze({ sessionId: response.sessionId, channel });
+  if (options.lifecycle === null || typeof options.lifecycle?.replace !== "function" ||
+    typeof options.lifecycle?.startIfActive !== "function") throw new TypeError("A room channel lifecycle is required");
+  options.lifecycle.replace(channel);
+  options.clearSession();
+  options.renderRoom(room);
+  await options.lifecycle.startIfActive();
+  return Object.freeze({ sessionId: room.sessionId, channel });
 }
 
 export function safeDetailsContent(persona) {
@@ -670,6 +742,7 @@ export function startBrowserApp() {
   let selection = createSelectionState();
   const channelHolder = createRoomChannelHolder();
   const lifecycle = bindRoomChannelLifecycle(channelHolder, globalThis);
+  let roomStatusUnknown = false;
   let detailsSlug = null;
   let detailsTrigger = null;
   const pending = new Set();
@@ -713,6 +786,11 @@ export function startBrowserApp() {
         "Messages are available while the room is active.";
     for (const button of elements.castList.querySelectorAll("[data-persona-control]")) {
       button.disabled = !controlAvailability(room.status, pending, false, button.dataset.personaControl).canToggleMute;
+    }
+    if (roomStatusUnknown) {
+      elements.messageText.disabled = true; elements.wantsResponse.disabled = true; elements.sendMessage.disabled = true;
+      elements.pauseResume.disabled = true; elements.stopRoom.disabled = true; elements.openSetup.disabled = true;
+      for (const button of elements.castList.querySelectorAll("[data-persona-control]")) button.disabled = true;
     }
   }
 
@@ -898,7 +976,7 @@ export function startBrowserApp() {
     const count = selection.slugs.length;
     elements.builderStatus.textContent = count === 0 ? "0 of 3 persona seats filled. Choose at least one." :
       count === 3 ? "3 of 3 persona seats filled. Cast is full and ready." : `${count} of 3 persona seats filled. You may start now or add ${3 - count} more.`;
-    elements.startRoom.disabled = count === 0 || pending.has("cast") || catalog === null;
+    elements.startRoom.disabled = roomStatusUnknown || count === 0 || pending.has("cast") || catalog === null;
     elements.mobileAction.hidden = count === 0 || elements.setupView.hidden;
     elements.viewRoom.textContent = `View room (${count} of 3)`;
     document.body.classList.toggle("has-mobile-room-action", count > 0 && !elements.setupView.hidden);
@@ -967,20 +1045,63 @@ export function startBrowserApp() {
   }
 
   async function startHistoricalRoom() {
-    if (selection.slugs.length === 0 || room === null || channelHolder.current === null || !reserveCastStart(pending)) return;
-    const requestId = createRequestId("cast"); const personaSlugs = [...selection.slugs];
+    if (roomStatusUnknown || selection.slugs.length === 0 || room === null || channelHolder.current === null || !reserveCastStart(pending)) return;
+    const requestId = createRequestId("cast"); const personaSlugs = [...selection.slugs]; const oldSessionId = room.sessionId;
     elements.builderError.textContent = "Starting the new room…"; renderBuilder(); renderControls();
     try {
       const response = await postJson(API_PATHS.cast, { requestId, personaSlugs }, csrfToken);
+      const outcome = reconcileHistoricalRoomAttempt({ response, requestId, personaSlugs, oldSessionId });
+      if (outcome.kind !== "committed") throw new RequestFailure("invalid_response");
       await transitionRoomSession({
-        response, requestId, personaSlugs, oldSessionId: room.sessionId, oldChannel: channelHolder.current, channelHolder,
-        clearSession, renderRoom,
+        room: outcome.room, oldSessionId, lifecycle,
+        clearSession: () => { if (!lifecycle.isDisposed) clearSession(); },
+        renderRoom: (nextRoom) => { if (!lifecycle.isDisposed) renderRoom(nextRoom); },
         createChannel(sessionId) { return createChannel(sessionId); },
       });
-      elements.builderError.textContent = ""; showLive(false); elements.messageText.focus();
+      roomStatusUnknown = false;
+      if (!lifecycle.isDisposed) elements.builderError.textContent = "";
+      if (lifecycle.isActive) { showLive(false); elements.messageText.focus(); }
     } catch (error) {
-      elements.builderError.textContent = `${userMessage(error)} Your selection and current room are unchanged.`;
-    } finally { pending.delete("cast"); renderBuilder(); renderControls(); }
+      let authoritativeRoom;
+      try { authoritativeRoom = await getJson(API_PATHS.room); } catch { /* Status remains unknown. */ }
+      const outcome = reconcileHistoricalRoomAttempt({ authoritativeRoom, requestId, personaSlugs, oldSessionId });
+      if (outcome.kind === "committed") {
+        try {
+          if (room?.sessionId !== outcome.room.sessionId) {
+            await transitionRoomSession({
+              room: outcome.room, oldSessionId, lifecycle,
+              clearSession: () => { if (!lifecycle.isDisposed) clearSession(); },
+              renderRoom: (nextRoom) => { if (!lifecycle.isDisposed) renderRoom(nextRoom); },
+              createChannel(sessionId) { return createChannel(sessionId); },
+            });
+          } else {
+            await lifecycle.startIfActive();
+          }
+          if (!lifecycle.isDisposed) {
+            roomStatusUnknown = false;
+            elements.builderError.textContent = "";
+            setActionStatus(outcome.requestedCast ?
+              "The new room was committed. Its latest confirmed state was recovered." :
+              "The room changed concurrently. Its latest confirmed cast is now shown.");
+          }
+          if (lifecycle.isActive) { showLive(false); elements.messageText.focus(); }
+        } catch {
+          roomStatusUnknown = true; lifecycle.suspend();
+          if (!lifecycle.isDisposed) elements.builderError.textContent = "The room status is unknown. Reload this page before continuing.";
+        }
+      } else if (outcome.kind === "unchanged") {
+        if (!lifecycle.isDisposed) {
+          renderRoom(outcome.room);
+          elements.builderError.textContent = `${userMessage(error)} The new room was not started; your selection is still available.`;
+        }
+      } else if (!lifecycle.isDisposed) {
+        roomStatusUnknown = true; lifecycle.suspend();
+        elements.builderError.textContent = "The room status is unknown. Reload this page before continuing.";
+      }
+    } finally {
+      pending.delete("cast");
+      if (!lifecycle.isDisposed) { renderBuilder(); renderControls(); }
+    }
   }
 
   elements.form.addEventListener("submit", async (event) => {
@@ -1031,7 +1152,7 @@ export function startBrowserApp() {
       csrfToken = bootstrap.csrfToken;
       const [nextRoom, catalogValue] = await Promise.all([getJson(API_PATHS.room), getJson(API_PATHS.catalog)]);
       catalog = validateCatalogDto(catalogValue); initializeFilters(); renderRoom(nextRoom);
-      channelHolder.replace(createChannel(room.sessionId));
+      lifecycle.replace(createChannel(room.sessionId));
       await lifecycle.activate();
       renderGallery(); renderBuilder();
     } catch (error) {

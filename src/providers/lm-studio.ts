@@ -16,6 +16,8 @@ const MAX_TEMPERATURE = 2;
 const MAX_TOKENS = 512;
 const MAX_RESPONSE_SENTENCES = 5;
 const MAX_RESPONSE_WORDS = 160;
+const MAX_RESPONSE_BODY_BYTES = 64 * 1024;
+const MAX_RESPONSE_CONTENT_BYTES = 16_384;
 const ALLOWED_OPTIONS = new Set([
   "fetch",
   "historicalCatalog",
@@ -138,86 +140,117 @@ function normalizedPlainText(content: string): string {
   return normalized;
 }
 
-function isNonTerminalAbbreviation(
-  text: string,
-  punctuationIndex: number,
-  punctuation: string,
-  boundaryEnd: number,
-): boolean {
-  if (punctuation !== "." || text.slice(boundaryEnd).trim().length === 0) {
-    return false;
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
+const WHITESPACE = /\s/u;
+const CLOSING_PUNCTUATION = /["'”’»)}\]]/u;
+
+function regionEqualsIgnoreCase(text: string, start: number, end: number, expected: string): boolean {
+  if (end - start !== expected.length) return false;
+  for (let index = 0; index < expected.length; index += 1) {
+    if (text[start + index]?.toLowerCase() !== expected[index]) return false;
   }
-  const prefix = text.slice(0, punctuationIndex + 1);
-  const token = prefix.match(/[^\s]+$/u)?.[0].toLowerCase() ?? "";
-  return (
-    NON_TERMINAL_ABBREVIATIONS.has(token) ||
-    /^(?:[a-z]\.){2,}$/u.test(token) ||
-    /^[a-z]\.$/u.test(token)
-  );
+  return true;
 }
 
-function terminalSentenceEnds(text: string): number[] {
-  const ends: number[] = [];
-  const punctuation = /[.!?]+/gu;
-  for (const match of text.matchAll(punctuation)) {
-    const punctuationIndex = match.index;
-    let boundaryEnd = punctuationIndex + match[0].length;
-    while (
-      boundaryEnd < text.length &&
-      /["'”’»)}\]]/u.test(text[boundaryEnd] ?? "")
-    ) {
-      boundaryEnd += 1;
-    }
-    if (boundaryEnd < text.length && !/\s/u.test(text[boundaryEnd] ?? "")) {
-      continue;
-    }
-    if (
-      isNonTerminalAbbreviation(
-        text,
-        punctuationIndex,
-        match[0],
-        boundaryEnd,
-      )
-    ) {
-      continue;
-    }
-    ends.push(boundaryEnd);
+function isNonTerminalAbbreviation(text: string, tokenStart: number, punctuationIndex: number): boolean {
+  const tokenEnd = punctuationIndex + 1;
+  for (const abbreviation of NON_TERMINAL_ABBREVIATIONS) {
+    if (regionEqualsIgnoreCase(text, tokenStart, tokenEnd, abbreviation)) return true;
   }
-  return ends;
+  if (tokenEnd - tokenStart === 2 && /[A-Za-z]/u.test(text[tokenStart] ?? "")) return true;
+  if ((tokenEnd - tokenStart) < 4 || (tokenEnd - tokenStart) % 2 !== 0) return false;
+  for (let index = tokenStart; index < tokenEnd; index += 2) {
+    if (!/[A-Za-z]/u.test(text[index] ?? "") || text[index + 1] !== ".") return false;
+  }
+  return true;
 }
 
-function wordCount(text: string): number {
-  return (
-    text.match(/[\p{L}\p{N}]+(?:['’\u2010-\u2015-][\p{L}\p{N}]+)*/gu)?.length ?? 0
-  );
-}
-
-function boundedCompleteResponse(content: string): string {
+export function boundedCompleteResponse(content: string): string {
   const normalized = normalizedPlainText(content);
   if (normalized.length === 0) {
     throw new Error("LM Studio response was invalid");
   }
 
-  let selected = "";
+  let selectedEnd = 0;
   let sentences = 0;
-  for (const end of terminalSentenceEnds(normalized)) {
-    const candidate = normalized.slice(0, end).trim();
-    if (wordCount(candidate) === 0) {
+  let words = 0;
+  let inWord = false;
+  let tokenStart = 0;
+  let index = 0;
+  scan: while (index < normalized.length) {
+    const character = normalized[index] ?? "";
+    if (WHITESPACE.test(character)) {
+      inWord = false;
+      tokenStart = index + 1;
+      index += 1;
       continue;
     }
-    sentences += 1;
-    if (
-      sentences > MAX_RESPONSE_SENTENCES ||
-      wordCount(candidate) > MAX_RESPONSE_WORDS
-    ) {
-      break;
+    if (WORD_CHARACTER.test(character)) {
+      if (!inWord) {
+        words += 1;
+        if (words > MAX_RESPONSE_WORDS) break scan;
+        inWord = true;
+      }
+      index += character.length;
+      continue;
     }
-    selected = candidate;
+    if ((character === "'" || character === "’" || /[\u2010-\u2015-]/u.test(character)) &&
+      inWord && WORD_CHARACTER.test(normalized[index + 1] ?? "")) {
+      index += 1;
+      continue;
+    }
+    inWord = false;
+    if (character !== "." && character !== "!" && character !== "?") {
+      index += 1;
+      continue;
+    }
+
+    const punctuationIndex = index;
+    while (index < normalized.length && /[.!?]/u.test(normalized[index] ?? "")) index += 1;
+    const singlePeriod = index === punctuationIndex + 1 && character === ".";
+    while (index < normalized.length && CLOSING_PUNCTUATION.test(normalized[index] ?? "")) index += 1;
+    if (index < normalized.length && !WHITESPACE.test(normalized[index] ?? "")) continue;
+    if (singlePeriod && index < normalized.length &&
+      isNonTerminalAbbreviation(normalized, tokenStart, punctuationIndex)) continue;
+    if (words === 0) continue;
+    sentences += 1;
+    selectedEnd = index;
+    if (sentences === MAX_RESPONSE_SENTENCES) break;
   }
-  if (selected.length === 0) {
+  if (selectedEnd === 0) {
     throw new Error("LM Studio response was invalid");
   }
-  return selected;
+  return normalized.slice(0, selectedEnd).trim();
+}
+
+async function boundedJsonBody(response: Response): Promise<unknown> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null && (!/^\d+$/u.test(declaredLength) || Number(declaredLength) > MAX_RESPONSE_BODY_BYTES)) {
+    throw new Error("LM Studio response was invalid");
+  }
+  if (response.body === null) throw new Error("LM Studio response was invalid");
+  const reader = response.body.getReader();
+  const bytes = new Uint8Array(MAX_RESPONSE_BODY_BYTES + 1);
+  let length = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      if (length + result.value.byteLength > MAX_RESPONSE_BODY_BYTES) {
+        await reader.cancel();
+        throw new Error("LM Studio response was invalid");
+      }
+      bytes.set(result.value, length);
+      length += result.value.byteLength;
+    }
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    if (error instanceof Error && error.message === "LM Studio response was invalid") throw error;
+    throw new Error("LM Studio response was invalid", { cause: error });
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function responseText(value: unknown): string {
@@ -246,6 +279,9 @@ function responseText(value: unknown): string {
   }
   const content = Reflect.get(message, "content");
   if (typeof content !== "string" || content.trim().length === 0) {
+    throw new Error("LM Studio response was invalid");
+  }
+  if (new TextEncoder().encode(content).byteLength > MAX_RESPONSE_CONTENT_BYTES) {
     throw new Error("LM Studio response was invalid");
   }
   return boundedCompleteResponse(content);
@@ -322,12 +358,7 @@ export class LMStudioProvider implements GenerationProvider {
       throw new Error("LM Studio response was invalid");
     }
 
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch (error) {
-      throw new Error("LM Studio response was invalid", { cause: error });
-    }
+    const body = await boundedJsonBody(response);
     return { kind: "text", text: responseText(body) };
   }
 }
