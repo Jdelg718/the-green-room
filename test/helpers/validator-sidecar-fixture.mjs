@@ -53,11 +53,13 @@ if (
     setInterval(() => {}, 10_000);
   } else if (mode === "descendant-survival") {
     const marker = `${archivePath}.marker`;
+    const ready = `${archivePath}.ready`;
     spawn(
       process.execPath,
       [
         "-e",
-        "const fs=require('node:fs'); const marker=process.argv[1]; process.on('SIGTERM',()=>{}); setTimeout(()=>fs.writeFileSync(marker,'survived'),500); setInterval(()=>{},10000);",
+        "const fs=require('node:fs'); const [ready,marker]=process.argv.slice(1); process.on('SIGTERM',()=>{}); fs.writeFileSync(ready,'ready'); setTimeout(()=>fs.writeFileSync(marker,'survived'),800); setInterval(()=>{},10000);",
+        ready,
         marker,
       ],
       { stdio: "ignore" },

@@ -97,16 +97,20 @@ test(
   async () => {
     const input = archive("descendant-survival");
     const marker = `${input}.marker`;
+    const ready = `${input}.ready`;
     rmSync(marker, { force: true });
+    rmSync(ready, { force: true });
     try {
       await assert.rejects(
-        sidecar({ timeoutMs: 100 }).validate(input),
+        sidecar({ timeoutMs: 500 }).validate(input),
         hasCode("validator_timeout"),
       );
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      assert.equal(existsSync(ready), true, "descendant was not ready before timeout");
+      await new Promise((resolve) => setTimeout(resolve, 900));
       assert.equal(existsSync(marker), false, "descendant survived process-group cleanup");
     } finally {
       rmSync(marker, { force: true });
+      rmSync(ready, { force: true });
     }
   },
 );
