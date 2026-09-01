@@ -4,11 +4,12 @@ Date: 2026-09-01
 
 ## Scope and status
 
-This note covers the six text-only candidate packs added under
-`personas/historical/`: Hal Finney, Timothy C. May, Len Sassaman, Ludwig von
+This note covers the six text-only candidate packs added under the non-runtime hold path
+`personas/candidates/historical/`: Hal Finney, Timothy C. May, Len Sassaman, Ludwig von
 Mises, Milton Friedman, and John Maynard Keynes.
 
-They are unofficial candidates only. They are not built-in, preinstalled,
+They are unofficial candidates only. This source path is outside the exact trusted
+`personas/historical/` built-in root. They are not built-in, preinstalled,
 community-approved, estate- or foundation-endorsed, or admitted to an Official
 Catalog. No archives are committed.
 
