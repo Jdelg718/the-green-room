@@ -12,6 +12,28 @@ The Green Room has a verified private/local alpha and is moving toward a downloa
 6. Open a pull request describing intent, implementation, evidence, failure paths, and risks.
 7. Do not merge your own change without review.
 
+## Verification and release gate
+
+The ordinary Node/UI development check remains:
+
+```bash
+npm run check
+```
+
+Python validator changes can be checked independently with `npm run check:python`.
+Before a hybrid Node/Python release, start from clean installs and run the exact
+release gate:
+
+```bash
+npm ci && uv sync --locked && npm run check:release
+```
+
+`check:release` runs `check:all` and then the first-playable acceptance.
+`check:all` runs the Node check first, then Python `pytest`, Ruff formatting and
+lint checks, and mypy. Every stage is joined with `&&`, so an install, Node,
+Python, or acceptance failure is returned immediately rather than hidden by a
+later command.
+
 ## Local-first and provider rules
 
 - The local runtime owns room data, provider configuration, and credentials.
