@@ -203,6 +203,7 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /SOURCE_REF_PROTECTED: \$\{\{ github\.ref_protected \}\}/);
   assert.match(workflow, /test "\$SOURCE_REF_PROTECTED" = true/);
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
+  assert.match(workflow, /SOURCE_REF="\$GITHUB_REF"/);
   assert.match(workflow, /greenroom-user-owned-snapshot/);
   assert.match(workflow, /test ! -s "\$errors"/);
   assert.match(workflow, /sha256/);
@@ -214,4 +215,52 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.doesNotMatch(harness, /declaredWriteRoots: \[workRoot, homedir\(\)\]/);
   assert.match(harness, /\["ci", "--strict-allow-scripts=true", "--foreground-scripts"\]/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
+});
+
+test("manual workflow keeps privileged evidence controls outside the audited root", () => {
+  const workflow = readFileSync(".github/workflows/clean-source-evidence.yml", "utf8");
+  assert.match(workflow, /actions\/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd/);
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /TRUSTED_CHECKOUT: \$\{\{ github\.workspace \}\}\/trusted-source/);
+  assert.match(workflow, /test "\$\(git -C "\$TRUSTED_CHECKOUT" rev-parse HEAD\)" = "\$SOURCE_SHA"/);
+  assert.match(workflow, /CONTROL_ROOT="\$control_parent\/greenroom-clean-source-control-/);
+  assert.match(workflow, /install -d -m 0700 -o root -g root "\$CONTROL_ROOT"/);
+  assert.match(workflow, /case "\$CONTROL_ROOT\/" in "\$EVIDENCE_ROOT\/"\*/);
+  assert.match(workflow, /audit="\$CONTROL_ROOT\/audit-before\.json"/);
+  assert.match(workflow, /after="\$CONTROL_ROOT\/audit-after\.json"/);
+  const processAssertion = workflow.indexOf("process_inventory=\"$CONTROL_ROOT/processes-after-source.json\"");
+  const afterSnapshot = workflow.indexOf("greenroom-user-owned-snapshot \"$EVIDENCE_UID\" \"$after\"");
+  assert.ok(processAssertion >= 0 && afterSnapshot > processAssertion, "UID-wide process inventory must precede the after snapshot");
+  assert.match(workflow, /\/bin\/ps -axo uid=,pid=,ppid=,command=/);
+  assert.match(workflow, /i\.processes\.length!==0/);
+  assert.match(workflow, /--process-inventory="\$process_inventory"/);
+  assert.match(workflow, /processes-after-source\.json/);
+  assert.match(workflow, /sudo -u "\$EVIDENCE_USER" rm -f "\$control_file"/);
+  assert.match(workflow, /script="\$TRUSTED_CHECKOUT\/scripts\/clean-source-evidence\.mjs"/);
+  assert.match(workflow, /sudo -u "\$EVIDENCE_USER" test -w "\$script"/);
+  assert.match(workflow, /--output-root="\$CONTROL_ROOT\/finalized"/);
+  assert.match(workflow, /--repository="\$SOURCE_REPOSITORY"/);
+  assert.match(workflow, /--sha="\$SOURCE_SHA"/);
+  assert.doesNotMatch(workflow, /sudo[^\n]*\$EVIDENCE_ROOT\/checkout\/scripts/);
+  assert.doesNotMatch(workflow, /script="\$EVIDENCE_ROOT\/checkout/);
+  assert.match(workflow, /sudo cmp -s "\$source" "\$destination"/);
+  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/greenroom-clean-source-upload/);
+  assert.doesNotMatch(workflow, /path: \|\n(?:.*\n)*?\$\{\{ runner\.temp \}\}\/greenroom-clean-source-evidence/);
+});
+
+test("root finalizer treats harness JSON as an exact untrusted contract", () => {
+  const harness = readFileSync("scripts/clean-source-evidence.mjs", "utf8");
+  assert.match(harness, /assertExactKeys\(harness, \[/);
+  assert.match(harness, /harness\.repository, expectedRepository/);
+  assert.match(harness, /harness\.requestedSha, expectedSha/);
+  assert.match(harness, /harness\.sourceRef, "refs\/heads\/main"/);
+  assert.match(harness, /harness\.sourceRefProtected, true/);
+  assert.match(harness, /harness\.declaredWriteRoots, \[allowedRoot\]/);
+  assert.match(harness, /evaluateSourcePhaseAudit\(\{/);
+  assert.match(harness, /before: JSON\.parse\(await readFile\(beforePath/);
+  assert.match(harness, /after: JSON\.parse\(await readFile\(afterPath/);
+  assert.match(harness, /processInventory\.processes\.length === 0/);
+  assert.match(harness, /writeFile\(join\(outputRoot, "harness-evidence\.json"\), harnessBytes, \{ flag: "wx"/);
+  assert.doesNotMatch(harness, /writeFile\(join\(evidenceRoot, "final-evidence\.json"/);
 });

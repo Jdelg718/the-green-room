@@ -18,6 +18,16 @@ export function assertInspectionReport<T extends Record<string, any>>(report: T)
 
 export function pathsOutsideRoots(paths: string[], roots: string[]): string[];
 export function assertProtectedDispatch(value: unknown): true;
+export function validateHarnessEvidence(
+  harness: Record<string, any>,
+  options: {
+    harnessRoot: string;
+    allowedRoot: string;
+    expectedUid: number;
+    expectedRepository: string;
+    expectedSha: string;
+  },
+): Record<string, any>;
 
 export interface SourcePhaseSnapshot {
   schemaVersion: number;

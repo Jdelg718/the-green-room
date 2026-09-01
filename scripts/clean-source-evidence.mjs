@@ -385,6 +385,7 @@ async function runEvidence(options) {
   assert.equal(await realpath(workRoot), workRoot, "work root must be canonical");
   const syntheticHome = join(workRoot, "home");
   assertProtectedDispatch(process.env.SOURCE_REF_PROTECTED);
+  assert.equal(process.env.SOURCE_REF, "refs/heads/main", "source ref must be protected main");
 
   await mkdir(evidenceRoot, { recursive: true, mode: 0o700 });
   const logsRoot = join(evidenceRoot, "logs");
@@ -397,6 +398,7 @@ async function runEvidence(options) {
     startedAt: new Date().toISOString(),
     repository: expectedRepository,
     requestedSha: expectedSha,
+    sourceRef: "refs/heads/main",
     sourceRefProtected: true,
     auditScope: "unprivileged source phase after root account/toolchain provisioning",
     declaredWriteRoots: [workRoot],
@@ -604,18 +606,141 @@ async function runEvidence(options) {
   }
 }
 
+function assertExactKeys(value, expectedKeys, context) {
+  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value), `${context} must be an object`);
+  assert.deepEqual(Object.keys(value).sort(), [...expectedKeys].sort(), `${context} has an unexpected schema`);
+}
+
+function assertIsoTimestamp(value, context) {
+  assert.equal(typeof value, "string", `${context} must be a string`);
+  assert.equal(new Date(value).toISOString(), value, `${context} must be an ISO timestamp`);
+}
+
+export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, expectedUid, expectedRepository, expectedSha }) {
+  assertExactKeys(harness, [
+    "schemaVersion", "issue", "claim", "passed", "startedAt", "repository", "requestedSha", "sourceRef",
+    "sourceRefProtected", "auditScope", "declaredWriteRoots", "commands", "environment",
+    "cleanSourceBeforePreflight", "installPolicy", "preflight", "installScriptAudit", "sourceLaunch",
+    "inspection", "acceptance", "cleanup", "finishedAt",
+  ], "harness evidence");
+  assert.equal(harness.schemaVersion, 1);
+  assert.equal(harness.issue, 87);
+  assert.equal(harness.claim, "clean-source-evidence");
+  assert.equal(harness.passed, true, "harness did not pass");
+  assertIsoTimestamp(harness.startedAt, "harness startedAt");
+  assertIsoTimestamp(harness.finishedAt, "harness finishedAt");
+  assert.ok(Date.parse(harness.finishedAt) >= Date.parse(harness.startedAt), "harness timestamps are reversed");
+  assert.equal(harness.repository, expectedRepository, "harness repository mismatch");
+  assert.equal(harness.requestedSha, expectedSha, "harness requested SHA mismatch");
+  assert.equal(harness.sourceRef, "refs/heads/main", "harness source ref mismatch");
+  assert.equal(harness.sourceRefProtected, true, "harness did not record a protected source ref");
+  assert.equal(harness.auditScope, "unprivileged source phase after root account/toolchain provisioning");
+  assert.deepEqual(harness.declaredWriteRoots, [allowedRoot], "harness declared-write root mismatch");
+
+  assertExactKeys(harness.environment, [
+    "platform", "architecture", "kernelRelease", "osRelease", "uid", "gid", "username", "groups",
+    "node", "npm", "uv", "git", "repositoryOrigin", "checkoutSha", "detachedHead",
+    "sourceRefProtected", "accountHome", "syntheticSourceHome", "runnerDisclosure",
+  ], "harness environment");
+  assert.ok(["darwin", "linux"].includes(harness.environment.platform));
+  assert.ok(["arm64", "x64"].includes(harness.environment.architecture));
+  assert.equal(harness.environment.uid, expectedUid, "harness UID mismatch");
+  assert.ok(Number.isSafeInteger(harness.environment.gid) && harness.environment.gid >= 0);
+  assert.ok(Array.isArray(harness.environment.groups) && harness.environment.groups.every((group) => typeof group === "string"));
+  assert.equal(harness.environment.groups.includes("admin") || harness.environment.groups.includes("sudo") || harness.environment.groups.includes("wheel"), false);
+  assert.equal(harness.environment.node, "v24.20.0");
+  assert.equal(harness.environment.npm, "11.19.0");
+  assert.match(harness.environment.uv, /^uv 0\.12\.8(?:\s|$)/);
+  assert.equal(harness.environment.checkoutSha, expectedSha);
+  assert.equal(harness.environment.detachedHead, true);
+  assert.equal(harness.environment.sourceRefProtected, true);
+  assert.ok(harness.environment.repositoryOrigin === "https://github.com/Jdelg718/the-green-room.git" || harness.environment.repositoryOrigin === "https://github.com/Jdelg718/the-green-room");
+  assert.equal(harness.environment.syntheticSourceHome, join(allowedRoot, "home"));
+
+  assert.deepEqual(harness.cleanSourceBeforePreflight, { node_modules: true, ".venv": true, dist: true, dataRoot: true });
+  assert.deepEqual(harness.installPolicy, {
+    npmrc: "strict-allow-scripts=true",
+    allowScripts: { "fs-ext@2.1.1": true },
+    lockHasInstallScript: [{ path: "node_modules/fs-ext", version: "2.1.1" }],
+  });
+  assert.deepEqual(harness.installScriptAudit, { unreviewedInstallScripts: [], exactReport: { allowScripts: [] } });
+  assertAcceptanceSummary(harness.acceptance);
+  assertInspectionReport(harness.inspection);
+
+  assertExactKeys(harness.preflight, ["code", "dataRoot", "nodeVersion", "npmVersion", "platform", "architecture", "repoRoot", "uvVersion"], "preflight evidence");
+  assert.equal(harness.preflight.code, "source_clean_host_preflight_ok");
+  assert.equal(harness.preflight.nodeVersion, "v24.20.0");
+  assert.equal(harness.preflight.npmVersion, "11.19.0");
+  assert.match(harness.preflight.uvVersion, /^uv 0\.12\.8(?:\s|$)/);
+  assert.equal(harness.preflight.platform, harness.environment.platform);
+  assert.equal(harness.preflight.architecture, harness.environment.architecture);
+  assert.equal(harness.preflight.dataRoot, join(allowedRoot, "disposable-data"), "unexpected preflight data root");
+  assert.equal(harness.preflight.repoRoot, join(allowedRoot, "checkout"), "unexpected preflight repository root");
+
+  const expectedCommands = [
+    { executable: /(?:^|\/)node$/, args: [join(harness.preflight.repoRoot, "scripts/source-clean-host.mjs"), `--data-root=${harness.preflight.dataRoot}`], log: "01-preflight.log" },
+    { executable: /^npm$/, args: ["ci", "--strict-allow-scripts=true", "--foreground-scripts"], log: "02-npm-ci.log" },
+    { executable: /^npm$/, args: ["install-scripts", "ls", "--json"], log: "03-install-scripts.json" },
+    { executable: /^uv$/, args: ["sync", "--locked", "--no-dev"], log: "04-uv-sync.log" },
+    { executable: /^npm$/, args: ["run", "build"], log: "05-build.log" },
+    { executable: /^npm$/, args: ["run", "acceptance"], log: "07-acceptance.log" },
+  ];
+  assert.equal(harness.commands.length, expectedCommands.length, "unexpected harness command count");
+  for (const [index, command] of harness.commands.entries()) {
+    const expected = expectedCommands[index];
+    assertExactKeys(command, ["command", "startedAt", "durationMs", "log"], `harness command ${index}`);
+    assert.ok(Array.isArray(command.command) && command.command.every((part) => typeof part === "string"));
+    assert.match(command.command[0], expected.executable);
+    assert.deepEqual(command.command.slice(1), expected.args);
+    assertIsoTimestamp(command.startedAt, `harness command ${index} startedAt`);
+    assert.ok(Number.isSafeInteger(command.durationMs) && command.durationMs >= 0);
+    assert.equal(command.log, join(harnessRoot, "logs", expected.log));
+  }
+
+  assertExactKeys(harness.sourceLaunch, [
+    "foreignCwd", "loopbackHost", "port", "ready", "validatorExecutable", "validatorAbsolute",
+    "startedAt", "processesBeforeSigterm", "sigtermExit", "durationMs", "cleanup",
+  ], "source launch evidence");
+  assert.equal(harness.sourceLaunch.foreignCwd, join(allowedRoot, "foreign-cwd"), "unexpected foreign cwd");
+  assert.equal(harness.sourceLaunch.validatorExecutable, join(allowedRoot, "checkout", ".venv", "bin", "greenroom-persona"), "unexpected validator executable");
+  assert.equal(harness.sourceLaunch.loopbackHost, "127.0.0.1");
+  assert.ok(Number.isSafeInteger(harness.sourceLaunch.port) && harness.sourceLaunch.port > 0 && harness.sourceLaunch.port <= 65535);
+  assert.equal(harness.sourceLaunch.ready, true);
+  assert.equal(harness.sourceLaunch.validatorAbsolute, true);
+  assertIsoTimestamp(harness.sourceLaunch.startedAt, "source launch startedAt");
+  assert.ok(Array.isArray(harness.sourceLaunch.processesBeforeSigterm));
+  assert.ok(Number.isSafeInteger(harness.sourceLaunch.durationMs) && harness.sourceLaunch.durationMs >= 0);
+  assert.deepEqual(harness.sourceLaunch.sigtermExit, { code: 0, signal: null });
+  assert.deepEqual(harness.sourceLaunch.cleanup, { listeningPort: false, remainingDescendants: [], relatedProcesses: [] });
+  assert.deepEqual(harness.cleanup, { removedExactDataRoot: harness.preflight.dataRoot, dataRootAbsent: true });
+  return harness;
+}
+
 async function finalizeEvidence(options) {
-  const evidenceRoot = requiredAbsolute(options, "evidence-root");
+  const harnessPath = requiredAbsolute(options, "harness-evidence");
+  const outputRoot = requiredAbsolute(options, "output-root");
   const beforePath = requiredAbsolute(options, "audit-before");
   const afterPath = requiredAbsolute(options, "audit-after");
   const beforeErrorsPath = requiredAbsolute(options, "audit-before-errors");
   const afterErrorsPath = requiredAbsolute(options, "audit-after-errors");
+  const processInventoryPath = requiredAbsolute(options, "process-inventory");
   const allowedRoot = requiredAbsolute(options, "allowed-root");
+  const expectedSha = requiredSha(options);
+  const expectedRepository = options.repository;
+  assert.equal(expectedRepository, "Jdelg718/the-green-room", "unexpected repository identity");
   const expectedUid = Number(options.uid);
   assert.ok(Number.isSafeInteger(expectedUid) && expectedUid > 0, "--uid must be a positive integer");
-  const harness = JSON.parse(await readFile(join(evidenceRoot, "harness-evidence.json"), "utf8"));
-  assert.deepEqual(harness.declaredWriteRoots, [allowedRoot], "harness declared-write root mismatch");
-  assert.equal(harness.sourceRefProtected, true, "harness did not record a protected source ref");
+  assert.equal(pathsOutsideRoots([outputRoot], [allowedRoot]).length, 1, "finalizer output must be outside the audited root");
+  assert.equal(harnessPath, join(allowedRoot, "evidence", "harness-evidence.json"), "unexpected harness evidence path");
+  const harnessRoot = dirname(harnessPath);
+  const harnessBytes = await readFile(harnessPath, "utf8");
+  const harness = validateHarnessEvidence(JSON.parse(harnessBytes), {
+    harnessRoot,
+    allowedRoot,
+    expectedUid,
+    expectedRepository,
+    expectedSha,
+  });
   const sourcePhaseAudit = evaluateSourcePhaseAudit({
     before: JSON.parse(await readFile(beforePath, "utf8")),
     after: JSON.parse(await readFile(afterPath, "utf8")),
@@ -624,16 +749,35 @@ async function finalizeEvidence(options) {
     allowedRoot,
     expectedUid,
   });
+  const processInventory = JSON.parse(await readFile(processInventoryPath, "utf8"));
+  assertExactKeys(processInventory, ["schemaVersion", "uid", "processes"], "UID process inventory");
+  assert.equal(processInventory.schemaVersion, 1);
+  assert.equal(processInventory.uid, expectedUid, "process inventory UID mismatch");
+  assert.ok(Array.isArray(processInventory.processes), "process inventory entries are missing");
+  for (const entry of processInventory.processes) {
+    assertExactKeys(entry, ["pid", "ppid", "command"], "UID process inventory entry");
+    assert.ok(Number.isSafeInteger(entry.pid) && entry.pid > 0);
+    assert.ok(Number.isSafeInteger(entry.ppid) && entry.ppid >= 0);
+    assert.equal(typeof entry.command, "string");
+  }
+  const processClosure = {
+    passed: processInventory.processes.length === 0,
+    inventory: processInventory,
+    requirement: "No process may remain owned by the audited UID when the source command has completed and before the after snapshot is taken.",
+  };
   const finalEvidence = {
     schemaVersion: 1,
     issue: 87,
-    passed: harness.passed === true && sourcePhaseAudit.passed,
+    passed: harness.passed === true && processClosure.passed && sourcePhaseAudit.passed,
     protectedMain: harness.sourceRefProtected === true,
     harness,
+    sourcePhaseProcessClosure: processClosure,
     sourcePhaseWriteAudit: sourcePhaseAudit,
   };
-  await writeFile(join(evidenceRoot, "source-phase-write-audit.json"), stableJson(sourcePhaseAudit), { mode: 0o600 });
-  await writeFile(join(evidenceRoot, "final-evidence.json"), stableJson(finalEvidence), { mode: 0o600 });
+  await mkdir(outputRoot, { mode: 0o700 });
+  await writeFile(join(outputRoot, "harness-evidence.json"), harnessBytes, { flag: "wx", mode: 0o600 });
+  await writeFile(join(outputRoot, "source-phase-write-audit.json"), stableJson(sourcePhaseAudit), { flag: "wx", mode: 0o600 });
+  await writeFile(join(outputRoot, "final-evidence.json"), stableJson(finalEvidence), { flag: "wx", mode: 0o600 });
   if (!finalEvidence.passed) process.exitCode = 1;
 }
 

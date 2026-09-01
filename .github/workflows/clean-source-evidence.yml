@@ -34,6 +34,8 @@ jobs:
       SOURCE_REF_PROTECTED: ${{ github.ref_protected }}
       EVIDENCE_USER: greenroomci
       EVIDENCE_ROOT: ${{ runner.temp }}/greenroom-clean-source-evidence
+      TRUSTED_CHECKOUT: ${{ github.workspace }}/trusted-source
+      UPLOAD_ROOT: ${{ runner.temp }}/greenroom-clean-source-upload
 
     steps:
       - name: Require a protected-main dispatch
@@ -44,6 +46,24 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$SOURCE_REF_PROTECTED" = true
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out the trusted finalizer source at the dispatched SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: trusted-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the trusted runner checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(realpath "$TRUSTED_CHECKOUT")" = "$TRUSTED_CHECKOUT"
+          test "$(git -C "$TRUSTED_CHECKOUT" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C "$TRUSTED_CHECKOUT" status --porcelain)"
+          test "$(git -C "$TRUSTED_CHECKOUT" remote get-url origin)" = "$SOURCE_URL"
+          test -f "$TRUSTED_CHECKOUT/scripts/clean-source-evidence.mjs"
 
       - name: Set up Node.js 24.20.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -175,7 +195,26 @@ jobs:
           EVIDENCE_UID="$(id -u "$EVIDENCE_USER")"
           EVIDENCE_SOURCE_HOME="$EVIDENCE_ROOT/home"
           sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT" "$EVIDENCE_SOURCE_HOME"
-          printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_UID=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_UID" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            control_parent=/private/var/root
+          else
+            control_parent=/root
+          fi
+          CONTROL_ROOT="$control_parent/greenroom-clean-source-control-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ strategy.job-index }}"
+          test "$(realpath "$control_parent")" = "$control_parent"
+          test ! -e "$CONTROL_ROOT"
+          sudo install -d -m 0700 -o root -g root "$CONTROL_ROOT"
+          sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(s.uid!==0||(s.mode&0o777)!==0o700||!s.isDirectory()) process.exit(1)' "$CONTROL_ROOT"
+          if sudo -u "$EVIDENCE_USER" test -r "$CONTROL_ROOT" ||
+             sudo -u "$EVIDENCE_USER" test -w "$CONTROL_ROOT" ||
+             sudo -u "$EVIDENCE_USER" test -x "$CONTROL_ROOT" ||
+             sudo -u "$EVIDENCE_USER" rmdir "$CONTROL_ROOT"; then
+            echo "audited UID can access or unlink the root control plane" >&2
+            exit 1
+          fi
+          test -d "$CONTROL_ROOT"
+          case "$CONTROL_ROOT/" in "$EVIDENCE_ROOT/"*) echo "control plane is inside evidence root" >&2; exit 1;; esac
+          printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_UID=%s\nCONTROL_ROOT=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_UID" "$CONTROL_ROOT" >> "$GITHUB_ENV"
           sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" /usr/bin/id
           test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
           test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
@@ -186,8 +225,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          audit="$EVIDENCE_ROOT/audit-before.json"
-          errors="$EVIDENCE_ROOT/audit-before-errors.log"
+          audit="$CONTROL_ROOT/audit-before.json"
+          errors="$CONTROL_ROOT/audit-before-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
             roots=(/Users /private/tmp /private/var /System/Volumes/Data)
           else
@@ -197,6 +236,16 @@ jobs:
           test ! -s "$errors"
           sudo env PATH="$EVIDENCE_TOOL_PATH" node -e 'const s=require(process.argv[1]); if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true)) process.exit(1)' "$audit"
           sudo chmod 0600 "$audit" "$errors"
+          sudo /usr/local/bin/node -e 'const fs=require("node:fs"); for(const p of process.argv.slice(1)){const s=fs.lstatSync(p); if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile()) process.exit(1)}' "$audit" "$errors"
+          for control_file in "$audit" "$errors"; do
+            if sudo -u "$EVIDENCE_USER" test -r "$control_file" ||
+               sudo -u "$EVIDENCE_USER" test -w "$control_file" ||
+               sudo -u "$EVIDENCE_USER" rm -f "$control_file"; then
+              echo "audited UID can access or unlink $control_file" >&2
+              exit 1
+            fi
+            sudo test -f "$control_file"
+          done
 
       - name: Public-clone and run the exact dispatched source as the evidence user
         shell: bash
@@ -210,6 +259,7 @@ jobs:
             PATH="$EVIDENCE_TOOL_PATH" \
             SOURCE_URL="$SOURCE_URL" \
             SOURCE_SHA="$SOURCE_SHA" \
+            SOURCE_REF="$GITHUB_REF" \
             SOURCE_REF_PROTECTED="$SOURCE_REF_PROTECTED" \
             CHECKOUT="$checkout" \
             EVIDENCE="$evidence" \
@@ -236,8 +286,53 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          after="$EVIDENCE_ROOT/audit-after.json"
-          errors="$EVIDENCE_ROOT/audit-after-errors.log"
+          process_inventory="$CONTROL_ROOT/processes-after-source.json"
+          /bin/ps -axo uid=,pid=,ppid=,command= | sudo /usr/local/bin/node -e '
+            const fs = require("node:fs");
+            const uid = Number(process.argv[1]);
+            const output = process.argv[2];
+            let input = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { input += chunk; });
+            process.stdin.on("end", () => {
+              const processes = input.split("\n").flatMap((line) => {
+                const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+                return match && Number(match[1]) === uid
+                  ? [{ pid: Number(match[2]), ppid: Number(match[3]), command: match[4] }]
+                  : [];
+              }).sort((left, right) => left.pid - right.pid);
+              fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, uid, processes }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+            });
+          ' "$EVIDENCE_UID" "$process_inventory"
+          sudo chmod 0600 "$process_inventory"
+          if ! sudo /usr/local/bin/node -e 'const i=require(process.argv[1]); if(i.uid!==Number(process.argv[2])||i.processes.length!==0) process.exit(1)' "$process_inventory" "$EVIDENCE_UID"; then
+            echo "audited UID still owns processes after the source command completed" >&2
+            sudo pkill -TERM -U "$EVIDENCE_UID" || true
+            sleep 1
+            sudo pkill -KILL -U "$EVIDENCE_UID" || true
+          fi
+          cleanup_inventory="$CONTROL_ROOT/processes-after-cleanup.json"
+          /bin/ps -axo uid=,pid=,ppid=,command= | sudo /usr/local/bin/node -e '
+            const fs = require("node:fs");
+            const uid = Number(process.argv[1]);
+            const output = process.argv[2];
+            let input = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { input += chunk; });
+            process.stdin.on("end", () => {
+              const processes = input.split("\n").flatMap((line) => {
+                const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+                return match && Number(match[1]) === uid
+                  ? [{ pid: Number(match[2]), ppid: Number(match[3]), command: match[4] }]
+                  : [];
+              }).sort((left, right) => left.pid - right.pid);
+              fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, uid, processes }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+            });
+          ' "$EVIDENCE_UID" "$cleanup_inventory"
+          sudo chmod 0600 "$cleanup_inventory"
+          sudo /usr/local/bin/node -e 'const i=require(process.argv[1]); if(i.uid!==Number(process.argv[2])||i.processes.length!==0) process.exit(1)' "$cleanup_inventory" "$EVIDENCE_UID"
+          after="$CONTROL_ROOT/audit-after.json"
+          errors="$CONTROL_ROOT/audit-after-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
             roots=(/Users /private/tmp /private/var /System/Volumes/Data)
           else
@@ -245,23 +340,74 @@ jobs:
           fi
           sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$after" "$errors" "${roots[@]}"
           sudo chmod 0600 "$after" "$errors"
-          script="$EVIDENCE_ROOT/checkout/scripts/clean-source-evidence.mjs"
+          script="$TRUSTED_CHECKOUT/scripts/clean-source-evidence.mjs"
           status=0
+          test "$(realpath "$TRUSTED_CHECKOUT")" = "$TRUSTED_CHECKOUT"
+          test "$(realpath "$script")" = "$script"
+          test "$(git -C "$TRUSTED_CHECKOUT" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C "$TRUSTED_CHECKOUT" status --porcelain)"
+          if sudo -u "$EVIDENCE_USER" test -w "$TRUSTED_CHECKOUT" ||
+             sudo -u "$EVIDENCE_USER" test -w "$script" ||
+             sudo -u "$EVIDENCE_USER" test -w "$(dirname "$TRUSTED_CHECKOUT")"; then
+            echo "audited UID can mutate the trusted finalizer checkout" >&2
+            exit 1
+          fi
+          for control_file in "$CONTROL_ROOT/audit-before.json" "$CONTROL_ROOT/audit-before-errors.log" "$process_inventory" "$cleanup_inventory" "$after" "$errors"; do
+            sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile()) process.exit(1)' "$control_file"
+            if sudo -u "$EVIDENCE_USER" test -r "$control_file" ||
+               sudo -u "$EVIDENCE_USER" test -w "$control_file" ||
+               sudo -u "$EVIDENCE_USER" rm -f "$control_file"; then
+              echo "audited UID can access or unlink $control_file" >&2
+              exit 1
+            fi
+            sudo test -f "$control_file"
+          done
           if [[ -f "$script" && -f "$EVIDENCE_ROOT/evidence/harness-evidence.json" ]]; then
             sudo env PATH="$EVIDENCE_TOOL_PATH" node "$script" finalize \
-              --evidence-root="$EVIDENCE_ROOT/evidence" \
-              --audit-before="$EVIDENCE_ROOT/audit-before.json" \
+              --harness-evidence="$EVIDENCE_ROOT/evidence/harness-evidence.json" \
+              --output-root="$CONTROL_ROOT/finalized" \
+              --audit-before="$CONTROL_ROOT/audit-before.json" \
               --audit-after="$after" \
-              --audit-before-errors="$EVIDENCE_ROOT/audit-before-errors.log" \
+              --audit-before-errors="$CONTROL_ROOT/audit-before-errors.log" \
               --audit-after-errors="$errors" \
+              --process-inventory="$process_inventory" \
               --allowed-root="$EVIDENCE_ROOT" \
-              --uid="$EVIDENCE_UID" || status=$?
+              --uid="$EVIDENCE_UID" \
+              --repository="$SOURCE_REPOSITORY" \
+              --sha="$SOURCE_SHA" || status=$?
           else
             echo "Harness evidence is unavailable; clone or harness startup failed." >&2
             status=1
           fi
-          sudo chown -R "$(id -u):$(id -g)" "$EVIDENCE_ROOT"
-          chmod -R u+rwX "$EVIDENCE_ROOT"
+          test ! -e "$UPLOAD_ROOT"
+          sudo install -d -m 0700 -o root -g root "$UPLOAD_ROOT"
+          controlled=(
+            "$CONTROL_ROOT/audit-before.json"
+            "$CONTROL_ROOT/audit-before-errors.log"
+            "$CONTROL_ROOT/processes-after-source.json"
+            "$CONTROL_ROOT/processes-after-cleanup.json"
+            "$CONTROL_ROOT/audit-after.json"
+            "$CONTROL_ROOT/audit-after-errors.log"
+          )
+          for finalized in harness-evidence.json source-phase-write-audit.json final-evidence.json; do
+            if sudo test -f "$CONTROL_ROOT/finalized/$finalized"; then
+              controlled+=("$CONTROL_ROOT/finalized/$finalized")
+            fi
+          done
+          manifest="$CONTROL_ROOT/artifact-sha256.txt"
+          sudo rm -f "$manifest"
+          for source in "${controlled[@]}"; do
+            destination="$UPLOAD_ROOT/$(basename "$source")"
+            sudo install -m 0600 -o root -g root "$source" "$destination"
+            sudo cmp -s "$source" "$destination"
+            digest="$(sudo /usr/local/bin/node -e 'const fs=require("node:fs"),c=require("node:crypto"); process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$source")"
+            printf '%s  %s\n' "$digest" "$(basename "$source")" | sudo tee -a "$manifest" >/dev/null
+          done
+          sudo chmod 0600 "$manifest"
+          sudo install -m 0600 -o root -g root "$manifest" "$UPLOAD_ROOT/artifact-sha256.txt"
+          sudo chown -R "$(id -u):$(id -g)" "$UPLOAD_ROOT"
+          chmod 0700 "$UPLOAD_ROOT"
+          find "$UPLOAD_ROOT" -type f -exec chmod 0600 {} +
           exit "$status"
 
       - name: Upload clean-source evidence
@@ -269,12 +415,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: clean-source-evidence-${{ matrix.target }}-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/greenroom-clean-source-evidence/evidence
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before.json
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before-errors.log
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after.json
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after-errors.log
+          path: ${{ runner.temp }}/greenroom-clean-source-upload
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 30
