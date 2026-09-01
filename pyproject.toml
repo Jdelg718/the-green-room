@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "greenroom-persona-validator"
+version = "0.1.0"
+description = "Strict, non-extracting validator for hostile Green Room persona packs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = ["PyYAML>=6.0.2,<7"]
+
+[project.scripts]
+greenroom-persona = "greenroom_persona.cli:main"
+
+[dependency-groups]
+dev = [
+  "bandit>=1.8.6,<2",
+  "hypothesis>=6.138,<7",
+  "mypy>=1.17,<2",
+  "pip-audit>=2.9,<3",
+  "pytest>=9.0.3,<10",
+  "ruff>=0.12,<1",
+  "types-PyYAML>=6.0.12,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/greenroom_persona"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+  "/schemas/persona-0.1.schema.json",
+  "/src/greenroom_persona",
+]
+exclude = [
+  "/.hypothesis",
+  "/.venv",
+  "/dist",
+  "/**/__pycache__",
+  "/docs",
+  "/evidence",
+  "/personas",
+  "/spikes",
+  "/tests",
+  "/upstream",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["greenroom_persona"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
