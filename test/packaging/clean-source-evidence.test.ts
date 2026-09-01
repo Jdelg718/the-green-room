@@ -275,7 +275,10 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /unexpected trusted checkout origin/);
   assert.doesNotMatch(workflow, /test "\$\(git -C "\$TRUSTED_CHECKOUT" remote get-url origin\)" = "\$SOURCE_URL"/);
   assert.match(workflow, /CONTROL_ROOT="\$control_parent\/greenroom-clean-source-control-/);
-  assert.match(workflow, /install -d -m 0700 -o root -g root "\$CONTROL_ROOT"/);
+  assert.match(workflow, /ROOT_GROUP=wheel/);
+  assert.match(workflow, /ROOT_GROUP=root/);
+  assert.match(workflow, /install -d -m 0700 -o root -g "\$ROOT_GROUP" "\$CONTROL_ROOT"/);
+  assert.doesNotMatch(workflow, /-g root/);
   assert.match(workflow, /case "\$CONTROL_ROOT\/" in "\$EVIDENCE_ROOT\/"\*/);
   assert.match(workflow, /audit="\$CONTROL_ROOT\/audit-before\.json"/);
   assert.match(workflow, /after="\$CONTROL_ROOT\/audit-after\.json"/);
@@ -286,7 +289,8 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /i\.processes\.length!==0/);
   assert.match(workflow, /--process-inventory="\$process_inventory"/);
   assert.match(workflow, /processes-after-source\.json/);
-  assert.match(workflow, /sudo -u "\$EVIDENCE_USER" rm -f "\$control_file"/);
+  assert.doesNotMatch(workflow, /sudo -u "\$EVIDENCE_USER" (?:rmdir|rm -f)/);
+  assert.match(workflow, /setup failed before the root control plane was available/);
   assert.match(workflow, /script="\$TRUSTED_CHECKOUT\/scripts\/clean-source-evidence\.mjs"/);
   assert.match(workflow, /sudo -u "\$EVIDENCE_USER" test -w "\$script"/);
   assert.match(workflow, /--output-root="\$CONTROL_ROOT\/finalized"/);
