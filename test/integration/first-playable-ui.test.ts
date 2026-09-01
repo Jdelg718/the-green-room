@@ -603,6 +603,25 @@ test("historical persona dialogue keeps trusted portrait identity and broken-ima
   assert.equal(body?.byClass("event-speaker")?.textContent, "Ada Lovelace");
 });
 
+test("prototype-key persona IDs render monogram fallback instead of trusted portrait paths", async () => {
+  const contract = await browserContract();
+  for (const personaSlug of ["constructor", "__proto__", "toString"]) {
+    const documentRoot = new FakeDocument();
+    const item = contract.renderTranscriptEvent(
+      { sequence: 8, event: { type: "persona_message", participantId: "custom", text: "Fallback safely." } },
+      () => "Prototype Attempt",
+      documentRoot,
+      () => ({ personaSlug }),
+    );
+    const portrait = item.children[1]?.byClass("portrait-transcript");
+    assert.ok(portrait);
+    assert.equal(portrait.children.length, 1);
+    assert.equal(portrait.children[0]?.tagName, "span");
+    assert.equal(portrait.children[0]?.textContent, "PA");
+    assert.equal(portrait.children[0]?.hidden, false);
+  }
+});
+
 test("first playable UI guards rapid room-control and stale submit interleaving", async () => {
   const contract = await browserContract();
   const pending = new Set<string>();

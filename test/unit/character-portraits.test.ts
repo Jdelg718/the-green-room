@@ -64,6 +64,15 @@ test("unknown, custom, and URL-shaped IDs always use a textual monogram fallback
     objectPosition: "50% 35%",
     monogram: "RA",
   });
+  for (const prototypeKey of ["constructor", "__proto__", "toString"]) {
+    assert.deepEqual(ui.characterPortraitIdentity(prototypeKey, "Prototype Attempt"), {
+      trusted: false,
+      src: null,
+      alt: "",
+      objectPosition: "50% 35%",
+      monogram: "PA",
+    });
+  }
   assert.equal(ui.characterPortraitIdentity(undefined, "").monogram, "?");
 });
 

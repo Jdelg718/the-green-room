@@ -77,7 +77,9 @@ function characterMonogram(displayName) {
 }
 
 export function characterPortraitIdentity(personaId, displayName) {
-  const trusted = typeof personaId === "string" ? TRUSTED_CHARACTER_PORTRAITS[personaId] : undefined;
+  const trusted = typeof personaId === "string" && Object.hasOwn(TRUSTED_CHARACTER_PORTRAITS, personaId)
+    ? TRUSTED_CHARACTER_PORTRAITS[personaId]
+    : undefined;
   return Object.freeze({
     trusted: trusted !== undefined,
     src: trusted?.src ?? null,
