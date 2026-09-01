@@ -146,6 +146,55 @@ class StaticPolicyTests(unittest.TestCase):
             )
             self.assert_rejected(validate.collect_errors(site), "no-transform")
 
+    def test_requires_complete_cast_and_character_release_boundaries(self) -> None:
+        fixtures = {
+            "Ada Lovelace": ("Ada Lovelace", "Ada L."),
+            "Benjamin Franklin": ("Benjamin Franklin", "Benjamin F."),
+            "Elizabeth I": ("Elizabeth I", "Elizabeth"),
+            "Frederick Douglass": ("Frederick Douglass", "Frederick D."),
+            "Galileo Galilei": ("Galileo Galilei", "Galileo G."),
+            "George Washington": ("George Washington", "George W."),
+            "Isaac Newton": ("Isaac Newton", "Isaac N."),
+            "Jane Austen": ("Jane Austen", "Jane A."),
+            "Leonardo da Vinci": ("Leonardo da Vinci", "Leonardo"),
+            "Mary Shelley": ("Mary Shelley", "Mary S."),
+            "Nicolaus Copernicus": ("Nicolaus Copernicus", "Nicolaus C."),
+            "Thomas Jefferson": ("Thomas Jefferson", "Thomas J."),
+            "public redistribution waits": (
+                "public redistribution waits",
+                "public display is planned",
+            ),
+            "remain in development": (
+                "remain in development",
+                "will arrive later",
+            ),
+            "no Official Catalog Manifest exists yet": (
+                "no Official Catalog Manifest exists yet",
+                "catalog work continues",
+            ),
+            "candidate packs—not approved Official Catalog releases": (
+                "candidate packs—not approved Official Catalog releases",
+                "candidate packs—approved Official Catalog releases",
+            ),
+            "after exact-version catalog admission": (
+                "after exact-version catalog admission",
+                "after a future release",
+            ),
+            "Public preinstallation requires exact-version approval": (
+                "Public preinstallation requires exact-version approval",
+                "Public preinstallation is automatic",
+            ),
+        }
+        for reason, (required, replacement) in fixtures.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(required, source)
+                page.write_text(source.replace(required, replacement), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
 
 if __name__ == "__main__":
     unittest.main()

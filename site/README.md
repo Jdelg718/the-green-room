@@ -23,6 +23,7 @@ The validator uses only the Python standard library. It checks required pages an
 ## Structure
 
 - `index.html` — public project overview
+- `characters/index.html` — installed historical cast, Character Wizard direction, and community-library contract
 - `docs/index.html` — documentation map and trust boundary
 - `download/index.html` — honest forthcoming-release state
 - `contribute/index.html` — contribution and security guidance
