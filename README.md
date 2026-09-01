@@ -12,7 +12,7 @@ The room—not a single chatbot—is the product.
 
 This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 
-`greenroomai.net` is live as the public project, documentation, download, and contribution domain. The application still runs locally, where the runtime owns room data and provider credentials. The public website must never collect model keys, transcripts, room events, or memory. Its approved historical portraits are presentation assets only: website or local-app use does not admit a persona pack to the Official Catalog or authorize portrait redistribution in downloadable packs.
+`greenroomai.net` is live as the public project, documentation, download, and contribution domain, with 18 verified historical presentation profiles. The application still runs locally with exactly 12 built-in historical candidates, where the runtime owns room data and provider credentials. The additional six website profiles remain non-runtime holds. The public website must never collect model keys, transcripts, room events, or memory. Its approved historical portraits are presentation assets only: website or local-app use does not admit a persona pack to the Official Catalog or authorize portrait redistribution in downloadable packs.
 
 See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md) and [community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md).
 
@@ -101,6 +101,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 
 - [Product brief](docs/PRODUCT-BRIEF.md)
 - [Roadmap](ROADMAP.md)
+- [Verified project checkpoint — 2026-09-01](docs/status/2026-09-01-verified-checkpoint.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
