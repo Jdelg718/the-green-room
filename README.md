@@ -70,6 +70,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)

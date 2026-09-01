@@ -9,19 +9,27 @@ This document defines the normative file-role, validation, prompt-assembly, and
 inspection contract for a future validator and persona loader. The words
 **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
-The runtime includes one deliberately narrower validator for the twelve bundled
-directories under `personas/historical/`. That built-in profile requires the
-repository's exact twelve-directory catalog, exact nine-file/no-assets layout,
-strict closed 0.1 manifests, bounded runtime text, and the prompt assembly rules
-below before LM Studio submission.
+The repository has two intentionally distinct validation roles:
 
-It is **not** a `.greenroom`/ZIP importer or a general pack validator. In
-particular, directory enumeration cannot validate duplicate archive members,
-central-directory/local-header agreement, extra fields, data descriptors,
-compression ratios, encryption, or extraction behavior. Those archive-only
-requirements remain assigned to the strict validator/inspection work in
-[issue #27](https://github.com/Jdelg718/the-green-room/issues/27), and no archive
-may be submitted to a provider until that complete import gate exists.
+1. The built-in runtime validator is a deliberately narrower directory loader
+   for exactly the twelve bundled directories under `personas/historical/`. It
+   requires that exact twelve-directory catalog, the exact nine-file/no-assets
+   layout, strict closed 0.1 manifests, bounded runtime text, and the prompt
+   assembly rules below before LM Studio submission.
+2. `greenroom-persona` is the sole general, non-extracting validation and
+   inspection gate for hostile draft 0.1 `.greenroom` archives. It is documented
+   in [Persona Pack Validator](PERSONA-VALIDATOR.md) and checks archive-only
+   properties that directory enumeration cannot establish, including duplicate
+   members, central-directory/local-header agreement, extra fields, data
+   descriptors, compression ratios, and encryption.
+
+The built-in loader is not a `.greenroom`/ZIP importer or a general pack
+validator. Conversely, `greenroom-persona` validates and inspects archives but
+does not extract, install, store, or import them and does not call a model
+provider. No general pack-import API or model-provider loader is claimed to exist
+yet. A future loader MUST NOT submit a pack to a model provider unless the
+archive gate succeeds and the loader reuses the inspected immutable prompt bytes
+as specified below.
 
 ## Directory layout
 
@@ -269,9 +277,9 @@ The fixed draft 0.1 limits are:
 - no truncation, lossy decoding, newline conversion, or automatic repair.
 
 Archive-wide, YAML-complexity, asset, compression-ratio, file-count, and
-diagnostic-output limits are additionally required by
-[issue #27](https://github.com/Jdelg718/the-green-room/issues/27). Those
-stricter safety limits do not widen the runtime limits here.
+diagnostic-output limits are defined in
+[Persona Pack Validator](PERSONA-VALIDATOR.md). Those stricter safety limits do
+not widen the runtime limits here.
 
 A pack that exceeds a limit MUST fail validation. A loader MUST NOT truncate
 content to make a pack fit a provider context window; provider/context budgeting
