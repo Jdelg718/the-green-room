@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.local/schemas/memory/1.0/append-events-request.schema.json",
+  "title": "Green Room append_events request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "operation_id",
+    "operation",
+    "idempotency_key",
+    "request_digest",
+    "room_id",
+    "events"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "operation": {
+      "const": "append_events"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "room_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://greenroom.local/schemas/memory/1.0/event.schema.json",
+        "title": "Green Room immutable room event 1.0",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "event_id",
+          "room_id",
+          "event_sequence",
+          "occurred_at",
+          "kind",
+          "actor_id",
+          "visibility",
+          "payload",
+          "content_digest"
+        ],
+        "properties": {
+          "contract_version": {
+            "const": "1.0"
+          },
+          "event_id": {
+            "$ref": "#/$defs/id"
+          },
+          "room_id": {
+            "$ref": "#/$defs/id"
+          },
+          "event_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "occurred_at": {
+            "$ref": "#/$defs/time"
+          },
+          "kind": {
+            "enum": [
+              "speech",
+              "reaction",
+              "control",
+              "scene",
+              "membership"
+            ]
+          },
+          "actor_id": {
+            "$ref": "#/$defs/id"
+          },
+          "visibility": {
+            "enum": [
+              "room",
+              "participants",
+              "private_user"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "maxProperties": 32,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "content_digest": {
+            "$ref": "#/$defs/digest"
+          }
+        },
+        "$defs": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "if_room_generation": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

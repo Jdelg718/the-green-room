@@ -1,0 +1,15 @@
+{
+  "contract_version": "1.0",
+  "record_id": "018f0f70-7a9c-7ddf-9155-08f856f6696a",
+  "revision_id": "018f0f70-81b4-7370-bc1c-feb1ad8b1110",
+  "revision": 1,
+  "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+  "kind": "relationship",
+  "scope": {"source_persona_id": "018f0f6e-bbc1-78c1-a23a-46588c34f46e", "target_persona_id": "018f0f6e-c13b-76cb-b241-1a46e9dc447c"},
+  "body": "Source persona increasingly respects the target's willingness to compare evidence.",
+  "status": "active",
+  "classification": "private",
+  "provenance": {"source_event_ids": ["018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"], "derivation": {"kind": "model_proposal", "producer": "local-profile:summary", "proposal_id": "018f0f70-162f-77cd-b64d-9d92e31d8b71", "policy_version": "memory-policy/1"}},
+  "created_at": "2026-08-30T16:04:00.000Z",
+  "created_by": "harness"
+}

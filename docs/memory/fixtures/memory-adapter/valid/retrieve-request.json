@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "operation_id": "018f0f71-1001-7000-8000-000000000001",
+  "operation": "retrieve",
+  "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+  "persona_id": "018f0f6e-bbc1-78c1-a23a-46588c34f46e",
+  "query": "What decision style has worked here?",
+  "kinds": ["room", "persona", "episode"],
+  "classifications": ["private", "room", "exportable"],
+  "as_of_event_sequence": 10,
+  "budget": {"max_items": 5, "max_total_bytes": 8192, "max_item_bytes": 4096, "timeout_ms": 250}
+}

@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.local/schemas/memory/1.0/reset-response.schema.json",
+  "title": "Green Room reset response 1.0",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "operation_id",
+        "operation",
+        "status",
+        "commit_id",
+        "room_generation",
+        "tombstoned_records",
+        "preserved_events"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "operation": {
+          "const": "reset"
+        },
+        "commit_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "room_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tombstoned_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preserved_events": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "operation_id",
+        "operation",
+        "status",
+        "error"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "operation": {
+          "const": "reset"
+        },
+        "status": {
+          "const": "error"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "operation_id"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unsupported",
+                "timeout",
+                "unavailable",
+                "internal_error",
+                "conflict",
+                "idempotency_mismatch",
+                "read_only",
+                "migration_required",
+                "corrupt_store",
+                "not_found"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "operation_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "details": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [],
+              "properties": {
+                "current_revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "current_room_generation": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "migration_required": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -67,6 +67,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 - Add bounded summaries and relationship memory linked to source events.
 - Make memory inspectable, correctable, exportable, and deletable.
 - Preserve deterministic scheduling and per-room provider snapshots.
+- Keep local SQLite as ordered-event and memory-policy authority; offer Obsidian/HTTP only as explicit user-controlled projection sinks with idempotent replay, visible lag/conflicts, and deletion propagation.
 
 **Acceptance criteria:** rooms remain isolated across restart and export; memory influence is attributable to visible evidence; deleting room or memory state removes it from future context; and boundedness and failure recovery pass adversarial tests.
 
