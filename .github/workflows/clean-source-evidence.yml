@@ -248,7 +248,7 @@ jobs:
           audit="$CONTROL_ROOT/audit-before.json"
           errors="$CONTROL_ROOT/audit-before-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
+            roots=(/Users /private/tmp /private/var /Applications /Library /usr/local)
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
@@ -362,7 +362,7 @@ jobs:
           after="$CONTROL_ROOT/audit-after.json"
           errors="$CONTROL_ROOT/audit-after-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
+            roots=(/Users /private/tmp /private/var /Applications /Library /usr/local)
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi

@@ -255,6 +255,8 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
   assert.match(workflow, /SOURCE_REF="\$GITHUB_REF"/);
   assert.match(workflow, /greenroom-user-owned-snapshot/);
+  assert.match(workflow, /roots=\(\/Users \/private\/tmp \/private\/var \/Applications \/Library \/usr\/local\)/);
+  assert.doesNotMatch(workflow, /\/System\/Volumes\/Data/);
   assert.match(workflow, /sudo test ! -s "\$errors"/);
   assert.match(workflow, /sudo cat "\$errors"/);
   assert.match(workflow, /sha256/);
