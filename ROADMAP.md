@@ -80,17 +80,25 @@ This establishes technical viability. It does not approve historical candidates 
 
 ## R5 — greenroomai.net and community release
 
-**Outcome:** establish `greenroomai.net` as the intended static public project, documentation, download, and contribution surface while the application continues to run locally.
+**Outcome:** maintain the live `greenroomai.net` static public project, documentation, download, and contribution surface while the application continues to run locally.
 
-- Publish static project information, verified downloads, setup docs, contribution paths, and security/contact guidance after separate operator approval.
+- Keep static project information, setup docs, contribution paths, and security/contact guidance current; publish downloads only after separate artifact and operator approval.
 - After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
 - Let the local application download only approved catalog definitions, verify the expected digest, validate again locally, inspect, and install with explicit approval.
 - Keep provider keys, transcripts, room state, memory, and pack drafts out of the website and its storage.
 - Treat any optional hosted or invite service as a future, separately reviewed multi-tenant architecture that is never required for local use.
 
-**Acceptance criteria:** DNS and deployment are claimed only after independent verification; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; and public contribution/catalog paths enforce the content policy.
+**Acceptance criteria:** live DNS and deployment claims remain independently verified; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; public contribution/catalog paths enforce the content policy; and source-only integration does not trigger a redeploy.
 
 The portable-character and community boundary is specified in [ADR 0003](docs/adr/0003-portable-characters-and-community-library.md) and the [Character Wizard and community library delivery plan](docs/plans/2026-09-01-character-wizard-community-library.md).
+
+## Future launch milestone — community demo video
+
+**Sequence:** only after a verified downloadable, onboarding-ready alpha is available; this milestone does not authorize creating or posting a video before readiness.
+
+Produce a short captioned, accessible, tweet/X-ready demo showing the local-first Green Room, the approved historical presentation portraits and still-candidate cast, local room creation and dialogue, and the provider-key/privacy boundary. Ask viewers to try the verified download, file issues, and offer suggestions through the appropriate GitHub issues or discussions. Use only staged demonstration data: no private room data, credentials, provider keys, hidden prompts, or unsupported claim that Green Room provides public inference.
+
+**Acceptance criteria:** every shown feature runs in the downloadable release; captions and essential visual context are understandable without audio; portrait/candidate/catalog distinctions remain truthful; local versus selected-provider data flow is clear; no secret or private-data surface appears; feedback links resolve to the reviewed GitHub channel; and publication receives separate human approval.
 
 ## Future pillar — native Apple clients
 

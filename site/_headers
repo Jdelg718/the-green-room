@@ -1,0 +1,6 @@
+/*
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: accelerometer=(), autoplay=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
