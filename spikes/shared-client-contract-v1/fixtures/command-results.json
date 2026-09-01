@@ -1,0 +1,29 @@
+{
+  "contractVersion": "1.0",
+  "schema": "greenroom.command_result_set",
+  "schemaVersion": "1.0",
+  "results": [
+    {
+      "commandId": "command-message-018f1f8e",
+      "state": "pending",
+      "receivedAt": "2026-09-01T16:04:06.000Z",
+      "pollAfterMilliseconds": 250
+    },
+    {
+      "commandId": "command-message-018f1f8f",
+      "state": "acknowledged",
+      "receivedAt": "2026-09-01T16:04:08.000Z",
+      "eventPositions": ["40", "41", "42"]
+    },
+    {
+      "commandId": "command-message-018f1f90",
+      "state": "rejected",
+      "receivedAt": "2026-09-01T16:04:09.000Z",
+      "error": {
+        "code": "mutation_incompatible",
+        "message": "Client contract is read-only for this authority.",
+        "retryable": false
+      }
+    }
+  ]
+}
