@@ -27,7 +27,10 @@ function webpChunkTypes(bytes: Buffer): string[] {
 test("trusted portrait registry maps every canonical built-in ID to an app-owned asset", async () => {
   const ui = await contract();
   const manifest = JSON.parse(readFileSync(resolve("public/assets/portraits/manifest.json"), "utf8"));
-  const expectedIds = EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug).sort();
+  const expectedIds = [
+    ...EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug),
+    "detective", "fixer", "optimist",
+  ].sort();
   assert.deepEqual(Object.keys(ui.TRUSTED_CHARACTER_PORTRAITS).sort(), expectedIds);
   assert.deepEqual(manifest.assets.map(({ trustedId }: { trustedId: string }) => trustedId).sort(), expectedIds);
 
@@ -44,7 +47,7 @@ test("trusted portrait registry maps every canonical built-in ID to an app-owned
     assert.equal(bytes.byteLength, entry.bytes);
     assert.deepEqual(webpChunkTypes(bytes), ["VP8 "], `${entry.trustedId} must not carry EXIF, XMP, ICC, or animation metadata`);
     assert.equal(entry.provenance.catalogAdmission, false);
-    assert.match(entry.provenance.creativeInterpretation, /^Original AI-generated historical interpretation;/);
+    assert.match(entry.provenance.creativeInterpretation, /^Original AI-generated (?:historical interpretation|archetype portrait);/);
   }
 });
 
@@ -79,5 +82,5 @@ test("unknown, custom, and URL-shaped IDs always use a textual monogram fallback
 test("portrait manifest contains no remote URL, source-system path, or private prompt data", () => {
   const source = readFileSync(resolve("public/assets/portraits/manifest.json"), "utf8");
   assert.doesNotMatch(source, /https?:|(?:^|["'])\/\/|handoff_path|sourcePath|generation|prompt/i);
-  assert.equal((source.match(/\.webp/g) ?? []).length, 12);
+  assert.equal((source.match(/\.webp/g) ?? []).length, 15);
 });

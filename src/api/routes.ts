@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -32,6 +32,8 @@ const DEFAULT_SSE_QUEUE_LIMIT = 128;
 const DEFAULT_SSE_POLL_INTERVAL_MS = 25;
 const DEFAULT_SSE_HEARTBEAT_MS = 15_000;
 const MAX_SSE_QUEUE_LIMIT = 1_000;
+const MAX_AVATAR_BYTES = 256 * 1024;
+const AVATAR_EDGE = 256;
 
 const ERROR_RESPONSES = Object.freeze({
   bodyTooLarge: {
@@ -79,6 +81,18 @@ interface ParsedCastBody {
   readonly requestId: string;
   readonly personaSlugs: readonly string[];
 }
+
+interface ParsedHumanProfileBody {
+  readonly emoji: string;
+}
+
+interface HumanProfileRow {
+  readonly avatar_sha256: string | null;
+  readonly avatar_webp: Uint8Array | null;
+  readonly emoji: string;
+}
+
+const HUMAN_EMOJIS = new Set(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
 
 export interface ApiRoutesOptions {
   readonly allowedOrigin: string;
@@ -226,6 +240,69 @@ function parseCastBody(
     return undefined;
   }
   return { requestId: value.requestId, personaSlugs: value.personaSlugs };
+}
+
+function parseHumanProfileBody(value: unknown): ParsedHumanProfileBody | undefined {
+  if (!isPlainRecord(value) || !hasExactlyKeys(value, ["emoji"]) ||
+    typeof value.emoji !== "string" || !HUMAN_EMOJIS.has(value.emoji)) {
+    return undefined;
+  }
+  return { emoji: value.emoji };
+}
+
+function parseAvatarDataUrl(value: unknown): Buffer | undefined {
+  if (!isPlainRecord(value) || !hasExactlyKeys(value, ["dataUrl"]) ||
+    typeof value.dataUrl !== "string" || !value.dataUrl.startsWith("data:image/webp;base64,") ||
+    value.dataUrl.length > 360_000) return undefined;
+  const encoded = value.dataUrl.slice("data:image/webp;base64,".length);
+  if (encoded.length === 0 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return undefined;
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length > MAX_AVATAR_BYTES || bytes.length < 30 || bytes.toString("ascii", 0, 4) !== "RIFF" ||
+    bytes.toString("ascii", 8, 12) !== "WEBP" || bytes.readUInt32LE(4) + 8 !== bytes.length) return undefined;
+
+  let offset = 12;
+  let extendedDimensionsValid = false;
+  let vp8Payload: Buffer | undefined;
+  while (offset + 8 <= bytes.length) {
+    const type = bytes.toString("ascii", offset, offset + 4);
+    const length = bytes.readUInt32LE(offset + 4);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const next = dataEnd + (length % 2);
+    if (dataEnd > bytes.length || next > bytes.length) return undefined;
+    if (type === "VP8X") {
+      if (offset !== 12 || length !== 10 || extendedDimensionsValid || (bytes.readUInt8(dataStart) & ~0x20) !== 0 ||
+        bytes.readUIntLE(dataStart + 4, 3) + 1 !== AVATAR_EDGE ||
+        bytes.readUIntLE(dataStart + 7, 3) + 1 !== AVATAR_EDGE) return undefined;
+      extendedDimensionsValid = true;
+    } else if (type === "ICCP") {
+      if (!extendedDimensionsValid || length < 1 || length > 64 * 1024) return undefined;
+    } else if (type === "VP8 ") {
+      if (vp8Payload !== undefined || length < 10 || bytes[dataStart + 3] !== 0x9d ||
+        bytes[dataStart + 4] !== 0x01 || bytes[dataStart + 5] !== 0x2a ||
+        (bytes.readUInt16LE(dataStart + 6) & 0x3fff) !== AVATAR_EDGE ||
+        (bytes.readUInt16LE(dataStart + 8) & 0x3fff) !== AVATAR_EDGE) return undefined;
+      vp8Payload = bytes.subarray(dataStart, dataEnd);
+    } else return undefined;
+    offset = next;
+  }
+  if (offset !== bytes.length || vp8Payload === undefined) return undefined;
+  const padding = vp8Payload.length % 2;
+  const canonical = Buffer.alloc(20 + vp8Payload.length + padding);
+  canonical.write("RIFF", 0, "ascii"); canonical.writeUInt32LE(canonical.length - 8, 4);
+  canonical.write("WEBPVP8 ", 8, "ascii"); canonical.writeUInt32LE(vp8Payload.length, 16);
+  vp8Payload.copy(canonical, 20);
+  return canonical;
+}
+
+function readHumanProfile(database: DatabaseSync): HumanProfileRow {
+  return database.prepare(
+    "SELECT emoji, avatar_webp, avatar_sha256 FROM human_profile WHERE singleton = 1",
+  ).get() as unknown as HumanProfileRow;
+}
+
+function humanProfileDto(row: HumanProfileRow): { emoji: string; hasCustomAvatar: boolean; avatarVersion: string | null } {
+  return { emoji: row.emoji, hasCustomAvatar: row.avatar_webp !== null, avatarVersion: row.avatar_sha256?.slice(0, 16) ?? null };
 }
 
 function invalidRequest(reply: FastifyReply): FastifyReply {
@@ -578,7 +655,50 @@ export function registerApiRoutes(
       await service.close();
     });
 
+    const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
     api.get(`/api/rooms/${ROOM_ID}`, async () => readCurrentRoom(database));
+
+    api.get("/api/human-profile", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return humanProfileDto(readHumanProfile(database));
+    });
+
+    api.post("/api/human-profile", routeOptions, async (request, reply) => {
+      const body = parseHumanProfileBody(request.body);
+      if (body === undefined) return invalidRequest(reply);
+      database.prepare(
+        "UPDATE human_profile SET emoji = ?, updated_at = CURRENT_TIMESTAMP WHERE singleton = 1",
+      ).run(body.emoji);
+      reply.header("Cache-Control", "no-store");
+      return humanProfileDto(readHumanProfile(database));
+    });
+
+    api.get("/api/human-avatar", async (_request, reply) => {
+      const row = readHumanProfile(database);
+      if (row.avatar_webp === null) return reply.code(404).send(ERROR_RESPONSES.request);
+      reply.header("Cache-Control", "no-store");
+      reply.type("image/webp");
+      return Buffer.from(row.avatar_webp);
+    });
+
+    api.post("/api/human-avatar", { bodyLimit: 360_000 }, async (request, reply) => {
+      const bytes = parseAvatarDataUrl(request.body);
+      if (bytes === undefined) return invalidRequest(reply);
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      database.prepare(
+        "UPDATE human_profile SET avatar_webp = ?, avatar_sha256 = ?, updated_at = CURRENT_TIMESTAMP WHERE singleton = 1",
+      ).run(bytes, digest);
+      reply.header("Cache-Control", "no-store");
+      return humanProfileDto(readHumanProfile(database));
+    });
+
+    api.delete("/api/human-avatar", async (_request, reply) => {
+      database.prepare(
+        "UPDATE human_profile SET avatar_webp = NULL, avatar_sha256 = NULL, updated_at = CURRENT_TIMESTAMP WHERE singleton = 1",
+      ).run();
+      reply.header("Cache-Control", "no-store");
+      return humanProfileDto(readHumanProfile(database));
+    });
 
     api.get(`/api/rooms/${ROOM_ID}/events`, async (request, reply) => {
       const after = parseCursor(request);
@@ -602,7 +722,6 @@ export function registerApiRoutes(
       streams.connect(request, reply, roomId, after);
     });
 
-    const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
     api.post(
       `/api/rooms/${ROOM_ID}/messages`,
       routeOptions,

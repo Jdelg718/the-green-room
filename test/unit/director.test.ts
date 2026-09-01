@@ -67,15 +67,24 @@ test("director excludes muted personas from eligibility", () => {
   });
 });
 
-test("director applies an exact one accepted-human-event cooldown", () => {
-  const director = new Director(["detective"]);
+test("director waives cooldown when only one persona is available", () => {
+  const director = new Director(roster);
+  director.setMuted("fixer", true);
+  director.setMuted("optimist", true);
 
   assert.equal(director.schedule(adapter.humanEvent("cool-1", "First")).speaker, "detective");
   assert.deepEqual(director.schedule(adapter.humanEvent("cool-2", "Second")), {
-    speaker: null,
-    reason: DIRECTOR_REASON.COOLDOWN,
+    speaker: "detective",
+    reason: DIRECTOR_REASON.SELECTED,
   });
-  assert.equal(director.schedule(adapter.humanEvent("cool-3", "Third")).speaker, "detective");
+});
+
+test("director retains cooldown when another persona is available", () => {
+  const director = new Director(["detective", "fixer"]);
+  director.setMuted("fixer", true);
+  assert.equal(director.schedule(adapter.humanEvent("multi-1", "First")).speaker, "detective");
+  director.setMuted("fixer", false);
+  assert.equal(director.schedule(adapter.humanEvent("multi-2", "Second")).speaker, "fixer");
 });
 
 test("director supports deliberate silence", () => {
@@ -216,8 +225,8 @@ test("director keeps event namespaces distinct and handles an empty roster", () 
 
   assert.equal(director.schedule(adapter.humanEvent("same-id", "From A")).speaker, "detective");
   assert.deepEqual(director.schedule(other.humanEvent("same-id", "From B")), {
-    speaker: null,
-    reason: DIRECTOR_REASON.COOLDOWN,
+    speaker: "detective",
+    reason: DIRECTOR_REASON.SELECTED,
   });
   assert.deepEqual(
     new Director([]).schedule(adapter.humanEvent("empty-1", "Hello?")),

@@ -13,6 +13,8 @@ function sameOriginPath(path) {
 export const API_PATHS = Object.freeze({
   bootstrap: "/api/bootstrap",
   catalog: "/api/catalog/personas",
+  humanProfile: "/api/human-profile",
+  humanAvatar: "/api/human-avatar",
   cast: `/api/rooms/${ROOM_ID}/cast`,
   room: `/api/rooms/${ROOM_ID}`,
   events(after) {
@@ -51,10 +53,14 @@ const ORIGINAL_PERSONA_PRESENTATION = Object.freeze({
   fixer: Object.freeze({ role: "Original persona · fixer", temperament: "Charming, pragmatic, and leverage-minded" }),
   optimist: Object.freeze({ role: "Original persona · optimist", temperament: "Organized, community-minded, and resolute" }),
 });
+export const HUMAN_EMOJIS = Object.freeze(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
 
 // Portrait paths are application-owned and bound only to built-in canonical IDs.
 // Catalog/persona data cannot provide or override image URLs.
 export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
+  detective: Object.freeze({ src: "/assets/portraits/detective.webp", alt: "Original portrait of The Detective holding a notebook in a shadowed study.", objectPosition: "50% 30%" }),
+  fixer: Object.freeze({ src: "/assets/portraits/fixer.webp", alt: "Original portrait of The Fixer holding a brass key in a dim workshop-office.", objectPosition: "50% 28%" }),
+  optimist: Object.freeze({ src: "/assets/portraits/optimist.webp", alt: "Original portrait of The Optimist holding planning cards in a welcoming meeting room.", objectPosition: "50% 27%" }),
   "ada-lovelace": Object.freeze({ src: "/assets/portraits/ada-lovelace.webp", alt: "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.", objectPosition: "50% 33%" }),
   "benjamin-franklin": Object.freeze({ src: "/assets/portraits/benjamin-franklin.webp", alt: "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.", objectPosition: "50% 36%" }),
   "elizabeth-i": Object.freeze({ src: "/assets/portraits/elizabeth-i.webp", alt: "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.", objectPosition: "50% 32%" }),
@@ -153,6 +159,26 @@ export function validateCatalogDto(value) {
     });
   });
   return Object.freeze(personas);
+}
+
+export function validateBootstrapDto(value) {
+  if (!exactKeys(value, ["capabilities", "csrfToken"]) ||
+    !boundedText(value.csrfToken, 512) ||
+    !exactKeys(value.capabilities, ["personaPackInspection"]) ||
+    typeof value.capabilities.personaPackInspection !== "boolean") {
+    throw new RequestFailure("invalid_response");
+  }
+  return value;
+}
+
+export function validateHumanProfileDto(value) {
+  if (!exactKeys(value, ["avatarVersion", "emoji", "hasCustomAvatar"]) ||
+    !HUMAN_EMOJIS.includes(value.emoji) || typeof value.hasCustomAvatar !== "boolean" ||
+    (value.avatarVersion !== null && (typeof value.avatarVersion !== "string" || !/^[a-f0-9]{16}$/.test(value.avatarVersion))) ||
+    value.hasCustomAvatar !== (value.avatarVersion !== null)) {
+    throw new RequestFailure("invalid_response");
+  }
+  return value;
 }
 
 export function catalogFilterOptions(catalog) {
@@ -286,14 +312,16 @@ function renderCharacterPortrait(personaId, displayName, options = {}, documentR
   portrait.className = `character-portrait ${options.className ?? "portrait-avatar"}`;
   const fallback = documentRoot.createElement("span");
   fallback.className = "portrait-fallback";
-  fallback.textContent = identity.monogram;
+  fallback.textContent = options.fallbackText ?? identity.monogram;
+  if (options.fallbackText) fallback.classList?.add("emoji-avatar");
   fallback.setAttribute?.("aria-hidden", "true");
-  if (!identity.trusted) {
+  const imageSource = options.customSrc ?? identity.src;
+  if (imageSource === null) {
     portrait.append(fallback);
     return portrait;
   }
   const image = documentRoot.createElement("img");
-  image.src = sameOriginPath(identity.src);
+  image.src = sameOriginPath(imageSource);
   image.alt = options.descriptive ? identity.alt : "";
   image.width = options.width ?? 96;
   image.height = options.height ?? 96;
@@ -323,7 +351,11 @@ export function renderTranscriptEvent(record, participantName, documentRoot = do
   body.append(speaker, text);
   if (event.type === "human_message") {
     item.classList.add("event-human");
-    speaker.textContent = participantName(safeText(event.participantId));
+    const participantId = safeText(event.participantId);
+    const displayName = participantName(participantId);
+    const identity = participantIdentity(participantId);
+    body.prepend(renderCharacterPortrait(null, displayName, { className: "portrait-transcript", width: 72, height: 72, fallbackText: identity?.emoji, customSrc: identity?.customAvatarSrc ?? null }, documentRoot));
+    speaker.textContent = displayName;
     text.textContent = safeText(event.text);
   } else if (event.type === "persona_message") {
     item.classList.add("event-persona");
@@ -365,6 +397,38 @@ export function createRequestId(kind, uuid = crypto.randomUUID()) {
   return `ui-${safeKind}-${uuid}`;
 }
 
+export async function prepareAvatarDataUrl(file, documentRoot = document) {
+  if (!(file instanceof Blob) || file.size < 1 || file.size > 10 * 1024 * 1024 ||
+    !["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    throw new TypeError("Choose a PNG, JPEG, or WebP image up to 10 MB.");
+  }
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch { throw new TypeError("The selected file could not be decoded as an image."); }
+  try {
+    if (bitmap.width < 32 || bitmap.height < 32 || bitmap.width > 8192 || bitmap.height > 8192) {
+      throw new TypeError("The image dimensions must be between 32 and 8192 pixels.");
+    }
+    const canvas = documentRoot.createElement("canvas");
+    canvas.width = 256; canvas.height = 256;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (context === null) throw new TypeError("This browser cannot prepare the avatar.");
+    context.fillStyle = "#f4efd9"; context.fillRect(0, 0, 256, 256);
+    const side = Math.min(bitmap.width, bitmap.height);
+    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 256, 256);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.86));
+    if (!(blob instanceof Blob) || blob.type !== "image/webp" || blob.size > 256 * 1024) {
+      throw new TypeError("The prepared avatar is too large.");
+    }
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => typeof reader.result === "string" ? resolve(reader.result) : reject(new TypeError("Avatar encoding failed.")), { once: true });
+      reader.addEventListener("error", () => reject(new TypeError("Avatar encoding failed.")), { once: true });
+      reader.readAsDataURL(blob);
+    });
+  } finally { bitmap.close(); }
+}
+
 export function openStopConfirmation(dialog) {
   dialog.returnValue = "cancel";
   dialog.showModal();
@@ -383,6 +447,11 @@ export function controlAvailability(status, pending, _muted, personaId) {
 
 export function canSubmitMessage(status, pending, text, submitDisabled) {
   return !submitDisabled && text.trim().length > 0 && controlAvailability(status, pending).canCompose;
+}
+
+export function shouldSubmitComposerKey(event) {
+  return event.key === "Enter" && !event.shiftKey && !event.altKey &&
+    !event.ctrlKey && !event.metaKey && !event.isComposing;
 }
 
 function validRecord(record) {
@@ -835,6 +904,7 @@ export function startBrowserApp() {
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
   };
   let csrfToken = "";
+  let humanProfile = Object.freeze({ emoji: HUMAN_EMOJIS[0], hasCustomAvatar: false, avatarVersion: null });
   let room = null;
   let catalog = null;
   let catalogError = "";
@@ -866,7 +936,10 @@ export function startBrowserApp() {
 
   function catalogPersona(slug) { return catalog?.find((persona) => persona.slug === slug) ?? null; }
   function participantName(participantId) { return room?.participants.find(({ id }) => id === participantId)?.displayName ?? "Cast member"; }
-  function participantIdentity(participantId) { return room?.participants.find(({ id }) => id === participantId) ?? null; }
+  function participantIdentity(participantId) {
+    const participant = room?.participants.find(({ id }) => id === participantId) ?? null;
+    return participant?.kind === "human" ? { ...participant, emoji: humanProfile.emoji, customAvatarSrc: humanProfile.hasCustomAvatar ? `${API_PATHS.humanAvatar}?v=${humanProfile.avatarVersion}` : null } : participant;
+  }
 
   function renderControls() {
     if (room === null) return;
@@ -887,10 +960,14 @@ export function startBrowserApp() {
     for (const button of elements.castList.querySelectorAll("[data-persona-control]")) {
       button.disabled = !controlAvailability(room.status, pending, false, button.dataset.personaControl).canToggleMute;
     }
+    for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = pending.size !== 0;
+    for (const control of elements.castList.querySelectorAll("[data-human-avatar-upload], [data-human-avatar-remove]")) control.disabled = pending.size !== 0;
     if (roomStatusUnknown) {
       elements.messageText.disabled = true; elements.wantsResponse.disabled = true; elements.sendMessage.disabled = true;
       elements.pauseResume.disabled = true; elements.stopRoom.disabled = true; elements.openSetup.disabled = true;
       for (const button of elements.castList.querySelectorAll("[data-persona-control]")) button.disabled = true;
+      for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = true;
+      for (const control of elements.castList.querySelectorAll("[data-human-avatar-upload], [data-human-avatar-remove]")) control.disabled = true;
     }
   }
 
@@ -903,7 +980,8 @@ export function startBrowserApp() {
     elements.identityRoster.replaceChildren();
     for (const [index, participant] of room.participants.entries()) {
       const item = node("li", `cast-member${participant.muted ? " is-muted" : ""}`);
-      const portrait = renderCharacterPortrait(participant.kind === "persona" ? participant.personaSlug : null, participant.displayName, { className: "portrait-roster", width: 96, height: 96, eager: true });
+      const customAvatarSrc = participant.kind === "human" && humanProfile.hasCustomAvatar ? `${API_PATHS.humanAvatar}?v=${humanProfile.avatarVersion}` : null;
+      const portrait = renderCharacterPortrait(participant.kind === "persona" ? participant.personaSlug : null, participant.displayName, { className: "portrait-roster", width: 96, height: 96, eager: true, fallbackText: participant.kind === "human" ? humanProfile.emoji : undefined, customSrc: customAvatarSrc });
       const identity = node("div");
       identity.append(node("strong", "persona-name", participant.displayName));
       const presentation = participant.kind === "persona" ? activePersonaPresentation(participant.personaSlug, catalog) : null;
@@ -920,6 +998,28 @@ export function startBrowserApp() {
         button.dataset.action = participant.muted ? "unmute" : "mute";
         button.setAttribute("aria-label", `${participant.muted ? "Unmute" : "Mute"} ${participant.displayName}`);
         item.append(button);
+      } else {
+        const label = node("label", "human-emoji-picker");
+        label.append(node("span", "", "Your emoji"));
+        const select = node("select");
+        select.setAttribute("aria-label", "Choose your emoji");
+        select.dataset.humanEmoji = "";
+        for (const emoji of HUMAN_EMOJIS) {
+          const option = node("option", "", emoji);
+          option.value = emoji;
+          option.selected = emoji === humanProfile.emoji;
+          select.append(option);
+        }
+        label.append(select);
+        const upload = node("label", "button human-avatar-upload", "Upload image");
+        const input = node("input"); input.type = "file"; input.accept = "image/png,image/jpeg,image/webp"; input.dataset.humanAvatarUpload = "";
+        upload.append(input);
+        item.append(label, upload);
+        if (humanProfile.hasCustomAvatar) {
+          const remove = node("button", "button button-secondary human-avatar-remove", "Use emoji");
+          remove.type = "button"; remove.dataset.humanAvatarRemove = "";
+          item.append(remove);
+        }
       }
       elements.castList.append(item);
       if (participant.kind === "persona") {
@@ -1230,6 +1330,11 @@ export function startBrowserApp() {
     const result = await mutate("message", API_PATHS.messages, { requestId: createRequestId("message"), text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
     if (result !== null) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
   });
+  elements.messageText.addEventListener("keydown", (event) => {
+    if (!shouldSubmitComposerKey(event)) return;
+    event.preventDefault();
+    elements.form.requestSubmit();
+  });
   elements.pauseResume.addEventListener("click", async () => {
     if (room === null || room.status === "stopped" || pending.size !== 0) return;
     const action = room.status === "paused" ? "resume" : "pause";
@@ -1245,6 +1350,44 @@ export function startBrowserApp() {
     const personaId = button.dataset.personaControl; const action = button.dataset.action;
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) return;
     await mutate(`persona:${personaId}`, API_PATHS.personaControl(personaId, action), { requestId: createRequestId(`${action}-${personaId}`) }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
+  });
+  elements.castList.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-human-emoji]");
+    if (select === null || !HUMAN_EMOJIS.includes(select.value) || pending.size !== 0) return;
+    pending.add("human-profile"); renderControls();
+    try {
+      const profile = validateHumanProfileDto(await postJson(API_PATHS.humanProfile, { emoji: select.value }, csrfToken));
+      humanProfile = Object.freeze(profile);
+      renderRoom(room);
+      setActionStatus("Your emoji was saved on this device.");
+    } catch (error) {
+      setActionStatus(userMessage(error), "error");
+      renderRoom(room);
+    } finally { pending.delete("human-profile"); renderControls(); }
+  });
+  elements.castList.addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-human-avatar-upload]");
+    if (input === null || input.files?.length !== 1 || pending.size !== 0) return;
+    pending.add("human-avatar"); renderControls(); setActionStatus("Preparing your image locally…");
+    try {
+      const dataUrl = await prepareAvatarDataUrl(input.files[0]);
+      humanProfile = Object.freeze(validateHumanProfileDto(await postJson(API_PATHS.humanAvatar, { dataUrl }, csrfToken)));
+      renderRoom(room); setActionStatus("Your custom avatar was saved on this device.");
+    } catch (error) {
+      setActionStatus(error instanceof TypeError ? error.message : userMessage(error), "error"); renderRoom(room);
+    } finally { pending.delete("human-avatar"); renderControls(); }
+  });
+  elements.castList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-human-avatar-remove]");
+    if (button === null || pending.size !== 0) return;
+    pending.add("human-avatar"); renderControls();
+    try {
+      humanProfile = Object.freeze(validateHumanProfileDto(await readJson(await fetch(API_PATHS.humanAvatar, {
+        method: "DELETE", credentials: "same-origin", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken },
+      }))));
+      renderRoom(room); setActionStatus("Your emoji avatar is back.");
+    } catch (error) { setActionStatus(userMessage(error), "error"); }
+    finally { pending.delete("human-avatar"); renderControls(); }
   });
   elements.openSetup.addEventListener("click", () => { if (!elements.openSetup.disabled && pending.size === 0) showSetup(); }); elements.cancelSetup.addEventListener("click", () => showLive());
   elements.filters.addEventListener("submit", (event) => event.preventDefault());
@@ -1270,8 +1413,9 @@ export function startBrowserApp() {
       await initializeRoomBeforeCatalog({
         async bootstrapRoom() {
           const bootstrap = await getJson(API_PATHS.bootstrap);
-          if (!plainRecord(bootstrap) || !exactKeys(bootstrap, ["csrfToken"]) || !boundedText(bootstrap.csrfToken, 512)) throw new RequestFailure("invalid_response");
+          validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
+          humanProfile = Object.freeze(validateHumanProfileDto(await getJson(API_PATHS.humanProfile)));
           const nextRoom = await getJson(API_PATHS.room);
           renderRoom(nextRoom);
           lifecycle.replace(createChannel(room.sessionId));

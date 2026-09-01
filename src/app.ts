@@ -9,6 +9,7 @@ import {
   type ApiRoutesOptions,
 } from "./api/routes.js";
 import { EXPECTED_HISTORICAL_PERSONAS } from "./personas/historical-catalog.js";
+import { ORIGINAL_CAST } from "./personas/original-cast.js";
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
@@ -51,7 +52,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       body: readFileSync(resolve(portraitDir, "manifest.json")),
       contentType: "application/json; charset=utf-8",
     },
-    ...Object.fromEntries(EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => [
+    ...Object.fromEntries([
+      ...EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug),
+      ...ORIGINAL_CAST.map(({ id }) => id),
+    ].map((slug) => [
       `/assets/portraits/${slug}.webp`,
       {
         body: readFileSync(resolve(portraitDir, `${slug}.webp`)),
