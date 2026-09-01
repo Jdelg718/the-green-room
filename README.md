@@ -73,6 +73,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
 - [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
+- [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)

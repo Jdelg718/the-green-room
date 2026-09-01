@@ -1,8 +1,7 @@
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import yaml
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PERSONA_MANIFESTS = tuple(sorted(REPOSITORY_ROOT.glob("personas/**/persona.yaml")))
