@@ -215,7 +215,7 @@ jobs:
           fi
           CONTROL_ROOT="$control_parent/greenroom-clean-source-control-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ strategy.job-index }}"
           test "$(realpath "$control_parent")" = "$control_parent"
-          test ! -e "$CONTROL_ROOT"
+          sudo test ! -e "$CONTROL_ROOT"
           sudo install -d -m 0700 -o root -g "$ROOT_GROUP" "$CONTROL_ROOT"
           sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(s.uid!==0||(s.mode&0o777)!==0o700||!s.isDirectory()) process.exit(1)' "$CONTROL_ROOT"
           if sudo -u "$EVIDENCE_USER" test -r "$CONTROL_ROOT" ||
@@ -224,7 +224,7 @@ jobs:
             echo "audited UID can access the root control plane" >&2
             exit 1
           fi
-          test -d "$CONTROL_ROOT"
+          sudo test -d "$CONTROL_ROOT"
           case "$CONTROL_ROOT/" in "$EVIDENCE_ROOT/"*) echo "control plane is inside evidence root" >&2; exit 1;; esac
           printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_UID=%s\nCONTROL_ROOT=%s\nROOT_GROUP=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_UID" "$CONTROL_ROOT" "$ROOT_GROUP" >> "$GITHUB_ENV"
           sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" /usr/bin/id

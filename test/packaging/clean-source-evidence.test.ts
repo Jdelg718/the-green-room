@@ -278,6 +278,9 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /ROOT_GROUP=wheel/);
   assert.match(workflow, /ROOT_GROUP=root/);
   assert.match(workflow, /install -d -m 0700 -o root -g "\$ROOT_GROUP" "\$CONTROL_ROOT"/);
+  assert.match(workflow, /sudo test ! -e "\$CONTROL_ROOT"/);
+  assert.match(workflow, /sudo test -d "\$CONTROL_ROOT"/);
+  assert.doesNotMatch(workflow, /\n\s+test -d "\$CONTROL_ROOT"/);
   assert.doesNotMatch(workflow, /-g root/);
   assert.match(workflow, /case "\$CONTROL_ROOT\/" in "\$EVIDENCE_ROOT\/"\*/);
   assert.match(workflow, /audit="\$CONTROL_ROOT\/audit-before\.json"/);
