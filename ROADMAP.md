@@ -92,6 +92,14 @@ This establishes technical viability. It does not approve historical candidates 
 
 The portable-character and community boundary is specified in [ADR 0003](docs/adr/0003-portable-characters-and-community-library.md) and the [Character Wizard and community library delivery plan](docs/plans/2026-09-01-character-wizard-community-library.md).
 
+## Future launch milestone — community demo video
+
+**Sequence:** only after a verified downloadable, onboarding-ready alpha is available; this milestone does not authorize creating or posting a video before readiness.
+
+Produce a short captioned, accessible, tweet/X-ready demo showing the local-first Green Room, the approved historical presentation portraits and still-candidate cast, local room creation and dialogue, and the provider-key/privacy boundary. Ask viewers to try the verified download, file issues, and offer suggestions through the appropriate GitHub issues or discussions. Use only staged demonstration data: no private room data, credentials, provider keys, hidden prompts, or unsupported claim that Green Room provides public inference.
+
+**Acceptance criteria:** every shown feature runs in the downloadable release; captions and essential visual context are understandable without audio; portrait/candidate/catalog distinctions remain truthful; local versus selected-provider data flow is clear; no secret or private-data surface appears; feedback links resolve to the reviewed GitHub channel; and publication receives separate human approval.
+
 ## Future pillar — native Apple clients
 
 **Sequence:** this starts only after the first-playable reconciliation, stable local API/provider contracts, packaging/onboarding, multi-room lifecycle, and release foundations above. It is not part of R0–R5.
