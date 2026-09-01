@@ -356,7 +356,7 @@ jobs:
           warm 'npm --version'
           warm 'uv --version'
           if [[ "$RUNNER_OS" = macOS ]]; then
-            warm '/usr/bin/defaults read NSGlobalDomain >/dev/null'
+            warm '/usr/bin/defaults domains >/dev/null'
             warm '/usr/bin/security list-keychains -d user >/dev/null'
             warm '/usr/bin/xcrun --find clang >/dev/null'
             warm '/usr/bin/xcodebuild -version >/dev/null'
