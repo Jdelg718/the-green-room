@@ -472,6 +472,17 @@ def collect_errors(site: Path = SITE) -> list[str]:
             svg,
         )
 
+    headers_file = site / "_headers"
+    if not headers_file.is_file():
+        fail(errors, "missing static response policy: _headers")
+    else:
+        headers_source = headers_file.read_text(encoding="utf-8").lower()
+        if "/*" not in headers_source or not re.search(
+            r"cache-control\s*:\s*[^\n]*\bno-transform\b",
+            headers_source,
+        ):
+            fail(errors, "_headers: every static response must use Cache-Control no-transform")
+
     readme = site / "README.md"
     if not readme.is_file():
         fail(errors, "missing site README")

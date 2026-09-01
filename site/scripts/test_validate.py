@@ -136,6 +136,16 @@ class StaticPolicyTests(unittest.TestCase):
             )
             self.assert_rejected(validate.collect_errors(site), "remote URL found")
 
+    def test_requires_no_transform_static_response_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            (site / "_headers").write_text(
+                "/*\n  Cache-Control: public, max-age=0, must-revalidate\n",
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "no-transform")
+
 
 if __name__ == "__main__":
     unittest.main()
