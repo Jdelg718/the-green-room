@@ -11,6 +11,10 @@ import {
 
 function checkout(context: { after(callback: () => void): void }): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-source-preflight-"));
+  writeFileSync(
+    join(root, "package.json"),
+    `${JSON.stringify({ dependencies: { "fs-ext": "2.1.1" }, allowScripts: { "fs-ext@2.1.1": true } })}\n`,
+  );
   writeFileSync(join(root, "package-lock.json"), "{}\n");
   writeFileSync(join(root, "uv.lock"), "version = 1\n");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -75,6 +79,26 @@ test("clean-host preflight refuses missing locks and prepared artifacts", async 
     () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", uvVersion: "uv 0.11.11" }),
     "preflight_prepared_artifact_present",
   );
+});
+
+test("clean-host preflight requires the exact native install-script policy", async (context) => {
+  const root = checkout(context);
+  const options = {
+    repoRoot: root,
+    dataRoot: join(root, "data"),
+    nodeVersion: "v24.0.0",
+    uvVersion: "uv 0.11.11",
+  };
+  writeFileSync(join(root, "package.json"), `${JSON.stringify({ dependencies: { "fs-ext": "2.1.1" } })}\n`);
+  await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_native_script_policy_invalid");
+  writeFileSync(
+    join(root, "package.json"),
+    `${JSON.stringify({
+      dependencies: { "fs-ext": "2.1.1" },
+      allowScripts: { "fs-ext@2.1.1": true, "unexpected@1.0.0": true },
+    })}\n`,
+  );
+  await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_native_script_policy_invalid");
 });
 
 test("clean-host preflight rejects relative, existing, symlinked, and unwritable data roots", async (context) => {

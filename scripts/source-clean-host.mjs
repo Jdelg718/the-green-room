@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { constants, realpathSync } from "node:fs";
-import { access, lstat, realpath } from "node:fs/promises";
+import { access, lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -80,6 +80,26 @@ export async function runSourceCleanHostPreflight(options = {}) {
     } catch {
       fail("preflight_lockfile_missing", `${lockfile} must be a regular file`);
     }
+  }
+  try {
+    const packageContract = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
+    const approvedScripts = packageContract.allowScripts;
+    if (
+      packageContract.dependencies?.["fs-ext"] !== "2.1.1" ||
+      approvedScripts === null ||
+      typeof approvedScripts !== "object" ||
+      Array.isArray(approvedScripts) ||
+      Object.keys(approvedScripts).length !== 1 ||
+      approvedScripts["fs-ext@2.1.1"] !== true
+    ) {
+      fail(
+        "preflight_native_script_policy_invalid",
+        "fs-ext@2.1.1 must be pinned and be the only explicitly approved install script",
+      );
+    }
+  } catch (error) {
+    if (error instanceof PreflightError) throw error;
+    fail("preflight_native_script_policy_invalid", "package.json must contain the exact native install-script policy");
   }
   for (const artifact of ["node_modules", ".venv", "dist"]) {
     try {
