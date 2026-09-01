@@ -439,4 +439,3 @@ git status --short
 from the historical gallery, survives restart, exposes no prompt/metadata paths,
 performs no unauthorized external request, and meets the gallery's desktop,
 mobile, keyboard, and honesty contracts with captured command/browser evidence.
-

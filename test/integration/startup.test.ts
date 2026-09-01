@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 
+import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
+
 async function availablePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -95,4 +97,10 @@ test("compiled server starts from a non-repository cwd with packaged migrations"
     2,
   );
   database.close();
+
+  const packagedHistoricalRoot = fileURLToPath(
+    new URL("../../personas/historical", import.meta.url),
+  );
+  assert.equal(existsSync(packagedHistoricalRoot), true);
+  assert.equal(loadHistoricalCatalog(packagedHistoricalRoot).personas.length, 12);
 });

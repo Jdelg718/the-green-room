@@ -3,15 +3,20 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
+import { loadHistoricalCatalog } from "./personas/historical-catalog.js";
 import { selectProvider } from "./providers/select-provider.js";
 
 const config = loadConfig();
+const historicalCatalog = loadHistoricalCatalog(
+  fileURLToPath(new URL("../personas/historical", import.meta.url)),
+);
 const store = openGreenRoomDatabase({
   dataDir: config.dataDir,
   migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
 });
 const provider = selectProvider({
   acceptanceFixture: config.acceptanceFixture,
+  historicalCatalog,
   lmStudioModel: config.lmStudioModel,
   provider: config.provider,
   onAcceptanceLatch(): void {

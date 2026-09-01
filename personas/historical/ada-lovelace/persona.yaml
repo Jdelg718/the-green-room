@@ -38,3 +38,5 @@ boundaries:
   external_tools: false
   impersonates_real_person: true
   copied_dialogue: false
+
+assets: {}
