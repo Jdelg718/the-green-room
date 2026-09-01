@@ -332,7 +332,10 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   const clone = workflow.indexOf("git clone --filter=blob:none --no-checkout");
   assert.ok(relocation >= 0 && firstSudoUser > relocation, "Directory Services relocation must precede every sudo-u command");
   assert.ok(warm > relocation && stabilize > warm && clone > stabilize, "warming and stabilization must precede the public clone");
-  assert.match(workflow, /FOUNDATION_HOME=.*NSHomeDirectory/);
+  assert.match(workflow, /evidence_run\(\) \{[\s\S]*cd "\$HOME" && exec "\$@"/);
+  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*cd "\$HOME" && exec \/usr\/bin\/swift/);
+  assert.match(workflow, /cd "\$HOME" && \/bin\/bash --noprofile --norc -c "\$1"/);
+  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*NSHomeDirectory/);
   assert.match(workflow, /placeholder-home-initial\.json/);
   assert.match(workflow, /placeholder-home-final\.json/);
   assert.match(workflow, /sudo cmp -s "\$CONTROL_ROOT\/placeholder-home-initial\.json" "\$CONTROL_ROOT\/placeholder-home-final\.json"/);
