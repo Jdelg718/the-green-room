@@ -166,9 +166,17 @@ func position(_ value: String, _ path: String) throws -> UInt64 {
 
 func validateTimestamp(_ value: String, _ path: String) throws {
     let range = NSRange(value.startIndex..<value.endIndex, in: value)
-    let parser = ISO8601DateFormatter()
-    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    try require(timestampPattern.firstMatch(in: value, range: range) != nil && parser.date(from: value) != nil, "\(path) is not RFC3339 UTC milliseconds")
+    let parser = DateFormatter()
+    parser.locale = Locale(identifier: "en_US_POSIX")
+    parser.calendar = Calendar(identifier: .gregorian)
+    parser.timeZone = TimeZone(secondsFromGMT: 0)
+    parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+    parser.isLenient = false
+    guard
+        timestampPattern.firstMatch(in: value, range: range) != nil,
+        let date = parser.date(from: value)
+    else { throw ProofError.invalid("\(path) is not RFC3339 UTC milliseconds") }
+    try require(parser.string(from: date) == value, "\(path) is not canonical RFC3339 UTC milliseconds")
 }
 
 func validateString(_ value: String, _ path: String, maximumBytes: Int, allowNewlines: Bool = false) throws {
@@ -307,6 +315,9 @@ for filename in files {
             try validateString(event.source.displayName, "event.source.displayName", maximumBytes: 256)
             try require(["ai_persona", "account_human", "guest_human", "system"].contains(event.source.type), "unknown event source")
             if let participantId = event.source.participantId { try validateIdentifier(participantId, "event.source.participantId") }
+            if event.source.type == "system" {
+                try require(event.source.participantId == nil && event.source.personaSlug == nil, "system source claims participant identity")
+            }
             if event.event.type == "human_message" {
                 try require(["account_human", "guest_human"].contains(event.source.type), "human event has nonhuman source")
                 try validateText(event.event.text ?? "", "event.text")
@@ -340,8 +351,11 @@ for filename in files {
                     try validateIdentifier(speaker, "director.speakerParticipantId")
                     directorsByPosition[found] = (sourcePosition, speaker)
                 }
+            } else if event.event.type == "system_notice" {
+                try require(event.source.type == "system", "system notice has nonsystem source")
+                try validateText(event.event.text ?? "", "event.text")
             } else {
-                try require(["system_notice", "room_started"].contains(event.event.type) && event.source.type == "system", "unknown or misattributed event")
+                try require(event.event.type == "room_started" && event.source.type == "system", "unknown or misattributed event")
             }
         }
         let next = try position(value.nextCursor, "nextCursor")
@@ -393,7 +407,7 @@ for filename in files {
         let requested = try position(value.requestedAfterCursor, "requestedAfterCursor")
         let earliest = try position(value.earliestAvailableCursor, "earliestAvailableCursor")
         let head = try position(value.authorityHeadCursor, "authorityHeadCursor")
-        try require(requested < earliest && earliest <= head && value.snapshotRequired, "gap semantics diverged")
+        try require(requested < earliest && earliest <= head && value.snapshotRequired && value.reason == "retention_gap", "gap semantics diverged")
     case "greenroom.invitation_lifecycle_placeholders":
         let value = try decoder.decode(InvitationPlaceholders.self, from: data)
         try require(value.implementationStatus == "placeholder_only_no_endpoints", "invitation fixture became implementation")
