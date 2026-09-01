@@ -2,7 +2,7 @@
 
 > **For Hermes:** Execute only as disposable architecture spikes after a maintainer confirms the named prerequisites. Do not implement production networking, accounts, relay, APNs, or room-content handling from this plan.
 
-**Goal:** Produce bounded evidence for securely inviting real human participants into locally authoritative AI rooms, sufficient to accept, amend, or reject [ADR 0003](../adr/0003-secure-human-room-invitations.md).
+**Goal:** Produce bounded evidence for securely inviting real human participants into locally authoritative AI rooms, sufficient to accept, amend, or reject the [proposed secure human room invitations ADR](../adr/proposed-secure-human-room-invitations.md).
 
 **Architecture:** Preserve the local companion as the only membership authority, event sequencer, transcript store, director, and provider caller. Compare direct LAN/private-Tailscale transport with a strictly optional opaque-relay shape, and compare authenticated TLS-to-host with genuine participant-endpoint group encryption, without presuming relay, E2EE, or accounts.
 
@@ -105,14 +105,14 @@ Files under `model/` and `tests/` are disposable evidence and must not import pr
 - Read: `docs/PRODUCT-BRIEF.md`
 - Read: `docs/ARCHITECTURE.md`
 - Read: `docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md`
-- Read: `docs/adr/0003-secure-human-room-invitations.md`
+- Read: `docs/adr/proposed-secure-human-room-invitations.md`
 - Read: `docs/plans/2026-09-01-apple-client-and-human-room-invitations.md`
 - Create later: `spikes/NNN-human-room-invitations/README.md`
 
 **Steps:**
 
 1. Record exact baseline commit, stable event/schema revision, migration head, and prerequisite acceptance evidence.
-2. Define `Host`, `Owner`, `Admin`, `Member`, `Guest`, `Principal`, `Membership`, `Command`, `Event`, and `Presence` exactly as ADR 0003.
+2. Define `Host`, `Owner`, `Admin`, `Member`, `Guest`, `Principal`, `Membership`, `Command`, `Event`, and `Presence` exactly as the proposed invitation ADR.
 3. List any current production assumption that conflicts with multiple human participants, including the single `kind = 'human'` lookup and current request-id/event replay behavior.
 4. Stop if multi-room order, export/delete, provider disclosure, or API compatibility is still unstable; do not compensate inside the spike.
 5. Review with architecture owner before creating executable artifacts.
@@ -134,7 +134,7 @@ Files under `model/` and `tests/` are disposable evidence and must not import pr
 4. For each threat record prevention, detection, response, residual risk, test id, and owner.
 5. Confirm `greenroomai.net` is outside the room data/inference plane and that a compromised host remains an acknowledged plaintext/integrity trust failure.
 
-**Acceptance:** Every threat named in ROADMAP and ADR 0003 has a control, test, and honest residual limitation. No control assumes E2EE, accounts, or relay before those decisions.
+**Acceptance:** Every threat named in ROADMAP and the proposed invitation ADR has a control, test, and honest residual limitation. No control assumes E2EE, accounts, or relay before those decisions.
 
 ### Task 3: Specify identity, roles, and durable speaker provenance fixtures
 
@@ -319,7 +319,7 @@ Files under `model/` and `tests/` are disposable evidence and must not import pr
 
 **Files:**
 - Complete later: `reports/acceptance-evidence.md`
-- Amend if decided: `docs/adr/0003-secure-human-room-invitations.md`
+- Amend if decided: `docs/adr/proposed-secure-human-room-invitations.md`
 - Link final evidence from: `docs/plans/2026-09-01-apple-client-and-human-room-invitations.md`
 - Update only after acceptance: `ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/PRODUCT-BRIEF.md`
 

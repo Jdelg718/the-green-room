@@ -57,7 +57,7 @@ Phases B and C may research in parallel after Phase A defines provisional fixtur
 
 ## Required ADRs
 
-The invited-human decisions are consolidated as a reviewable proposal in [ADR 0003: Secure human room invitations](../adr/0003-secure-human-room-invitations.md), with bounded evidence tasks in the [secure human invitation architecture spike plan](2026-09-01-secure-human-room-invitation-spikes.md). ADR 0003 remains Proposed and does not accept accounts, a relay, E2EE, push, a public link router, or production implementation.
+The invited-human decisions are consolidated as a reviewable [proposed secure human room invitations ADR](../adr/proposed-secure-human-room-invitations.md), with bounded evidence tasks in the [secure human invitation architecture spike plan](2026-09-01-secure-human-room-invitation-spikes.md). The ADR remains intentionally unnumbered until acceptance allocates a collision-free number, and it does not accept accounts, a relay, E2EE, push, a public link router, or production implementation.
 
 Allocate final numbers at execution time; do not guess around concurrent ADR work.
 

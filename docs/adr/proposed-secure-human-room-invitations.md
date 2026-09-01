@@ -1,6 +1,6 @@
-# ADR 0003: Secure human room invitations
+# Proposed ADR: Secure human room invitations
 
-- **Status:** Proposed; decision-quality direction, not implementation authorization
+- **Status:** Proposed and intentionally unnumbered; allocate the next collision-free ADR number only when accepted
 - **Date:** 2026-09-01
 - **Decision owners:** Green Room maintainers and product owner
 - **Depends on:** [ADR 0002](0002-local-first-byo-llm-and-buzz-boundary.md), stable multi-room/event contracts, export/deletion contracts, and the [Apple client and human invitation roadmap plan](../plans/2026-09-01-apple-client-and-human-room-invitations.md)
@@ -113,7 +113,7 @@ Before joining, the invitee sees and affirmatively accepts a versioned disclosur
 - other participants can retain, screenshot, or export received content; and
 - reporting and emergency limitations.
 
-Consent is not inferred from opening a link. The authority records a `consent_receipt` digest over disclosure version, room policy version, participant-visible provider disclosure, accepted-at time, invite id, and resulting membership id. A material change to provider recipient, encryption trust point, or retention requires a new consent version before further sending; read-only access and export/delete remain available during re-consent.
+Consent is not inferred from opening a link. The authority records a `consent_receipt` digest over disclosure version, room policy version, participant-visible provider disclosure, accepted-at time, invite id, and resulting membership id. A material change to provider recipient, encryption trust point, or retention enters a durable `consent_pending` room-policy state for each affected membership. Until renewed consent commits, that membership cannot send, and its previously committed content must not enter newly configured provider context. The authority either pauses AI generation for the room or constructs a provably excluded context that omits all affected content; it must not silently disclose old participant text to the new provider. Read-only access and export/delete remain available during re-consent. Consent renewal and any generation pause/resume are ordered audit events; owner/admin override cannot bypass them.
 
 ## Invitation lifecycle
 
@@ -143,7 +143,7 @@ issued --> inspected (ephemeral pre-join session only) --> consumed
 ```
 
 - `inspected` is not a durable state unless product evidence shows a need; link previews and scanners make “viewed” unreliable.
-- Inspecting a valid token creates a short-lived, least-privilege pre-join session that can read only the frozen disclosure and submit consent. It does not create membership or expose transcript/events/member lists.
+- Inspecting a valid token creates a short-lived, least-privilege pre-join session that can read only the frozen disclosure and submit consent. It does not create membership or expose transcript/events/member lists. This session is itself a bearer capability and receives the same explicit treatment as the original invite: at least 256 random bits, raw value returned once, only an HMAC/digest stored, fixed maximum lifetime (candidate ten minutes), one active epoch per invite, bounded attempts, generic failures, and immediate invalidation when the invite expires, is revoked, is consumed, or its disclosure revision changes. Web clients receive it only as a `Secure`, `HttpOnly`, `SameSite=Strict`, host-only `__Host-` cookie; native clients use an authorization header backed by transient memory. It never enters URLs, browser storage, app preferences, logs, analytics, exports, or room events. Consent submission atomically consumes or invalidates the pre-join session, and replay cannot create a second membership.
 - Redemption runs one authority transaction: verify constant-shape token response and expiry; verify room lock/policy and disclosure receipt; conditional-update `issued -> consumed`; create principal/device binding and membership; append ordered `membership_joined`, `invite_consumed`, and `consent_recorded` audit events/outbox records; issue a narrower membership credential; commit. Exactly one racing redemption wins.
 - Invite validation failures return a generic terminal response and bounded timing; detailed reason is available only to authorized host audit, not the redeemer.
 - Expiry uses host time with a documented skew allowance only for already established pre-join sessions. Default candidate expiry is 24 hours; the spike must test alternatives and owner UX.
