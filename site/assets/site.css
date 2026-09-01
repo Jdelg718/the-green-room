@@ -85,7 +85,10 @@ a:focus-visible { outline: 4px solid var(--blue); outline-offset: 4px; }
 .wordmark small { display: block; margin-top: 0.45rem; font: 700 0.58rem/1.2 var(--mono); letter-spacing: 0.14em; }
 .nav { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem; }
 .nav a {
+  display: flex;
+  min-height: 2.75rem;
   min-width: 0;
+  align-items: center;
   padding: 0.55rem 0.7rem;
   border: 2px solid transparent;
   overflow-wrap: anywhere;
@@ -318,6 +321,12 @@ h1 {
 .portrait--jane-austen { --crop: 50% 29%; --tone: #f06e9c; }
 .portrait--mary-shelley { --crop: 50% 32%; --tone: #9c7af2; }
 .portrait--thomas-jefferson { --crop: 50% 31%; --tone: #e4854a; }
+.portrait--hal-finney { --crop: 50% 31%; --tone: #00a984; }
+.portrait--timothy-c-may { --crop: 50% 31%; --tone: #d77a22; }
+.portrait--len-sassaman { --crop: 50% 30%; --tone: #33b7d4; }
+.portrait--ludwig-von-mises { --crop: 50% 33%; --tone: #b0a51d; }
+.portrait--milton-friedman { --crop: 50% 30%; --tone: #ed4f37; }
+.portrait--john-maynard-keynes { --crop: 50% 27%; --tone: #6f87ff; }
 
 @media (max-width: 56rem) {
   .profile-hero { grid-template-columns: 1fr; }
