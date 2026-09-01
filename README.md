@@ -2,25 +2,19 @@
 
 **A shared room where humans and character-driven AI agents meet, talk, disagree, and remember what happened.**
 
-The Green Room is an open-source, noncommercial playground inspired by [Block's Buzz](https://github.com/block/buzz). Instead of organizing coding agents around software projects, it explores ensemble conversations: a person invites several distinct AI personas into a room and participates in an evolving scene.
+The Green Room is standalone, open-source, noncommercial software inspired by [Block's Buzz](https://github.com/block/buzz). It is **not a Buzz source fork or dependency**, and no Buzz source has been incorporated. Instead of organizing coding agents around software projects, it explores ensemble conversations: a person invites several distinct AI personas into a room and participates in an evolving scene.
 
 The room—not a single chatbot—is the product.
 
 ## Status
 
-**Planning and feasibility stage.** This repository currently holds the product brief, architecture direction, persona-pack specification, and implementation roadmap. We have intentionally not copied or forked Buzz yet; Phase 0 will determine whether this should be a thin Buzz extension, a maintained fork, or a smaller standalone client using Buzz's relay and agent surfaces.
+**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. Its 145-test suite and private acceptance deployment have passed at the current executable baseline.
 
-## First playable target
+This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 
-A private, local room with:
+`greenroomai.net` is the intended public project, documentation, download, and contribution domain. DNS and deployment are operator work; this repository does not claim that the domain resolves or is live. The application runs locally, where the runtime owns room data and provider credentials. The public website must never collect model keys, transcripts, room events, or memory.
 
-- one human participant;
-- three original persona agents;
-- a director that selects who should speak and when;
-- distinct, testable voices and motivations;
-- conversation history and short relationship state;
-- importable/exportable persona packs;
-- no autonomous shell, filesystem, or network access.
+See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md) and [community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md).
 
 ## Run the first-playable acceptance
 
@@ -73,28 +67,30 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Product brief](docs/PRODUCT-BRIEF.md)
 - [Roadmap](ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Hosting placement decision](docs/adr/0000-hosting-placement.md)
+- [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
+- [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
-- [Implementation plan](.hermes/plans/2026-08-30_121840-the-green-room-roadmap.md)
 
 ## Principles
 
 1. **Ensemble first.** Personas react to the room and one another, not only to the user.
 2. **Character consistency beats constant chatter.** Silence is a valid turn.
-3. **Private by default.** Local/self-hosted operation comes before public hosting.
+3. **Local-first and private by default.** The local runtime owns user data, provider configuration, and credentials. A selected cloud provider may receive bounded model context, but project-operated web infrastructure does not.
 4. **No unnecessary agency.** Entertainment personas do not need shell or account access.
 5. **Portable personas.** Packs are plain files with documented schemas.
-6. **Original examples, explicit admission.** The public repository contains original or public-domain persona source, not copyrighted television-character packs. Source presence is not official-catalog approval: only an approved, version-and-digest-specific entry in the versioned Official Catalog Manifest admits a pack. Official catalog artwork/assets are limited to item-reviewed public-domain works or original project-commissioned/stylized artwork.
+6. **Original examples, explicit admission.** The public repository contains original or public-domain persona source, not copyrighted television-character packs. Source presence is not official-catalog approval: only an approved, version-and-digest-specific entry in the versioned Official Catalog Manifest admits a pack.
 7. **Fork-friendly.** Apache-2.0 licensing, documented setup, and no proprietary lock-in.
 
-No Official Catalog Manifest exists yet. Persona directories on `main`, including Benjamin Franklin and Nicolaus Copernicus, remain candidates/drafts until packs have complete provenance, two independent review records, and an approved manifest decision and date. “Community packs” are externally authored and distributed unofficial packs, not content hosted, indexed, or redistributed by project-operated infrastructure; private local imports remain the user's responsibility. Any future project-hosted public community catalog must use the official gate or a separately approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary.
+No Official Catalog Manifest exists yet. The runtime strictly validates 12 historical candidate packs, including Benjamin Franklin and Nicolaus Copernicus, but validation is not catalog admission. Existing portrait files are design-exploration candidates only. All 12 are held from production, pack, website, and catalog distribution until each asset has an item-specific rights basis, the required independent reviews, and an approved version-and-digest-specific Official Catalog Manifest entry.
+
+Community packs are externally authored and distributed unofficial packs, not content hosted, indexed, or redistributed by project-operated infrastructure; private local imports remain the user's responsibility. Any future project-hosted public community catalog must use the official gate or a separately approved policy that is at least equally strict and preserves the public-domain-or-project-original asset boundary.
 
 ## Upstream
 
-Buzz is Apache-2.0 software created by Block, Inc. The Green Room is independent, unofficial, and not endorsed by or affiliated with Block. If Buzz source is incorporated, its copyright, license, NOTICE material, and modification notices will be preserved.
+Buzz is Apache-2.0 software created by Block, Inc. The Green Room is independent, unofficial, and not endorsed by or affiliated with Block. Buzz remains an inspiration and a pinned research subject, not a source fork or runtime dependency. If Buzz source is incorporated in the future, its copyright, license, NOTICE material, and modification notices will be preserved.
 
 ## License
 

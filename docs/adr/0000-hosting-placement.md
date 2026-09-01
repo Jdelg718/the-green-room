@@ -1,6 +1,6 @@
 # ADR 0000: Hosting Placement for the Private Alpha
 
-- **Status:** Accepted for Phase 0/private alpha
+- **Status:** Superseded in part by [ADR 0002](0002-local-first-byo-llm-and-buzz-boundary.md); retained as a historical Phase 0/private-host placement record
 - **Date:** 2026-08-30
 - **Decision:** Host the first shared Green Room relay and runtime on an existing private x86_64 Docker host, accessible only through the operator's private network. Move to dedicated infrastructure before public access or sustained community use.
 
