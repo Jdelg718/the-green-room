@@ -255,8 +255,13 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
   assert.match(workflow, /SOURCE_REF="\$GITHUB_REF"/);
   assert.match(workflow, /greenroom-user-owned-snapshot/);
-  assert.match(workflow, /roots=\(\/Users \/private\/tmp \/private\/var \/Applications \/Library \/usr\/local\)/);
+  assert.match(workflow, /roots=\(\/Users \/private\/tmp \/private\/var \/Applications \/Library \/usr\/local \/Volumes\)/);
   assert.doesNotMatch(workflow, /\/System\/Volumes\/Data/);
+  assert.match(workflow, /macos-mounts-before\.json/);
+  assert.match(workflow, /macos-mounts-after\.json/);
+  assert.match(workflow, /writableNestedMounts\.length!==0/);
+  assert.match(workflow, /!options\.includes\("read-only"\)/);
+  assert.match(workflow, /controlled\+=\("\$mount_inventory"\)/);
   assert.match(workflow, /sudo test ! -s "\$errors"/);
   assert.match(workflow, /sudo cat "\$errors"/);
   assert.match(workflow, /sha256/);
