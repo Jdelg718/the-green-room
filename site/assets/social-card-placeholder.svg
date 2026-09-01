@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">The Green Room project</title>
+  <desc id="desc">Text-only social metadata placeholder in the Backstage Electric visual system.</desc>
+  <rect width="1200" height="630" fill="#f3efdf"/>
+  <path d="M0 0h1200v24H0zM0 606h1200v24H0z" fill="#121411"/>
+  <path d="M0 24h1200v12H0zM0 594h1200v12H0z" fill="#b9ff29"/>
+  <rect x="70" y="78" width="130" height="130" fill="#121411"/>
+  <text x="87" y="158" fill="#b9ff29" font-family="monospace" font-size="38" font-weight="700">GR//</text>
+  <text x="70" y="320" fill="#121411" font-family="Arial Black,Arial,sans-serif" font-size="100" font-weight="900">THE GREEN ROOM</text>
+  <text x="74" y="410" fill="#121411" font-family="Arial,Helvetica,sans-serif" font-size="44" font-weight="700">The room—not a single chatbot—is the product.</text>
+  <rect x="70" y="478" width="500" height="58" fill="#b9ff29" stroke="#121411" stroke-width="5"/>
+  <text x="91" y="516" fill="#121411" font-family="monospace" font-size="24" font-weight="700">PROJECT SHELL · RELEASE FORTHCOMING</text>
+</svg>

@@ -47,8 +47,8 @@ Amy contract batch
                                              |
                                              +--> Rex gate --> clean-host acceptance
 
-R4 catalog/artwork review is independent and held from production.
-greenroomai.net publication waits for explicit human DNS/deployment approval.
+R4 catalog/artwork review is independent and held from pack/catalog release.
+greenroomai.net is live; later site publication or deployment changes still require explicit human approval.
 Apple-client and invited-human implementation follows these release foundations;
 only bounded research, threat modeling, and contract spikes may run earlier.
 ```
@@ -97,9 +97,9 @@ Integrate multiple local rooms and bounded inspectable memory against the reconc
 
 ### Batch 7 — catalog and artwork gate
 
-Integrate safe persona validation/import. Define an asset manifest that binds exact bytes to item-specific provenance, rights basis, attribution, and independent reviews. Iris may continue non-production design exploration, but no existing portrait enters runtime DTOs, packs, the public site, or official catalog before approval.
+Integrate safe persona validation/import. Define an asset manifest that binds exact bytes to item-specific provenance, rights basis, attribution, and independent reviews. Iris may continue non-production design exploration, but public-site display uses only the separately approved, clearly disclosed optimized portraits; no portrait enters runtime DTOs, packs, installers, or the official catalog before exact-version catalog approval.
 
-**Gate:** malformed imports fail closed; all 12 portraits remain held unless individually approved; the monogram fallback remains production-safe; and an approved version-and-digest-specific Official Catalog Manifest is the sole admission authority.
+**Gate:** malformed imports fail closed; all 12 site-approved portraits remain held from packs, installers, and catalog distribution until exact-version admission; deterministic initials remain as the image-failure fallback; and an approved version-and-digest-specific Official Catalog Manifest is the sole admission authority.
 
 ## Immediate parallel work
 
@@ -116,7 +116,7 @@ Integrate safe persona validation/import. Define an asset manifest that binds ex
 - Gus packaging and static-site implementation wait for architecture and API gates.
 - Memory runtime waits for #42/#53 reconciliation and stable room interfaces.
 - Portraits wait for item-specific rights evidence, two independent reviews, and Official Catalog Manifest approval.
-- Public DNS, hosting, tagging, or deployment waits for clean-host evidence and explicit human approval.
+- Any later public DNS, hosting, tagging, or deployment change waits for clean-host evidence and explicit human approval; source integration alone does not redeploy the live site.
 
 ## Branch and merge protocol
 
