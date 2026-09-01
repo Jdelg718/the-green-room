@@ -340,6 +340,8 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /AR="\$clt_ar"/);
   assert.match(workflow, /xcrun_db="\$redirected_xcrun_db"/);
   assert.match(workflow, /npm_package_config_node_gyp_devdir="\$EVIDENCE_ROOT\/cache\/node-gyp"/);
+  assert.match(workflow, /-g "\$\(id -g "\$EVIDENCE_USER"\)" "\$EVIDENCE_ROOT\/cache"/);
+  assert.doesNotMatch(workflow, /-g "\$EVIDENCE_GID" "\$EVIDENCE_ROOT\/cache"/);
   assert.match(workflow, /\/usr\/bin\/xcrun --sdk "" --show-sdk-path/);
   assert.match(workflow, /"\$\{source_env\[@\]\}"/);
   assert.doesNotMatch(workflow, /xcrun_nocache|--no-cache/);

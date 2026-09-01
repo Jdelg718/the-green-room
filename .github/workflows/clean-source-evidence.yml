@@ -353,7 +353,7 @@ jobs:
             test -x "$clt_cxx"
             test -x "$clt_ar"
             /usr/sbin/pkgutil --pkg-info com.apple.pkg.CLTools_Executables >/dev/null
-            sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$EVIDENCE_GID" "$EVIDENCE_ROOT/cache" "$EVIDENCE_ROOT/cache/node-gyp"
+            sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT/cache" "$EVIDENCE_ROOT/cache/node-gyp"
             redirected_xcrun_db="$EVIDENCE_ROOT/cache/xcrun_db"
             warm_env+=(
               DEVELOPER_DIR="$clt_root"
