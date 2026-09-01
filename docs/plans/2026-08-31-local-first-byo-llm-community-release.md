@@ -93,9 +93,9 @@ Integrate multiple local rooms and bounded inspectable memory against the reconc
 
 ### Batch 7 — catalog and artwork gate
 
-Integrate safe persona validation/import. Define an asset manifest that binds exact bytes to item-specific provenance, rights basis, attribution, and independent reviews. Iris may continue non-production design exploration, but no existing portrait enters runtime DTOs, packs, the public site, or official catalog before approval.
+Integrate safe persona validation/import. Define an asset manifest that binds exact bytes to item-specific provenance, rights basis, attribution, and independent reviews. Iris may continue non-production design exploration, but public-site display uses only the separately approved, clearly disclosed optimized portraits; no portrait enters runtime DTOs, packs, installers, or the official catalog before exact-version catalog approval.
 
-**Gate:** malformed imports fail closed; all 12 portraits remain held unless individually approved; the monogram fallback remains production-safe; and an approved version-and-digest-specific Official Catalog Manifest is the sole admission authority.
+**Gate:** malformed imports fail closed; all 12 site-approved portraits remain held from packs, installers, and catalog distribution until exact-version admission; deterministic initials remain as the image-failure fallback; and an approved version-and-digest-specific Official Catalog Manifest is the sole admission authority.
 
 ## Immediate parallel work
 

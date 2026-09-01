@@ -130,7 +130,7 @@ h1 {
 .call-slip h2 { margin: 0 0 1rem; font: 2.3rem/0.9 var(--display); text-transform: uppercase; }
 .call-slip dl { display: grid; grid-template-columns: 5.5rem 1fr; margin: 0; font: 700 0.78rem/1.7 var(--mono); }
 .call-slip dt { color: var(--muted); }
-.call-slip dd { margin: 0; border-bottom: 1px dashed var(--muted); }
+.call-slip dd { min-width: 0; margin: 0; border-bottom: 1px dashed var(--muted); overflow-wrap: anywhere; }
 .marquee { overflow: hidden; padding: 0.75rem 1rem; border-block: 0.55rem solid var(--acid); background: var(--ink); color: var(--paper); font: clamp(1.3rem, 3vw, 2rem)/1 var(--display); letter-spacing: 0.03em; text-align: center; text-transform: uppercase; }
 .marquee strong { color: var(--acid); }
 .section { padding-block: clamp(3.2rem, 7vw, 6rem); }
@@ -164,6 +164,7 @@ h1 {
 }
 .cast-grid li:nth-child(3n + 1) { background: var(--acid); }
 .cast-grid strong { display: block; font: 1.35rem/1 var(--display); text-transform: uppercase; }
+.cast-grid strong a { display: flex; min-height: 2.75rem; align-items: center; }
 .cast-grid small { display: block; margin-top: 0.55rem; color: var(--muted); font: 700 0.68rem/1.35 var(--mono); }
 .split { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(20rem, 1.15fr); gap: clamp(2rem, 6vw, 5rem); align-items: start; }
 .rule-list { margin: 0; padding: 0; list-style: none; border-top: var(--rule); }
@@ -211,7 +212,10 @@ h1 {
   .cast-grid li:nth-child(n) { background: var(--white); }
   .cast-grid li:nth-child(odd) { background: var(--acid); }
   .card .number { margin-bottom: 1.2rem; }
-  .call-slip dl { grid-template-columns: 4.6rem 1fr; font-size: 0.7rem; }
+  .call-slip dl { grid-template-columns: 1fr; font-size: 0.7rem; }
+  .call-slip dt { margin-top: 0.55rem; }
+  .call-slip dt:first-child { margin-top: 0; }
+  .call-slip dd { padding-bottom: 0.35rem; }
   .footer-inner { display: block; }
   .footer-inner span { display: block; margin-top: 0.7rem; }
 }
@@ -224,4 +228,103 @@ h1 {
 @media (forced-colors: active) {
   .mark, .eyebrow, .status-stamp, .card, .notice, .button { border: 2px solid CanvasText; }
   .outline { color: CanvasText; -webkit-text-stroke: 0; text-shadow: none; }
+}
+
+
+/* Approved AI portrait presentation: static, local, and fallback-first. */
+.cast-grid .cast-card { padding: 0; background: var(--white); }
+.cast-grid .cast-card:nth-child(n) { background: var(--white); }
+.portrait {
+  --crop: 50% 35%;
+  --tone: var(--acid);
+  position: relative;
+  display: grid;
+  min-width: 0;
+  aspect-ratio: 4 / 5;
+  place-items: center;
+  margin: 0;
+  overflow: hidden;
+  border-bottom: var(--rule);
+  background: var(--ink);
+}
+.portrait img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: cover;
+  object-position: var(--crop);
+  color: transparent;
+  font-size: 0;
+  filter: contrast(1.08) saturate(0.82);
+}
+.portrait::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background: var(--tone);
+  mix-blend-mode: color;
+  opacity: 0.2;
+  pointer-events: none;
+}
+.portrait::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  border: 4px solid var(--paper);
+  background-image:
+    radial-gradient(rgb(243 239 223 / 20%) 0.8px, transparent 0.8px),
+    repeating-linear-gradient(0deg, transparent 0 4px, rgb(18 20 17 / 24%) 4px 5px);
+  background-size: 5px 5px, 100% 5px;
+  pointer-events: none;
+}
+.portrait-fallback { color: var(--paper); font: clamp(3rem, 8vw, 5rem)/1 var(--display); transform: rotate(-5deg); }
+.portrait figcaption {
+  position: absolute;
+  z-index: 4;
+  right: 0.65rem;
+  bottom: 0.65rem;
+  left: 0.65rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 2px solid var(--ink);
+  background: var(--tone);
+  color: var(--ink);
+  font: 900 0.62rem/1.2 var(--mono);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.cast-copy { min-width: 0; padding: 1rem; }
+.profile-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.43fr); gap: clamp(2rem, 6vw, 5rem); align-items: center; }
+.profile-hero-copy { min-width: 0; }
+.profile-portrait { width: min(100%, 25rem); justify-self: end; border: var(--rule); box-shadow: var(--shadow); transform: rotate(1deg); }
+.profile-portrait figcaption { display: block; }
+.profile-portrait figcaption span { display: block; margin-top: 0.25rem; }
+.portrait--ada-lovelace { --crop: 50% 33%; --tone: #ed4f37; }
+.portrait--galileo-galilei { --crop: 50% 26%; --tone: #ff7a32; }
+.portrait--benjamin-franklin { --crop: 50% 36%; --tone: #00a984; }
+.portrait--frederick-douglass { --crop: 50% 25%; --tone: #f5a623; }
+.portrait--elizabeth-i { --crop: 50% 32%; --tone: #d1a900; }
+.portrait--george-washington { --crop: 50% 36%; --tone: #6f87ff; }
+.portrait--leonardo-da-vinci { --crop: 50% 48%; --tone: #33b7d4; }
+.portrait--isaac-newton { --crop: 50% 38%; --tone: #3d5afe; }
+.portrait--nicolaus-copernicus { --crop: 50% 29%; --tone: #d83a2e; }
+.portrait--jane-austen { --crop: 50% 29%; --tone: #f06e9c; }
+.portrait--mary-shelley { --crop: 50% 32%; --tone: #9c7af2; }
+.portrait--thomas-jefferson { --crop: 50% 31%; --tone: #e4854a; }
+
+@media (max-width: 56rem) {
+  .profile-hero { grid-template-columns: 1fr; }
+  .profile-portrait { width: min(100%, 32rem); justify-self: start; transform: none; }
+}
+
+@media (max-width: 38rem) {
+  .portrait figcaption { font-size: 0.58rem; }
+  .profile-portrait { width: 100%; }
 }
