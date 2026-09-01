@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "1.0",
+  "scope": "Sanitized local built-in historical portrait identity assets only.",
+  "assets": [
+    {
+      "trustedId": "ada-lovelace",
+      "assetPath": "/assets/portraits/ada-lovelace.webp",
+      "altText": "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.",
+      "objectPosition": "50% 33%",
+      "sha256": "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2",
+      "bytes": 68994,
+      "provenance": {
+        "assetStatus": "reused",
+        "sourceReference": "Jdelg718/Everstone-btc@74d3578ef19957763047ad1ac22e062955728069:public/generated/batch4/ada-lovelace.jpg",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "benjamin-franklin",
+      "assetPath": "/assets/portraits/benjamin-franklin.webp",
+      "altText": "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.",
+      "objectPosition": "50% 36%",
+      "sha256": "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0",
+      "bytes": 81188,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:36.251078+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "elizabeth-i",
+      "assetPath": "/assets/portraits/elizabeth-i.webp",
+      "altText": "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.",
+      "objectPosition": "50% 32%",
+      "sha256": "4436884480fe701940d8c9bd695940bc238e99ab71c65eacd9ba55fc4c77220c",
+      "bytes": 207016,
+      "provenance": {
+        "assetStatus": "reused",
+        "sourceReference": "Jdelg718/Everstone-btc@bfc5b7f263f2878fcfeb3ef5a86d0c6f88049d1e:public/generated/batch5/queen-elizabeth-i.jpg",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "frederick-douglass",
+      "assetPath": "/assets/portraits/frederick-douglass.webp",
+      "altText": "Creative historical portrait of Frederick Douglass with swept gray hair and a dark formal suit.",
+      "objectPosition": "50% 25%",
+      "sha256": "e445dd92b3c36e4dff5bc920b408bfc239fabfe6f6ad60d0e22e4a4b93892b2b",
+      "bytes": 65726,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:36.609047+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "galileo-galilei",
+      "assetPath": "/assets/portraits/galileo-galilei.webp",
+      "altText": "Creative historical portrait of Galileo Galilei, white-bearded and seated beside books and a candle.",
+      "objectPosition": "50% 26%",
+      "sha256": "81c1826e479b4b8b6357e69da3bd9142c34f7f47a8742b8386ce4b78b3603605",
+      "bytes": 68780,
+      "provenance": {
+        "assetStatus": "reused",
+        "sourceReference": "Jdelg718/Everstone-btc@74d3578ef19957763047ad1ac22e062955728069:public/generated/batch4/galileo-galilei.jpg",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "george-washington",
+      "assetPath": "/assets/portraits/george-washington.webp",
+      "altText": "Creative historical portrait of George Washington in a dark blue Continental-era coat beside surveying instruments.",
+      "objectPosition": "50% 36%",
+      "sha256": "3883588e3ac035deed560893b1ddc1bca34c356c197c0094f179365d4b7a3a03",
+      "bytes": 54986,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:35.367540+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "isaac-newton",
+      "assetPath": "/assets/portraits/isaac-newton.webp",
+      "altText": "Creative historical portrait of Isaac Newton in a dark coat, seated at a candlelit desk.",
+      "objectPosition": "50% 38%",
+      "sha256": "b666032239adf370bfb187b612506466fabfa6d6d3272179d3055ef236c57466",
+      "bytes": 123060,
+      "provenance": {
+        "assetStatus": "reused",
+        "sourceReference": "Jdelg718/Everstone-btc@bfc5b7f263f2878fcfeb3ef5a86d0c6f88049d1e:public/generated/batch5/isaac-newton.jpg",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "jane-austen",
+      "assetPath": "/assets/portraits/jane-austen.webp",
+      "altText": "Creative historical portrait of Jane Austen in a modest cap and dark shawl beside a writing desk.",
+      "objectPosition": "50% 29%",
+      "sha256": "abf73e727337eb88b99dfbe2f318bced75e2ce9ef34689e96dd26758879345ea",
+      "bytes": 96626,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:36.778391+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "leonardo-da-vinci",
+      "assetPath": "/assets/portraits/leonardo-da-vinci.webp",
+      "altText": "Creative historical portrait of Leonardo da Vinci, white-bearded with one hand raised in thought.",
+      "objectPosition": "50% 48%",
+      "sha256": "6340c0f43e05e46175bfaad85f200d4e8cd1be2754cac3f2a3843df294842acd",
+      "bytes": 105226,
+      "provenance": {
+        "assetStatus": "reused",
+        "sourceReference": "Jdelg718/Everstone-btc@74d3578ef19957763047ad1ac22e062955728069:public/generated/batch4/leonardo-da-vinci.jpg",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "mary-shelley",
+      "assetPath": "/assets/portraits/mary-shelley.webp",
+      "altText": "Creative historical portrait of Mary Shelley in a black period dress at a storm-lit writing desk.",
+      "objectPosition": "50% 32%",
+      "sha256": "6030a58352b00b3fea02b7e950d2a58fa464c51efbdd453933e68312486a633f",
+      "bytes": 66174,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:37.238141+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "nicolaus-copernicus",
+      "assetPath": "/assets/portraits/nicolaus-copernicus.webp",
+      "altText": "Creative historical portrait of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes.",
+      "objectPosition": "50% 29%",
+      "sha256": "f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e",
+      "bytes": 67110,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:35.197643+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "thomas-jefferson",
+      "assetPath": "/assets/portraits/thomas-jefferson.webp",
+      "altText": "Creative historical portrait of Thomas Jefferson in a dark period coat in an architectural study.",
+      "objectPosition": "50% 31%",
+      "sha256": "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06",
+      "bytes": 55880,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Hermes image_generate · FAL.ai · GPT Image 2 · 2026-08-30T21:48:35.859040+00:00",
+        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-08-30",
+        "catalogAdmission": false
+      }
+    }
+  ]
+}

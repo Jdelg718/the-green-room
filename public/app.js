@@ -52,6 +52,43 @@ const ORIGINAL_PERSONA_PRESENTATION = Object.freeze({
   optimist: Object.freeze({ role: "Original persona · optimist", temperament: "Organized, community-minded, and resolute" }),
 });
 
+// Portrait paths are application-owned and bound only to built-in canonical IDs.
+// Catalog/persona data cannot provide or override image URLs.
+export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
+  "ada-lovelace": Object.freeze({ src: "/assets/portraits/ada-lovelace.webp", alt: "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.", objectPosition: "50% 33%" }),
+  "benjamin-franklin": Object.freeze({ src: "/assets/portraits/benjamin-franklin.webp", alt: "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.", objectPosition: "50% 36%" }),
+  "elizabeth-i": Object.freeze({ src: "/assets/portraits/elizabeth-i.webp", alt: "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.", objectPosition: "50% 32%" }),
+  "frederick-douglass": Object.freeze({ src: "/assets/portraits/frederick-douglass.webp", alt: "Creative historical portrait of Frederick Douglass with swept gray hair and a dark formal suit.", objectPosition: "50% 25%" }),
+  "galileo-galilei": Object.freeze({ src: "/assets/portraits/galileo-galilei.webp", alt: "Creative historical portrait of Galileo Galilei, white-bearded and seated beside books and a candle.", objectPosition: "50% 26%" }),
+  "george-washington": Object.freeze({ src: "/assets/portraits/george-washington.webp", alt: "Creative historical portrait of George Washington in a dark blue Continental-era coat beside surveying instruments.", objectPosition: "50% 36%" }),
+  "isaac-newton": Object.freeze({ src: "/assets/portraits/isaac-newton.webp", alt: "Creative historical portrait of Isaac Newton in a dark coat, seated at a candlelit desk.", objectPosition: "50% 38%" }),
+  "jane-austen": Object.freeze({ src: "/assets/portraits/jane-austen.webp", alt: "Creative historical portrait of Jane Austen in a modest cap and dark shawl beside a writing desk.", objectPosition: "50% 29%" }),
+  "leonardo-da-vinci": Object.freeze({ src: "/assets/portraits/leonardo-da-vinci.webp", alt: "Creative historical portrait of Leonardo da Vinci, white-bearded with one hand raised in thought.", objectPosition: "50% 48%" }),
+  "mary-shelley": Object.freeze({ src: "/assets/portraits/mary-shelley.webp", alt: "Creative historical portrait of Mary Shelley in a black period dress at a storm-lit writing desk.", objectPosition: "50% 32%" }),
+  "nicolaus-copernicus": Object.freeze({ src: "/assets/portraits/nicolaus-copernicus.webp", alt: "Creative historical portrait of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes.", objectPosition: "50% 29%" }),
+  "thomas-jefferson": Object.freeze({ src: "/assets/portraits/thomas-jefferson.webp", alt: "Creative historical portrait of Thomas Jefferson in a dark period coat in an architectural study.", objectPosition: "50% 31%" }),
+});
+
+function characterMonogram(displayName) {
+  const letters = typeof displayName === "string"
+    ? displayName.trim().split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 3).toLocaleUpperCase()
+    : "";
+  return letters || "?";
+}
+
+export function characterPortraitIdentity(personaId, displayName) {
+  const trusted = typeof personaId === "string" && Object.hasOwn(TRUSTED_CHARACTER_PORTRAITS, personaId)
+    ? TRUSTED_CHARACTER_PORTRAITS[personaId]
+    : undefined;
+  return Object.freeze({
+    trusted: trusted !== undefined,
+    src: trusted?.src ?? null,
+    alt: trusted?.alt ?? "",
+    objectPosition: trusted?.objectPosition ?? "50% 35%",
+    monogram: characterMonogram(displayName),
+  });
+}
+
 function plainRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
@@ -243,7 +280,33 @@ export function reasonLabel(reason) {
 
 function safeText(value) { return typeof value === "string" ? value : ""; }
 
-export function renderTranscriptEvent(record, participantName, documentRoot = document) {
+function renderCharacterPortrait(personaId, displayName, options = {}, documentRoot = document) {
+  const identity = characterPortraitIdentity(personaId, displayName);
+  const portrait = documentRoot.createElement("span");
+  portrait.className = `character-portrait ${options.className ?? "portrait-avatar"}`;
+  const fallback = documentRoot.createElement("span");
+  fallback.className = "portrait-fallback";
+  fallback.textContent = identity.monogram;
+  fallback.setAttribute?.("aria-hidden", "true");
+  if (!identity.trusted) {
+    portrait.append(fallback);
+    return portrait;
+  }
+  const image = documentRoot.createElement("img");
+  image.src = sameOriginPath(identity.src);
+  image.alt = options.descriptive ? identity.alt : "";
+  image.width = options.width ?? 96;
+  image.height = options.height ?? 96;
+  image.loading = options.eager ? "eager" : "lazy";
+  image.decoding = "async";
+  image.style.objectPosition = identity.objectPosition;
+  fallback.hidden = true;
+  image.onerror = () => { image.hidden = true; fallback.hidden = false; };
+  portrait.append(image, fallback);
+  return portrait;
+}
+
+export function renderTranscriptEvent(record, participantName, documentRoot = document, participantIdentity = () => null) {
   const event = record.event;
   const item = documentRoot.createElement("li");
   item.className = "transcript-item";
@@ -264,7 +327,11 @@ export function renderTranscriptEvent(record, participantName, documentRoot = do
     text.textContent = safeText(event.text);
   } else if (event.type === "persona_message") {
     item.classList.add("event-persona");
-    speaker.textContent = participantName(safeText(event.participantId));
+    const participantId = safeText(event.participantId);
+    const displayName = participantName(participantId);
+    const identity = participantIdentity(participantId);
+    body.prepend(renderCharacterPortrait(identity?.personaSlug, displayName, { className: "portrait-transcript", width: 72, height: 72 }, documentRoot));
+    speaker.textContent = displayName;
     text.textContent = safeText(event.text);
   } else if (event.type === "director_decision") {
     const reason = safeText(event.reason);
@@ -761,7 +828,7 @@ export function startBrowserApp() {
     detailsTitle: byId("persona-details-title"), domain: byId("domain-filter"), emptyTranscript: byId("empty-transcript"),
     filters: byId("gallery-filters"), form: byId("message-form"), galleryHeading: byId("gallery-heading"),
     galleryResults: byId("gallery-results"), grid: byId("persona-grid"), horizon: byId("horizon-filter"),
-    liveView: byId("live-view"), messageText: byId("message-text"), mobileAction: byId("mobile-room-action"),
+    identityRoster: byId("room-identity-roster"), liveView: byId("live-view"), messageText: byId("message-text"), mobileAction: byId("mobile-room-action"),
     openSetup: byId("open-cast-setup"), pauseResume: byId("pause-resume"), search: byId("persona-search"),
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
@@ -799,6 +866,7 @@ export function startBrowserApp() {
 
   function catalogPersona(slug) { return catalog?.find((persona) => persona.slug === slug) ?? null; }
   function participantName(participantId) { return room?.participants.find(({ id }) => id === participantId)?.displayName ?? "Cast member"; }
+  function participantIdentity(participantId) { return room?.participants.find(({ id }) => id === participantId) ?? null; }
 
   function renderControls() {
     if (room === null) return;
@@ -832,10 +900,10 @@ export function startBrowserApp() {
     byId("room-status").textContent = STATUS_LABELS[room.status];
     elements.liveView.dataset.roomStatus = room.status;
     elements.castList.replaceChildren();
+    elements.identityRoster.replaceChildren();
     for (const [index, participant] of room.participants.entries()) {
       const item = node("li", `cast-member${participant.muted ? " is-muted" : ""}`);
-      const number = node("span", "cast-number", String(index + 1).padStart(2, "0"));
-      number.setAttribute("aria-hidden", "true");
+      const portrait = renderCharacterPortrait(participant.kind === "persona" ? participant.personaSlug : null, participant.displayName, { className: "portrait-roster", width: 96, height: 96, eager: true });
       const identity = node("div");
       identity.append(node("strong", "persona-name", participant.displayName));
       const presentation = participant.kind === "persona" ? activePersonaPresentation(participant.personaSlug, catalog) : null;
@@ -844,7 +912,7 @@ export function startBrowserApp() {
         identity.append(node("p", "persona-temperament", presentation.temperament));
         identity.append(node("p", "persona-state", participant.muted ? "Muted" : "Ready"));
       }
-      item.append(number, identity);
+      item.append(portrait, identity);
       if (participant.kind === "persona") {
         const button = node("button", "button mute-toggle", participant.muted ? "Unmute" : "Mute");
         button.type = "button";
@@ -854,13 +922,21 @@ export function startBrowserApp() {
         item.append(button);
       }
       elements.castList.append(item);
+      if (participant.kind === "persona") {
+        const summary = node("li", "identity-person");
+        const summaryPortrait = renderCharacterPortrait(participant.personaSlug, participant.displayName, { className: "portrait-identity", width: 80, height: 80, eager: true });
+        const summaryText = node("span", "identity-person-copy");
+        summaryText.append(node("strong", "", participant.displayName), node("span", "", presentation.role));
+        summary.append(summaryPortrait, summaryText);
+        elements.identityRoster.append(summary);
+      }
     }
     elements.castList.setAttribute("aria-busy", "false");
     renderControls();
   }
 
   function renderEvent(record) {
-    elements.transcript.append(renderTranscriptEvent(record, participantName));
+    elements.transcript.append(renderTranscriptEvent(record, participantName, document, participantIdentity));
     elements.emptyTranscript.hidden = true;
     elements.transcriptPanel.scrollTop = elements.transcriptPanel.scrollHeight;
   }
@@ -956,9 +1032,8 @@ export function startBrowserApp() {
     const article = node("article", "persona-card");
     article.setAttribute("aria-labelledby", `persona-${persona.slug}`);
     const top = node("div", "persona-card-top");
-    const monogram = node("span", "persona-monogram", persona.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 3));
-    monogram.setAttribute("aria-hidden", "true");
-    top.append(monogram, node("span", "candidate-badge", "Candidate · draft"));
+    const portrait = renderCharacterPortrait(persona.slug, persona.name, { className: "portrait-card", descriptive: true, width: 420, height: 525 });
+    top.append(portrait, node("span", "candidate-badge", "Candidate · draft"));
     const title = node("h3", "", persona.name); title.id = `persona-${persona.slug}`;
     article.append(top, title, node("p", "card-setting", `${persona.identity.setting} · cutoff ${persona.knowledge.cutoff}`), node("p", "card-summary", persona.summary));
     const domains = node("ul", "tag-list");
@@ -1002,7 +1077,9 @@ export function startBrowserApp() {
       const seat = node("li", slug ? "builder-seat" : "builder-seat open-seat");
       if (!slug) { seat.textContent = `${index + 1}. Open persona seat`; elements.builderSeats.append(seat); continue; }
       const persona = catalogPersona(slug);
-      seat.append(node("span", "seat-number", String(index + 1)), node("span", "seat-name", persona?.name ?? slug));
+      const seatIdentity = node("span", "seat-identity");
+      seatIdentity.append(node("span", "seat-name", persona?.name ?? slug), node("span", "seat-role", persona ? `${persona.knowledge.domains[0]} · ${persona.horizon}` : "Custom persona"));
+      seat.append(renderCharacterPortrait(slug, persona?.name ?? slug, { className: "portrait-seat", width: 64, height: 64 }), seatIdentity);
       const remove = node("button", "button seat-remove", "Remove"); remove.type = "button"; remove.dataset.removeSlug = slug;
       remove.setAttribute("aria-label", `Remove ${persona?.name ?? slug} from seat ${index + 1}`); seat.append(remove); elements.builderSeats.append(seat);
     }
@@ -1040,7 +1117,9 @@ export function startBrowserApp() {
     const details = safeDetailsContent(persona); detailsSlug = slug; detailsTrigger = trigger;
     elements.detailsTitle.textContent = details.name;
     const content = document.createDocumentFragment();
-    content.append(node("p", "candidate-badge detail-badge", details.status), node("p", "detail-summary", details.summary));
+    const detailIdentity = node("div", "detail-identity");
+    detailIdentity.append(renderCharacterPortrait(persona.slug, persona.name, { className: "portrait-detail", descriptive: true, width: 320, height: 400, eager: true }), node("p", "detail-summary", details.summary));
+    content.append(node("p", "candidate-badge detail-badge", details.status), detailIdentity);
     const facts = node("dl", "detail-facts");
     for (const [term, description] of [["Setting", details.setting], ["Knowledge cutoff", details.cutoff]]) {
       facts.append(node("dt", "", term), node("dd", "", description));

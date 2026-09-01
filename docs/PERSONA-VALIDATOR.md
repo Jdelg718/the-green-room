@@ -114,6 +114,8 @@ source, reference schema, build metadata, README, and license, plus generated
 virtual environments, Hypothesis/cache data, prior build output, personas,
 spikes, tests, evidence, unrelated documentation, and upstream workspace data.
 The wheel contains only the runtime package and required distribution metadata.
+Both wheel and source distribution include the package's `py.typed` marker, so
+mypy and other PEP 561 consumers treat the installed validator as typed.
 
 ## Deliberate limitations
 

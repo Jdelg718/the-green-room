@@ -8,6 +8,7 @@ import {
   registerApiRoutes,
   type ApiRoutesOptions,
 } from "./api/routes.js";
+import { EXPECTED_HISTORICAL_PERSONAS } from "./personas/historical-catalog.js";
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
@@ -32,6 +33,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
   const csrfToken = randomBytes(32).toString("base64url");
   const publicDir = resolve(options.publicDir ?? "public");
+  const portraitDir = resolve(publicDir, "assets/portraits");
   const assets: Readonly<Record<string, StaticAsset>> = {
     "/": {
       body: readFileSync(resolve(publicDir, "index.html")),
@@ -45,6 +47,17 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       body: readFileSync(resolve(publicDir, "styles.css")),
       contentType: "text/css; charset=utf-8",
     },
+    "/assets/portraits/manifest.json": {
+      body: readFileSync(resolve(portraitDir, "manifest.json")),
+      contentType: "application/json; charset=utf-8",
+    },
+    ...Object.fromEntries(EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => [
+      `/assets/portraits/${slug}.webp`,
+      {
+        body: readFileSync(resolve(portraitDir, `${slug}.webp`)),
+        contentType: "image/webp",
+      },
+    ])),
   };
 
   app.addHook("onSend", async (request, reply, payload) => {

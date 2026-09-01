@@ -378,6 +378,14 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
     bodies.push(pageBody);
     assert.equal(page.status, 200);
     assert.match(pageBody, /The Green Room/);
+    assert.match(pageBody, /id="room-identity-roster"/);
+    const portrait = await fetch(`${first.origin}/assets/portraits/ada-lovelace.webp`);
+    assert.equal(portrait.status, 200);
+    assert.match(portrait.headers.get("content-type") ?? "", /^image\/webp/);
+    assert.equal(
+      createHash("sha256").update(Buffer.from(await portrait.arrayBuffer())).digest("hex"),
+      "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2",
+    );
 
     const bootstrap = await getJson(first.origin, "/api/bootstrap", bodies) as {
       csrfToken?: unknown;

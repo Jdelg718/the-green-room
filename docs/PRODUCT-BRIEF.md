@@ -16,6 +16,8 @@ Initially: the project owner and technically curious friends running private or 
 
 Later: open-source contributors, writers, role-players, educators, and people experimenting with original interactive casts.
 
+After the local-first release foundations are stable: people who want a native iPhone/iPad room client and trusted friends invited as clearly identified human participants. These are future expansion tracks, not MVP promises.
+
 ## Core jobs
 
 - Assemble a cast from installed persona packs.
@@ -25,6 +27,11 @@ Later: open-source contributors, writers, role-players, educators, and people ex
 - Pause, mute, remove, reset, branch, or end the scene.
 - Inspect and delete remembered relationship state.
 - Create, validate, import, export, and share persona packs.
+
+Future jobs, gated behind the current release foundations:
+
+- Join and follow a locally authoritative room from a native, accessible iPhone or iPad client, with honest offline/read-only behavior.
+- Invite, consent to, identify, moderate, remove, and block real human participants without confusing them with AI personas.
 
 ## Product differentiator
 
@@ -91,3 +98,6 @@ Community packs are externally authored and distributed, unofficial packs; proje
 - No copyrighted packs distributed in the core repository.
 - No powerful tools for entertainment personas.
 - Buzz compatibility is desirable, but maintainability outranks ideological purity.
+- Local-first/BYO-LLM operation must remain usable without an Apple client, project account, or project-operated invitation relay.
+- Native clients and invited humans do not move provider keys, transcripts, or inference through `greenroomai.net`.
+- Human collaboration must not ship before identity/consent, role authority, transport, encryption, event ordering, moderation, abuse, and data-lifecycle decisions are accepted.
