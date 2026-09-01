@@ -507,7 +507,13 @@ export function registerApiRoutes(
 
     api.get("/api/bootstrap", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
-      return { csrfToken: options.csrfToken };
+      return {
+        csrfToken: options.csrfToken,
+        capabilities: {
+          personaPackInspection:
+            options.personaPackInspectionService !== undefined,
+        },
+      };
     });
 
     registerPersonaPackInspectionRoute(api, {

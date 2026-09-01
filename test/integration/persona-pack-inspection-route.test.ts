@@ -32,7 +32,12 @@ interface InspectionService {
 
 async function token(app: ReturnType<typeof buildApp>): Promise<string> {
   const response = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: HOST } });
-  return response.json<{ csrfToken: string }>().csrfToken;
+  const body = response.json<{
+    csrfToken: string;
+    capabilities: { personaPackInspection: boolean };
+  }>();
+  assert.equal(body.capabilities.personaPackInspection, true);
+  return body.csrfToken;
 }
 
 function headers(csrfToken: string): Record<string, string> {

@@ -12,6 +12,12 @@ test("config uses private loopback defaults", () => {
     dataDir: "/tmp/green-room-checkout/.local/first-playable",
     host: "127.0.0.1",
     lmStudioModel: "qwen/qwen3.6-35b-a3b",
+    personaInspectionExecutable: null,
+    personaInspectionMode: "optional",
+    personaInspectionSafeCwd:
+      "/tmp/green-room-checkout/.local/first-playable/runtime/persona-inspection/validator-cwd",
+    personaInspectionTempParent:
+      "/tmp/green-room-checkout/.local/first-playable/runtime/persona-inspection/tmp",
     port: 8787,
     provider: "mock",
   });
@@ -143,5 +149,46 @@ test("config validates the port", () => {
 
   for (const port of ["0", "65536", "12.5", "not-a-port", " 8787"] ) {
     assert.throws(() => loadConfig({ GREENROOM_PORT: port }), /GREENROOM_PORT/);
+  }
+});
+
+test("config validates persona inspection modes and derives owned paths", () => {
+  for (const mode of ["disabled", "optional", "required"] as const) {
+    const config = loadConfig(
+      {
+        GREENROOM_DATA_DIR: "/var/lib/green-room",
+        GREENROOM_PERSONA_INSPECTION: mode,
+        GREENROOM_PERSONA_VALIDATOR_EXECUTABLE: "/opt/green-room/greenroom-persona",
+      },
+      "/ignored",
+    );
+    assert.equal(config.personaInspectionMode, mode);
+    assert.equal(
+      config.personaInspectionExecutable,
+      "/opt/green-room/greenroom-persona",
+    );
+    assert.equal(
+      config.personaInspectionSafeCwd,
+      "/var/lib/green-room/runtime/persona-inspection/validator-cwd",
+    );
+    assert.equal(
+      config.personaInspectionTempParent,
+      "/var/lib/green-room/runtime/persona-inspection/tmp",
+    );
+  }
+});
+
+test("explicit malformed persona inspection configuration always fails", () => {
+  for (const mode of ["", "OPTIONAL", " optional", "production"]) {
+    assert.throws(
+      () => loadConfig({ GREENROOM_PERSONA_INSPECTION: mode }),
+      /GREENROOM_PERSONA_INSPECTION/,
+    );
+  }
+  for (const executable of ["", "greenroom-persona", "./greenroom-persona"]) {
+    assert.throws(
+      () => loadConfig({ GREENROOM_PERSONA_VALIDATOR_EXECUTABLE: executable }),
+      /GREENROOM_PERSONA_VALIDATOR_EXECUTABLE/,
+    );
   }
 });

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
 import tarfile
@@ -71,4 +73,61 @@ def test_sdist_scope_is_explicit_and_excludes_workspace_only_content() -> None:
         "/spikes",
         "/tests",
         "/upstream",
+    }
+
+
+def test_wheel_installs_non_editably_and_absolute_console_runs_from_foreign_cwd(
+    tmp_path: Path,
+) -> None:
+    uv = shutil.which("uv")
+    assert uv is not None
+    wheelhouse = tmp_path / "wheelhouse"
+    venv = tmp_path / "fresh-venv"
+    foreign_cwd = tmp_path / "foreign-cwd"
+    foreign_cwd.mkdir()
+
+    subprocess.run(  # noqa: S603 -- fixed local build command, no untrusted input
+        [uv, "build", "--wheel", "--out-dir", str(wheelhouse)],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    (wheel,) = wheelhouse.glob("*.whl")
+    subprocess.run(  # noqa: S603 -- fixed uv executable and temporary test paths
+        [uv, "venv", str(venv)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    subprocess.run(  # noqa: S603 -- fixed uv executable and built local wheel
+        [uv, "pip", "install", "--python", str(python), str(wheel)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    console = venv / (
+        "Scripts/greenroom-persona.exe" if os.name == "nt" else "bin/greenroom-persona"
+    )
+    fixture = REPOSITORY_ROOT / "tests/fixtures/persona-validator/valid-minimal.greenroom"
+    result = subprocess.run(  # noqa: S603 -- fresh-venv console and fixed fixture
+        [str(console), "validate", "--format", "json", "--", str(fixture)],
+        cwd=foreign_cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    report = json.loads(result.stdout)
+    assert report == {
+        "diagnostics_omitted": 0,
+        "diagnostics_truncated": False,
+        "errors": [],
+        "loadable": True,
+        "prompt_sha256": "3fc2149d008403dfac40161a3c9bc3097b776f86023948bfec35afc0a22ce7df",
+        "prompt_utf8_bytes": 383,
+        "report_version": "1",
+        "runtime_files": ["AGENTS.md", "BACKGROUND.md", "VOICE.md"],
+        "valid": True,
+        "warnings": [],
     }

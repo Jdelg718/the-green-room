@@ -36,9 +36,14 @@ test("bootstrap returns a stable per-process CSRF token", async (context) => {
     url: "/api/bootstrap",
     headers: { host: "127.0.0.1:8787" },
   });
-  const token = first.json<{ csrfToken: string }>().csrfToken;
+  const body = first.json<{
+    csrfToken: string;
+    capabilities: { personaPackInspection: boolean };
+  }>();
+  const token = body.csrfToken;
 
   assert.equal(first.statusCode, 200);
+  assert.equal(body.capabilities.personaPackInspection, false);
   assert.match(token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(second.json<{ csrfToken: string }>().csrfToken, token);
 
