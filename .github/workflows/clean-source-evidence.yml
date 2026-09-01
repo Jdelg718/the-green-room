@@ -292,15 +292,20 @@ jobs:
             sudo dscl . -change "/Users/$EVIDENCE_USER" NFSHomeDirectory "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME"
             sudo dscacheutil -flushcache
             test "$(sudo dscl . -read "/Users/$EVIDENCE_USER" NFSHomeDirectory)" = "NFSHomeDirectory: $EVIDENCE_SOURCE_HOME"
-            FOUNDATION_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/bin/swift -e 'import Foundation; print(NSHomeDirectory())')"
+            FOUNDATION_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
+              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /usr/bin/swift -e '\''import Foundation; print(NSHomeDirectory())'\''')"
             test "$FOUNDATION_HOME" = "$EVIDENCE_SOURCE_HOME"
             if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q yes; then exit 1; fi
           else
             FOUNDATION_HOME=""
             ! id -nG "$EVIDENCE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|adm|wheel)$'
           fi
-          EFFECTIVE_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/local/bin/node -p 'require("node:os").userInfo().homedir')"
-          EXPORTED_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/bin/printenv HOME)"
+          evidence_run() {
+            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
+              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec "$@"' _ "$@"
+          }
+          EFFECTIVE_HOME="$(evidence_run /usr/local/bin/node -p 'require("node:os").userInfo().homedir')"
+          EXPORTED_HOME="$(evidence_run /usr/bin/printenv HOME)"
           test "$EXPORTED_HOME" = "$EVIDENCE_SOURCE_HOME"
           if [[ "$RUNNER_OS" = macOS ]]; then test "$EFFECTIVE_HOME" = "$EVIDENCE_SOURCE_HOME"; else test "$EFFECTIVE_HOME" = "$EVIDENCE_HOME"; fi
           sudo /usr/local/bin/node -e '
@@ -310,7 +315,7 @@ jobs:
             if(homeMetadata.placeholder.mode!=="00700"||homeMetadata.synthetic.mode!=="00700"||homeMetadata.placeholder.uid!==Number(uid)||homeMetadata.synthetic.uid!==Number(uid)||homeMetadata.placeholder.gid!==Number(gid)||homeMetadata.synthetic.gid!==Number(gid)) process.exit(1);
             fs.writeFileSync(output,JSON.stringify({schemaVersion:1,platform,originalHome:original,effectiveHome:effective,exportedHome:exported,foundationHome:foundation||null,homeMetadata,warmCommands:[],stabilization:{attempts:0,consecutiveStableSnapshots:0,accepted:false}},null,2)+"\n",{mode:0o600,flag:"wx"});
           ' "$CONTROL_ROOT/provisioning-evidence.json" "${{ matrix.expected_platform }}" "$EVIDENCE_HOME" "$EFFECTIVE_HOME" "$EXPORTED_HOME" "$FOUNDATION_HOME" "$EVIDENCE_UID" "$EVIDENCE_GID" "$EVIDENCE_USER" "$EVIDENCE_GROUP"
-          if sudo -u "$EVIDENCE_USER" test -r "$CONTROL_ROOT" || sudo -u "$EVIDENCE_USER" test -w "$CONTROL_ROOT" || sudo -u "$EVIDENCE_USER" test -x "$CONTROL_ROOT"; then exit 1; fi
+          if evidence_run /usr/bin/test -r "$CONTROL_ROOT" || evidence_run /usr/bin/test -w "$CONTROL_ROOT" || evidence_run /usr/bin/test -x "$CONTROL_ROOT"; then exit 1; fi
           case "$CONTROL_ROOT/" in "$EVIDENCE_ROOT/"*) exit 1;; esac
           printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_SOURCE_TMP=%s\nEVIDENCE_UID=%s\nCONTROL_ROOT=%s\nROOT_GROUP=%s\nFOUNDATION_HOME=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_SOURCE_TMP" "$EVIDENCE_UID" "$CONTROL_ROOT" "$ROOT_GROUP" "$FOUNDATION_HOME" >> "$GITHUB_ENV"
           test "$EVIDENCE_UID" -ne 0
@@ -335,7 +340,8 @@ jobs:
           warm() {
             local command="$1" status
             set +e
-            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" /bin/bash --noprofile --norc -c "$command"
+            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" \
+              /bin/bash --noprofile --norc -c 'cd "$HOME" && /bin/bash --noprofile --norc -c "$1"' _ "$command"
             status=$?
             set -e
             printf '%s\t%s\n' "$status" "$command" | sudo tee -a "$warm_log" >/dev/null
