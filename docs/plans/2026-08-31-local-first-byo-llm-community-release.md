@@ -2,9 +2,9 @@
 
 ## Baseline and scope
 
-Implementation starts from exact executable baseline `58e96cd31d4fa449c74b69d4a4c114937b7b6888`, verified with 145 passing tests and private acceptance. At drafting time the integration branch is `agent/first-playable-local`; executors must confirm the current branch before acting because branch state is operational, while the baseline commit is fixed evidence.
+This broader community-release plan was originally anchored to executable baseline `58e96cd31d4fa449c74b69d4a4c114937b7b6888`, whose 145-test private acceptance remains historical evidence only. The current packaging architecture and spike start from exact protected baseline `98d882a3f7df373457e6031f9f39ac544dbadfb4`; packaging executors must not branch from or mechanically restore the older baseline. Executors must also confirm the current branch before acting because branch state is operational, while each recorded baseline is fixed evidence for its stated scope.
 
-Tracked planning inputs are [issue #30](https://github.com/Jdelg718/the-green-room/issues/30) for downloadable BYO-LLM rooms and memory, [PR #37](https://github.com/Jdelg718/the-green-room/pull/37) for the strict persona validator, [issue #41](https://github.com/Jdelg718/the-green-room/issues/41) for the selected design exploration, [issue #42](https://github.com/Jdelg718/the-green-room/issues/42) and [PR #53](https://github.com/Jdelg718/the-green-room/pull/53) for memory-adapter contracts, and plan-only [PR #52](https://github.com/Jdelg718/the-green-room/pull/52). Reconcile these against the current Node 24/Fastify/SQLite baseline; do not apply stale greenfield assumptions mechanically. PR #53's proposed ADR 0002 must be renumbered and relinked during reconciliation because ADR 0002 is now the accepted local-first boundary.
+Tracked planning inputs are [issue #30](https://github.com/Jdelg718/the-green-room/issues/30) for downloadable BYO-LLM rooms and memory, [PR #37](https://github.com/Jdelg718/the-green-room/pull/37) for the strict persona validator, [issue #41](https://github.com/Jdelg718/the-green-room/issues/41) for the selected design exploration, [issue #42](https://github.com/Jdelg718/the-green-room/issues/42) and [PR #53](https://github.com/Jdelg718/the-green-room/pull/53) for memory-adapter contracts, and the current [proposed downloadable-alpha packaging ADR](../adr/proposed-downloadable-alpha-packaging.md) plus [executable spike plan](2026-09-01-downloadable-alpha-packaging-spike.md). Closed PR #52 is historical input only: its Python/FastAPI greenfield runtime, universal Compose-first sequence and completed-capability assumptions do not describe the integrated Node 24 application. PR #53's proposed ADR 0002 must be renumbered and relinked during reconciliation because ADR 0002 is now the accepted local-first boundary.
 
 This plan does not authorize a push, DNS change, live deployment, portrait release, or provider implementation by itself.
 
@@ -85,9 +85,9 @@ Iris may prototype immediately against mocked contracts, but production wiring s
 
 ### Batch 5 — packaging and data lifecycle
 
-After architecture and local API gates, Gus builds Docker Compose/local web bundle packaging and runbooks. Desktop packaging is evaluated only after the bundle passes. Add backup, restore, export, delete, and clean uninstall/recovery guidance.
+After architecture and local API gates, Gus executes the accepted portions of the current [downloadable-alpha packaging spike plan](2026-09-01-downloadable-alpha-packaging-spike.md). Prove named source/operator targets first, then one bounded macOS Apple-silicon ordinary bundled-runtime spike. Docker Compose remains an optional operator lane after its own boundary tests; Windows, Linux, Node SEA, Electron, Tauri, native installers and auto-update remain gated rather than implied. Add backup, restore, export, delete, uninstall-retain and explicit purge guidance.
 
-**Gate:** a clean supported host can install and run without a project account; loopback is the default; backup → upgrade → restore and export/delete are verified; artifacts reproduce with checksums; and no public DNS or deployment occurs without explicit human approval.
+**Gate:** named clean source hosts pass; the exact macOS artifact passes absolute-validator, process-tree, offline, migration/backup/restore/rollback, uninstall/reinstall/purge, signing/notarization, checksum, SBOM, provenance and independent-review gates; no other platform is called supported without its named evidence; and no public DNS, tag, artifact publication or deployment occurs without explicit human approval.
 
 ### Batch 6 — rooms, memory, and community surface
 

@@ -43,14 +43,19 @@ This establishes technical viability. It does not approve historical candidates 
 
 ## R2 — packaging and onboarding
 
-**Outcome:** make local installation, setup, recovery, and removal understandable to non-specialists.
+**Outcome:** make local installation, setup, recovery, and removal understandable to non-specialists without claiming unverified cross-platform installers.
 
-- Ship Docker Compose and a local web bundle first.
-- Evaluate a desktop wrapper only after the bundle is reliable.
-- Add guided local provider setup, backup/restore, export, and delete flows.
+The current packaging boundary and executable spike sequence are defined in the [proposed downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). They replace closed PR #52's obsolete greenfield/runtime assumptions. They are architecture and implementation planning, not evidence that an installer or downloadable release exists.
+
+- Prove the locked source/operator workflow first on named clean macOS arm64 and Ubuntu 24.04 x64 targets.
+- Run one bounded macOS Apple-silicon downloadable spike that preserves the Node 24 runtime and strict validator as separate, supervised, absolute-path executables.
+- Keep Docker Compose as an optional operator path after its loopback, provider-reachability, credential, durable-data, backup and image-provenance boundaries pass; do not make Docker Desktop the default non-specialist prerequisite.
+- Gate Windows, Linux and any Node SEA, Electron, Tauri or native-installer expansion on platform-specific process cleanup, permissions, signing, lifecycle and clean-host evidence.
+- Add guided local provider setup, backup/restore, export, delete, uninstall-retain and explicit data-purge flows without sending keys to project infrastructure.
+- Ship no automatic updater until authenticated metadata, opt-in/privacy, migration compatibility, failed-launch rollback and revocation gates pass.
 - Bind locally by default and make remote/private-network exposure explicit.
 
-**Acceptance criteria:** a clean supported machine can install and start the app from documentation; setup works without sending keys to project infrastructure; backup → upgrade → restore is verified; export and delete are testable; and uninstall/recovery limitations are documented.
+**Acceptance criteria:** the named source targets pass from documentation; one exact signed/notarized macOS artifact passes clean-standard-user install, offline first launch, absolute-validator preflight, zero-orphan process cleanup, backup → migration → restart → restore, compatible rollback, uninstall-retain, reinstall, explicit purge, checksums, licenses, final-payload SBOM and provenance gates; independent read-only review closes every blocker; setup works without sending keys to project infrastructure; and the release owner separately approves any publication. Other platforms remain unsupported until their named matrices pass.
 
 ## R3 — rooms and bounded memory
 
