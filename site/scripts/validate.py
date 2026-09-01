@@ -69,6 +69,21 @@ PROFILE_MAIN_TEXT_SHA256 = {
     "nicolaus-copernicus": "e56f51658dbcdc0479eb10f6964fbbfba7e2327c72e945bf80dbf8226bea6ddf",
     "thomas-jefferson": "f5bc7811cf4988c6dbbeb19f11c338e1f20f89ca79af323152ef5258d0ecfb3a",
 }
+PROFILE_SOURCE_SHA256 = {
+    "ada-lovelace": "26b9b3c80a201824d6cd09754e07eebf8863eb1b82cb4f7b4a1f88b513244d47",
+    "benjamin-franklin": "9d3f935eb3e1fe11e387ba28fcbdfa8c59b9a210ec11fc103c1dba358911ea6f",
+    "elizabeth-i": "d2cf0bdd7c2b70620ddb7deb49ce8d84b45dab6ab9dc8d512a964e717928bf34",
+    "frederick-douglass": "bf7b127b961bdc394765b87c16b15e681b89f41e827f51057a01e974e837896b",
+    "galileo-galilei": "ac2aadf15aaa7571fc6cc6e6ca23be2bd3050ffd4c2f51f806a714a3684513d7",
+    "george-washington": "f41acfe59c4d2bd24c86533b329fe737781e5d712a71dd78bcfbd92072a4afbd",
+    "isaac-newton": "49445db9d9943e706b268a9c22e8f77ad1e0f567473d11a9d23d3e75832c8f89",
+    "jane-austen": "c2e590a76a5ff64593670fdd89d40617624e430f1538f9129f224abbd90a4437",
+    "leonardo-da-vinci": "bff3b3fa066048c4a6690de986fbcd1a3160ee32ba133041a8b4a51236352249",
+    "mary-shelley": "8a5efcf6888c664d97e57fa2345110302859727233aaaf03e2829c8798494057",
+    "nicolaus-copernicus": "c747cc648ec8b3407d20db96babb9d4016d550f836005164ab00f46fe847d16d",
+    "thomas-jefferson": "273648df3170b66080055f2d1586cba9cddf9fc9ad3dc4e1a1e780dcf0331e9e",
+}
+PROFILE_STYLESHEET_SHA256 = "d2adf1244138b251065173c327bafd4710dc76df4a7840ce7cbd0833cfba5012"
 PAGES = {
     "index.html": "Project",
     "characters/index.html": "Characters",
@@ -671,6 +686,9 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
         if name is None:
             fail(errors, f"{relative}: profile slug is not canonical")
         else:
+            source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            if source_digest != PROFILE_SOURCE_SHA256[slug]:
+                fail(errors, f"{relative}: profile HTML differs from the reviewed release source")
             validate_profile_contract(relative, slug, name, parser, errors)
 
 
@@ -812,6 +830,9 @@ def collect_errors(site: Path = SITE) -> list[str]:
         fail(errors, "missing local stylesheet: assets/site.css")
     else:
         content = primary_css.read_text(encoding="utf-8")
+        stylesheet_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        if stylesheet_digest != PROFILE_STYLESHEET_SHA256:
+            fail(errors, "assets/site.css: stylesheet differs from the reviewed profile release source")
         for requirement in ("@media (max-width:", "prefers-reduced-motion", ":focus-visible"):
             if requirement not in content:
                 fail(errors, f"assets/site.css: missing {requirement}")

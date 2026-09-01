@@ -232,6 +232,29 @@ class StaticPolicyTests(unittest.TestCase):
                 page.write_text(source.replace("</main>", f"<p>{claim}</p></main>"), encoding="utf-8")
                 self.assert_rejected(validate.collect_errors(site), "visible profile text differs from the reviewed release content")
 
+    def test_profiles_reject_markup_or_css_that_conceals_reviewed_meaning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "ada-lovelace" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            self.assertIn("It is not the person", source)
+            page.write_text(
+                source.replace("It is not the person", 'It is <span class="conceal-negation">not </span>the person', 1),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "profile HTML differs from the reviewed release source")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            stylesheet = site / "assets" / "site.css"
+            stylesheet.write_text(
+                stylesheet.read_text(encoding="utf-8") + "\n.conceal-negation { display: none; }\n",
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "stylesheet differs from the reviewed profile release source")
+
     def test_profiles_require_coherent_character_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
