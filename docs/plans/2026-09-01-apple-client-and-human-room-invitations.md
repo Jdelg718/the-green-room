@@ -73,6 +73,8 @@ Allocate final numbers at execution time; do not guess around concurrent ADR wor
 
 Every spike is disposable evidence. It may add fixtures or reports, but it must not become production code without a later implementation plan and review.
 
+The decision-quality platform research and proposed Apple ADR baseline are recorded in the [native iPhone/iPad client feasibility spike](../spikes/2026-09-01-native-iphone-ipad-client-feasibility.md). Its conditional-go recommendation authorizes only the disposable proofs below; it does not waive this plan's release gates or authorize app implementation.
+
 ### Spike 1 — shared contract and authority
 
 Build a minimal language-neutral fixture set for room snapshot, ordered events, participant identity/source, invitation lifecycle, command acknowledgement, error envelopes, and capability negotiation. Exercise it from the current TypeScript decoder and a throwaway Swift decoder.
