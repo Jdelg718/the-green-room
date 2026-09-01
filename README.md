@@ -16,6 +16,8 @@ This remains an alpha rather than a downloadable general release. Provider setup
 
 See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md) and [community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md).
 
+Native iPhone/iPad clients and secure invitations for additional human participants are future roadmap pillars, not current alpha capabilities. Both remain downstream of the first-playable and community-release foundations and must preserve the local companion's authority unless a reviewed ADR changes it. See the [future-track plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md).
+
 ## Run the first-playable acceptance
 
 With Node 24 and dependencies installed, run:
@@ -69,6 +71,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Architecture](docs/ARCHITECTURE.md)
 - [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
+- [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)

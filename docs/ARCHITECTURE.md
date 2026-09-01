@@ -26,6 +26,20 @@ Local companion (data and inference-control plane)
 
 Any future hosted or invite service requires a separate architecture decision, authentication and abuse controls, tenant isolation, data lifecycle, incident response, and provider-secret design. It is optional and never a prerequisite for local use.
 
+## Future client and collaboration boundary
+
+Native Apple clients and rooms containing additional real humans are future architecture tracks, after the stable local API, packaging, multi-room, and community-release foundations. The current decision remains that the local companion is the authoritative room runtime: it orders committed events, enforces membership and director policy, owns durable room state, resolves provider credentials, and makes provider calls. A SwiftUI client is initially a versioned API client, not a second scheduler or database authority. Changing that authority model requires an accepted ADR.
+
+The Apple track must define a shared, revisioned API/event contract; iPhone compact and iPad regular-width layouts; accessibility semantics; background/foreground suspension, cancellation, and reconnect; contextual local-network permission and discovery; and explicit offline/read-only behavior. Provider credentials should remain on the companion. Any approved device-held secret uses Keychain and must stay out of app preferences, logs, events, diagnostics, backups where avoidable, and project-operated services. App Store privacy manifests and disclosures must describe measured data flows, including local-network access and any user-selected cloud provider.
+
+The invited-human track expands `Participant` from a local placeholder into an authenticated or explicitly guest identity with consent and owner/admin/member permissions. Invitations must be high-entropy, single-use, expiring, and revocable; the authority consumes them atomically and records membership changes as ordered events. Clients submit idempotent commands and reconcile against authority-assigned event positions. Presence is ephemeral and never substitutes for durable membership. Removal or blocking invalidates future commands and reconnect credentials within a documented bound.
+
+Transport begins with same-device/LAN discovery and private Tailscale reachability. Discovery must not advertise more room metadata than necessary. NAT traversal or an optional relay requires its own ADR and threat model; local operation cannot depend on it. No relay or `greenroomai.net` path may receive provider credentials or proxy model inference. Whether room content is E2EE is an explicit pre-implementation decision gate: either define endpoint keys, membership changes, rotation, history access, recovery, and moderation consequences, or accurately document bounded TLS/at-rest encryption and which authority or operator can read plaintext. Marketing and UI must not overstate the result.
+
+Human collaboration also requires retention/export/deletion semantics, abuse and join/send rate limits, moderation and room-lock controls, reconnect and event-ordering invariants, and visible accessible speaker provenance. Every utterance must identify its source as an AI persona, an account human, or a guest human; display names alone are not identity proof. Deletion disclosures must acknowledge copies already delivered to or exported by other participants.
+
+The required ADRs and spikes are sequenced in the [Apple client and human room invitations plan](plans/2026-09-01-apple-client-and-human-room-invitations.md).
+
 ## Logical components
 
 ```text
@@ -96,7 +110,7 @@ Custom endpoints are an advanced explicit opt-in. Save, test, and request paths 
 ## Data model direction
 
 - `Room`: id, title, policy, active scene, budgets, created_at.
-- `Participant`: local identity, type, permissions.
+- `Participant`: identity class (AI persona, account human, or guest human), authority-issued membership, role/permissions, and lifecycle state; future remote identity fields wait for accepted invitation ADRs.
 - `PersonaInstallation`: pack id/version/digest and local configuration.
 - `RoomEvent`: ordered message, reaction, control, or state event.
 - `ConnectionProfile`, `ModelProfile`, `RoomBinding`, `DecisionSnapshot`: revisioned provider selection without secret material.
