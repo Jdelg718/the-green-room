@@ -1,40 +1,79 @@
-# Programmable character & flaw workshop — UX prototype
+# Original Character Workshop — reconciliation prototype
 
-A standalone Backstage Electric prototype for issue [#47](https://github.com/Jdelg718/the-green-room/issues/47). It extends the custom-persona flow into a programmable original-character workshop using **The Reluctant Counsel**: a cautious fictional legal-strategy adviser whose intellectual vanity can be tempted by novel theories and edge cases.
+Implementation-ready UX input for issues #44 and #47, reconciled from PR #50 onto the executable/strict-validator merge baseline.
 
-This is UX/design only. It makes no model calls, creates no production runtime, uses no external assets, and is **not legal advice**. The Reluctant Counsel is an original fictional adviser, not a lawyer, and forms no attorney-client relationship.
+This standalone Backstage Electric prototype broadens the niche Reluctant Counsel flaw workshop into a guided, original-character-first journey while preserving its strongest authoring ideas: drive, fear, virtue/shadow pairs, flaw pressure, an observable tell, consequence, and explicit recovery.
 
-## Open
+## Product and privacy boundary
 
-```bash
-python3 -m http.server 4173
-# http://localhost:4173/design/prototypes/character-flaw-wizard/
-```
+- Design prototype only; it does not modify production runtime, install a pack, submit content, approve content, or create a valid `.greenroom` archive.
+- Draft state exists only in JavaScript memory for the current page lifetime. Refresh discards it.
+- No `localStorage`, `sessionStorage`, IndexedDB, cookies, service worker, cache API, external request, analytics, model call, key, transcript, or room-memory access.
+- Production persistence belongs to the trusted local Green Room runtime. The browser receives a draft revision and non-secret fields; the local backend owns save/reopen/delete, backup/restore, authorization, and audit-visible lifecycle events. Public `greenroomai.net` never receives drafts.
+- User text and source notes are untrusted data. Personas receive no shell, browser, filesystem, messaging, credentials, or unrestricted network capabilities.
 
-## Flow
+## Canonical pack contract shown in review
 
-1. Describe an original character and choose the room role.
-2. Author the core drive and fear.
-3. Pair virtues with their pressure shadows.
-4. Program the flaw trigger, temptation, rationalization, escalation, tell, consequence, and recovery.
-5. Tune legal-risk appetite by category and define hard lines.
-6. Preview relationship chemistry.
-7. Rehearse lawful-aggressive, jurisdiction-dependent gray, and clearly harmful/illegal situations.
-8. Observe the flaw activate, challenge its reasoning, adjust it, and retest.
-9. Inspect deterministic files and export a minimized prototype artifact.
+The review maps the editable draft to the draft 0.1 canonical roles:
 
-The gray-area rehearsal seriously explores the theory while labeling assumptions, confidence, authority/date limits, jurisdiction dependence, exposure, alternatives, and the licensed-counsel checkpoint. Immutable safety blocks always stop concealment, obstruction/evidence destruction, fraud, violence/exploitation/harm, fabricated legality/citations/authority, and lawyer impersonation.
+- `persona.yaml` — manifest; metadata, never model-visible
+- `AGENTS.md`, `BACKGROUND.md`, `VOICE.md` — required runtime files
+- `RELATIONSHIPS.md`, `SCENARIOS.md` — optional runtime files, included by this example
+- `PROVENANCE.md` — required metadata, never model-visible
+- `SOURCES.md` — optional metadata, omitted for this wholly original, source-free example
+- `LICENSE` — required metadata, never model-visible
+- optional declared files under `assets/` — none in this text-only prototype
 
-## Verify
+The production target is deterministic `.greenroom` ZIP bytes accepted by `greenroom-persona`. This prototype intentionally has no download/export control: a preview assembled in browser memory is not validator-approved archive bytes. Production must generate the archive in the local runtime, validate the exact bytes with `greenroom-persona`, preserve the validated immutable bytes for install/export, and show exact diagnostics/digests.
+
+## Status vocabulary
+
+The last step distinguishes five non-equivalent states:
+
+1. Private draft — current prototype state; editable, unvalidated, not installed.
+2. Local installed — exact validator-approved bytes installed by the local runtime; not an endorsement.
+3. Community submitted — separately and deliberately submitted under an accepted community policy; not reviewed.
+4. Community reviewed — exact version/digest passed independent community review; not Official Catalog.
+5. Official Catalog — exact version/digest admitted by an approved Official Catalog Manifest entry. No manifest exists at this baseline.
+
+The prototype never advances the draft out of state 1.
+
+## Content boundary
+
+Original characters are the default and only supported prototype path. Copy explains that protected fictional characters, living-person or performer likeness, cloned/imitated voices, copied dialogue/transcripts, private data, and affiliation/endorsement claims must be removed or replaced with original traits. Warnings narrow or privatize without pretending private use establishes rights.
+
+## Interaction/state contract
+
+- Eight keyboard-operable steps at desktop, 390 px, and 320 px.
+- Visible focus, skip link, logical focus transfer after step changes, 44 px targets, reduced-motion rules, and polite status announcements.
+- Empty rehearsal state before a scenario is selected; deterministic useful-pressure and immutable-boundary examples afterward.
+- Validation error state, current-check state, and stale-check state after any draft mutation.
+- Pack review labels every file's canonical role and model visibility.
+- Permission/status honesty: draft authoring is not install, submission, review, or Official Catalog approval.
+
+Production actors and capabilities:
+
+| Actor/scope | Discover/view | Create/edit | Validate/install | Submit/review | Official admission |
+| --- | --- | --- | --- | --- | --- |
+| Local user, own runtime | Own drafts and installed packs | Own private drafts | May request local validation and explicitly install exact valid bytes | Separate future flow only | No |
+| Community reviewer, exact submitted version | Submitted review bundle only | No silent author edits | Revalidates exact digest | Records independent decision under accepted policy | No |
+| Project catalog maintainer, exact candidate version | Candidate and review evidence | Cannot rewrite author artifact in place | Verifies exact bytes/evidence | May hold/reject | Only through version/digest-specific manifest gate and required independent reviews |
+| Public visitor | Approved static metadata only | No | Explicit local download/install later | No | No |
+
+Backend enforcement assumptions: local-runtime authorization and revision checks guard draft mutation; validation precedes persistence/install; direct API calls cannot elevate trust state; exact version and digest bind review/manifest decisions; denied/not-found responses do not reveal other users' drafts in any future multi-user mode. Audit events include actor, local scope, draft revision, action, result, artifact digest when present, validator version, and decision evidence—never draft body, secrets, transcripts, or room memory.
+
+## Run and verify
 
 ```bash
 cd design/prototypes/character-flaw-wizard
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm run verify
 ```
 
-The Playwright verifier checks interactivity, all three rehearsal classes, flaw challenge/adjust/retest, deterministic files, minimized export, local save/reload, keyboard focus, reduced motion, no cross-origin requests, and every step at 1440/390/320 for overflow, 44px controls, and WCAG AA normal-text contrast. It also injects a contradiction into every free-text authoring field and verifies that licensed-lawyer/legal-advice claims, immutable-safety bypasses, and operational criminal assistance remain blocked in generated files and after reload, while benign safety discussion and redaction/reset recover normally. It refreshes:
+The Playwright verifier asserts in-memory-only behavior; storage/cookie/service-worker/cache prohibition; origin-only requests; secret non-rendering in file previews; current-check invalidation; canonical file roles and visibility; five honest status states; no archive download; keyboard/focus and empty/rehearsal/error states; reduced motion; and overflow/44 px targets at 1440, 390, and 320 px. It refreshes text-only UI screenshots only:
 
-- `screenshots/desktop-1440-gray-flaw-activated.png`
-- `screenshots/mobile-390-flaw-program.png`
-- `screenshots/mobile-320-files-export.png`
+- `screenshots/desktop-1440-pack-review.png`
+- `screenshots/mobile-390-rehearsal.png`
+- `screenshots/mobile-320-status-handoff.png`
+
+The inherited PR #50 screenshots remain as historical prototype evidence; the current review evidence is the three text-only screenshots above. No portraits or external visual assets are introduced.
