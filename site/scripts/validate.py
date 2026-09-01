@@ -55,35 +55,49 @@ PROFILE_BEHAVIOR = {
     "nicolaus-copernicus": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
     "thomas-jefferson": ("Measured initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
 }
+PORTRAIT_ASSETS = {
+    "ada-lovelace": ("daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2", 840, 1200, "AI-generated creative historical interpretation of Ada Lovelace in a dark study, wearing a high-collared black dress."),
+    "benjamin-franklin": ("16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0", 768, 1024, "AI-generated creative historical interpretation of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop."),
+    "elizabeth-i": ("4436884480fe701940d8c9bd695940bc238e99ab71c65eacd9ba55fc4c77220c", 840, 1200, "AI-generated creative historical interpretation of Elizabeth I in a red embroidered gown and white ruff."),
+    "frederick-douglass": ("e445dd92b3c36e4dff5bc920b408bfc239fabfe6f6ad60d0e22e4a4b93892b2b", 768, 1024, "AI-generated creative historical interpretation of Frederick Douglass with swept gray hair and a dark formal suit."),
+    "galileo-galilei": ("81c1826e479b4b8b6357e69da3bd9142c34f7f47a8742b8386ce4b78b3603605", 840, 1200, "AI-generated creative historical interpretation of Galileo Galilei, white-bearded and seated beside books and a candle."),
+    "george-washington": ("3883588e3ac035deed560893b1ddc1bca34c356c197c0094f179365d4b7a3a03", 768, 1024, "AI-generated creative historical interpretation of George Washington in a dark blue Continental-era coat beside surveying instruments."),
+    "isaac-newton": ("b666032239adf370bfb187b612506466fabfa6d6d3272179d3055ef236c57466", 840, 1200, "AI-generated creative historical interpretation of Isaac Newton in a dark coat, seated at a candlelit desk."),
+    "jane-austen": ("abf73e727337eb88b99dfbe2f318bced75e2ce9ef34689e96dd26758879345ea", 768, 1024, "AI-generated creative historical interpretation of Jane Austen in a modest cap and dark shawl beside a writing desk."),
+    "leonardo-da-vinci": ("6340c0f43e05e46175bfaad85f200d4e8cd1be2754cac3f2a3843df294842acd", 840, 1200, "AI-generated creative historical interpretation of Leonardo da Vinci, white-bearded with one hand raised in thought."),
+    "mary-shelley": ("6030a58352b00b3fea02b7e950d2a58fa464c51efbdd453933e68312486a633f", 768, 1024, "AI-generated creative historical interpretation of Mary Shelley in a black period dress at a storm-lit writing desk."),
+    "nicolaus-copernicus": ("f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e", 768, 1024, "AI-generated creative historical interpretation of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes."),
+    "thomas-jefferson": ("1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06", 768, 1024, "AI-generated creative historical interpretation of Thomas Jefferson in a dark period coat in an architectural study."),
+}
 PROFILE_MAIN_TEXT_SHA256 = {
-    "ada-lovelace": "ef65986bfff357c921d37beb34af7f96aaa1901cbf05eaadec249d0a0ebb27a0",
-    "benjamin-franklin": "cdd50e5c97b1fd6ff5d1367875ee2e0ef20ed52b4d0588e74f9ecf83665b8f52",
-    "elizabeth-i": "92d13c7668a4496142115fe9165a5f084638795a4c99ff9338e15833d179917a",
-    "frederick-douglass": "0fa730a5dc3092a319be1ba495f2a8f9bc44c59d185d8ae2b74b38f8a3947a84",
-    "galileo-galilei": "23c8ce0db6f680efc9f01cec602af2467d22d93eea4d86dc7d4c342f59a7f4f4",
-    "george-washington": "9c1d522c1ef774d2d2cf7ad0f854be1bdf73ba72a863281762785d5c0450247d",
-    "isaac-newton": "e05e52c16a8cafc4f183d8fea6734fab7517a087a5b557b2087fe5eb1b1fb099",
-    "jane-austen": "74c90359d354f249e33d3af078b740cf16401b77a1e3ec96254b4d8cea1b4c07",
-    "leonardo-da-vinci": "591c50af2c39f646b3aa9dfddb386fddc0ff22b080768fe9d76c2a2041d29688",
-    "mary-shelley": "a588e6ba58ad7ad2dfe52e19ab7626cfa2db362385fcbc94324c33512020ea8d",
-    "nicolaus-copernicus": "e56f51658dbcdc0479eb10f6964fbbfba7e2327c72e945bf80dbf8226bea6ddf",
-    "thomas-jefferson": "f5bc7811cf4988c6dbbeb19f11c338e1f20f89ca79af323152ef5258d0ecfb3a",
+    "ada-lovelace": "e1adee83ce51b072c59b58082f0210a0d5e2867643f8f53f3eb6f2ed5df8905c",
+    "benjamin-franklin": "c0bf900a588e842d967784528ac8e77cedd268e58c5795373ca83597f39b8b50",
+    "elizabeth-i": "4e5e715b5727de184ec271f4a20cb1cee911ef2a703d01550b6858a6d6b881a7",
+    "frederick-douglass": "c030c974ae769f3626f0c3a8d76e4a895b7a120df94f2fb3f04bae48882daff9",
+    "galileo-galilei": "d6a3692553b0c11440533971052b6b708ce0f8017f9b6ee35fa3c6190f7e6370",
+    "george-washington": "00888020e8928d25964fbbbb7ce97e16786d85b90cb605a8bd935559c6fb0276",
+    "isaac-newton": "6047873db42dc17a58e025cdc58be655c7ecc30b642c183dad0c03cead9fbc94",
+    "jane-austen": "e0343293df4988041a302a13004879ed2a11e640d1915f498df20c54ff02666f",
+    "leonardo-da-vinci": "17b6c0b3caa8a6340ab7e095bee80092330f44fcda0ca54aaecfea8a460289fe",
+    "mary-shelley": "4b2134e220046d98a0caa4c7b56f145bc0c6ee12d3fae025ff2417015840a2ea",
+    "nicolaus-copernicus": "a7256c171f7106ca093c1a87e64723d3979b266e0db3f992c7086a1506da5022",
+    "thomas-jefferson": "03616e60517c9796d748d41b93bf2b8b7f22f3e032b36bb401c702221f0d7d52",
 }
 PROFILE_SOURCE_SHA256 = {
-    "ada-lovelace": "26b9b3c80a201824d6cd09754e07eebf8863eb1b82cb4f7b4a1f88b513244d47",
-    "benjamin-franklin": "9d3f935eb3e1fe11e387ba28fcbdfa8c59b9a210ec11fc103c1dba358911ea6f",
-    "elizabeth-i": "d2cf0bdd7c2b70620ddb7deb49ce8d84b45dab6ab9dc8d512a964e717928bf34",
-    "frederick-douglass": "bf7b127b961bdc394765b87c16b15e681b89f41e827f51057a01e974e837896b",
-    "galileo-galilei": "ac2aadf15aaa7571fc6cc6e6ca23be2bd3050ffd4c2f51f806a714a3684513d7",
-    "george-washington": "f41acfe59c4d2bd24c86533b329fe737781e5d712a71dd78bcfbd92072a4afbd",
-    "isaac-newton": "49445db9d9943e706b268a9c22e8f77ad1e0f567473d11a9d23d3e75832c8f89",
-    "jane-austen": "c2e590a76a5ff64593670fdd89d40617624e430f1538f9129f224abbd90a4437",
-    "leonardo-da-vinci": "bff3b3fa066048c4a6690de986fbcd1a3160ee32ba133041a8b4a51236352249",
-    "mary-shelley": "8a5efcf6888c664d97e57fa2345110302859727233aaaf03e2829c8798494057",
-    "nicolaus-copernicus": "c747cc648ec8b3407d20db96babb9d4016d550f836005164ab00f46fe847d16d",
-    "thomas-jefferson": "273648df3170b66080055f2d1586cba9cddf9fc9ad3dc4e1a1e780dcf0331e9e",
+    "ada-lovelace": "f53a16a183be7b9c35920a5ee72b0ef100b617ac516606526ba230ec717ecffc",
+    "benjamin-franklin": "84a1d18d0a03f3675e458af1ba65cdaaba4820e35f90a5c7126b028c107adf29",
+    "elizabeth-i": "16696c2114e0192fd6b324bc92833093f0d055c76d749da0afb144d3cbcf4596",
+    "frederick-douglass": "45cefa7b2e8c3ca4ec1f90cedd643937d29aafaff2f8a9afbdde6ed1338ac053",
+    "galileo-galilei": "6cddfb19ac73ed0cb060a49965f9bd37d6e3770cfae8db79f09db1c43d07de7f",
+    "george-washington": "28733255b2a678e6d69995bcce174d06570fa63f922c26eef4f31fd72eab8e97",
+    "isaac-newton": "2b0eee3b5734864ceed3c9af6f7f2f34d1b312319998761cf2049607d7c3da30",
+    "jane-austen": "07f6773ffbe5b5c6f12c6983a955007ce3cf50c4191f0a2bcb8b700912bc7244",
+    "leonardo-da-vinci": "a5c2bd6805d62204c14f552bb10e3d664be1e9e1a06cb7ecb7f416079f690da4",
+    "mary-shelley": "24b084889421732a4b26e5ed3e65895c3dd9f6adbb14f4479c0a425be94b6fbb",
+    "nicolaus-copernicus": "049edcae19224bf75e7a3a98058672c933c08a792e74584363cbd3a5a9ed171c",
+    "thomas-jefferson": "de86302ad7b03571e3530cd71bad436f1fa82a0b1f6f50d2065fb2735e5cd247",
 }
-PROFILE_STYLESHEET_SHA256 = "d2adf1244138b251065173c327bafd4710dc76df4a7840ce7cbd0833cfba5012"
+PROFILE_STYLESHEET_SHA256 = "94019c60b3ecc356760c629b5e2e2e0d8037a846955555a3a0634c9bae0113f5"
 PAGES = {
     "index.html": "Project",
     "characters/index.html": "Characters",
@@ -129,7 +143,9 @@ REQUIRED_LANGUAGE = {
         "Mary Shelley",
         "Nicolaus Copernicus",
         "Thomas Jefferson",
-        "public redistribution waits",
+        "AI-generated creative historical interpretations",
+        "not authentic portraits",
+        "not Official Catalog admission",
         "remain in development",
         "no Official Catalog Manifest exists yet",
     ),
@@ -158,7 +174,7 @@ HTML_ATTRS: dict[str, frozenset[str]] = {
     "nav": frozenset({"class", "aria-label"}),
     "main": frozenset({"id"}),
     "section": frozenset({"class", "aria-labelledby"}),
-    "span": frozenset({"class"}),
+    "span": frozenset({"class", "aria-hidden"}),
     "h1": frozenset({"class", "id"}),
     "h2": frozenset({"class", "id"}),
     "h3": frozenset({"class", "id"}),
@@ -171,8 +187,11 @@ HTML_ATTRS: dict[str, frozenset[str]] = {
     "article": frozenset({"class"}),
     "ul": frozenset({"class"}),
     "ol": frozenset({"class"}),
-    "li": frozenset(),
+    "li": frozenset({"class"}),
     "small": frozenset(),
+    "figure": frozenset({"class"}),
+    "figcaption": frozenset(),
+    "img": frozenset({"src", "alt", "width", "height", "loading", "decoding"}),
     "footer": frozenset({"class"}),
     "code": frozenset(),
 }
@@ -521,6 +540,22 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         if links.count(expected) != 1:
             fail(errors, f"characters/index.html: missing exact profile link for {name}")
 
+        _, width, height, alt = PORTRAIT_ASSETS[slug]
+        expected_image = {
+            "src": f"/assets/portraits/{slug}.webp",
+            "alt": alt,
+            "width": str(width),
+            "height": str(height),
+            "decoding": "async",
+        }
+        images = [
+            element_attrs(element)
+            for _, element in scoped_elements(parser, "img", cast_sections[0])
+            if element_attrs(element).get("src") == expected_image["src"]
+        ]
+        if images != [expected_image]:
+            fail(errors, f"characters/index.html: missing reviewed portrait markup for {name}")
+
 
 def validate_profile_contract(relative: str, slug: str, name: str, parser: PageParser, errors: list[str]) -> None:
     h1_text = [normalized_text(element) for _, element in scoped_elements(parser, "h1")]
@@ -534,6 +569,24 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     metas = [element_attrs(element) for _, element in scoped_elements(parser, "meta")]
     if not any(meta.get("property") == "og:url" and meta.get("content") == expected_url for meta in metas):
         fail(errors, f"{relative}: og:url does not match canonical slug")
+
+    _, width, height, alt = PORTRAIT_ASSETS[slug]
+    expected_image_path = f"/assets/portraits/{slug}.webp"
+    profile_images = [element_attrs(element) for _, element in scoped_elements(parser, "img")]
+    expected_image = {
+        "src": expected_image_path,
+        "alt": alt,
+        "width": str(width),
+        "height": str(height),
+        "decoding": "async",
+    }
+    if profile_images != [expected_image]:
+        fail(errors, f"{relative}: profile portrait must match the reviewed local asset and accessible alt text")
+    expected_og_image = f"{SITE_ORIGIN}{expected_image_path}"
+    if not any(meta.get("property") == "og:image" and meta.get("content") == expected_og_image for meta in metas):
+        fail(errors, f"{relative}: og:image must use the reviewed local portrait")
+    if not any(meta.get("property") == "og:image:alt" and meta.get("content") == alt for meta in metas):
+        fail(errors, f"{relative}: og:image:alt must match the reviewed portrait description")
 
     ledes = [
         normalized_text(element)
@@ -563,7 +616,7 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         "Historical horizon": PROFILE_HORIZONS[slug],
         "Catalog status": "Candidate pack in the verified local alpha",
         "Preinstallation": "Intended only after exact-version Official Catalog approval",
-        "Portrait": "No portrait is published; item-specific rights, provenance, attribution, and catalog review remain required",
+        "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
     }
     field_errors = {
         "Historical horizon": "historical horizon field",
@@ -845,6 +898,30 @@ def collect_errors(site: Path = SITE) -> list[str]:
             site,
             css,
         )
+
+    portrait_directory = site / "assets/portraits"
+    expected_portraits = {
+        portrait_directory / f"{slug}.webp" for slug in PORTRAIT_ASSETS
+    }
+    actual_portraits = {
+        path for path in portrait_directory.rglob("*") if path.is_file()
+    } if portrait_directory.is_dir() else set()
+    for unexpected in sorted(actual_portraits - expected_portraits):
+        fail(errors, f"unexpected public portrait asset: {display_path(unexpected, site)}")
+    for slug, (expected_digest, _, _, _) in PORTRAIT_ASSETS.items():
+        portrait = portrait_directory / f"{slug}.webp"
+        if not portrait.is_file():
+            fail(errors, f"missing reviewed public portrait asset: assets/portraits/{slug}.webp")
+            continue
+        actual_digest = hashlib.sha256(portrait.read_bytes()).hexdigest()
+        if actual_digest != expected_digest:
+            fail(errors, f"assets/portraits/{slug}.webp: bytes differ from the reviewed asset digest")
+    raster_assets = {
+        path for path in site.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".webp", ".png", ".jpg", ".jpeg"}
+    }
+    for unexpected in sorted(raster_assets - expected_portraits):
+        fail(errors, f"unexpected raster web asset outside portrait allowlist: {display_path(unexpected, site)}")
 
     for required_svg, message in (
         ("assets/favicon.svg", "missing local favicon"),

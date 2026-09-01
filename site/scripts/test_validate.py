@@ -128,8 +128,8 @@ class StaticPolicyTests(unittest.TestCase):
                 '<dl aria-hidden="true"><dt>Historical horizon</dt><dd>Through 26 November 1852</dd>'
                 '<dt>Catalog status</dt><dd>Candidate pack in the verified local alpha</dd>'
                 '<dt>Preinstallation</dt><dd>Intended only after exact-version Official Catalog approval</dd>'
-                '<dt>Portrait</dt><dd>No portrait is published; item-specific rights, provenance, attribution, '
-                'and catalog review remain required</dd></dl>'
+                '<dt>Portrait</dt><dd>Published AI-generated creative historical interpretation; not an authentic '
+                'portrait, and no endorsement is claimed</dd></dl>'
             )
             page.write_text(source.replace("</main>", f"{hidden_duplicate}</main>"), encoding="utf-8")
             self.assert_rejected(validate.collect_errors(site), "candidate status field")
@@ -393,6 +393,37 @@ class StaticPolicyTests(unittest.TestCase):
             )
             self.assert_rejected(validate.collect_errors(site), "no-transform")
 
+    def test_portrait_bytes_are_pinned_and_originals_are_not_public_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            portrait = site / "assets" / "portraits" / "ada-lovelace.webp"
+            portrait.write_bytes(portrait.read_bytes() + b"mutation")
+            self.assert_rejected(validate.collect_errors(site), "reviewed asset digest")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            original = site / "assets" / "portraits" / "ada-lovelace.png"
+            original.write_bytes(b"not approved for the public site")
+            errors = validate.collect_errors(site)
+            self.assert_rejected(errors, "unexpected public portrait asset")
+            self.assert_rejected(errors, "outside portrait allowlist")
+
+    def test_character_portraits_require_reviewed_local_markup_and_alt_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            source = source.replace(
+                "AI-generated creative historical interpretation of Ada Lovelace in a dark study, wearing a high-collared black dress.",
+                "Ada Lovelace",
+                1,
+            )
+            page.write_text(source, encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "reviewed portrait markup for Ada Lovelace")
+
     def test_requires_complete_cast_and_character_release_boundaries(self) -> None:
         fixtures = {
             "Ada Lovelace": ("Ada Lovelace", "Ada L."),
@@ -407,9 +438,17 @@ class StaticPolicyTests(unittest.TestCase):
             "Mary Shelley": ("Mary Shelley", "Mary S."),
             "Nicolaus Copernicus": ("Nicolaus Copernicus", "Nicolaus C."),
             "Thomas Jefferson": ("Thomas Jefferson", "Thomas J."),
-            "public redistribution waits": (
-                "public redistribution waits",
-                "public display is planned",
+            "AI-generated creative historical interpretations": (
+                "AI-generated creative historical interpretations",
+                "historical illustrations",
+            ),
+            "not authentic portraits": (
+                "not authentic portraits",
+                "authentic portraits",
+            ),
+            "not Official Catalog admission": (
+                "not Official Catalog admission",
+                "Official Catalog admission",
             ),
             "remain in development": (
                 "remain in development",

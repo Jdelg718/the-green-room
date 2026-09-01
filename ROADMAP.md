@@ -70,9 +70,9 @@ This establishes technical viability. It does not approve historical candidates 
 - Integrate the strict persona validator and safe import flow.
 - Define a portrait asset manifest binding exact bytes to provenance, rights basis, attribution, and review records.
 - Continue design exploration with text/monogram production fallbacks.
-- Hold all 12 existing production-portrait candidates until item-specific rights review, independent historical/content and provenance/rights reviews, and an approved Official Catalog Manifest entry.
+- Keep the 12 public-site-approved AI portraits clearly labeled as creative historical interpretations; continue holding them from runtime packs, installers, and catalog distribution until exact-version Official Catalog admission.
 
-**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; held portraits do not enter production, packs, website assets, or catalog distribution; and visual use passes accessibility and failure-fallback review.
+**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; site-approved portraits remain distinct from pack/catalog admission; they do not enter runtime packs, installers, or catalog distribution; and public visual use passes accessibility and failure-fallback review.
 
 ## R5 — greenroomai.net and community release
 
