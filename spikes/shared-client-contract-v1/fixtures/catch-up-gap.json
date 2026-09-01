@@ -1,0 +1,11 @@
+{
+  "contractVersion": "1.0",
+  "schema": "greenroom.catch_up_gap",
+  "schemaVersion": "1.0",
+  "roomId": "first-playable",
+  "requestedAfterCursor": "17",
+  "earliestAvailableCursor": "31",
+  "authorityHeadCursor": "44",
+  "snapshotRequired": true,
+  "reason": "retention_gap"
+}
