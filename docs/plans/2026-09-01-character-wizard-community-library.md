@@ -168,21 +168,37 @@ community/
   reviews/<pack-id>/<version>/provenance.json
   tombstones/<pack-id>/<version>.json
   generated/catalog.json
+  tuf/root.json
+  tuf/targets.json
+  tuf/snapshot.json
+  tuf/timestamp.json
 ```
 
-Artifacts live in immutable GitHub release assets or another approved immutable store. Registry entries reference full commit SHAs and lowercase SHA-256 digests.
+Registry/review history lives in a dedicated GitHub repository. Approved artifacts live under content-addressed keys in a project-controlled immutable store that provides direct HTTPS retrieval without credentials or redirects. Registry entries reference full commit SHAs and lowercase SHA-256 digests. Contributor-controlled releases are submission evidence only and are never automated catalog fetch origins.
 
 ### Submission workflow
 
 1. Contributor creates a pack locally with the wizard or compatible tooling.
 2. Contributor validates it locally.
-3. Contributor publishes an immutable release artifact and opens a catalog PR.
-4. CI validates metadata and downloads only under a tightly reviewed workflow.
-5. CI verifies byte limit and digest, runs the strict validator, emits inspection evidence, and never executes content.
-6. Maintainers complete content/safety and provenance/rights review.
-7. Merge generates deterministic `catalog.json` and deploys metadata to greenroomai.net.
+3. Contributor opens a catalog PR with metadata, claimed digest, provenance, and a human-reviewable source reference; no free-form URL is passed to a network-fetch job.
+4. After maintainer approval, a separate bounded intake step copies candidate bytes into a project-controlled quarantine and records exact SHA-256/length. Returning contributors receive no bypass.
+5. CI retrieves only the approved quarantine object by digest from a catalog-owned allowlisted origin. It rejects credentials and every redirect; resolves/classifies all A/AAAA answers; rejects mixed/non-global and special-purpose addresses; pins and verifies the connected peer with normal TLS hostname validation; ignores ambient proxies; and enforces byte, connect, header, idle, absolute-time, concurrency, and decompression limits.
+6. CI verifies byte limit and digest, runs the strict validator, emits inspection evidence, and never executes content.
+7. Maintainers complete content/safety and provenance/rights review.
+8. Approved bytes move to the project-controlled content-addressed release namespace.
+9. Merge generates deterministic `catalog.json`, TUF targets/snapshot/timestamp metadata, and static detail pages.
 
-First-time contributor workflows use read-only permissions and maintainer approval before fetching artifacts. Do not use privileged `pull_request_target` execution of contributor-controlled code.
+All contributor workflows use read-only permissions. Every untrusted change to artifact identity, source reference, quarantine object, or fetched location requires fresh maintainer approval. Do not use privileged `pull_request_target` execution of contributor-controlled code.
+
+### Authenticated catalog release
+
+- The local application ships with pinned reviewed TUF root metadata.
+- Offline threshold root keys authorize online delegated targets keys.
+- Signed targets cover every entry, exact artifact digest, trust/review decision, and tombstone.
+- Signed snapshot and timestamp metadata bind a monotonic revision and expiry.
+- Clients persist the highest accepted root/targets/snapshot/timestamp versions and reject rollback, reused versions, expired metadata, missing tombstones, and freeze/staleness beyond policy.
+- Catalog JSON and artifact hashes are verified through this envelope; HTTPS or an unsigned digest alone is not catalog authority.
+- Emergency holds publish a signed tombstone/targets update and timestamp; installed user data is not silently deleted.
 
 ### Moderation
 
@@ -203,8 +219,9 @@ First-time contributor workflows use read-only permissions and maintainer approv
 
 ### Local app
 
-- Approved catalog definitions own artifact origins; users cannot inject arbitrary download URLs through the normal flow.
-- Download exact bytes under timeout/size/redirect limits.
+- The client verifies pinned-root TUF metadata before accepting catalog entries, review status, trust state, or tombstones.
+- Approved catalog definitions own one project-controlled content-addressed artifact origin; users cannot inject arbitrary download URLs through the normal flow.
+- Download exact bytes under the same no-redirect, DNS/IP/connected-peer, proxy, byte, time, and concurrency policy used by intake.
 - Verify digest before parsing.
 - Validate again locally.
 - Display identity, author, version, trust tier, license, provenance, cautions, files/assets, and diagnostics.
@@ -218,7 +235,7 @@ Before a community-library release:
 - full Node and validator suites;
 - deterministic catalog generation checked twice byte-for-byte;
 - malicious metadata and archive corpus;
-- redirect, oversized response, digest mismatch, stale catalog, revoked version, and interrupted install tests;
+- redirect, proxy, DNS rebinding, mixed address set, connected-peer mismatch, oversized/slow response, digest mismatch, expired metadata, rollback, revision reuse, stale/frozen catalog, missing tombstone, revoked version, and interrupted install tests;
 - 320/390/desktop and keyboard/screen-reader catalog/install flows;
 - real fresh-machine create -> export -> submit fixture -> catalog -> download -> validate -> inspect -> install -> room -> restart -> disable/delete exercise;
 - privacy proof that public requests contain no keys, room data, transcripts, memories, or private drafts;

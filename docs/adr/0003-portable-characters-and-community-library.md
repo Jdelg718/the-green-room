@@ -67,7 +67,11 @@ The community policy MUST be at least as strict as the Official Persona Catalog 
 
 After that policy is accepted, the first community library is GitHub-backed and static. It does not accept anonymous executable uploads and does not introduce Green Room accounts.
 
-A submission is a reviewed repository change referencing an immutable release artifact. CI performs bounded validation and emits catalog metadata. Maintainers review provenance, license, content boundaries, safety, and rights before publication.
+A submission is a reviewed repository change plus candidate bytes admitted through a maintainer-approved quarantine step. Registry CI MUST NOT fetch a contributor-controlled URL. The intake step copies the exact candidate bytes into a project-controlled quarantine and records their SHA-256 and byte length before validation. CI may retrieve only by content digest from a catalog-owned, allowlisted immutable origin. The origin must support direct HTTPS retrieval without credentials or redirects; if a hosting product cannot provide that contract, it is not eligible for automated intake.
+
+Every intake and download connection resolves and classifies all A/AAAA results immediately before connection, rejects mixed or non-global address sets and every loopback/private/link-local/metadata/reserved/multicast/broadcast class, pins one validated address while preserving TLS hostname verification, verifies the connected peer, ignores ambient proxies, and enforces request/response byte, connect, header, idle, absolute-time, concurrency, and decompression limits. Any untrusted change to an artifact identity, quarantine object, or fetched location requires fresh maintainer approval, regardless of contributor history.
+
+CI performs bounded validation and emits catalog metadata. Maintainers review provenance, license, content boundaries, safety, and rights before publication.
 
 The public catalog publishes metadata and immutable artifact references only. Search/filtering runs over deterministic static JSON. Pack Markdown is not rendered as trusted HTML.
 
@@ -82,7 +86,9 @@ Every published version records at least:
 - review status, trust tier, review records, and decision date; and
 - superseded, held, revoked, or tombstoned state.
 
-Published versions are immutable. A changed pack requires a new version and digest. Revocation does not delete history silently; clients receive a signed or otherwise authenticated tombstone and refuse new installation while retaining local user control over already installed data.
+Published versions are immutable. A changed pack requires a new version and digest. Revocation does not delete history silently; clients receive an authenticated tombstone and refuse new installation while retaining local user control over already installed data.
+
+The first public catalog release uses TUF-style authenticated metadata. The local application pins reviewed root metadata. Offline threshold root keys authorize delegated targets keys; targets cover exact artifact identities, digests, review/trust decisions, and tombstones; signed snapshot and timestamp metadata bind a monotonic catalog revision and bounded expiry. Clients update and verify root metadata first, then timestamp, snapshot, and targets; reject expired metadata, rollback, revision reuse, missing tombstones, and stale/freeze conditions; and persist the highest accepted versions. Artifact SHA-256 remains mandatory but does not substitute for authenticated catalog metadata. Author signatures, when added later, identify an author and never upgrade review status.
 
 ### Trust tiers
 
@@ -98,8 +104,8 @@ No author signature, download count, or compatible license automatically upgrade
 
 Community installation is explicit:
 
-1. resolve an immutable catalog entry;
-2. download under strict byte/time/redirect/origin limits;
+1. verify the authenticated catalog envelope and resolve an immutable catalog entry;
+2. download only from its catalog-owned content-addressed origin under the no-redirect, DNS/IP/peer, proxy, byte, time, and concurrency policy above;
 3. verify expected SHA-256 before parsing;
 4. run the strict non-extracting validator;
 5. show identity, version, author, license, provenance, content cautions, trust tier, files, assets, and validation diagnostics;
@@ -122,7 +128,7 @@ Maintainers can hold, delist, revoke, or tombstone exact versions. The catalog k
 
 - One archive contract connects authoring, validation, import, runtime, and community distribution.
 - The local-first privacy boundary remains intact.
-- GitHub provides review history, immutable commits, release hosting, and rate limiting before a custom service is justified.
+- GitHub provides review history and immutable metadata commits. Approved artifact bytes live only on the separate project-controlled content-addressed origin defined above.
 - Trust status, provenance, and version identity remain inspectable.
 - A future API can preserve the same catalog objects rather than replacing them.
 
