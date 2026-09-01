@@ -34,6 +34,9 @@ lint checks, and mypy. Every stage is joined with `&&`, so an install, Node,
 Python, or acceptance failure is returned immediately rather than hidden by a
 later command.
 
+GitHub runs the same clean-install sequence for pull requests to `main` and
+pushes to `main`. The stable required-check candidate is `release-gate`.
+
 ## Local-first and provider rules
 
 - The local runtime owns room data, provider configuration, and credentials.
