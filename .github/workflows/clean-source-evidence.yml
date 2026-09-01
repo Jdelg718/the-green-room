@@ -253,7 +253,11 @@ jobs:
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
           sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$audit" "$errors" "${roots[@]}"
-          test ! -s "$errors"
+          if ! sudo test ! -s "$errors"; then
+            echo "pre-source snapshot reported errors:" >&2
+            sudo cat "$errors" >&2
+            exit 1
+          fi
           sudo env PATH="$EVIDENCE_TOOL_PATH" node -e 'const s=require(process.argv[1]); if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true)) process.exit(1)' "$audit"
           sudo chmod 0600 "$audit" "$errors"
           sudo /usr/local/bin/node -e 'const fs=require("node:fs"); for(const p of process.argv.slice(1)){const s=fs.lstatSync(p); if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile()) process.exit(1)}' "$audit" "$errors"
@@ -385,7 +389,7 @@ jobs:
             fi
             sudo test -f "$control_file"
           done
-          if [[ -f "$script" && -f "$EVIDENCE_ROOT/evidence/harness-evidence.json" ]]; then
+          if sudo test -f "$script" && sudo test -f "$EVIDENCE_ROOT/evidence/harness-evidence.json"; then
             sudo env PATH="$EVIDENCE_TOOL_PATH" node "$script" finalize \
               --harness-evidence="$EVIDENCE_ROOT/evidence/harness-evidence.json" \
               --output-root="$CONTROL_ROOT/finalized" \
@@ -393,7 +397,7 @@ jobs:
               --audit-after="$after" \
               --audit-before-errors="$CONTROL_ROOT/audit-before-errors.log" \
               --audit-after-errors="$errors" \
-              --process-inventory="$process_inventory" \
+              --process-inventory="$cleanup_inventory" \
               --allowed-root="$EVIDENCE_ROOT" \
               --uid="$EVIDENCE_UID" \
               --repository="$SOURCE_REPOSITORY" \
