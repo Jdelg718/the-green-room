@@ -328,6 +328,8 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   const relocation = workflow.indexOf("dscl . -change \"/Users/$EVIDENCE_USER\" NFSHomeDirectory");
   const firstSudoUser = workflow.indexOf("sudo -u \"$EVIDENCE_USER\"");
   const warm = workflow.indexOf("warm 'node --version'");
+  assert.match(workflow, /warm '\/usr\/bin\/defaults domains >\/dev\/null'/);
+  assert.doesNotMatch(workflow, /defaults read NSGlobalDomain/);
   const stabilize = workflow.indexOf("for attempt in 1 2 3 4 5");
   const clone = workflow.indexOf("git clone --filter=blob:none --no-checkout");
   assert.ok(relocation >= 0 && firstSudoUser > relocation, "Directory Services relocation must precede every sudo-u command");
