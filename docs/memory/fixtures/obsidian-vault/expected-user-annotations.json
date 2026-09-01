@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "annotations": [
+    {
+      "source_path": "rooms/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/memories/018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd.md",
+      "archive_path": "user-annotations/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd.md",
+      "bytes": 55,
+      "sha256": "sha256:bcb295b0e9fa3b02e5a4cb1a15fe0d98ec09caf645f022872fe4a00928a38be6",
+      "base64": "S2VlcCB0aGlzIGV4YWN0IGFubm90YXRpb24gYnl0ZS1mb3ItYnl0ZSBkdXJpbmcgZXJhc2UuCg=="
+    }
+  ]
+}

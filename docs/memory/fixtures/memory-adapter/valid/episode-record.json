@@ -1,0 +1,15 @@
+{
+  "contract_version": "1.0",
+  "record_id": "018f0f70-3905-7bc0-9d40-4c85432a4c17",
+  "revision_id": "018f0f70-49cf-7a96-86f5-12dbcb88ef11",
+  "revision": 1,
+  "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+  "kind": "episode",
+  "scope": {"event_range": {"first_event_id": "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a", "last_event_id": "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"}},
+  "body": "The group agreed to compare two approaches before deciding.",
+  "status": "active",
+  "classification": "room",
+  "provenance": {"source_event_ids": ["018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"], "derivation": {"kind": "model_proposal", "producer": "local-profile:summary", "proposal_id": "018f0f70-162f-77cd-b64d-9d92e31d8b71", "policy_version": "memory-policy/1"}},
+  "created_at": "2026-08-30T16:04:00.000Z",
+  "created_by": "harness"
+}
