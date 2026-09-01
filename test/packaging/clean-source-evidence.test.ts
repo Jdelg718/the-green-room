@@ -246,7 +246,10 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   const jobEnvironment = workflow.match(/    env:\n(?<body>(?:      .+\n)+)/)?.groups?.body ?? "";
   assert.doesNotMatch(jobEnvironment, /\$\{\{ runner\./);
   assert.match(workflow, /EVIDENCE_ROOT=%s\\nUPLOAD_ROOT=%s/);
-  assert.match(workflow, /\$RUNNER_TEMP\/greenroom-clean-source-evidence/);
+  assert.match(workflow, /evidence_parent=\/private\/tmp/);
+  assert.match(workflow, /evidence_parent=\/tmp/);
+  assert.match(workflow, /greenroom-clean-source-evidence-\$GITHUB_RUN_ID-\$GITHUB_RUN_ATTEMPT/);
+  assert.doesNotMatch(workflow, /\$RUNNER_TEMP\/greenroom-clean-source-evidence/);
   assert.match(workflow, /\$RUNNER_TEMP\/greenroom-clean-source-upload/);
   assert.match(workflow, /test "\$SOURCE_REF_PROTECTED" = true/);
   assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
@@ -294,6 +297,8 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /processes-after-source\.json/);
   assert.doesNotMatch(workflow, /sudo -u "\$EVIDENCE_USER" (?:rmdir|rm -f)/);
   assert.match(workflow, /setup failed before the root control plane was available/);
+  assert.match(workflow, /! sudo test -d "\$CONTROL_ROOT"/);
+  assert.doesNotMatch(workflow, /! -d "\$\{CONTROL_ROOT:-\}"/);
   assert.match(workflow, /script="\$TRUSTED_CHECKOUT\/scripts\/clean-source-evidence\.mjs"/);
   assert.match(workflow, /sudo -u "\$EVIDENCE_USER" test -w "\$script"/);
   assert.match(workflow, /--output-root="\$CONTROL_ROOT\/finalized"/);

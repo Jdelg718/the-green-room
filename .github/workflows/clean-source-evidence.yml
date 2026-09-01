@@ -36,13 +36,21 @@ jobs:
       TRUSTED_CHECKOUT: ${{ github.workspace }}/trusted-source
 
     steps:
-      - name: Initialize runner-scoped evidence paths
+      - name: Initialize platform-scoped evidence paths
         shell: bash
         run: |
           set -euo pipefail
           test -n "$RUNNER_TEMP"
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            evidence_parent=/private/tmp
+          else
+            evidence_parent=/tmp
+          fi
+          evidence_root="$evidence_parent/greenroom-clean-source-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ strategy.job-index }}"
+          test "$(realpath "$evidence_parent")" = "$evidence_parent"
+          sudo test ! -e "$evidence_root"
           printf 'EVIDENCE_ROOT=%s\nUPLOAD_ROOT=%s\n' \
-            "$RUNNER_TEMP/greenroom-clean-source-evidence" \
+            "$evidence_root" \
             "$RUNNER_TEMP/greenroom-clean-source-upload" >> "$GITHUB_ENV"
 
       - name: Require a protected-main dispatch
@@ -297,7 +305,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${CONTROL_ROOT:-}" || -z "${EVIDENCE_UID:-}" || -z "${ROOT_GROUP:-}" || ! -d "${CONTROL_ROOT:-}" ]]; then
+          if [[ -z "${CONTROL_ROOT:-}" || -z "${EVIDENCE_UID:-}" || -z "${ROOT_GROUP:-}" ]] || ! sudo test -d "$CONTROL_ROOT"; then
             mkdir -p "$UPLOAD_ROOT"
             printf 'setup failed before the root control plane was available\n' > "$UPLOAD_ROOT/setup-failure.txt"
             exit 1
