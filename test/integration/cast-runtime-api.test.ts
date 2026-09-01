@@ -240,7 +240,7 @@ test("three-person casts schedule only selected slugs while preserving mute, coo
   ]);
 });
 
-test("replacement aborts latched old generation and stale completion appends no persona row", async (context) => {
+test("creating another room leaves latched generation scoped to its original room", async (context) => {
   const store = temporaryStore(context);
   const provider = new LatchingProvider();
   const service = new RoomService({
@@ -259,18 +259,18 @@ test("replacement aborts latched old generation and stale completion appends no 
     requestId: "replace-latched",
     personaSlugs: ["isaac-newton"],
   });
-  assert.equal(provider.signal?.aborted, true);
+  assert.equal(provider.signal?.aborted, false);
   provider.release();
-  assert.equal((await pending).outcome, "stale");
+  assert.equal((await pending).outcome, "text");
   assert.equal(currentRoomId(store.database), replaced.sessionId);
   assert.equal(store.database.prepare(
     `SELECT count(*) AS count FROM events
      WHERE room_id = 'first-playable'
        AND json_extract(event_json, '$.type') = 'persona_message'`,
-  ).get()?.count, 0);
+  ).get()?.count, 1);
 });
 
-test("replacement through a second database handle aborts the old service promptly", async (context) => {
+test("creating through a second database handle does not abort another room", async (context) => {
   const dataDir = mkdtempSync(join(tmpdir(), "green-room-cross-handle-"));
   const firstStore = openGreenRoomDatabase({ dataDir, migrationsDir });
   const secondStore = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -300,9 +300,9 @@ test("replacement through a second database handle aborts the old service prompt
     requestId: "cross-handle-cast",
     personaSlugs: ["mary-shelley"],
   });
-  assert.equal(provider.signal?.aborted, true);
+  assert.equal(provider.signal?.aborted, false);
   provider.release();
-  assert.equal((await pending).outcome, "stale");
+  assert.equal((await pending).outcome, "text");
 });
 
 test("replaying an older successful cast request never aborts or fences the newer authoritative session", async (context) => {
@@ -472,7 +472,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     sessionId: string;
     room: { id: string; sessionId: string; participants: Array<{ id: string; kind: string }> };
   }>();
-  assert.equal(cast.room.id, "first-playable");
+  assert.equal(cast.room.id, cast.sessionId);
   assert.equal(cast.room.sessionId, cast.sessionId);
   assert.equal(cast.room.participants.length, 4);
   const castParticipantIds = cast.room.participants
@@ -498,7 +498,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   });
   assert.equal(currentRoomId(store.database), cast.sessionId);
 
-  const room = await app.inject({ method: "GET", url: "/api/rooms/first-playable", headers: { host: HOST } });
+  const room = await app.inject({ method: "GET", url: `/api/rooms/${cast.sessionId}`, headers: { host: HOST } });
   assert.equal(room.json().sessionId, cast.sessionId);
   for (const [path, requestId] of [
     [`personas/${castParticipantIds[1]}/mute`, "api-mute"],
@@ -508,7 +508,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   ] as const) {
     const control = await app.inject({
       method: "POST",
-      url: `/api/rooms/first-playable/${path}`,
+      url: `/api/rooms/${cast.sessionId}/${path}`,
       headers,
       payload: { requestId },
     });
@@ -516,18 +516,18 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   }
   const message = await app.inject({
     method: "POST",
-    url: "/api/rooms/first-playable/messages",
+    url: `/api/rooms/${cast.sessionId}/messages`,
     headers,
     payload: { requestId: "api-message", text: "Speak." },
   });
   assert.equal(message.statusCode, 200, message.body);
   assert.equal(provider.calls[0]?.personaId, "ada-lovelace");
-  const replay = await app.inject({ method: "GET", url: "/api/rooms/first-playable/events?after=0", headers: { host: HOST } });
+  const replay = await app.inject({ method: "GET", url: `/api/rooms/${cast.sessionId}/events?after=0`, headers: { host: HOST } });
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().events[0].event.type, "room_started");
   const stop = await app.inject({
     method: "POST",
-    url: "/api/rooms/first-playable/stop",
+    url: `/api/rooms/${cast.sessionId}/stop`,
     headers,
     payload: { requestId: "api-stop" },
   });
@@ -581,7 +581,7 @@ test("SSE pins an existing connection to its old session while new replay uses c
   appendEvent(store.database, "first-playable", { type: "old_after" });
   assert.deepEqual(await readSseEvent(oldReader), { id: 2, event: { type: "old_after" } });
 
-  const newResponse = await fetch(`${origin}/api/rooms/first-playable/stream?after=0`);
+  const newResponse = await fetch(`${origin}/api/rooms/${cast.sessionId}/stream?after=0`);
   assert.ok(newResponse.body);
   const newReader = newResponse.body.getReader();
   const started = await readSseEvent(newReader);

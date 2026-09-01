@@ -16,8 +16,10 @@ import {
   type PersonaPackInspectionHttpService,
 } from "./persona-pack-inspection-route.js";
 import {
-  currentRoomId,
+  listRooms,
+  readRoom,
   readCurrentRoom,
+  selectRoom,
 } from "../db/index.js";
 import type { HistoricalCatalog } from "../personas/historical-catalog.js";
 import {
@@ -25,7 +27,6 @@ import {
   RoomService,
 } from "../runtime/room-service.js";
 
-const ROOM_ID = "first-playable";
 const JSON_BODY_LIMIT = 64 * 1024;
 const EVENT_REPLAY_LIMIT = 100;
 const DEFAULT_SSE_QUEUE_LIMIT = 128;
@@ -186,6 +187,13 @@ function validIdentifier(value: unknown): value is string {
     value.length > 0 &&
     value.length <= ROOM_SERVICE_LIMITS.MAX_IDENTIFIER_LENGTH &&
     value.trim() === value
+  );
+}
+
+function validRoomId(value: unknown): value is string {
+  return typeof value === "string" && (
+    value === "first-playable" ||
+    /^room-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
   );
 }
 
@@ -656,7 +664,35 @@ export function registerApiRoutes(
     });
 
     const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
-    api.get(`/api/rooms/${ROOM_ID}`, async () => readCurrentRoom(database));
+    api.get("/api/rooms", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return { rooms: listRooms(database) };
+    });
+
+    api.get("/api/rooms/current", async () => readCurrentRoom(database));
+
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId", async (request, reply) => {
+      if (!validRoomId(request.params.roomId)) return invalidRequest(reply);
+      try {
+        return readRoom(database, request.params.roomId);
+      } catch (error) {
+        return sendServiceError(reply, error);
+      }
+    });
+
+    api.post<{ Params: { roomId: string } }>(
+      "/api/rooms/:roomId/select",
+      routeOptions,
+      async (request, reply) => {
+        const body = parseControlBody(request.body);
+        if (body === undefined || !validRoomId(request.params.roomId)) return invalidRequest(reply);
+        try {
+          return selectRoom(database, request.params.roomId);
+        } catch (error) {
+          return sendServiceError(reply, error);
+        }
+      },
+    );
 
     api.get("/api/human-profile", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
@@ -700,12 +736,13 @@ export function registerApiRoutes(
       return humanProfileDto(readHumanProfile(database));
     });
 
-    api.get(`/api/rooms/${ROOM_ID}/events`, async (request, reply) => {
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/events", async (request, reply) => {
       const after = parseCursor(request);
-      if (after === undefined) {
+      if (after === undefined || !validRoomId(request.params.roomId)) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      const roomId = currentRoomId(database);
+      const roomId = request.params.roomId;
+      try { readRoom(database, roomId); } catch (error) { return sendServiceError(reply, error); }
       const events = readEvents(database, roomId, after, EVENT_REPLAY_LIMIT);
       return {
         events,
@@ -713,26 +750,26 @@ export function registerApiRoutes(
       };
     });
 
-    api.get(`/api/rooms/${ROOM_ID}/stream`, async (request, reply) => {
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/stream", async (request, reply) => {
       const after = parseCursor(request);
-      if (after === undefined) {
+      if (after === undefined || !validRoomId(request.params.roomId)) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      const roomId = currentRoomId(database);
+      const roomId = request.params.roomId;
+      try { readRoom(database, roomId); } catch (error) { return sendServiceError(reply, error); }
       streams.connect(request, reply, roomId, after);
     });
 
-    api.post(
-      `/api/rooms/${ROOM_ID}/messages`,
+    api.post<{ Params: { roomId: string } }>(
+      "/api/rooms/:roomId/messages",
       routeOptions,
       async (request, reply) => {
         const body = parseMessageBody(request.body);
-        if (body === undefined) {
+        if (body === undefined || !validRoomId(request.params.roomId)) {
           return invalidRequest(reply);
         }
         try {
-          const roomId = currentRoomId(database);
-          return await service.sendMessage({ roomId, ...body });
+          return await service.sendMessage({ roomId: request.params.roomId, ...body });
         } catch (error) {
           return sendServiceError(reply, error);
         }
@@ -740,10 +777,7 @@ export function registerApiRoutes(
     );
 
     const knownCatalogSlugs = new Set(catalogPersonas.map(({ slug }) => slug));
-    api.post(
-      `/api/rooms/${ROOM_ID}/cast`,
-      routeOptions,
-      async (request, reply) => {
+    const createCast = async (request: FastifyRequest, reply: FastifyReply) => {
         const body = parseCastBody(request.body, knownCatalogSlugs);
         if (body === undefined) {
           return invalidRequest(reply);
@@ -753,8 +787,10 @@ export function registerApiRoutes(
         } catch (error) {
           return sendServiceError(reply, error);
         }
-      },
-    );
+      };
+    api.post("/api/rooms/current/cast", routeOptions, createCast);
+    api.post("/api/rooms/first-playable/cast", routeOptions, createCast);
+    api.post("/api/rooms", routeOptions, createCast);
 
     for (const [path, operation] of [
       ["pause", service.pause.bind(service)],
@@ -762,15 +798,15 @@ export function registerApiRoutes(
       ["stop", service.stop.bind(service)],
     ] as const) {
       api.post(
-        `/api/rooms/${ROOM_ID}/${path}`,
+        `/api/rooms/:roomId/${path}`,
         routeOptions,
         async (request, reply) => {
           const body = parseControlBody(request.body);
-          if (body === undefined) {
+          const roomId = (request.params as { roomId?: string }).roomId;
+          if (body === undefined || !validRoomId(roomId)) {
             return invalidRequest(reply);
           }
           try {
-            const roomId = currentRoomId(database);
             return await operation({ roomId, ...body });
           } catch (error) {
             return sendServiceError(reply, error);
@@ -784,19 +820,20 @@ export function registerApiRoutes(
       ["unmute", service.unmute.bind(service)],
     ] as const) {
       api.post<{ Params: { personaId: string } }>(
-        `/api/rooms/${ROOM_ID}/personas/:personaId/${path}`,
+        `/api/rooms/:roomId/personas/:personaId/${path}`,
         routeOptions,
         async (request, reply) => {
           const body = parseControlBody(request.body);
           const { personaId } = request.params;
+          const roomId = (request.params as { roomId?: string }).roomId;
           if (
             body === undefined ||
+            !validRoomId(roomId) ||
             !validIdentifier(personaId)
           ) {
             return invalidRequest(reply);
           }
           try {
-            const roomId = currentRoomId(database);
             return await operation({ roomId, personaId, ...body });
           } catch (error) {
             return sendServiceError(reply, error);

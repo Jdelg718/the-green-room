@@ -4,7 +4,6 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   appendEventInTransaction,
   canonicalJson,
-  currentRoomId,
   replaceCurrentRoomCast,
   type CastReplacementResult,
   withImmediateTransaction,
@@ -430,10 +429,6 @@ export class RoomService {
         return persona;
       });
       const result = replaceCurrentRoomCast(this.#database, { requestId, personas });
-      const authoritativeRoomId = currentRoomId(this.#database);
-      for (const service of servicesByDatabase.get(this.#databaseKey) ?? []) {
-        service.#abortAllExcept(authoritativeRoomId);
-      }
       return Promise.resolve(result);
     } catch (error) {
       return Promise.reject(error);
@@ -1255,14 +1250,6 @@ export class RoomService {
   #abortRoom(roomId: string): void {
     for (const active of this.#controllers.get(roomId) ?? []) {
       active.controller.abort();
-    }
-  }
-
-  #abortAllExcept(currentId: string): void {
-    for (const roomId of this.#controllers.keys()) {
-      if (roomId !== currentId) {
-        this.#abortRoom(roomId);
-      }
     }
   }
 

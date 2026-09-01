@@ -20,12 +20,21 @@ export interface RoomParticipantDto {
 }
 
 export interface CurrentRoomDto {
-  readonly id: typeof PUBLIC_ROOM_ID;
+  readonly id: string;
   readonly sessionId: string;
   readonly title: string;
   readonly status: "active" | "paused" | "stopped";
   readonly generation: number;
   readonly participants: readonly RoomParticipantDto[];
+}
+
+export interface RoomSummaryDto {
+  readonly id: string;
+  readonly title: string;
+  readonly status: "active" | "paused" | "stopped";
+  readonly selected: boolean;
+  readonly lastActivity: string;
+  readonly cast: readonly RoomParticipantDto[];
 }
 
 export interface SelectedCastDto {
@@ -78,6 +87,18 @@ function displayName(value: string): string {
   return value;
 }
 
+function canonicalTimestamp(value: string): string {
+  return `${value.replace(" ", "T")}Z`;
+}
+
+function roomTitle(personas: readonly CastPersonaInput[]): string {
+  const names = personas.map(({ name }) => name);
+  const title = names.length === 1 ? names[0] ?? "The Green Room" :
+    names.length === 2 ? `${names[0]} & ${names[1]}` :
+      `${names[0]}, ${names[1]} & ${names[2]}`;
+  return title.slice(0, 128).trimEnd();
+}
+
 function roomDto(database: DatabaseSync, roomId: string): CurrentRoomDto {
   const room = database.prepare(
     "SELECT title, status, generation FROM rooms WHERE id = ?",
@@ -100,7 +121,7 @@ function roomDto(database: DatabaseSync, roomId: string): CurrentRoomDto {
     persona_slug: string | null;
   }>;
   return Object.freeze({
-    id: PUBLIC_ROOM_ID,
+    id: roomId,
     sessionId: roomId,
     title: room.title,
     status: room.status,
@@ -127,6 +148,49 @@ export function currentRoomId(database: DatabaseSync): string {
 
 export function readCurrentRoom(database: DatabaseSync): CurrentRoomDto {
   return roomDto(database, currentRoomId(database));
+}
+
+export function readRoom(database: DatabaseSync, roomId: string): CurrentRoomDto {
+  return roomDto(database, canonicalIdentifier(roomId, "roomId", 128));
+}
+
+export function listRooms(database: DatabaseSync): readonly RoomSummaryDto[] {
+  const selectedId = currentRoomId(database);
+  const rows = database.prepare(
+    `SELECT id, title, status, created_at,
+            COALESCE((SELECT max(created_at) FROM events WHERE room_id = rooms.id), created_at) AS last_activity
+     FROM rooms WHERE archived = 0
+     ORDER BY activity_order DESC, id ASC`,
+  ).all() as unknown as Array<{
+    id: string;
+    title: string;
+    status: RoomSummaryDto["status"];
+    created_at: string;
+    last_activity: string;
+  }>;
+  return Object.freeze(rows.map((row) => {
+    const room = roomDto(database, row.id);
+    return Object.freeze({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      selected: row.id === selectedId,
+      lastActivity: canonicalTimestamp(row.last_activity),
+      cast: Object.freeze(room.participants.filter(({ kind }) => kind === "persona")),
+    });
+  }));
+}
+
+export function selectRoom(database: DatabaseSync, roomId: string): CurrentRoomDto {
+  const canonicalRoomId = canonicalIdentifier(roomId, "roomId", 128);
+  return withImmediateTransaction(database, () => {
+    const exists = database.prepare(
+      "SELECT 1 AS present FROM rooms WHERE id = ? AND archived = 0",
+    ).get(canonicalRoomId);
+    if (exists === undefined) throw new Error(`Unknown room: ${canonicalRoomId}`);
+    database.prepare("UPDATE current_room SET room_id = ? WHERE singleton = 1").run(canonicalRoomId);
+    return roomDto(database, canonicalRoomId);
+  });
 }
 
 export function replaceCurrentRoomCast(
@@ -161,21 +225,10 @@ export function replaceCurrentRoomCast(
       return JSON.parse(prior.result_json) as CastReplacementResult;
     }
 
-    const oldRoomId = currentRoomId(database);
-    database.prepare(
-      `UPDATE rooms SET status = 'stopped', generation = generation + 1
-       WHERE id = ?`,
-    ).run(oldRoomId);
-    database.prepare(
-      `UPDATE commands SET claim_owner = NULL, claim_expires_at = NULL
-       WHERE room_id = ? AND claim_owner IS NOT NULL
-         AND json_extract(result_json, '$.state') = 'pending'`,
-    ).run(oldRoomId);
-
     const sessionId = `room-${randomUUID()}`;
     database.prepare(
-      `INSERT INTO rooms(id, title, status) VALUES (?, 'The Green Room', 'active')`,
-    ).run(sessionId);
+      `INSERT INTO rooms(id, title, status) VALUES (?, ?, 'active')`,
+    ).run(sessionId, roomTitle(personas));
     const humanId = `human-${randomUUID()}`;
     database.prepare(
       `INSERT INTO participants(id, room_id, kind, display_name, muted, sort_order, persona_slug)

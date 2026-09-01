@@ -372,7 +372,7 @@ test("api rejects unbounded SSE queue options", async (context) => {
   }
 });
 
-test("room api exposes only the fixed room and routes mutations through RoomService", async (context) => {
+test("room api exposes the room library and routes room-scoped mutations through RoomService", async (context) => {
   const store = temporaryStore(context);
   const provider = new DeterministicMockProvider({
     [`${ROOM_ID}:0:1:detective`]: { kind: "text", text: "I see a broken alibi." },
@@ -456,9 +456,12 @@ test("room api exposes only the fixed room and routes mutations through RoomServ
   assert.equal(stop.statusCode, 200, stop.body);
   assert.equal(stop.json<{ status: string }>().status, "stopped");
 
+  const library = await app.inject({ method: "GET", url: "/api/rooms", headers: { host: HOST } });
+  assert.equal(library.statusCode, 200);
+  assert.deepEqual(library.json<{ rooms: Array<{ id: string; selected: boolean }> }>().rooms
+    .map(({ id, selected }) => ({ id, selected })), [{ id: ROOM_ID, selected: true }]);
+
   for (const request of [
-    { method: "GET" as const, url: "/api/rooms" },
-    { method: "GET" as const, url: "/api/rooms/other" },
     { method: "POST" as const, url: `/api/rooms/${ROOM_ID}/reset` },
     { method: "DELETE" as const, url: `/api/rooms/${ROOM_ID}` },
     { method: "HEAD" as const, url: `/api/rooms/${ROOM_ID}` },
@@ -467,6 +470,8 @@ test("room api exposes only the fixed room and routes mutations through RoomServ
     const response = await app.inject({ ...request, headers: { host: HOST } });
     assert.equal(response.statusCode, 404, `${request.method} ${request.url}: ${response.body}`);
   }
+  const invalidRoom = await app.inject({ method: "GET", url: "/api/rooms/other", headers: { host: HOST } });
+  assert.equal(invalidRoom.statusCode, 400);
 });
 
 test("event replay validates its cursor and returns committed events in exact sequence", async (context) => {
