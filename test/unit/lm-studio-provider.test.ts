@@ -262,6 +262,29 @@ test("LM Studio completion scan remains bounded on punctuation-heavy input", () 
   assert.equal(boundedCompleteResponse(`${"What?! ".repeat(6)}Trailing fragment`), "What?! What?! What?! What?! What?!");
 });
 
+test("LM Studio rejects remaining Markdown block forms while preserving plain punctuation", () => {
+  const rejected = [
+    "Setext heading\n===\nBody.",
+    "Setext heading\n---\nBody.",
+    "---\nBody.",
+    "* * *\nBody.",
+    "_  _  _\nBody.",
+    "    indented code.\nBody.",
+    "\tindented code.\nBody.",
+    "Name | Role\n--- | ---\nAda | Analyst.",
+    "| Name |\n| :---: |\n| Ada. |",
+    "~~~text\ncode.\n~~~",
+  ];
+  for (const content of rejected) {
+    assert.throws(() => boundedCompleteResponse(content), /LM Studio response was invalid/, content);
+  }
+  assert.equal(boundedCompleteResponse("**Plain strength** remains safe."), "Plain strength remains safe.");
+  assert.equal(
+    boundedCompleteResponse("Plain punctuation—hyphens, underscores, and a---b remain prose."),
+    "Plain punctuation—hyphens, underscores, and a---b remain prose.",
+  );
+});
+
 test("LM Studio keeps only complete sentences when generation reaches the token limit", async () => {
   const provider = new LMStudioProvider({
     fetch: async () => jsonResponse({

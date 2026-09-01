@@ -43,6 +43,7 @@ interface BrowserContract {
     text: string,
     submitDisabled: boolean,
   ) => boolean;
+  readonly reserveMutation: (pending: Set<string>, key: string) => boolean;
   readonly createRoomEventChannel: (options: {
     readonly commit: (record: EventRecord) => void;
     readonly connect: (
@@ -512,10 +513,7 @@ test("first playable UI maps authoritative state, in-flight work, and stable rea
     contract.controlAvailability("active", new Set(["room"])).canCompose,
     false,
   );
-  assert.equal(
-    contract.controlAvailability("active", new Set(["persona:fixer"])).canCompose,
-    true,
-  );
+  assert.equal(contract.controlAvailability("active", new Set(["persona:fixer"])).canCompose, false);
   assert.equal(
     contract.controlAvailability("active", new Set(["persona:fixer"]), false, "fixer")
       .canToggleMute,
@@ -586,6 +584,18 @@ test("first playable UI guards rapid room-control and stale submit interleaving"
   pending.delete("room");
   assert.equal(contract.canSubmitMessage("active", pending, "Stale queued submit.", true), false);
   assert.equal(contract.canSubmitMessage("active", pending, "Ready cue.", false), true);
+
+  assert.equal(contract.reserveMutation(pending, "message"), true);
+  assert.equal(contract.reserveMutation(pending, "room"), false);
+  assert.deepEqual([...pending], ["message"]);
+  pending.delete("message");
+  assert.equal(contract.reserveMutation(pending, "persona:fixer"), true);
+  assert.deepEqual(contract.controlAvailability("active", pending), {
+    canCompose: false,
+    canPauseResume: false,
+    canStop: false,
+    canToggleMute: false,
+  });
 });
 
 test("first playable UI exercises bootstrap replay and exact mutation endpoints on real Fastify", async (context) => {

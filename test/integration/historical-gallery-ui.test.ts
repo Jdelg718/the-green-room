@@ -148,11 +148,99 @@ test("duplicate cast starts are rejected and dialog focus returns only to a live
   assert.equal(ui.reserveCastStart(pending), false);
   assert.deepEqual([...pending], ["cast"]);
 
+  pending.clear();
+  pending.add("room");
+  assert.equal(ui.reserveCastStart(pending), false);
+  pending.clear();
+  pending.add("message");
+  assert.equal(ui.reserveCastStart(pending), false);
+  pending.clear();
+  pending.add("persona:ada");
+  assert.equal(ui.reserveCastStart(pending), false);
+
   let focusCount = 0;
   ui.restoreDialogTriggerFocus({ isConnected: true, focus: () => { focusCount += 1; } });
   ui.restoreDialogTriggerFocus({ isConnected: false, focus: () => { focusCount += 1; } });
   ui.restoreDialogTriggerFocus(null);
   assert.equal(focusCount, 1);
+});
+
+test("every mutation kind exclusively fences cast start and cleans up only its own reservation", async () => {
+  const ui = await contract();
+  for (const key of ["room", "message", "persona:ada-lovelace"]) {
+    const pending = new Set<string>();
+    assert.equal(ui.reserveMutation(pending, key), true);
+    assert.equal(ui.reserveCastStart(pending), false);
+    assert.deepEqual([...pending], [key]);
+    assert.equal(pending.delete("cast"), false);
+    assert.deepEqual([...pending], [key]);
+    assert.equal(pending.delete(key), true);
+    assert.deepEqual([...pending], []);
+  }
+
+  const pending = new Set<string>();
+  assert.equal(ui.reserveCastStart(pending), true);
+  for (const key of ["room", "message", "persona:ada-lovelace", "cast"]) {
+    assert.equal(ui.reserveMutation(pending, key), false);
+  }
+  assert.deepEqual([...pending], ["cast"]);
+  pending.delete("cast");
+  assert.deepEqual([...pending], []);
+});
+
+test("room bootstrap and channel activation complete before recoverable catalog work", async () => {
+  const ui = await contract();
+  const calls: string[] = [];
+  let rejectCatalog!: (error: Error) => void;
+  const catalogFailure = new Promise<void>((_resolve, reject) => { rejectCatalog = reject; });
+  let catalogAttempts = 0;
+  const initialized = await ui.initializeRoomBeforeCatalog({
+    bootstrapRoom: async () => { calls.push("csrf", "room.render", "channel.activate", "controls.active"); },
+    loadCatalog: async () => {
+      catalogAttempts += 1;
+      calls.push("catalog.fetch");
+      if (catalogAttempts === 1) await catalogFailure;
+    },
+  });
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.deepEqual(calls, ["csrf", "room.render", "channel.activate", "controls.active", "catalog.fetch"]);
+  rejectCatalog(new Error("malformed or rejected catalog"));
+  await assert.rejects(initialized.catalogAttempt, /catalog/);
+  assert.deepEqual(calls.slice(0, 4), ["csrf", "room.render", "channel.activate", "controls.active"]);
+
+  const channelActivations = calls.filter((call) => call === "channel.activate").length;
+  await initialized.retryCatalog();
+  assert.equal(calls.filter((call) => call === "channel.activate").length, channelActivations);
+  assert.equal(calls.filter((call) => call === "catalog.fetch").length, 2);
+
+  let malformedRoomActive = false;
+  const malformed = await ui.initializeRoomBeforeCatalog({
+    bootstrapRoom: async () => { malformedRoomActive = true; },
+    loadCatalog: async () => { ui.validateCatalogDto({ malformed: true }); },
+  });
+  await assert.rejects(malformed.catalogAttempt, /invalid catalog/i);
+  assert.equal(malformedRoomActive, true);
+});
+
+test("safe details are fixed, typed, honest, and contain no source contents or prompt data", async (context) => {
+  const app = appFor(context);
+  const response = await app.inject({ method: "GET", url: "/api/catalog/personas", headers: { host: HOST } });
+  const ui = await contract();
+  const persona = ui.validateCatalogDto(response.json())[0];
+  const details = ui.safeDetailsContent(persona);
+  assert.deepEqual(details.catalogFacts, [
+    "Candidate pack includes curator-only PROVENANCE.md and SOURCES.md.",
+    "Independent historical-fidelity/content-boundary review remains outstanding.",
+    "Independent provenance/rights review remains outstanding.",
+    "No Official Catalog Manifest entry exists.",
+  ]);
+  assert.deepEqual(details.roomStrengths, persona.knowledge.domains.slice(0, 3));
+  assert.deepEqual(details.productiveContrast, persona.behaviorLabels);
+  assert.equal(details.contrastContext, "These typed behavior labels may contrast with selected perspectives in the room.");
+  assert.deepEqual(details.portrayalCautions, persona.knowledge.limitations);
+  assert.equal(details.notice, NOTICE);
+  assert.doesNotMatch(JSON.stringify(details), /source contents|sourcePath|systemPrompt|prompt text/i);
+  assert.throws(() => ui.safeDetailsContent({ ...persona, sourcePath: "/private/source" }), /invalid safe details/i);
 });
 
 test("cast response validation fails before transition and lifecycle starts a validated room in order", async () => {
@@ -421,7 +509,15 @@ test("gallery assets retain accessibility, mobile, textContent, and same-origin 
   assert.match(script, /textContent/);
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|https?:\/\//);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /--focus:\s*#1467b8/);
+  assert.match(styles, /select:focus-visible/);
+  assert.match(styles, /outline:\s*3px solid var\(--focus\)/);
+  assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*?persona-grid[^}]+repeat\(2,/);
   assert.match(styles, /@media \(max-width: 760px\)/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?persona-grid[^}]+minmax\(0, 1fr\)/);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+  assert.match(styles, /safe-area-inset-left/);
+  assert.match(styles, /overflow-x:\s*hidden/);
   assert.match(styles, /min-height:\s*(?:2\.75rem|44px)/);
   assert.match(styles, /prefers-reduced-motion/);
   assert.match(styles, /overflow-wrap/);

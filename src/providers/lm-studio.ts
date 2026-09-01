@@ -114,6 +114,7 @@ function originalSystemPrompt(personaId: string): string | undefined {
 }
 
 function normalizedPlainText(content: string): string {
+  const containsIndentedCode = /(^|\n)(?: {4,}|\t)/u.test(content);
   let normalized = content.trim();
   normalized = normalized.replace(
     /\*\*(?=\S)([^*\n]*?\S)\*\*/gu,
@@ -127,12 +128,17 @@ function normalizedPlainText(content: string): string {
     /(^|\n)[\t ]{0,3}(?:#{1,6}[\t ]|>[\t ]|[-+*][\t ]|\d+[.)][\t ])/u.test(
       normalized,
     ) ||
-    /```|`[^`\n]*`|\*\*|__/u.test(normalized) ||
+    /(^|\n)[ ]{0,3}(?:`{3,}|~{3,})/u.test(normalized) ||
+    /`[^`\n]*`|\*\*|__/u.test(normalized) ||
+    containsIndentedCode ||
+    /(^|\n)[ ]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})(?=\n|$)/u.test(normalized) ||
+    /(^|\n)[^\n]+\n[ ]{0,3}(?:=+|-+)[ \t]*(?=\n|$)/u.test(normalized) ||
+    /(^|\n)[ ]{0,3}(?=[^\n]*\|)(?=[^\n]*-)[|: \t-]+(?=\n|$)/u.test(normalized) ||
     /(?<!\*)\*(?![\s*])[^*\n]*?\S\*(?!\*)|(?<!_)_(?![\s_])[^_\n]*?\S_(?!_)/u.test(
       normalized,
     ) ||
     /!?\[[^\]\n]+\]\([^\n)]+\)/u.test(normalized) ||
-    /<\/?[A-Za-z][^>]*>/u.test(normalized) ||
+    /<(?:\/?[A-Za-z]|!|\?)[^>]*>/u.test(normalized) ||
     /\b(?:https?:\/\/|www\.)\S+/iu.test(normalized)
   ) {
     throw new Error("LM Studio response was invalid");

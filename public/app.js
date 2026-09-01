@@ -187,9 +187,26 @@ export function removeSelection(state, slug) {
 }
 
 export function reserveCastStart(pending) {
-  if (!(pending instanceof Set) || pending.has("cast")) return false;
+  if (!(pending instanceof Set) || pending.size !== 0) return false;
   pending.add("cast");
   return true;
+}
+
+export function reserveMutation(pending, key) {
+  if (!(pending instanceof Set) || !boundedText(key, 128) || pending.size !== 0) return false;
+  pending.add(key);
+  return true;
+}
+
+export async function initializeRoomBeforeCatalog(options) {
+  if (typeof options?.bootstrapRoom !== "function" || typeof options?.loadCatalog !== "function") {
+    throw new TypeError("Room and catalog initializers are required");
+  }
+  await options.bootstrapRoom();
+  return Object.freeze({
+    catalogAttempt: Promise.resolve().then(options.loadCatalog),
+    retryCatalog: options.loadCatalog,
+  });
 }
 
 export function restoreDialogTriggerFocus(trigger) {
@@ -288,11 +305,12 @@ export function openStopConfirmation(dialog) {
 
 export function controlAvailability(status, pending, _muted, personaId) {
   const stopped = status === "stopped";
+  const mutationPending = pending.size !== 0;
   return Object.freeze({
-    canCompose: status === "active" && !pending.has("message") && !pending.has("room"),
-    canPauseResume: !stopped && !pending.has("room"),
-    canStop: !stopped && !pending.has("room"),
-    canToggleMute: !stopped && !pending.has("room") && !pending.has(`persona:${personaId ?? ""}`),
+    canCompose: status === "active" && !mutationPending,
+    canPauseResume: !stopped && !mutationPending,
+    canStop: !stopped && !mutationPending,
+    canToggleMute: !stopped && !mutationPending,
   });
 }
 
@@ -698,22 +716,36 @@ export async function transitionRoomSession(options) {
 }
 
 export function safeDetailsContent(persona) {
+  let expectedLabels;
+  try { expectedLabels = behaviorLabels(persona?.behavior); } catch { throw new TypeError("Invalid safe details persona"); }
+  if (!exactKeys(persona, ["behavior", "behaviorLabels", "educationalNotice", "horizon", "identity", "knowledge", "name", "slug", "status", "summary"]) ||
+    !PERSONA_ID.test(persona.slug) || !boundedText(persona.name, 128) || !boundedText(persona.summary) ||
+    persona.status !== "candidate · draft" || persona.educationalNotice !== EDUCATIONAL_NOTICE ||
+    !exactKeys(persona.identity, EXACT_IDENTITY_KEYS) || !boundedText(persona.identity.type, 128) ||
+    !boundedText(persona.identity.ageBand, 128) || !boundedText(persona.identity.setting, 1_000) ||
+    !exactKeys(persona.knowledge, EXACT_KNOWLEDGE_KEYS) || !boundedText(persona.knowledge.cutoff, 256) ||
+    !validateStringArray(persona.knowledge.domains) || !validateStringArray(persona.knowledge.limitations) ||
+    persona.horizon !== horizonFromCutoff(persona.knowledge.cutoff) ||
+    !Array.isArray(persona.behaviorLabels) || persona.behaviorLabels.length !== expectedLabels.length ||
+    !persona.behaviorLabels.every((label, index) => label === expectedLabels[index])) {
+    throw new TypeError("Invalid safe details persona");
+  }
   return Object.freeze({
     name: persona.name,
     status: "Historical candidate · draft",
     summary: persona.summary,
     setting: persona.identity.setting,
     cutoff: persona.knowledge.cutoff,
-    domains: Object.freeze([...persona.knowledge.domains]),
-    behavior: Object.freeze([
-      `Initiative: ${persona.behavior.initiative.toFixed(2)} — ${persona.behaviorLabels[0]}`,
-      `Challenge style: ${persona.behavior.agreeableness.toFixed(2)} agreeableness — ${persona.behaviorLabels[1]}`,
-      `Interruption: ${persona.behavior.interruption.toFixed(2)} — ${persona.behaviorLabels[2]}`,
-      `Verbosity: ${persona.behavior.verbosity.toFixed(2)}`,
-      `Emotional range: ${persona.behavior.emotionalRange.toFixed(2)}`,
-      `Maximum consecutive turns: ${persona.behavior.maxConsecutiveTurns}`,
+    catalogFacts: Object.freeze([
+      "Candidate pack includes curator-only PROVENANCE.md and SOURCES.md.",
+      "Independent historical-fidelity/content-boundary review remains outstanding.",
+      "Independent provenance/rights review remains outstanding.",
+      "No Official Catalog Manifest entry exists.",
     ]),
-    limitations: Object.freeze([...persona.knowledge.limitations]),
+    roomStrengths: Object.freeze(persona.knowledge.domains.slice(0, 3)),
+    productiveContrast: Object.freeze([...persona.behaviorLabels]),
+    contrastContext: "These typed behavior labels may contrast with selected perspectives in the room.",
+    portrayalCautions: Object.freeze([...persona.knowledge.limitations]),
     notice: persona.educationalNotice,
   });
 }
@@ -777,7 +809,7 @@ export function startBrowserApp() {
     elements.sendMessage.disabled = !availability.canCompose;
     elements.pauseResume.disabled = !availability.canPauseResume;
     elements.stopRoom.disabled = !availability.canStop;
-    elements.openSetup.disabled = pending.has("cast");
+    elements.openSetup.disabled = pending.size !== 0;
     elements.openSetup.textContent = room.status === "stopped" ? "Start a new historical room" :
       room.participants.some(({ kind }) => kind === "persona") ? "Change cast" : "Build historical room";
     elements.pauseResume.textContent = isPaused ? "Resume room" : "Pause room";
@@ -877,7 +909,8 @@ export function startBrowserApp() {
   async function refreshRoom() { renderRoom(await getJson(API_PATHS.room)); }
 
   async function mutate(key, path, body, progressMessage) {
-    pending.add(key); renderControls(); setActionStatus(progressMessage);
+    if (!reserveMutation(pending, key)) return null;
+    renderControls(); renderBuilder(); setActionStatus(progressMessage);
     try {
       const result = await postJson(path, body, csrfToken);
       await channelHolder.catchUp();
@@ -888,7 +921,7 @@ export function startBrowserApp() {
       try { await refreshRoom(); } catch { /* Keep the last validated room. */ }
       setActionStatus(userMessage(error), "error");
       return null;
-    } finally { pending.delete(key); renderControls(); }
+    } finally { pending.delete(key); renderControls(); renderBuilder(); }
   }
 
   function fillSelect(select, values) {
@@ -976,7 +1009,7 @@ export function startBrowserApp() {
     const count = selection.slugs.length;
     elements.builderStatus.textContent = count === 0 ? "0 of 3 persona seats filled. Choose at least one." :
       count === 3 ? "3 of 3 persona seats filled. Cast is full and ready." : `${count} of 3 persona seats filled. You may start now or add ${3 - count} more.`;
-    elements.startRoom.disabled = roomStatusUnknown || count === 0 || pending.has("cast") || catalog === null;
+    elements.startRoom.disabled = roomStatusUnknown || count === 0 || pending.size !== 0 || catalog === null;
     elements.mobileAction.hidden = count === 0 || elements.setupView.hidden;
     elements.viewRoom.textContent = `View room (${count} of 3)`;
     document.body.classList.toggle("has-mobile-room-action", count > 0 && !elements.setupView.hidden);
@@ -1009,10 +1042,17 @@ export function startBrowserApp() {
     const content = document.createDocumentFragment();
     content.append(node("p", "candidate-badge detail-badge", details.status), node("p", "detail-summary", details.summary));
     const facts = node("dl", "detail-facts");
-    for (const [term, description] of [["Setting", details.setting], ["Knowledge cutoff", details.cutoff], ["Domains", details.domains.join(" · ")]]) {
+    for (const [term, description] of [["Setting", details.setting], ["Knowledge cutoff", details.cutoff]]) {
       facts.append(node("dt", "", term), node("dd", "", description));
     }
-    content.append(facts); appendDetailSection(content, "Typed behavior controls", details.behavior); appendDetailSection(content, "Knowledge limitations", details.limitations);
+    content.append(facts);
+    appendDetailSection(content, "Catalog status", details.catalogFacts);
+    appendDetailSection(content, "Room strengths", details.roomStrengths);
+    content.append(node("h3", "detail-subheading", "Productive contrast"), node("p", "detail-context", details.contrastContext));
+    const contrast = node("ul", "detail-list");
+    details.productiveContrast.forEach((value) => contrast.append(node("li", "", value)));
+    content.append(contrast);
+    appendDetailSection(content, "Portrayal cautions", details.portrayalCautions);
     const notice = node("p", "educational-notice"); const lead = node("strong", "", "Educational creative interpretation.");
     notice.append(lead, document.createTextNode(details.notice.slice("Educational creative interpretation.".length))); content.append(notice);
     elements.detailsContent.replaceChildren(content);
@@ -1024,7 +1064,8 @@ export function startBrowserApp() {
   function closeDetails() { elements.details.close(); }
 
   function showSetup() {
-    selection = historicalSelectionFromRoom(room, catalog);
+    if (room === null || pending.size !== 0) return;
+    selection = catalog === null ? createSelectionState() : historicalSelectionFromRoom(room, catalog);
     elements.liveView.hidden = true; elements.setupView.hidden = false; elements.builderError.textContent = "";
     elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to historical candidates";
     renderGallery(); renderBuilder(); elements.galleryHeading.focus();
@@ -1045,7 +1086,7 @@ export function startBrowserApp() {
   }
 
   async function startHistoricalRoom() {
-    if (roomStatusUnknown || selection.slugs.length === 0 || room === null || channelHolder.current === null || !reserveCastStart(pending)) return;
+    if (roomStatusUnknown || selection.slugs.length === 0 || room === null || catalog === null || channelHolder.current === null || !reserveCastStart(pending)) return;
     const requestId = createRequestId("cast"); const personaSlugs = [...selection.slugs]; const oldSessionId = room.sessionId;
     elements.builderError.textContent = "Starting the new room…"; renderBuilder(); renderControls();
     try {
@@ -1111,22 +1152,22 @@ export function startBrowserApp() {
     if (result !== null) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
   });
   elements.pauseResume.addEventListener("click", async () => {
-    if (room === null || room.status === "stopped" || pending.has("room")) return;
+    if (room === null || room.status === "stopped" || pending.size !== 0) return;
     const action = room.status === "paused" ? "resume" : "pause";
     await mutate("room", API_PATHS.roomControl(action), { requestId: createRequestId(action) }, action === "pause" ? "Pausing the room…" : "Resuming the room…");
   });
-  elements.stopRoom.addEventListener("click", () => { if (room?.status !== "stopped" && !pending.has("room")) openStopConfirmation(elements.stopDialog); });
+  elements.stopRoom.addEventListener("click", () => { if (room?.status !== "stopped" && pending.size === 0) openStopConfirmation(elements.stopDialog); });
   elements.stopDialog.addEventListener("close", async () => {
-    if (elements.stopDialog.returnValue !== "confirm" || room?.status === "stopped") return;
+    if (elements.stopDialog.returnValue !== "confirm" || room?.status === "stopped" || pending.size !== 0) return;
     await mutate("room", API_PATHS.roomControl("stop"), { requestId: createRequestId("stop") }, "Stopping the room…");
   });
   elements.castList.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-persona-control]"); if (button === null || button.disabled || room === null) return;
+    const button = event.target.closest("[data-persona-control]"); if (button === null || button.disabled || room === null || pending.size !== 0) return;
     const personaId = button.dataset.personaControl; const action = button.dataset.action;
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) return;
     await mutate(`persona:${personaId}`, API_PATHS.personaControl(personaId, action), { requestId: createRequestId(`${action}-${personaId}`) }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
   });
-  elements.openSetup.addEventListener("click", showSetup); elements.cancelSetup.addEventListener("click", () => showLive());
+  elements.openSetup.addEventListener("click", () => { if (!elements.openSetup.disabled && pending.size === 0) showSetup(); }); elements.cancelSetup.addEventListener("click", () => showLive());
   elements.filters.addEventListener("submit", (event) => event.preventDefault());
   elements.filters.addEventListener("input", renderGallery); elements.filters.addEventListener("change", renderGallery);
   elements.grid.addEventListener("click", (event) => {
@@ -1147,17 +1188,21 @@ export function startBrowserApp() {
   elements.backToGallery.addEventListener("click", (event) => { event.preventDefault(); elements.galleryHeading.scrollIntoView({ block: "start" }); elements.galleryHeading.focus({ preventScroll: true }); });
   void (async () => {
     try {
-      const bootstrap = await getJson(API_PATHS.bootstrap);
-      if (!plainRecord(bootstrap) || !exactKeys(bootstrap, ["csrfToken"]) || !boundedText(bootstrap.csrfToken, 512)) throw new RequestFailure("invalid_response");
-      csrfToken = bootstrap.csrfToken;
-      const [nextRoom, catalogValue] = await Promise.all([getJson(API_PATHS.room), getJson(API_PATHS.catalog)]);
-      catalog = validateCatalogDto(catalogValue); initializeFilters(); renderRoom(nextRoom);
-      lifecycle.replace(createChannel(room.sessionId));
-      await lifecycle.activate();
-      renderGallery(); renderBuilder();
+      await initializeRoomBeforeCatalog({
+        async bootstrapRoom() {
+          const bootstrap = await getJson(API_PATHS.bootstrap);
+          if (!plainRecord(bootstrap) || !exactKeys(bootstrap, ["csrfToken"]) || !boundedText(bootstrap.csrfToken, 512)) throw new RequestFailure("invalid_response");
+          csrfToken = bootstrap.csrfToken;
+          const nextRoom = await getJson(API_PATHS.room);
+          renderRoom(nextRoom);
+          lifecycle.replace(createChannel(room.sessionId));
+          await lifecycle.activate();
+          renderGallery(); renderBuilder();
+        },
+        loadCatalog,
+      });
     } catch (error) {
       setConnection("offline"); setActionStatus(userMessage(error), "error");
-      if (catalog === null) { catalogError = "The local catalog could not be loaded safely. Your current room was not changed."; renderGallery(); }
     }
   })();
 }
