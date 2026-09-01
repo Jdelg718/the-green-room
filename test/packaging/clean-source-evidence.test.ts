@@ -334,8 +334,9 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.ok(warm > relocation && stabilize > warm && clone > stabilize, "warming and stabilization must precede the public clone");
   assert.match(workflow, /evidence_run\(\) \{[\s\S]*cd "\$HOME" && exec "\$@"/);
   assert.match(workflow, /FOUNDATION_HOME_RAW=[\s\S]*cd "\$HOME" && exec \/usr\/bin\/swift/);
-  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*exec \/usr\/bin\/realpath "\$1"[\s\S]*"\$FOUNDATION_HOME_RAW"/);
-  assert.match(workflow, /EFFECTIVE_HOME="\$\(evidence_run \/usr\/bin\/realpath "\$EFFECTIVE_HOME_RAW"\)"/);
+  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*exec \/bin\/realpath "\$1"[\s\S]*"\$FOUNDATION_HOME_RAW"/);
+  assert.match(workflow, /EFFECTIVE_HOME="\$\(evidence_run \/bin\/realpath "\$EFFECTIVE_HOME_RAW"\)"/);
+  assert.doesNotMatch(workflow, /\/usr\/bin\/realpath/);
   assert.match(workflow, /cd "\$HOME" && \/bin\/bash --noprofile --norc -c "\$1"/);
   assert.match(workflow, /FOUNDATION_HOME_RAW=[\s\S]*NSHomeDirectory/);
   assert.match(workflow, /placeholder-home-initial\.json/);
