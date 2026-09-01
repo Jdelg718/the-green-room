@@ -333,9 +333,11 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.ok(relocation >= 0 && firstSudoUser > relocation, "Directory Services relocation must precede every sudo-u command");
   assert.ok(warm > relocation && stabilize > warm && clone > stabilize, "warming and stabilization must precede the public clone");
   assert.match(workflow, /evidence_run\(\) \{[\s\S]*cd "\$HOME" && exec "\$@"/);
-  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*cd "\$HOME" && exec \/usr\/bin\/swift/);
+  assert.match(workflow, /FOUNDATION_HOME_RAW=[\s\S]*cd "\$HOME" && exec \/usr\/bin\/swift/);
+  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*exec \/usr\/bin\/realpath "\$1"[\s\S]*"\$FOUNDATION_HOME_RAW"/);
+  assert.match(workflow, /EFFECTIVE_HOME="\$\(evidence_run \/usr\/bin\/realpath "\$EFFECTIVE_HOME_RAW"\)"/);
   assert.match(workflow, /cd "\$HOME" && \/bin\/bash --noprofile --norc -c "\$1"/);
-  assert.match(workflow, /FOUNDATION_HOME=[\s\S]*NSHomeDirectory/);
+  assert.match(workflow, /FOUNDATION_HOME_RAW=[\s\S]*NSHomeDirectory/);
   assert.match(workflow, /placeholder-home-initial\.json/);
   assert.match(workflow, /placeholder-home-final\.json/);
   assert.match(workflow, /sudo cmp -s "\$CONTROL_ROOT\/placeholder-home-initial\.json" "\$CONTROL_ROOT\/placeholder-home-final\.json"/);
