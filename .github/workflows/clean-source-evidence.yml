@@ -295,7 +295,7 @@ jobs:
             FOUNDATION_HOME_RAW="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
               /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /usr/bin/swift -e '\''import Foundation; print(NSHomeDirectory())'\''')"
             FOUNDATION_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
-              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /usr/bin/realpath "$1"' _ "$FOUNDATION_HOME_RAW")"
+              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /bin/realpath "$1"' _ "$FOUNDATION_HOME_RAW")"
             printf 'foundation_home_raw=%s\nfoundation_home_canonical=%s\n' "$FOUNDATION_HOME_RAW" "$FOUNDATION_HOME"
             test "$FOUNDATION_HOME" = "$EVIDENCE_SOURCE_HOME"
             if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q yes; then exit 1; fi
@@ -308,7 +308,7 @@ jobs:
               /bin/bash --noprofile --norc -c 'cd "$HOME" && exec "$@"' _ "$@"
           }
           EFFECTIVE_HOME_RAW="$(evidence_run /usr/local/bin/node -p 'require("node:os").userInfo().homedir')"
-          EFFECTIVE_HOME="$(evidence_run /usr/bin/realpath "$EFFECTIVE_HOME_RAW")"
+          EFFECTIVE_HOME="$(evidence_run /bin/realpath "$EFFECTIVE_HOME_RAW")"
           EXPORTED_HOME="$(evidence_run /usr/bin/printenv HOME)"
           printf 'effective_home_raw=%s\neffective_home_canonical=%s\n' "$EFFECTIVE_HOME_RAW" "$EFFECTIVE_HOME"
           test "$EXPORTED_HOME" = "$EVIDENCE_SOURCE_HOME"
