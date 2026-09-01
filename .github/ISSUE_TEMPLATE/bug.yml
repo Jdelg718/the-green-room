@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem in the local Green Room app or tooling.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Green Room. **Do not include vulnerabilities, provider keys, credentials, private room transcripts, personal data, or private-infrastructure details.** Follow [SECURITY.md](https://github.com/Jdelg718/the-green-room/blob/main/SECURITY.md) for sensitive reports.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release version or full commit SHA where the problem occurs.
+      placeholder: "v0.1.0 or 0123456789abcdef..."
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Local runtime or room behavior
+        - Provider adapter or local model setup
+        - Persona-pack validation or import
+        - Web interface or accessibility
+        - Installation, build, or release gate
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node 24 patch version, uv/Python version when relevant, and provider/model name. Redact keys, local paths, hostnames, and private data.
+      placeholder: |
+        OS: macOS 26.x
+        Node: 24.x
+        uv/Python: ...
+        Provider/model: mock, LM Studio / model ID, or other adapter
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest safe sequence that reproduces the problem. Use original/synthetic persona content only; do not upload private packs or transcripts.
+      placeholder: |
+        1. Start with ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized logs or screenshots only if they contain no secrets, private room data, personal data, or content you lack rights to share.
+    validations:
+      required: true
+  - type: textarea
+    id: regression
+    attributes:
+      label: Regression and additional context
+      description: Did this work before? Add relevant links, sanitized diagnostics, or likely failure paths.
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Safety checks
+      options:
+        - label: I have removed provider keys, credentials, private room data, personal data, and private-infrastructure details.
+          required: true
+        - label: Any persona-pack material shared here is declarative/non-executable, safe to inspect as untrusted data, and mine or licensed for public distribution.
+          required: true
+        - label: This report is not a security vulnerability; I will use SECURITY.md for vulnerabilities.
+          required: true

@@ -4,7 +4,7 @@
 
 Do not publish credentials, private room transcripts, infrastructure details, personal data, or exploit instructions in a public issue.
 
-Use GitHub's private vulnerability-reporting or security-advisory workflow when available. If it is unavailable, contact the repository owner through GitHub without including sensitive details and request a private channel.
+Use the repository's [private **Report a vulnerability** form](https://github.com/Jdelg718/the-green-room/security/advisories/new) under GitHub's **Security → Advisories** area. It creates a private report visible to repository maintainers; do not first open a public issue or include the report in public discussion.
 
 ## Repository hygiene
 
