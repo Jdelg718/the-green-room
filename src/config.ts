@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import {
   DEFAULT_LM_STUDIO_MODEL,
@@ -12,8 +12,32 @@ export interface AppConfig {
   readonly dataDir: string;
   readonly host: string;
   readonly lmStudioModel: string;
+  readonly personaInspectionExecutable: string | null;
+  readonly personaInspectionMode: "disabled" | "optional" | "required";
+  readonly personaInspectionSafeCwd: string;
+  readonly personaInspectionTempParent: string;
   readonly port: number;
   readonly provider: "mock" | "lmstudio";
+}
+
+function personaInspectionMode(
+  value: string | undefined,
+): "disabled" | "optional" | "required" {
+  if (value === undefined || value === "optional") return "optional";
+  if (value === "disabled" || value === "required") return value;
+  throw new Error(
+    "GREENROOM_PERSONA_INSPECTION must be disabled, optional, or required",
+  );
+}
+
+function personaInspectionExecutable(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  if (value === "" || !isAbsolute(value)) {
+    throw new Error(
+      "GREENROOM_PERSONA_VALIDATOR_EXECUTABLE must be an absolute path",
+    );
+  }
+  return value;
 }
 
 function generationProvider(value: string | undefined): "mock" | "lmstudio" {
@@ -133,6 +157,8 @@ export function loadConfig(
 ): AppConfig {
   const host = loopbackHost(environment.GREENROOM_HOST);
   const port = listenPort(environment.GREENROOM_PORT);
+  const dataDir = dataDirectory(environment.GREENROOM_DATA_DIR, cwd);
+  const personaInspectionRoot = join(dataDir, "runtime", "persona-inspection");
   return {
     acceptanceFixture: acceptanceFixture(
       environment.GREENROOM_ACCEPTANCE_FIXTURE,
@@ -141,9 +167,17 @@ export function loadConfig(
       environment.GREENROOM_ALLOWED_ORIGIN,
       httpOrigin({ host, port }),
     ),
-    dataDir: dataDirectory(environment.GREENROOM_DATA_DIR, cwd),
+    dataDir,
     host,
     lmStudioModel: lmStudioModel(environment.GREENROOM_LMSTUDIO_MODEL),
+    personaInspectionExecutable: personaInspectionExecutable(
+      environment.GREENROOM_PERSONA_VALIDATOR_EXECUTABLE,
+    ),
+    personaInspectionMode: personaInspectionMode(
+      environment.GREENROOM_PERSONA_INSPECTION,
+    ),
+    personaInspectionSafeCwd: join(personaInspectionRoot, "validator-cwd"),
+    personaInspectionTempParent: join(personaInspectionRoot, "tmp"),
     port,
     provider: generationProvider(environment.GREENROOM_PROVIDER),
   };

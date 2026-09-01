@@ -1,0 +1,11 @@
+{
+  "name": "green-room-original-character-workshop-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node verify_prototype.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

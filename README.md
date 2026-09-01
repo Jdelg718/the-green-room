@@ -8,7 +8,7 @@ The room—not a single chatbot—is the product.
 
 ## Status
 
-**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The pre-validator Node baseline is 151 tests; the integrated hybrid baseline passes those 151 Node tests plus 227 Python validator tests and the private first-playable acceptance.
+**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The current integrated release gate passes 192 Node tests, 227 Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance.
 
 This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 
@@ -29,6 +29,34 @@ npm run acceptance
 The command builds the app, exercises a fresh private room through the compiled
 loopback server, restarts it against the same temporary data, and removes its
 temporary data before exiting. A passing run ends with a single JSON summary.
+
+## Run from a clean source checkout with persona inspection
+
+Node 24 and `uv` are required. Prepare the JavaScript dependencies, create the
+locked repository virtual environment, build the Node runtime and its fixed
+preflight asset, then use the reviewed local-source launcher:
+
+```bash
+npm ci
+uv sync --locked --no-dev
+npm run build
+npm run start:local
+```
+
+On POSIX, `start:local` resolves `.venv/bin/greenroom-persona` to an absolute
+path. The launcher also recognizes the Windows `Scripts/greenroom-persona.exe`
+layout, but enabled Windows inspection intentionally fails until the ACL and Job
+Object gates below are implemented. Request handling
+does not search `PATH`, invoke `uv`, or use a shell. Ordinary `npm start` uses
+the source/development default `GREENROOM_PERSONA_INSPECTION=optional`; with no
+explicit absolute `GREENROOM_PERSONA_VALIDATOR_EXECUTABLE`, the inspection API
+returns the fixed `503 inspection_unavailable` response.
+
+This is a verified **POSIX local-source workflow**, not a downloadable
+production package. A relocatable Python/Node distribution, clean-host installer, signing,
+notarization, SBOM, Windows user-only ACLs, and Windows Job Object descendant
+cleanup remain explicit release gates. The repository virtual environment is
+never copied into Node runtime assets or represented as relocatable.
 
 ## Real local persona replies with LM Studio
 

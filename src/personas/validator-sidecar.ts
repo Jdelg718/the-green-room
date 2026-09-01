@@ -125,6 +125,8 @@ function sidecarEnvironment(executablePath: string): NodeJS.ProcessEnv {
     LC_ALL: "C.UTF-8",
     PYTHONNOUSERSITE: "1",
     PYTHONSAFEPATH: "1",
+    PYTHONUTF8: "1",
+    PYTHONIOENCODING: "utf-8",
     PEX_IGNORE_RCFILES: "1",
   };
   if (process.platform === "win32" && process.env.SystemRoot) {

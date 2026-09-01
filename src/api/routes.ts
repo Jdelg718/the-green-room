@@ -10,6 +10,12 @@ import type {
 
 import type { GenerationProvider } from "../providers/provider.js";
 import {
+  InspectionHttpError,
+  registerPersonaPackInspectionRoute,
+  sendInspectionHttpError,
+  type PersonaPackInspectionHttpService,
+} from "./persona-pack-inspection-route.js";
+import {
   currentRoomId,
   readCurrentRoom,
 } from "../db/index.js";
@@ -83,6 +89,8 @@ export interface ApiRoutesOptions {
   readonly onSseQueueSizeChange?: (size: number) => void;
   readonly onSseResponse?: (response: ServerResponse) => void;
   readonly provider?: GenerationProvider;
+  readonly personaPackInspectionService?: PersonaPackInspectionHttpService;
+  readonly inspectionDeadlineMs?: number;
   readonly sseHeartbeatMs?: number;
   readonly ssePollIntervalMs?: number;
   readonly sseQueueLimit?: number;
@@ -478,6 +486,10 @@ export function registerApiRoutes(
     });
 
     api.setErrorHandler((error, request, reply) => {
+      if (error instanceof InspectionHttpError) {
+        sendInspectionHttpError(reply, error);
+        return;
+      }
       if (
         error instanceof Error &&
         "code" in error &&
@@ -495,7 +507,22 @@ export function registerApiRoutes(
 
     api.get("/api/bootstrap", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
-      return { csrfToken: options.csrfToken };
+      return {
+        csrfToken: options.csrfToken,
+        capabilities: {
+          personaPackInspection:
+            options.personaPackInspectionService !== undefined,
+        },
+      };
+    });
+
+    registerPersonaPackInspectionRoute(api, {
+      ...(options.personaPackInspectionService === undefined
+        ? {}
+        : { service: options.personaPackInspectionService }),
+      ...(options.inspectionDeadlineMs === undefined
+        ? {}
+        : { deadlineMs: options.inspectionDeadlineMs }),
     });
 
     const catalogPersonas = Object.freeze((options.historicalCatalog?.personas ?? []).map(

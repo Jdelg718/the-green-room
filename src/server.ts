@@ -4,58 +4,118 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
 import { loadHistoricalCatalog } from "./personas/historical-catalog.js";
+import {
+  buildPersonaPackInspectionRuntime,
+  type PersonaPackInspectionRuntime,
+} from "./personas/persona-pack-inspection-runtime.js";
 import { selectProvider } from "./providers/select-provider.js";
 
 const config = loadConfig();
 const historicalCatalog = loadHistoricalCatalog(
   fileURLToPath(new URL("../personas/historical", import.meta.url)),
 );
-const store = openGreenRoomDatabase({
-  dataDir: config.dataDir,
-  migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
-});
-const provider = selectProvider({
-  acceptanceFixture: config.acceptanceFixture,
-  historicalCatalog,
-  lmStudioModel: config.lmStudioModel,
-  provider: config.provider,
-  onAcceptanceLatch(): void {
-    process.stdout.write(
-      `${JSON.stringify({ event: "acceptance_fixture_latched" })}\n`,
-    );
-  },
-});
-const app = buildApp({
-  allowedOrigin: config.allowedOrigin,
-  database: store.database,
-  historicalCatalog,
-  logger: true,
-  provider,
-  publicDir: fileURLToPath(new URL("../public", import.meta.url)),
-});
 
+let store: ReturnType<typeof openGreenRoomDatabase> | undefined;
+let runtime: PersonaPackInspectionRuntime | undefined;
+let app: ReturnType<typeof buildApp> | undefined;
 let closing = false;
-async function shutdown(signal: string): Promise<void> {
-  if (closing) {
-    return;
+
+async function closeResources(): Promise<void> {
+  const errors: unknown[] = [];
+  const currentApp = app;
+  app = undefined;
+  if (currentApp) {
+    try {
+      await currentApp.close();
+    } catch (error) {
+      errors.push(error);
+    }
   }
-  closing = true;
-  app.log.info({ signal }, "shutting down");
-  await app.close();
-  store.close();
+
+  const currentRuntime = runtime;
+  runtime = undefined;
+  if (currentRuntime) {
+    try {
+      await currentRuntime.close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  const currentStore = store;
+  store = undefined;
+  if (currentStore) {
+    try {
+      currentStore.close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "resource cleanup failed");
 }
 
-process.once("SIGINT", () => {
-  void shutdown("SIGINT");
-});
-process.once("SIGTERM", () => {
-  void shutdown("SIGTERM");
-});
+async function shutdown(signal: string): Promise<void> {
+  if (closing) return;
+  closing = true;
+  app?.log.info({ signal }, "shutting down");
+  try {
+    await closeResources();
+  } catch (error) {
+    process.stderr.write(
+      `Shutdown failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
+}
 
 try {
+  // Inspection validates and prepares its owned data-directory boundary before
+  // SQLite can create or migrate anything beneath an explicitly symlinked path.
+  runtime = await buildPersonaPackInspectionRuntime(config);
+  store = openGreenRoomDatabase({
+    dataDir: config.dataDir,
+    migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
+  });
+  const provider = selectProvider({
+    acceptanceFixture: config.acceptanceFixture,
+    historicalCatalog,
+    lmStudioModel: config.lmStudioModel,
+    provider: config.provider,
+    onAcceptanceLatch(): void {
+      process.stdout.write(
+        `${JSON.stringify({ event: "acceptance_fixture_latched" })}\n`,
+      );
+    },
+  });
+  app = buildApp({
+    allowedOrigin: config.allowedOrigin,
+    database: store.database,
+    historicalCatalog,
+    logger: true,
+    provider,
+    ...(runtime.service === undefined
+      ? {}
+      : { personaPackInspectionService: runtime.service }),
+    publicDir: fileURLToPath(new URL("../public", import.meta.url)),
+  });
+
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+
   await app.listen({ host: config.host, port: config.port });
 } catch (error) {
-  app.log.error(error, "startup failed");
-  store.close();
+  if (app) app.log.error(error, "startup failed");
+  else process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  try {
+    await closeResources();
+  } catch (cleanupError) {
+    process.stderr.write(
+      `Startup cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`,
+    );
+  }
   process.exitCode = 1;
 }

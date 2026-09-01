@@ -11,7 +11,7 @@ The current executable baseline provides:
 - durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
 - a fixed-loopback LM Studio private provider plus deterministic test providers;
 - 12 strictly validated historical candidate packs and a text/monogram cast gallery; and
-- security, integration, and acceptance coverage totaling 145 passing tests at baseline.
+- the current integrated release gate: 192 passing Node tests, 227 passing Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance.
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
 
@@ -65,25 +65,32 @@ This establishes technical viability. It does not approve historical candidates 
 
 ## R4 — persona catalog and artwork
 
-**Outcome:** safely validate and import portable persona packs, then admit only reviewed content and assets to the official catalog.
+**Outcome:** ship the researched historical cast prebuilt, let users create portable characters through a local wizard, safely import the same pack format, and admit only reviewed content and assets to public catalogs.
 
-- Integrate the strict persona validator and safe import flow.
+- Retain the integrated strict, non-extracting validator and inspection flow; installation remains a separate, explicit action after successful inspection.
+- Keep the exact twelve historical candidate packs available in the local application; admit public release versions only through the Official Catalog Manifest gate.
+- Build the local Character Wizard against the same `.greenroom` contract used by validation, import, and community distribution.
+- Persist wizard drafts in the local runtime rather than browser storage or `greenroomai.net`.
 - Maintain portrait asset records binding exact bytes to provenance, generation/source basis, attribution, and review evidence.
 - Preserve text/monogram fallbacks wherever a portrait is unavailable or fails to load.
 - Treat the 12 approved AI-generated portraits as website and local-app presentation assets with explicit creative-interpretation labeling; that publication does not admit the associated packs or artwork to the Official Catalog.
 - Hold portrait inclusion in downloadable packs and catalog distribution until exact-version asset-manifest review and Official Catalog admission.
 
-**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
+**Acceptance criteria:** a fresh local installation exposes all twelve exact historical candidate packs without a network request; identical wizard input exports deterministic bytes accepted by the strict validator; malformed or executable imports fail closed; inspection has no install side effect; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
 
 ## R5 — greenroomai.net and community release
 
 **Outcome:** establish `greenroomai.net` as the intended static public project, documentation, download, and contribution surface while the application continues to run locally.
 
 - Publish static project information, verified downloads, setup docs, contribution paths, and security/contact guidance after separate operator approval.
+- After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
+- Let the local application download only approved catalog definitions, verify the expected digest, validate again locally, inspect, and install with explicit approval.
 - Keep provider keys, transcripts, room state, memory, and pack drafts out of the website and its storage.
 - Treat any optional hosted or invite service as a future, separately reviewed multi-tenant architecture that is never required for local use.
 
 **Acceptance criteria:** DNS and deployment are claimed only after independent verification; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; and public contribution/catalog paths enforce the content policy.
+
+The portable-character and community boundary is specified in [ADR 0003](docs/adr/0003-portable-characters-and-community-library.md) and the [Character Wizard and community library delivery plan](docs/plans/2026-09-01-character-wizard-community-library.md).
 
 ## Future pillar — native Apple clients
 
