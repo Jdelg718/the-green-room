@@ -65,10 +65,10 @@ test("real Fastify serves all trusted portraits locally with verified bytes", as
   const manifestResponse = await app.inject({ method: "GET", url: "/assets/portraits/manifest.json", headers: { host: HOST } });
   assert.equal(manifestResponse.statusCode, 200);
   const manifest = manifestResponse.json<{ assets: Array<{ assetPath: string; sha256: string; altText: string }> }>();
-  assert.equal(manifest.assets.length, 12);
+  assert.equal(manifest.assets.length, 15);
   for (const asset of manifest.assets) {
     assert.match(asset.assetPath, /^\/assets\/portraits\/[a-z0-9-]+\.webp$/);
-    assert.match(asset.altText, /^Creative historical portrait of /);
+    assert.match(asset.altText, /^(?:Creative historical portrait of |Original portrait of )/);
     const response = await app.inject({ method: "GET", url: asset.assetPath, headers: { host: HOST } });
     assert.equal(response.statusCode, 200, asset.assetPath);
     assert.match(response.headers["content-type"] ?? "", /^image\/webp/);
@@ -93,6 +93,16 @@ test("real Fastify catalog supplies exactly twelve safe candidate DTO cards", as
   invalid[0].knowledge.domains = [];
   assert.throws(() => ui.validateCatalogDto(invalid), /invalid catalog/i);
   assert.throws(() => ui.validateCatalogDto(response.json().slice(0, 11)), /invalid catalog/i);
+});
+
+test("browser accepts the complete bootstrap capability contract", async (context) => {
+  const app = appFor(context);
+  const response = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: HOST } });
+  assert.equal(response.statusCode, 200);
+  const ui = await contract();
+  const bootstrap = ui.validateBootstrapDto(response.json());
+  assert.equal(typeof bootstrap.csrfToken, "string");
+  assert.deepEqual(bootstrap.capabilities, { personaPackInspection: false });
 });
 
 test("search, horizon, and domain filters use deterministic AND semantics", async (context) => {

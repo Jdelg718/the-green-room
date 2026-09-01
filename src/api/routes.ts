@@ -80,6 +80,12 @@ interface ParsedCastBody {
   readonly personaSlugs: readonly string[];
 }
 
+interface ParsedHumanProfileBody {
+  readonly emoji: string;
+}
+
+const HUMAN_EMOJIS = new Set(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
+
 export interface ApiRoutesOptions {
   readonly allowedOrigin: string;
   readonly csrfToken: string;
@@ -226,6 +232,14 @@ function parseCastBody(
     return undefined;
   }
   return { requestId: value.requestId, personaSlugs: value.personaSlugs };
+}
+
+function parseHumanProfileBody(value: unknown): ParsedHumanProfileBody | undefined {
+  if (!isPlainRecord(value) || !hasExactlyKeys(value, ["emoji"]) ||
+    typeof value.emoji !== "string" || !HUMAN_EMOJIS.has(value.emoji)) {
+    return undefined;
+  }
+  return { emoji: value.emoji };
 }
 
 function invalidRequest(reply: FastifyReply): FastifyReply {
@@ -578,7 +592,24 @@ export function registerApiRoutes(
       await service.close();
     });
 
+    const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
     api.get(`/api/rooms/${ROOM_ID}`, async () => readCurrentRoom(database));
+
+    api.get("/api/human-profile", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      const row = database.prepare("SELECT emoji FROM human_profile WHERE singleton = 1").get() as { emoji: string };
+      return { emoji: row.emoji };
+    });
+
+    api.post("/api/human-profile", routeOptions, async (request, reply) => {
+      const body = parseHumanProfileBody(request.body);
+      if (body === undefined) return invalidRequest(reply);
+      database.prepare(
+        "UPDATE human_profile SET emoji = ?, updated_at = CURRENT_TIMESTAMP WHERE singleton = 1",
+      ).run(body.emoji);
+      reply.header("Cache-Control", "no-store");
+      return body;
+    });
 
     api.get(`/api/rooms/${ROOM_ID}/events`, async (request, reply) => {
       const after = parseCursor(request);
@@ -602,7 +633,6 @@ export function registerApiRoutes(
       streams.connect(request, reply, roomId, after);
     });
 
-    const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
     api.post(
       `/api/rooms/${ROOM_ID}/messages`,
       routeOptions,

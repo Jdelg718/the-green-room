@@ -13,6 +13,7 @@ function sameOriginPath(path) {
 export const API_PATHS = Object.freeze({
   bootstrap: "/api/bootstrap",
   catalog: "/api/catalog/personas",
+  humanProfile: "/api/human-profile",
   cast: `/api/rooms/${ROOM_ID}/cast`,
   room: `/api/rooms/${ROOM_ID}`,
   events(after) {
@@ -51,10 +52,14 @@ const ORIGINAL_PERSONA_PRESENTATION = Object.freeze({
   fixer: Object.freeze({ role: "Original persona · fixer", temperament: "Charming, pragmatic, and leverage-minded" }),
   optimist: Object.freeze({ role: "Original persona · optimist", temperament: "Organized, community-minded, and resolute" }),
 });
+export const HUMAN_EMOJIS = Object.freeze(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
 
 // Portrait paths are application-owned and bound only to built-in canonical IDs.
 // Catalog/persona data cannot provide or override image URLs.
 export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
+  detective: Object.freeze({ src: "/assets/portraits/detective.webp", alt: "Original portrait of The Detective holding a notebook in a shadowed study.", objectPosition: "50% 30%" }),
+  fixer: Object.freeze({ src: "/assets/portraits/fixer.webp", alt: "Original portrait of The Fixer holding a brass key in a dim workshop-office.", objectPosition: "50% 28%" }),
+  optimist: Object.freeze({ src: "/assets/portraits/optimist.webp", alt: "Original portrait of The Optimist holding planning cards in a welcoming meeting room.", objectPosition: "50% 27%" }),
   "ada-lovelace": Object.freeze({ src: "/assets/portraits/ada-lovelace.webp", alt: "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.", objectPosition: "50% 33%" }),
   "benjamin-franklin": Object.freeze({ src: "/assets/portraits/benjamin-franklin.webp", alt: "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.", objectPosition: "50% 36%" }),
   "elizabeth-i": Object.freeze({ src: "/assets/portraits/elizabeth-i.webp", alt: "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.", objectPosition: "50% 32%" }),
@@ -153,6 +158,23 @@ export function validateCatalogDto(value) {
     });
   });
   return Object.freeze(personas);
+}
+
+export function validateBootstrapDto(value) {
+  if (!exactKeys(value, ["capabilities", "csrfToken"]) ||
+    !boundedText(value.csrfToken, 512) ||
+    !exactKeys(value.capabilities, ["personaPackInspection"]) ||
+    typeof value.capabilities.personaPackInspection !== "boolean") {
+    throw new RequestFailure("invalid_response");
+  }
+  return value;
+}
+
+export function validateHumanProfileDto(value) {
+  if (!exactKeys(value, ["emoji"]) || !HUMAN_EMOJIS.includes(value.emoji)) {
+    throw new RequestFailure("invalid_response");
+  }
+  return value;
 }
 
 export function catalogFilterOptions(catalog) {
@@ -286,7 +308,8 @@ function renderCharacterPortrait(personaId, displayName, options = {}, documentR
   portrait.className = `character-portrait ${options.className ?? "portrait-avatar"}`;
   const fallback = documentRoot.createElement("span");
   fallback.className = "portrait-fallback";
-  fallback.textContent = identity.monogram;
+  fallback.textContent = options.fallbackText ?? identity.monogram;
+  if (options.fallbackText) fallback.classList?.add("emoji-avatar");
   fallback.setAttribute?.("aria-hidden", "true");
   if (!identity.trusted) {
     portrait.append(fallback);
@@ -323,7 +346,11 @@ export function renderTranscriptEvent(record, participantName, documentRoot = do
   body.append(speaker, text);
   if (event.type === "human_message") {
     item.classList.add("event-human");
-    speaker.textContent = participantName(safeText(event.participantId));
+    const participantId = safeText(event.participantId);
+    const displayName = participantName(participantId);
+    const identity = participantIdentity(participantId);
+    body.prepend(renderCharacterPortrait(null, displayName, { className: "portrait-transcript", width: 72, height: 72, fallbackText: identity?.emoji }, documentRoot));
+    speaker.textContent = displayName;
     text.textContent = safeText(event.text);
   } else if (event.type === "persona_message") {
     item.classList.add("event-persona");
@@ -835,6 +862,7 @@ export function startBrowserApp() {
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
   };
   let csrfToken = "";
+  let humanEmoji = HUMAN_EMOJIS[0];
   let room = null;
   let catalog = null;
   let catalogError = "";
@@ -866,7 +894,10 @@ export function startBrowserApp() {
 
   function catalogPersona(slug) { return catalog?.find((persona) => persona.slug === slug) ?? null; }
   function participantName(participantId) { return room?.participants.find(({ id }) => id === participantId)?.displayName ?? "Cast member"; }
-  function participantIdentity(participantId) { return room?.participants.find(({ id }) => id === participantId) ?? null; }
+  function participantIdentity(participantId) {
+    const participant = room?.participants.find(({ id }) => id === participantId) ?? null;
+    return participant?.kind === "human" ? { ...participant, emoji: humanEmoji } : participant;
+  }
 
   function renderControls() {
     if (room === null) return;
@@ -887,10 +918,12 @@ export function startBrowserApp() {
     for (const button of elements.castList.querySelectorAll("[data-persona-control]")) {
       button.disabled = !controlAvailability(room.status, pending, false, button.dataset.personaControl).canToggleMute;
     }
+    for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = pending.size !== 0;
     if (roomStatusUnknown) {
       elements.messageText.disabled = true; elements.wantsResponse.disabled = true; elements.sendMessage.disabled = true;
       elements.pauseResume.disabled = true; elements.stopRoom.disabled = true; elements.openSetup.disabled = true;
       for (const button of elements.castList.querySelectorAll("[data-persona-control]")) button.disabled = true;
+      for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = true;
     }
   }
 
@@ -903,7 +936,7 @@ export function startBrowserApp() {
     elements.identityRoster.replaceChildren();
     for (const [index, participant] of room.participants.entries()) {
       const item = node("li", `cast-member${participant.muted ? " is-muted" : ""}`);
-      const portrait = renderCharacterPortrait(participant.kind === "persona" ? participant.personaSlug : null, participant.displayName, { className: "portrait-roster", width: 96, height: 96, eager: true });
+      const portrait = renderCharacterPortrait(participant.kind === "persona" ? participant.personaSlug : null, participant.displayName, { className: "portrait-roster", width: 96, height: 96, eager: true, fallbackText: participant.kind === "human" ? humanEmoji : undefined });
       const identity = node("div");
       identity.append(node("strong", "persona-name", participant.displayName));
       const presentation = participant.kind === "persona" ? activePersonaPresentation(participant.personaSlug, catalog) : null;
@@ -920,6 +953,20 @@ export function startBrowserApp() {
         button.dataset.action = participant.muted ? "unmute" : "mute";
         button.setAttribute("aria-label", `${participant.muted ? "Unmute" : "Mute"} ${participant.displayName}`);
         item.append(button);
+      } else {
+        const label = node("label", "human-emoji-picker");
+        label.append(node("span", "", "Your emoji"));
+        const select = node("select");
+        select.setAttribute("aria-label", "Choose your emoji");
+        select.dataset.humanEmoji = "";
+        for (const emoji of HUMAN_EMOJIS) {
+          const option = node("option", "", emoji);
+          option.value = emoji;
+          option.selected = emoji === humanEmoji;
+          select.append(option);
+        }
+        label.append(select);
+        item.append(label);
       }
       elements.castList.append(item);
       if (participant.kind === "persona") {
@@ -1246,6 +1293,20 @@ export function startBrowserApp() {
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) return;
     await mutate(`persona:${personaId}`, API_PATHS.personaControl(personaId, action), { requestId: createRequestId(`${action}-${personaId}`) }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
   });
+  elements.castList.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-human-emoji]");
+    if (select === null || !HUMAN_EMOJIS.includes(select.value) || pending.size !== 0) return;
+    pending.add("human-profile"); renderControls();
+    try {
+      const profile = validateHumanProfileDto(await postJson(API_PATHS.humanProfile, { emoji: select.value }, csrfToken));
+      humanEmoji = profile.emoji;
+      renderRoom(room);
+      setActionStatus("Your emoji was saved on this device.");
+    } catch (error) {
+      setActionStatus(userMessage(error), "error");
+      renderRoom(room);
+    } finally { pending.delete("human-profile"); renderControls(); }
+  });
   elements.openSetup.addEventListener("click", () => { if (!elements.openSetup.disabled && pending.size === 0) showSetup(); }); elements.cancelSetup.addEventListener("click", () => showLive());
   elements.filters.addEventListener("submit", (event) => event.preventDefault());
   elements.filters.addEventListener("input", renderGallery); elements.filters.addEventListener("change", renderGallery);
@@ -1270,8 +1331,9 @@ export function startBrowserApp() {
       await initializeRoomBeforeCatalog({
         async bootstrapRoom() {
           const bootstrap = await getJson(API_PATHS.bootstrap);
-          if (!plainRecord(bootstrap) || !exactKeys(bootstrap, ["csrfToken"]) || !boundedText(bootstrap.csrfToken, 512)) throw new RequestFailure("invalid_response");
+          validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
+          humanEmoji = validateHumanProfileDto(await getJson(API_PATHS.humanProfile)).emoji;
           const nextRoom = await getJson(API_PATHS.room);
           renderRoom(nextRoom);
           lifecycle.replace(createChannel(room.sessionId));

@@ -1,7 +1,52 @@
 {
   "schemaVersion": "1.0",
-  "scope": "Sanitized local built-in historical portrait identity assets only.",
+  "scope": "Sanitized local built-in character portrait identity assets only.",
   "assets": [
+    {
+      "trustedId": "detective",
+      "assetPath": "/assets/portraits/detective.webp",
+      "altText": "Original portrait of The Detective holding a notebook in a shadowed study.",
+      "objectPosition": "50% 30%",
+      "sha256": "475843cb5142942ca2ae718934353831c713a1ecbdc4f7ba90f0cc594f9d1d1f",
+      "bytes": 49836,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Codex built-in image tool · 2026-09-01",
+        "creativeInterpretation": "Original AI-generated archetype portrait; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-01",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "fixer",
+      "assetPath": "/assets/portraits/fixer.webp",
+      "altText": "Original portrait of The Fixer holding a brass key in a dim workshop-office.",
+      "objectPosition": "50% 28%",
+      "sha256": "8e590679c26e01daae1a35bb80a8f4ec9d503efe1bc3ac8c6a883698e1b581e9",
+      "bytes": 63280,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Codex built-in image tool · 2026-09-01",
+        "creativeInterpretation": "Original AI-generated archetype portrait; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-01",
+        "catalogAdmission": false
+      }
+    },
+    {
+      "trustedId": "optimist",
+      "assetPath": "/assets/portraits/optimist.webp",
+      "altText": "Original portrait of The Optimist holding planning cards in a welcoming meeting room.",
+      "objectPosition": "50% 27%",
+      "sha256": "0d364e360d41ff890100aab0a696a064135b9cd002b50b6a5cbc0818393ddb04",
+      "bytes": 75214,
+      "provenance": {
+        "assetStatus": "generated",
+        "sourceReference": "Codex built-in image tool · 2026-09-01",
+        "creativeInterpretation": "Original AI-generated archetype portrait; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-01",
+        "catalogAdmission": false
+      }
+    },
     {
       "trustedId": "ada-lovelace",
       "assetPath": "/assets/portraits/ada-lovelace.webp",
