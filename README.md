@@ -8,7 +8,7 @@ The room—not a single chatbot—is the product.
 
 ## Status
 
-**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The current integrated release gate passes 179 Node tests, 227 Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance.
+**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The current integrated release gate passes 192 Node tests, 227 Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance.
 
 This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 

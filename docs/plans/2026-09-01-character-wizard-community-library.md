@@ -2,7 +2,7 @@
 
 ## Baseline and outcome
 
-This reconciliation starts from exact main commit `5bcb39bb355945799b19071dd0df9c31ac93db0b`. That baseline already includes the executable historical runtime, strict Python validator, bounded Node validator sidecar, non-installing inspection flow, approved local/site portrait presentation, and shared Node/Swift client-contract fixture spike. The target product flow is:
+This reconciliation was finalized against exact main commit `d2aaf2a830d1e3236481c3cbec09f576fbf91204`. That baseline includes the executable historical runtime, strict Python validator, bounded Node validator sidecar, non-installing inspection flow, approved local/site portrait presentation, shared Node/Swift client-contract fixture spike, and strict provider-profile contracts. The target product flow is:
 
 1. install Green Room with twelve researched historical characters present locally;
 2. create and rehearse original characters through a guided local wizard;
