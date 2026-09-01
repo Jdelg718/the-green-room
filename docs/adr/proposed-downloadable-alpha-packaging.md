@@ -1,11 +1,13 @@
-# Proposed ADR: Downloadable alpha packaging and lifecycle boundary
+# ADR: Downloadable alpha packaging and lifecycle boundary
 
-- **Status:** Proposed — architecture and spike authorization only
+- **Status:** Accepted — bounded implementation spike authorization only
 - **Date:** 2026-09-01
 - **Decision owners:** Green Room maintainer and release owner
 - **Planning baseline:** `98d882a3f7df373457e6031f9f39ac544dbadfb4`
 - **Supersedes:** the packaging assumptions in closed PR #52; it does not supersede accepted ADR 0002
 - **Implements:** no installer, release, deployment, provider, or update service
+
+Acceptance authorizes only the private Tasks 1–25 implementation and evidence sequence below. It is not a claim that a downloadable artifact exists, that any platform is supported, or that signing, notarization, publication, deployment, or release approval has occurred.
 
 ## Decision summary
 

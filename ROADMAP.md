@@ -45,7 +45,9 @@ This establishes technical viability. It does not approve historical candidates 
 
 **Outcome:** make local installation, setup, recovery, and removal understandable to non-specialists without claiming unverified cross-platform installers.
 
-The current packaging boundary and executable spike sequence are defined in the [proposed downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). They replace closed PR #52's obsolete greenfield/runtime assumptions. They are architecture and implementation planning, not evidence that an installer or downloadable release exists.
+The current packaging boundary and executable spike sequence are defined in the [accepted downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). Acceptance authorizes bounded private implementation spikes only. It replaces closed PR #52's obsolete greenfield/runtime assumptions but is not evidence that an installer, signed artifact, clean-host pass, supported platform, downloadable release, or publication exists.
+
+**Current truth:** the first P0/P1 source hardening slice is under implementation. Release-manifest, source-preflight, data-root, and single-writer-lock contracts may be exercised in source tests; clean macOS/Ubuntu host evidence, a packaged payload, signing/notarization, lifecycle acceptance, and every publication gate remain pending.
 
 - Prove the locked source/operator workflow first on named clean macOS arm64 and Ubuntu 24.04 x64 targets.
 - Run one bounded macOS Apple-silicon downloadable spike that preserves the Node 24 runtime and strict validator as separate, supervised, absolute-path executables.

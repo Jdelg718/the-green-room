@@ -7,6 +7,10 @@
   "engines": {
     "node": "24.x"
   },
+  "greenroomPackageIdentity": {
+    "bundleIdentifier": "net.greenroomai.GreenRoom",
+    "releaseManifestSchemaVersion": 1
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,6 +19,7 @@
     "check:python": "uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
     "check:all": "npm run check && npm run check:python",
     "check:release": "npm run check:all && npm run acceptance",
+    "preflight:source": "node scripts/source-clean-host.mjs",
     "start": "node dist/src/server.js",
     "start:local": "node scripts/start-local.mjs",
     "dev": "npm run build && node --watch dist/src/server.js",
@@ -22,10 +27,13 @@
   },
   "dependencies": {
     "fastify": "5.12.1",
+    "fs-ext": "2.1.1",
     "yaml": "2.9.0"
   },
   "devDependencies": {
+    "@types/fs-ext": "2.0.3",
     "@types/node": "24.10.1",
+    "ajv": "8.20.0",
     "typescript": "5.9.3"
   }
 }

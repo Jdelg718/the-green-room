@@ -20,6 +20,7 @@ test("config uses private loopback defaults", () => {
       "/tmp/green-room-checkout/.local/first-playable/runtime/persona-inspection/tmp",
     port: 8787,
     provider: "mock",
+    runtimeMode: "source",
   });
 });
 
