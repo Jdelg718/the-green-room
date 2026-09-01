@@ -9,7 +9,9 @@ const {
   assertInstallPolicy,
   assertInstallScriptsReport,
   assertInspectionReport,
+  assertProtectedDispatch,
   descendantProcesses,
+  evaluateSourcePhaseAudit,
   pathsOutsideRoots,
 } = await import(pathToFileURL(join(process.cwd(), "scripts/clean-source-evidence.mjs")).href) as typeof import("../../scripts/clean-source-evidence.mjs");
 
@@ -111,6 +113,84 @@ test("write-root and descendant audits are deterministic", () => {
   ]);
 });
 
+test("source-phase audit fails closed on real-home modification, deletion, and scan errors", () => {
+  const entry = (canonicalPath: string, sha256: string) => ({
+    canonicalPath,
+    type: "regular",
+    uid: 550,
+    gid: 20,
+    mode: "00600",
+    device: "1",
+    inode: "42",
+    linkCount: "1",
+    size: "8",
+    mtimeNs: "100",
+    sha256,
+  });
+  const snapshot = (entries: ReturnType<typeof entry>[]) => ({
+    schemaVersion: 1,
+    uid: 550,
+    complete: true,
+    roots: [{ path: "/Users", device: "1", traversed: true, sameDeviceOnly: true }],
+    entries,
+  });
+  const allowedRoot = "/private/tmp/evidence";
+  const existingHomePath = "/Users/greenroomci/existing.txt";
+  const baseline = snapshot([entry(existingHomePath, "a".repeat(64))]);
+  const modified = evaluateSourcePhaseAudit({
+    before: baseline,
+    after: snapshot([entry(existingHomePath, "b".repeat(64))]),
+    beforeErrors: "",
+    afterErrors: "",
+    allowedRoot,
+    expectedUid: 550,
+  });
+  assert.equal(modified.passed, false);
+  assert.deepEqual(modified.modifiedUserOwnedPathsOutsideDeclaredRoot.map(({ path }) => path), [existingHomePath]);
+
+  const deleted = evaluateSourcePhaseAudit({
+    before: baseline,
+    after: snapshot([]),
+    beforeErrors: "",
+    afterErrors: "",
+    allowedRoot,
+    expectedUid: 550,
+  });
+  assert.equal(deleted.passed, false);
+  assert.deepEqual(deleted.deletedUserOwnedPathsOutsideDeclaredRoot.map(({ path }) => path), [existingHomePath]);
+
+  const scanError = evaluateSourcePhaseAudit({
+    before: baseline,
+    after: baseline,
+    beforeErrors: "",
+    afterErrors: "readdir\t/Users/greenroomci\tEACCES\n",
+    allowedRoot,
+    expectedUid: 550,
+  });
+  assert.equal(scanError.passed, false);
+  assert.equal(scanError.coverage.errorsEmpty, false);
+
+  const incompleteAfter = snapshot([entry(existingHomePath, "a".repeat(64))]);
+  incompleteAfter.complete = false;
+  incompleteAfter.roots[0]!.traversed = false;
+  const incomplete = evaluateSourcePhaseAudit({
+    before: baseline,
+    after: incompleteAfter,
+    beforeErrors: "",
+    afterErrors: "",
+    allowedRoot,
+    expectedUid: 550,
+  });
+  assert.equal(incomplete.passed, false);
+  assert.equal(incomplete.coverage.complete, false);
+});
+
+test("protected dispatch requires the exact true value", () => {
+  assert.equal(assertProtectedDispatch("true"), true);
+  assert.throws(() => assertProtectedDispatch("false"));
+  assert.throws(() => assertProtectedDispatch(undefined));
+});
+
 test("manual workflow preserves the evidence-only GitHub boundary", () => {
   const workflow = readFileSync(".github/workflows/clean-source-evidence.yml", "utf8");
   assert.match(workflow, /on:\n  workflow_dispatch:\n/);
@@ -120,9 +200,18 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /os: macos-14/);
   assert.match(workflow, /os: ubuntu-24\.04/);
   assert.match(workflow, /SOURCE_SHA: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /SOURCE_REF_PROTECTED: \$\{\{ github\.ref_protected \}\}/);
+  assert.match(workflow, /test "\$SOURCE_REF_PROTECTED" = true/);
+  assert.match(workflow, /HOME="\$EVIDENCE_SOURCE_HOME"/);
+  assert.match(workflow, /greenroom-user-owned-snapshot/);
+  assert.match(workflow, /test ! -s "\$errors"/);
+  assert.match(workflow, /sha256/);
+  assert.match(workflow, /symlinkTarget/);
   assert.match(workflow, /git clone --filter=blob:none --no-checkout/);
   const harness = readFileSync("scripts/clean-source-evidence.mjs", "utf8");
   assert.match(workflow, /clean-source-evidence\.mjs.*run/);
+  assert.match(harness, /declaredWriteRoots: \[workRoot\]/);
+  assert.doesNotMatch(harness, /declaredWriteRoots: \[workRoot, homedir\(\)\]/);
   assert.match(harness, /\["ci", "--strict-allow-scripts=true", "--foreground-scripts"\]/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
 });

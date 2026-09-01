@@ -17,6 +17,30 @@ export function assertAcceptanceSummary<T extends Record<string, any>>(summary: 
 export function assertInspectionReport<T extends Record<string, any>>(report: T): T;
 
 export function pathsOutsideRoots(paths: string[], roots: string[]): string[];
+export function assertProtectedDispatch(value: unknown): true;
+
+export interface SourcePhaseSnapshot {
+  schemaVersion: number;
+  uid: number;
+  complete: boolean;
+  roots: Array<{ path: string; device: string | null; traversed: boolean; sameDeviceOnly: boolean }>;
+  entries: Array<{ canonicalPath: string; [key: string]: unknown }>;
+}
+
+export function evaluateSourcePhaseAudit(options: {
+  before: SourcePhaseSnapshot;
+  after: SourcePhaseSnapshot;
+  beforeErrors: string;
+  afterErrors: string;
+  allowedRoot: string;
+  expectedUid: number;
+}): {
+  passed: boolean;
+  coverage: { errorsEmpty: boolean; [key: string]: unknown };
+  createdUserOwnedPathsOutsideDeclaredRoot: Array<{ path: string; [key: string]: unknown }>;
+  modifiedUserOwnedPathsOutsideDeclaredRoot: Array<{ path: string; [key: string]: unknown }>;
+  deletedUserOwnedPathsOutsideDeclaredRoot: Array<{ path: string; [key: string]: unknown }>;
+};
 
 export interface ProcessEntry {
   pid: number;

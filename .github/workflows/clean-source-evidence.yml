@@ -31,6 +31,7 @@ jobs:
       SOURCE_REPOSITORY: Jdelg718/the-green-room
       SOURCE_URL: https://github.com/Jdelg718/the-green-room.git
       SOURCE_SHA: ${{ github.sha }}
+      SOURCE_REF_PROTECTED: ${{ github.ref_protected }}
       EVIDENCE_USER: greenroomci
       EVIDENCE_ROOT: ${{ runner.temp }}/greenroom-clean-source-evidence
 
@@ -41,6 +42,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
+          test "$SOURCE_REF_PROTECTED" = true
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Set up Node.js 24.20.0
@@ -55,21 +57,93 @@ jobs:
           version: 0.12.8
           enable-cache: false
 
-      - name: Prepare a globally readable exact toolchain
+      - name: Prepare a globally readable exact toolchain and snapshot utility
         shell: bash
         run: |
           set -euo pipefail
-          npm install --global npm@11.19.0 --ignore-scripts --no-audit --no-fund
           test "$(node --version)" = v24.20.0
           test "$(npm --version)" = 11.19.0
           [[ "$(uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
           test "$(node -p 'process.platform')" = "${{ matrix.expected_platform }}"
           test "$(node -p 'process.arch')" = "${{ matrix.expected_arch }}"
-          NODE_BIN="$(dirname "$(command -v node)")"
-          UV_BIN="$(dirname "$(command -v uv)")"
-          sudo chmod -R a+rX "$(dirname "$NODE_BIN")" "$(dirname "$UV_BIN")"
-          TOOL_PATH="$NODE_BIN:$UV_BIN:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          printf 'EVIDENCE_TOOL_PATH=%s\n' "$TOOL_PATH" >> "$GITHUB_ENV"
+          npm_root="$(npm root --global)/npm"
+          sudo install -m 0755 "$(command -v node)" /usr/local/bin/node
+          sudo rm -rf /usr/local/lib/node_modules/npm
+          sudo install -d -m 0755 /usr/local/lib/node_modules
+          sudo cp -R "$npm_root" /usr/local/lib/node_modules/npm
+          sudo ln -sfn ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+          sudo ln -sfn ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+          sudo install -m 0755 "$(command -v uv)" /usr/local/bin/uv
+          sudo tee /usr/local/bin/greenroom-user-owned-snapshot >/dev/null <<'NODE'
+          #!/usr/local/bin/node
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const crypto = require("node:crypto");
+          const [uidText, outputPath, errorsPath, ...requestedRoots] = process.argv.slice(2);
+          const uid = Number(uidText);
+          const errors = [];
+          const entries = new Map();
+          const roots = [];
+          const reportError = (operation, target, error) => errors.push(`${operation}\t${target}\t${error.code ?? error.name ?? "ERROR"}\t${error.message}`);
+          const canonicalPath = (target) => target === "/" ? "/" : path.join(fs.realpathSync(path.dirname(target)), path.basename(target));
+          const typeOf = (stat) => stat.isFile() ? "regular" : stat.isDirectory() ? "directory" : stat.isSymbolicLink() ? "symlink" : stat.isSocket() ? "socket" : stat.isFIFO() ? "fifo" : stat.isCharacterDevice() ? "character-device" : stat.isBlockDevice() ? "block-device" : "other";
+          const visit = (target, rootDevice, rootState) => {
+            let stat;
+            try { stat = fs.lstatSync(target, { bigint: true }); }
+            catch (error) { reportError("lstat", target, error); rootState.traversed = false; return; }
+            let canonical;
+            try { canonical = canonicalPath(target); }
+            catch (error) { reportError("realpath-parent", target, error); rootState.traversed = false; return; }
+            if (Number(stat.uid) === uid) {
+              const entry = {
+                canonicalPath: canonical,
+                type: typeOf(stat),
+                uid: Number(stat.uid),
+                gid: Number(stat.gid),
+                mode: `0${(Number(stat.mode) & 0o7777).toString(8).padStart(4, "0")}`,
+                device: stat.dev.toString(),
+                inode: stat.ino.toString(),
+                linkCount: stat.nlink.toString(),
+                size: stat.size.toString(),
+                mtimeNs: stat.mtimeNs.toString(),
+              };
+              try {
+                if (stat.isFile()) entry.sha256 = crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex");
+                if (stat.isSymbolicLink()) entry.symlinkTarget = fs.readlinkSync(target);
+              } catch (error) { reportError(stat.isFile() ? "sha256" : "readlink", target, error); rootState.traversed = false; }
+              const previous = entries.get(canonical);
+              if (previous && JSON.stringify(previous) !== JSON.stringify(entry)) {
+                reportError("canonical-collision", canonical, new Error("different metadata for the same canonical path"));
+                rootState.traversed = false;
+              } else entries.set(canonical, entry);
+            }
+            if (!stat.isDirectory() || stat.dev !== rootDevice) return;
+            let names;
+            try { names = fs.readdirSync(target).sort(); }
+            catch (error) { reportError("readdir", target, error); rootState.traversed = false; return; }
+            for (const name of names) visit(path.join(target, name), rootDevice, rootState);
+          };
+          if (!Number.isSafeInteger(uid) || uid <= 0 || requestedRoots.length === 0) throw new Error("usage: snapshot UID OUTPUT ERRORS ROOT...");
+          for (const requestedRoot of requestedRoots) {
+            const normalized = path.resolve(requestedRoot);
+            const state = { path: normalized, device: null, traversed: true, sameDeviceOnly: true };
+            roots.push(state);
+            try {
+              const rootStat = fs.lstatSync(normalized, { bigint: true });
+              state.device = rootStat.dev.toString();
+              visit(normalized, rootStat.dev, state);
+            } catch (error) { reportError("root", normalized, error); state.traversed = false; }
+          }
+          const snapshot = { schemaVersion: 1, uid, complete: errors.length === 0 && roots.every((root) => root.traversed), roots, entries: [...entries.values()].sort((a, b) => a.canonicalPath.localeCompare(b.canonicalPath)) };
+          fs.writeFileSync(outputPath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
+          fs.writeFileSync(errorsPath, errors.length === 0 ? "" : `${errors.join("\n")}\n`, { mode: 0o600 });
+          NODE
+          sudo chmod 0755 /usr/local/bin/greenroom-user-owned-snapshot
+          EVIDENCE_TOOL_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          test "$(env PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
+          test "$(env PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
+          [[ "$(env PATH="$EVIDENCE_TOOL_PATH" uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
+          printf 'EVIDENCE_TOOL_PATH=%s\n' "$EVIDENCE_TOOL_PATH" >> "$GITHUB_ENV"
 
       - name: Create a separate non-admin evidence user
         shell: bash
@@ -99,25 +173,29 @@ jobs:
             ! id -nG "$EVIDENCE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|adm|wheel)$'
           fi
           EVIDENCE_UID="$(id -u "$EVIDENCE_USER")"
-          sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT"
-          printf 'EVIDENCE_HOME=%s\nEVIDENCE_UID=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_UID" >> "$GITHUB_ENV"
+          EVIDENCE_SOURCE_HOME="$EVIDENCE_ROOT/home"
+          sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT" "$EVIDENCE_SOURCE_HOME"
+          printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_UID=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_UID" >> "$GITHUB_ENV"
           sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" /usr/bin/id
           test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
           test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
           [[ "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
           test "$EVIDENCE_UID" -ne 0
 
-      - name: Record the new-user ownership baseline
+      - name: Record the complete pre-source user-owned snapshot
         shell: bash
         run: |
           set -euo pipefail
-          audit="$EVIDENCE_ROOT/audit-before.txt"
+          audit="$EVIDENCE_ROOT/audit-before.json"
           errors="$EVIDENCE_ROOT/audit-before-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            sudo /bin/bash -c 'set -euo pipefail; find /Users /private/tmp /private/var /System/Volumes/Data -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$audit"
+            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
           else
-            sudo /bin/bash -c 'set -euo pipefail; find / /home /tmp /var/tmp /opt /usr/local /run -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$audit"
+            roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
+          sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$audit" "$errors" "${roots[@]}"
+          test ! -s "$errors"
+          sudo env PATH="$EVIDENCE_TOOL_PATH" node -e 'const s=require(process.argv[1]); if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true)) process.exit(1)' "$audit"
           sudo chmod 0600 "$audit" "$errors"
 
       - name: Public-clone and run the exact dispatched source as the evidence user
@@ -128,10 +206,11 @@ jobs:
           evidence="$EVIDENCE_ROOT/evidence"
           data_root="$EVIDENCE_ROOT/disposable-data"
           sudo -u "$EVIDENCE_USER" env \
-            HOME="$EVIDENCE_HOME" \
+            HOME="$EVIDENCE_SOURCE_HOME" \
             PATH="$EVIDENCE_TOOL_PATH" \
             SOURCE_URL="$SOURCE_URL" \
             SOURCE_SHA="$SOURCE_SHA" \
+            SOURCE_REF_PROTECTED="$SOURCE_REF_PROTECTED" \
             CHECKOUT="$checkout" \
             EVIDENCE="$evidence" \
             DATA_ROOT="$data_root" \
@@ -152,26 +231,31 @@ jobs:
                 --sha="$SOURCE_SHA"
             '
 
-      - name: Audit writes and finalize machine-readable evidence
+      - name: Audit source-phase writes and finalize machine-readable evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          after="$EVIDENCE_ROOT/audit-after.txt"
+          after="$EVIDENCE_ROOT/audit-after.json"
           errors="$EVIDENCE_ROOT/audit-after-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            sudo /bin/bash -c 'set -euo pipefail; find /Users /private/tmp /private/var /System/Volumes/Data -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$after"
+            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
           else
-            sudo /bin/bash -c 'set -euo pipefail; find / /home /tmp /var/tmp /opt /usr/local /run -xdev -uid "$1" -print 2>"$2" | LC_ALL=C sort -u > "$3"' _ "$EVIDENCE_UID" "$errors" "$after"
+            roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
+          sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$after" "$errors" "${roots[@]}"
           sudo chmod 0600 "$after" "$errors"
           script="$EVIDENCE_ROOT/checkout/scripts/clean-source-evidence.mjs"
           status=0
           if [[ -f "$script" && -f "$EVIDENCE_ROOT/evidence/harness-evidence.json" ]]; then
             sudo env PATH="$EVIDENCE_TOOL_PATH" node "$script" finalize \
               --evidence-root="$EVIDENCE_ROOT/evidence" \
-              --audit-before="$EVIDENCE_ROOT/audit-before.txt" \
-              --audit-after="$after" || status=$?
+              --audit-before="$EVIDENCE_ROOT/audit-before.json" \
+              --audit-after="$after" \
+              --audit-before-errors="$EVIDENCE_ROOT/audit-before-errors.log" \
+              --audit-after-errors="$errors" \
+              --allowed-root="$EVIDENCE_ROOT" \
+              --uid="$EVIDENCE_UID" || status=$?
           else
             echo "Harness evidence is unavailable; clone or harness startup failed." >&2
             status=1
@@ -187,9 +271,9 @@ jobs:
           name: clean-source-evidence-${{ matrix.target }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/greenroom-clean-source-evidence/evidence
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before.txt
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before.json
             ${{ runner.temp }}/greenroom-clean-source-evidence/audit-before-errors.log
-            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after.txt
+            ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after.json
             ${{ runner.temp }}/greenroom-clean-source-evidence/audit-after-errors.log
           if-no-files-found: warn
           include-hidden-files: true

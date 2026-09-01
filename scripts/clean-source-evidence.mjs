@@ -14,7 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer as createNetServer, createConnection } from "node:net";
-import { arch, homedir, platform, release, userInfo } from "node:os";
+import { arch, platform, release, userInfo } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -93,6 +93,88 @@ export function pathsOutsideRoots(paths, roots) {
   return [...new Set(paths.filter(Boolean).map((path) => resolve(path)))]
     .filter((path) => !canonicalRoots.some((root) => path === root || path.startsWith(`${root}${sep}`)))
     .sort();
+}
+
+export function assertProtectedDispatch(value) {
+  assert.equal(value, "true", "SOURCE_REF_PROTECTED must be the exact string true");
+  return true;
+}
+
+function snapshotEntriesOutsideRoot(snapshot, allowedRoot, expectedUid) {
+  assert.equal(snapshot.schemaVersion, 1, "unsupported source-phase snapshot schema");
+  assert.equal(typeof snapshot.complete, "boolean", "source-phase snapshot coverage flag is missing");
+  assert.ok(Array.isArray(snapshot.roots) && snapshot.roots.length > 0, "source-phase snapshot has no monitored roots");
+  assert.ok(snapshot.roots.every((root) =>
+    typeof root?.path === "string" && resolve(root.path) === root.path && /^\d+$/.test(root.device) &&
+    typeof root.traversed === "boolean" && root.sameDeviceOnly === true
+  ), "source-phase root coverage flags are invalid");
+  assert.ok(Array.isArray(snapshot.entries), "source-phase snapshot entries are missing");
+  const outside = new Map();
+  const allPaths = new Set();
+  for (const entry of snapshot.entries) {
+    assert.equal(typeof entry.canonicalPath, "string");
+    assert.equal(resolve(entry.canonicalPath), entry.canonicalPath, `non-canonical audit path: ${entry.canonicalPath}`);
+    assert.ok(["regular", "directory", "symlink", "socket", "fifo", "character-device", "block-device", "other"].includes(entry.type), `invalid type for ${entry.canonicalPath}`);
+    assert.equal(entry.uid, expectedUid, `wrong audited UID for ${entry.canonicalPath}`);
+    assert.ok(Number.isSafeInteger(entry.gid) && entry.gid >= 0, `invalid gid for ${entry.canonicalPath}`);
+    assert.match(entry.mode, /^0[0-7]{4}$/, `invalid mode for ${entry.canonicalPath}`);
+    for (const field of ["device", "inode", "linkCount", "size", "mtimeNs"]) {
+      assert.match(entry[field], /^\d+$/, `invalid ${field} for ${entry.canonicalPath}`);
+    }
+    if (entry.type === "regular") assert.match(entry.sha256, /^[0-9a-f]{64}$/, `invalid SHA-256 for ${entry.canonicalPath}`);
+    if (entry.type === "symlink") assert.equal(typeof entry.symlinkTarget, "string", `missing symlink target for ${entry.canonicalPath}`);
+    assert.equal(allPaths.has(entry.canonicalPath), false, `duplicate audit path: ${entry.canonicalPath}`);
+    allPaths.add(entry.canonicalPath);
+    if (pathsOutsideRoots([entry.canonicalPath], [allowedRoot]).length === 1) outside.set(entry.canonicalPath, entry);
+  }
+  return outside;
+}
+
+export function evaluateSourcePhaseAudit({ before, after, beforeErrors, afterErrors, allowedRoot, expectedUid }) {
+  assert.equal(isAbsolute(allowedRoot), true, "allowed source-phase root must be absolute");
+  assert.equal(resolve(allowedRoot), allowedRoot, "allowed source-phase root must be canonical");
+  assert.equal(before.uid, expectedUid, "before snapshot UID mismatch");
+  assert.equal(after.uid, expectedUid, "after snapshot UID mismatch");
+  const errorsEmpty = beforeErrors.length === 0 && afterErrors.length === 0;
+  const rootsMatch = JSON.stringify(before.roots) === JSON.stringify(after.roots);
+  const coverageComplete = before.complete === true && after.complete === true && rootsMatch &&
+    before.roots.every((root) => root.traversed === true) && after.roots.every((root) => root.traversed === true);
+  const beforeEntries = snapshotEntriesOutsideRoot(before, allowedRoot, expectedUid);
+  const afterEntries = snapshotEntriesOutsideRoot(after, allowedRoot, expectedUid);
+  const created = [];
+  const modified = [];
+  const deleted = [];
+  for (const [path, entry] of afterEntries) {
+    const baseline = beforeEntries.get(path);
+    if (baseline === undefined) created.push({ path, after: entry });
+    else if (JSON.stringify(baseline) !== JSON.stringify(entry)) modified.push({ path, before: baseline, after: entry });
+  }
+  for (const [path, entry] of beforeEntries) {
+    if (!afterEntries.has(path)) deleted.push({ path, before: entry });
+  }
+  created.sort((left, right) => left.path.localeCompare(right.path));
+  modified.sort((left, right) => left.path.localeCompare(right.path));
+  deleted.sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    scope: "unprivileged-source-phase-after-root-provisioning",
+    auditedUid: expectedUid,
+    declaredWriteRoots: [allowedRoot],
+    coverage: {
+      beforeComplete: before.complete === true,
+      afterComplete: after.complete === true,
+      beforeRoots: before.roots,
+      afterRoots: after.roots,
+      rootsMatch,
+      complete: coverageComplete,
+      errorsEmpty,
+    },
+    createdUserOwnedPathsOutsideDeclaredRoot: created,
+    modifiedUserOwnedPathsOutsideDeclaredRoot: modified,
+    deletedUserOwnedPathsOutsideDeclaredRoot: deleted,
+    passed: coverageComplete && errorsEmpty && created.length === 0 && modified.length === 0 && deleted.length === 0,
+    provisioningScope: "Root account creation and toolchain/snapshot-tool provisioning occur before the baseline and are explicitly outside this source-phase audit; they are not reported as a passed host-wide audit.",
+    limitation: "Coverage is limited to paths owned by the fresh temporary UID in the recorded same-device monitored roots. It compares canonical path, type, uid/gid, mode, device/inode/link count, size/mtime, regular-file SHA-256, and symlink target. It does not claim detection of changes to paths owned by other UIDs; the unprivileged source user normally cannot alter root-owned paths.",
+  };
 }
 
 function parseArguments(argv) {
@@ -268,6 +350,28 @@ async function inspectPack(port, fixture) {
   return assertInspectionReport(await response.json());
 }
 
+async function removeDataRootAndVerify(dataRoot, afterFailure = false) {
+  let removalError;
+  try {
+    await rm(dataRoot, { recursive: true, force: afterFailure });
+  } catch (error) {
+    removalError = errorText(error);
+  }
+  let dataRootAbsent = false;
+  try {
+    await lstat(dataRoot);
+  } catch (error) {
+    if (error?.code === "ENOENT") dataRootAbsent = true;
+    else if (removalError === undefined) removalError = errorText(error);
+  }
+  return {
+    removedExactDataRoot: dataRoot,
+    dataRootAbsent,
+    ...(afterFailure ? { afterFailure: true } : {}),
+    ...(removalError === undefined ? {} : { removalError }),
+  };
+}
+
 async function runEvidence(options) {
   const repoRoot = requiredAbsolute(options, "repo-root");
   const evidenceRoot = requiredAbsolute(options, "evidence-root");
@@ -278,6 +382,9 @@ async function runEvidence(options) {
   assert.equal(expectedRepository, "Jdelg718/the-green-room", "unexpected repository identity");
   assert.ok(dataRoot.startsWith(`${workRoot}${sep}`), "data root must be inside the declared work root");
   assert.ok(evidenceRoot.startsWith(`${workRoot}${sep}`), "evidence root must be inside the declared work root");
+  assert.equal(await realpath(workRoot), workRoot, "work root must be canonical");
+  const syntheticHome = join(workRoot, "home");
+  assertProtectedDispatch(process.env.SOURCE_REF_PROTECTED);
 
   await mkdir(evidenceRoot, { recursive: true, mode: 0o700 });
   const logsRoot = join(evidenceRoot, "logs");
@@ -290,7 +397,9 @@ async function runEvidence(options) {
     startedAt: new Date().toISOString(),
     repository: expectedRepository,
     requestedSha: expectedSha,
-    declaredWriteRoots: [workRoot, homedir()],
+    sourceRefProtected: true,
+    auditScope: "unprivileged source phase after root account/toolchain provisioning",
+    declaredWriteRoots: [workRoot],
     commands: [],
   };
   let launcher;
@@ -330,6 +439,9 @@ async function runEvidence(options) {
       repositoryOrigin: origin,
       checkoutSha: currentSha,
       detachedHead: true,
+      sourceRefProtected: true,
+      accountHome: identity.homedir,
+      syntheticSourceHome: syntheticHome,
       runnerDisclosure: "GitHub-hosted standard runners are fresh VMs with documented preinstalled host software; this run creates a separate temporary non-admin user but does not claim a blank operating-system image.",
     };
     assert.equal(process.version, "v24.20.0");
@@ -354,13 +466,14 @@ async function runEvidence(options) {
 
     const env = {
       ...process.env,
-      HOME: homedir(),
+      HOME: syntheticHome,
       TMPDIR: join(workRoot, "tmp"),
       npm_config_cache: join(workRoot, "cache", "npm"),
       UV_CACHE_DIR: join(workRoot, "cache", "uv"),
       XDG_CACHE_HOME: join(workRoot, "cache", "xdg"),
       NO_COLOR: "1",
     };
+    await mkdir(env.HOME, { recursive: true, mode: 0o700 });
     await mkdir(env.TMPDIR, { recursive: true, mode: 0o700 });
     await mkdir(env.npm_config_cache, { recursive: true, mode: 0o700 });
     await mkdir(env.UV_CACHE_DIR, { recursive: true, mode: 0o700 });
@@ -470,10 +583,8 @@ async function runEvidence(options) {
     evidence.acceptance = assertAcceptanceSummary(JSON.parse(acceptanceLine));
     assert.equal(commandOutput("git", ["status", "--porcelain"], { cwd: repoRoot }), "");
 
-    await rm(dataRoot, { recursive: true, force: false });
-    try { await lstat(dataRoot); throw new Error("disposable data root still exists"); }
-    catch (error) { if (error?.code !== "ENOENT") throw error; }
-    evidence.cleanup = { removedExactDataRoot: dataRoot, dataRootAbsent: true };
+    evidence.cleanup = await removeDataRootAndVerify(dataRoot);
+    assert.equal(evidence.cleanup.dataRootAbsent, true, `disposable data root cleanup failed: ${evidence.cleanup.removalError ?? "path remains"}`);
     evidence.passed = true;
   } catch (error) {
     evidence.failure = errorText(error);
@@ -486,44 +597,42 @@ async function runEvidence(options) {
     }
     if (launcherLog) await new Promise((resolveLog) => launcherLog.end(resolveLog));
     if (!evidence.cleanup && isAbsolute(dataRoot) && dataRoot.startsWith(`${workRoot}${sep}`)) {
-      await rm(dataRoot, { recursive: true, force: true }).catch(() => undefined);
-      evidence.cleanup = { removedExactDataRoot: dataRoot, dataRootAbsent: true, afterFailure: true };
+      evidence.cleanup = await removeDataRootAndVerify(dataRoot, true);
     }
     evidence.finishedAt = new Date().toISOString();
     await writeFile(join(evidenceRoot, "harness-evidence.json"), stableJson(evidence), { mode: 0o600 });
   }
 }
 
-async function readPathInventory(path) {
-  try { return (await readFile(path, "utf8")).split("\n").filter(Boolean); }
-  catch (error) { if (error?.code === "ENOENT") return []; throw error; }
-}
-
 async function finalizeEvidence(options) {
   const evidenceRoot = requiredAbsolute(options, "evidence-root");
   const beforePath = requiredAbsolute(options, "audit-before");
   const afterPath = requiredAbsolute(options, "audit-after");
+  const beforeErrorsPath = requiredAbsolute(options, "audit-before-errors");
+  const afterErrorsPath = requiredAbsolute(options, "audit-after-errors");
+  const allowedRoot = requiredAbsolute(options, "allowed-root");
+  const expectedUid = Number(options.uid);
+  assert.ok(Number.isSafeInteger(expectedUid) && expectedUid > 0, "--uid must be a positive integer");
   const harness = JSON.parse(await readFile(join(evidenceRoot, "harness-evidence.json"), "utf8"));
-  const roots = harness.declaredWriteRoots;
-  const beforeOutside = pathsOutsideRoots(await readPathInventory(beforePath), roots);
-  const afterOutside = pathsOutsideRoots(await readPathInventory(afterPath), roots);
-  const newOutside = afterOutside.filter((path) => !beforeOutside.includes(path));
-  const hostAudit = {
-    declaredWriteRoots: roots,
-    baselineUserOwnedPathsOutsideRoots: beforeOutside,
-    finalUserOwnedPathsOutsideRoots: afterOutside,
-    jobCreatedUserOwnedPathsOutsideRoots: newOutside,
-    passed: newOutside.length === 0,
-    note: "The audit compares paths owned by the job-created UID before the public clone with paths after the harness; root-owned runner and account-database changes are outside this ownership audit.",
-  };
+  assert.deepEqual(harness.declaredWriteRoots, [allowedRoot], "harness declared-write root mismatch");
+  assert.equal(harness.sourceRefProtected, true, "harness did not record a protected source ref");
+  const sourcePhaseAudit = evaluateSourcePhaseAudit({
+    before: JSON.parse(await readFile(beforePath, "utf8")),
+    after: JSON.parse(await readFile(afterPath, "utf8")),
+    beforeErrors: await readFile(beforeErrorsPath, "utf8"),
+    afterErrors: await readFile(afterErrorsPath, "utf8"),
+    allowedRoot,
+    expectedUid,
+  });
   const finalEvidence = {
     schemaVersion: 1,
     issue: 87,
-    passed: harness.passed === true && hostAudit.passed,
+    passed: harness.passed === true && sourcePhaseAudit.passed,
+    protectedMain: harness.sourceRefProtected === true,
     harness,
-    hostWriteAudit: hostAudit,
+    sourcePhaseWriteAudit: sourcePhaseAudit,
   };
-  await writeFile(join(evidenceRoot, "host-write-audit.json"), stableJson(hostAudit), { mode: 0o600 });
+  await writeFile(join(evidenceRoot, "source-phase-write-audit.json"), stableJson(sourcePhaseAudit), { mode: 0o600 });
   await writeFile(join(evidenceRoot, "final-evidence.json"), stableJson(finalEvidence), { mode: 0o600 });
   if (!finalEvidence.passed) process.exitCode = 1;
 }
