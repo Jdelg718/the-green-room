@@ -327,7 +327,7 @@ Files under `model/` and `tests/` are disposable evidence and must not import pr
 
 1. Map every ADR acceptance item and threat to exact fixture/test/report evidence.
 2. Run independent security/privacy review and a separate product/consent/accessibility review.
-3. Present the twelve unresolved human gates from ADR 0003 with measured options and recommendation.
+3. Present the twelve unresolved human gates from the proposed invitation ADR with measured options and recommendation.
 4. Mark ADR Accepted, Amended, or Rejected only after recorded owner decisions. Keep relay/E2EE/account/push/public-link decisions deferred if evidence does not support them.
 5. Delete unneeded executable model code or keep it solely under the clearly disposable spike path with warning headers.
 6. Write a separate implementation plan only after accepted decisions, stable schema/migration allocation, and ownership assignment.
@@ -371,7 +371,7 @@ The final packet must fit decision-making rather than burying choices:
 7. history/retention/export/deletion options;
 8. Apple QR/paste/import and optional link/push tradeoffs;
 9. residual-risk register; and
-10. a checkbox decision record for every unresolved gate in ADR 0003.
+10. a checkbox decision record for every unresolved gate in the proposed invitation ADR.
 
 ## Recommended phased direction
 
@@ -394,7 +394,7 @@ npm run typecheck
 python3 scripts/check-markdown-links.py  # only if this repository supplies it
 # otherwise run the repository's available link checker or a deterministic local relative-link script
 git status --short
-git diff -- docs/adr/0003-secure-human-room-invitations.md \
+git diff -- docs/adr/proposed-secure-human-room-invitations.md \
   docs/plans/2026-09-01-secure-human-room-invitation-spikes.md \
   docs/plans/2026-09-01-apple-client-and-human-room-invitations.md
 ```
