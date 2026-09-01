@@ -178,117 +178,207 @@ jobs:
           fs.writeFileSync(errorsPath, errors.length === 0 ? "" : `${errors.join("\n")}\n`, { mode: 0o600 });
           NODE
           sudo chmod 0755 /usr/local/bin/greenroom-user-owned-snapshot
+          sudo tee /usr/local/bin/greenroom-tree-manifest >/dev/null <<'NODE'
+          #!/usr/local/bin/node
+          const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+          const [root, output] = process.argv.slice(2);
+          const entries = [];
+          const visit = (target) => {
+            const stat = fs.lstatSync(target, { bigint: true });
+            const entry = { path: target, uid: Number(stat.uid), gid: Number(stat.gid), mode: `0${(Number(stat.mode)&0o7777).toString(8).padStart(4,"0")}`, type: stat.isDirectory()?"directory":stat.isFile()?"regular":stat.isSymbolicLink()?"symlink":"other", size: stat.size.toString(), mtimeNs: stat.mtimeNs.toString() };
+            if (stat.isFile()) entry.sha256 = crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex");
+            if (stat.isSymbolicLink()) entry.symlinkTarget = fs.readlinkSync(target);
+            entries.push(entry);
+            if (stat.isDirectory()) for (const name of fs.readdirSync(target).sort()) visit(path.join(target, name));
+          };
+          if (path.resolve(root) !== root || fs.realpathSync(root) !== root) throw new Error("manifest root must be canonical");
+          visit(root);
+          fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, root, entries }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+          NODE
+          sudo chmod 0755 /usr/local/bin/greenroom-tree-manifest
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            sudo tee /private/tmp/greenroom-darwin-proc-path.c >/dev/null <<'C'
+          #include <libproc.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          int main(int argc, char **argv) {
+            if (argc != 2) return 64;
+            char path[PROC_PIDPATHINFO_MAXSIZE];
+            if (proc_pidpath(atoi(argv[1]), path, sizeof(path)) <= 0) return 1;
+            puts(path);
+            return 0;
+          }
+          C
+            sudo /usr/bin/xcrun clang -Wall -Wextra -Werror /private/tmp/greenroom-darwin-proc-path.c -o /usr/local/bin/greenroom-darwin-proc-path
+            sudo chmod 0755 /usr/local/bin/greenroom-darwin-proc-path
+            sudo rm -f /private/tmp/greenroom-darwin-proc-path.c
+          fi
+          sudo tee /usr/local/bin/greenroom-uid-process-inventory >/dev/null <<'NODE'
+          #!/usr/local/bin/node
+          const fs = require("node:fs"), cp = require("node:child_process");
+          const [uidText, output] = process.argv.slice(2), uid = Number(uidText);
+          const pids = cp.execFileSync("/bin/ps", ["-axo", "uid=,pid="], { encoding: "utf8" }).split("\n").flatMap((line) => {
+            const match = line.match(/^\s*(\d+)\s+(\d+)\s*$/);
+            return match && Number(match[1]) === uid ? [Number(match[2])] : [];
+          });
+          const linuxInventory = (pid) => {
+            const stat = () => fs.readFileSync(`/proc/${pid}/stat`, "utf8").match(/^\d+ \(.*\) (.*)$/)[1].split(" ");
+            const before = stat();
+            const executablePath = fs.readlinkSync(`/proc/${pid}/exe`);
+            const argv = fs.readFileSync(`/proc/${pid}/cmdline`).toString("utf8").replaceAll("\0", " ").trim();
+            const after = stat();
+            if (before[19] !== after[19] || before[1] !== after[1] || !argv) throw new Error(`process identity changed during capture for PID ${pid}`);
+            return { pid, startTime: before[19], ppid: Number(before[1]), executablePath, argv };
+          };
+          const darwinInventory = (pid) => {
+            const capture = () => {
+              const line = cp.execFileSync("/bin/ps", ["-ww", "-p", String(pid), "-o", "ppid=", "-o", "lstart=", "-o", "args="], { encoding: "utf8" }).trim();
+              const match = line.match(/^\s*(\d+)\s+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/);
+              if (!match) throw new Error(`incomplete Darwin process inventory for PID ${pid}`);
+              const executablePath = cp.execFileSync("/usr/local/bin/greenroom-darwin-proc-path", [String(pid)], { encoding: "utf8" }).trim();
+              if (!executablePath || !match[3]) throw new Error(`incomplete Darwin process inventory for PID ${pid}`);
+              return { pid, startTime: match[2].split(/\s+/).join(" "), ppid: Number(match[1]), executablePath, argv: match[3] };
+            };
+            const before = capture(), after = capture();
+            if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`process identity changed during capture for PID ${pid}`);
+            return after;
+          };
+          const processes = pids.map((pid) => process.platform === "darwin" ? darwinInventory(pid) : linuxInventory(pid)).sort((a,b)=>a.pid-b.pid);
+          fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 2, uid, capturedAt: new Date().toISOString(), processes }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+          NODE
+          sudo chmod 0755 /usr/local/bin/greenroom-uid-process-inventory
           EVIDENCE_TOOL_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
           test "$(env PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
           test "$(env PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
           [[ "$(env PATH="$EVIDENCE_TOOL_PATH" uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
           printf 'EVIDENCE_TOOL_PATH=%s\n' "$EVIDENCE_TOOL_PATH" >> "$GITHUB_ENV"
 
-      - name: Create a separate non-admin evidence user
+      - name: Create, relocate, and verify a separate non-admin evidence user
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$RUNNER_OS" = macOS ]]; then control_parent=/private/var/root; ROOT_GROUP=wheel; else control_parent=/root; ROOT_GROUP=root; fi
+          CONTROL_ROOT="$control_parent/greenroom-clean-source-control-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ strategy.job-index }}"
+          test "$(realpath "$control_parent")" = "$control_parent"
+          sudo test ! -e "$CONTROL_ROOT"
+          sudo install -d -m 0700 -o root -g "$ROOT_GROUP" "$CONTROL_ROOT"
           if [[ "$RUNNER_OS" = macOS ]]; then
             uid=550
             while dscl . -search /Users UniqueID "$uid" | grep -q .; do uid=$((uid + 1)); done
+            EVIDENCE_HOME="/Users/$EVIDENCE_USER"
             sudo dscl . -create "/Users/$EVIDENCE_USER"
             sudo dscl . -create "/Users/$EVIDENCE_USER" UniqueID "$uid"
             sudo dscl . -create "/Users/$EVIDENCE_USER" PrimaryGroupID 20
-            sudo dscl . -create "/Users/$EVIDENCE_USER" NFSHomeDirectory "/Users/$EVIDENCE_USER"
+            sudo dscl . -create "/Users/$EVIDENCE_USER" NFSHomeDirectory "$EVIDENCE_HOME"
             sudo dscl . -create "/Users/$EVIDENCE_USER" UserShell /usr/bin/false
             sudo dscl . -create "/Users/$EVIDENCE_USER" RealName "Green Room evidence user"
             sudo dscl . -create "/Users/$EVIDENCE_USER" Password '*'
             sudo dscl . -create "/Users/$EVIDENCE_USER" AuthenticationAuthority ';DisabledUser;'
             sudo createhomedir -c -u "$EVIDENCE_USER"
-            EVIDENCE_HOME="/Users/$EVIDENCE_USER"
-            if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q 'yes'; then
-              echo "temporary evidence user unexpectedly belongs to admin" >&2
-              exit 1
-            fi
           else
             sudo useradd --create-home --shell /usr/sbin/nologin --user-group "$EVIDENCE_USER"
             sudo passwd --lock "$EVIDENCE_USER"
             EVIDENCE_HOME="/home/$EVIDENCE_USER"
-            ! id -nG "$EVIDENCE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|adm|wheel)$'
           fi
           EVIDENCE_UID="$(id -u "$EVIDENCE_USER")"
+          EVIDENCE_GID="$(id -g "$EVIDENCE_USER")"
+          EVIDENCE_GROUP="$(id -gn "$EVIDENCE_USER")"
+          sudo chmod 0700 "$EVIDENCE_HOME"
+          sudo greenroom-tree-manifest "$EVIDENCE_HOME" "$CONTROL_ROOT/placeholder-home-initial.json"
           EVIDENCE_SOURCE_HOME="$EVIDENCE_ROOT/home"
-          sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT" "$EVIDENCE_SOURCE_HOME"
+          EVIDENCE_SOURCE_TMP="$EVIDENCE_SOURCE_HOME/tmp"
+          sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$EVIDENCE_GID" "$EVIDENCE_ROOT" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_SOURCE_TMP"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            control_parent=/private/var/root
-            ROOT_GROUP=wheel
+            sudo dscl . -change "/Users/$EVIDENCE_USER" NFSHomeDirectory "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME"
+            sudo dscacheutil -flushcache
+            test "$(sudo dscl . -read "/Users/$EVIDENCE_USER" NFSHomeDirectory)" = "NFSHomeDirectory: $EVIDENCE_SOURCE_HOME"
+            FOUNDATION_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/bin/swift -e 'import Foundation; print(NSHomeDirectory())')"
+            test "$FOUNDATION_HOME" = "$EVIDENCE_SOURCE_HOME"
+            if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q yes; then exit 1; fi
           else
-            control_parent=/root
-            ROOT_GROUP=root
+            FOUNDATION_HOME=""
+            ! id -nG "$EVIDENCE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|adm|wheel)$'
           fi
-          CONTROL_ROOT="$control_parent/greenroom-clean-source-control-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ strategy.job-index }}"
-          test "$(realpath "$control_parent")" = "$control_parent"
-          sudo test ! -e "$CONTROL_ROOT"
-          sudo install -d -m 0700 -o root -g "$ROOT_GROUP" "$CONTROL_ROOT"
-          sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(s.uid!==0||(s.mode&0o777)!==0o700||!s.isDirectory()) process.exit(1)' "$CONTROL_ROOT"
-          if sudo -u "$EVIDENCE_USER" test -r "$CONTROL_ROOT" ||
-             sudo -u "$EVIDENCE_USER" test -w "$CONTROL_ROOT" ||
-             sudo -u "$EVIDENCE_USER" test -x "$CONTROL_ROOT"; then
-            echo "audited UID can access the root control plane" >&2
-            exit 1
-          fi
-          sudo test -d "$CONTROL_ROOT"
-          case "$CONTROL_ROOT/" in "$EVIDENCE_ROOT/"*) echo "control plane is inside evidence root" >&2; exit 1;; esac
-          printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_UID=%s\nCONTROL_ROOT=%s\nROOT_GROUP=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_UID" "$CONTROL_ROOT" "$ROOT_GROUP" >> "$GITHUB_ENV"
-          sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" /usr/bin/id
-          test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" node --version)" = v24.20.0
-          test "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" npm --version)" = 11.19.0
-          [[ "$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_HOME" PATH="$EVIDENCE_TOOL_PATH" uv --version)" =~ ^uv\ 0\.12\.8($|\ ) ]]
+          EFFECTIVE_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/local/bin/node -p 'require("node:os").userInfo().homedir')"
+          EXPORTED_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" /usr/bin/printenv HOME)"
+          test "$EXPORTED_HOME" = "$EVIDENCE_SOURCE_HOME"
+          if [[ "$RUNNER_OS" = macOS ]]; then test "$EFFECTIVE_HOME" = "$EVIDENCE_SOURCE_HOME"; else test "$EFFECTIVE_HOME" = "$EVIDENCE_HOME"; fi
+          sudo /usr/local/bin/node -e '
+            const fs=require("node:fs"); const [output,platform,original,effective,exported,foundation,uid,gid,ownerName,groupName]=process.argv.slice(1);
+            const details=(p)=>{const s=fs.lstatSync(p); return { path:p, canonicalPath:fs.realpathSync(p), uid:s.uid, gid:s.gid, ownerName, groupName, mode:`0${(s.mode&0o7777).toString(8).padStart(4,"0")}` }};
+            const homeMetadata={ placeholder:details(original), synthetic:details(exported) };
+            if(homeMetadata.placeholder.mode!=="00700"||homeMetadata.synthetic.mode!=="00700"||homeMetadata.placeholder.uid!==Number(uid)||homeMetadata.synthetic.uid!==Number(uid)||homeMetadata.placeholder.gid!==Number(gid)||homeMetadata.synthetic.gid!==Number(gid)) process.exit(1);
+            fs.writeFileSync(output,JSON.stringify({schemaVersion:1,platform,originalHome:original,effectiveHome:effective,exportedHome:exported,foundationHome:foundation||null,homeMetadata,warmCommands:[],stabilization:{attempts:0,consecutiveStableSnapshots:0,accepted:false}},null,2)+"\n",{mode:0o600,flag:"wx"});
+          ' "$CONTROL_ROOT/provisioning-evidence.json" "${{ matrix.expected_platform }}" "$EVIDENCE_HOME" "$EFFECTIVE_HOME" "$EXPORTED_HOME" "$FOUNDATION_HOME" "$EVIDENCE_UID" "$EVIDENCE_GID" "$EVIDENCE_USER" "$EVIDENCE_GROUP"
+          if sudo -u "$EVIDENCE_USER" test -r "$CONTROL_ROOT" || sudo -u "$EVIDENCE_USER" test -w "$CONTROL_ROOT" || sudo -u "$EVIDENCE_USER" test -x "$CONTROL_ROOT"; then exit 1; fi
+          case "$CONTROL_ROOT/" in "$EVIDENCE_ROOT/"*) exit 1;; esac
+          printf 'EVIDENCE_HOME=%s\nEVIDENCE_SOURCE_HOME=%s\nEVIDENCE_SOURCE_TMP=%s\nEVIDENCE_UID=%s\nCONTROL_ROOT=%s\nROOT_GROUP=%s\nFOUNDATION_HOME=%s\n' "$EVIDENCE_HOME" "$EVIDENCE_SOURCE_HOME" "$EVIDENCE_SOURCE_TMP" "$EVIDENCE_UID" "$CONTROL_ROOT" "$ROOT_GROUP" "$FOUNDATION_HOME" >> "$GITHUB_ENV"
           test "$EVIDENCE_UID" -ne 0
 
-      - name: Record the complete pre-source user-owned snapshot
+      - name: Warm trusted prerequisites and stabilize the pre-source baseline
         shell: bash
         run: |
           set -euo pipefail
           audit="$CONTROL_ROOT/audit-before.json"
-          errors="$CONTROL_ROOT/audit-before-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
             roots=(/Users /private/tmp /private/var /Applications /Library /usr/local /Volumes)
             mounts="$CONTROL_ROOT/macos-mounts-before.json"
             /sbin/mount | sudo /usr/local/bin/node -e '
-              const fs = require("node:fs");
-              const output = process.argv[1];
-              let input = "";
-              process.stdin.setEncoding("utf8");
-              process.stdin.on("data", (chunk) => { input += chunk; });
-              process.stdin.on("end", () => {
-                const monitored = ["/Users", "/private/tmp", "/private/var", "/Applications", "/Library", "/usr/local", "/Volumes"];
-                const writableNested = input.split("\n").flatMap((line) => {
-                  const match = line.match(/ on (.+) \(([^)]+)\)$/);
-                  if (!match) return [];
-                  const path = match[1];
-                  const options = match[2].split(",").map((option) => option.trim());
-                  return monitored.some((root) => path.startsWith(`${root}/`)) && !options.includes("read-only") ? [{ path, options, line }] : [];
-                }).sort((left, right) => left.path.localeCompare(right.path));
-                fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, monitoredRoots: monitored, writableNestedMounts: writableNested }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-              });
+              const fs=require("node:fs"); const output=process.argv[1]; let input=""; process.stdin.setEncoding("utf8"); process.stdin.on("data",c=>input+=c); process.stdin.on("end",()=>{const monitored=["/Users","/private/tmp","/private/var","/Applications","/Library","/usr/local","/Volumes"]; const writableNestedMounts=input.split("\n").flatMap(line=>{const m=line.match(/ on (.+) \(([^)]+)\)$/); if(!m)return[]; const options=m[2].split(",").map(x=>x.trim()); return monitored.some(root=>m[1].startsWith(`${root}/`))&&!options.includes("read-only")?[{path:m[1],options,line}]:[]}); fs.writeFileSync(output,JSON.stringify({schemaVersion:1,monitoredRoots:monitored,writableNestedMounts},null,2)+"\n",{mode:0o600,flag:"wx"});});
             ' "$mounts"
-            sudo chmod 0600 "$mounts"
-            sudo /usr/local/bin/node -e 'const m=require(process.argv[1]); if(m.writableNestedMounts.length!==0) process.exit(1)' "$mounts"
+            sudo /usr/local/bin/node -e 'if(require(process.argv[1]).writableNestedMounts.length!==0)process.exit(1)' "$mounts"
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
-          sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$audit" "$errors" "${roots[@]}"
-          if ! sudo test ! -s "$errors"; then
-            echo "pre-source snapshot reported errors:" >&2
-            sudo cat "$errors" >&2
-            exit 1
+          warm_log="$CONTROL_ROOT/warm-commands.tsv"
+          sudo touch "$warm_log"; sudo chmod 0600 "$warm_log"
+          warm() {
+            local command="$1" status
+            set +e
+            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" /bin/bash --noprofile --norc -c "$command"
+            status=$?
+            set -e
+            printf '%s\t%s\n' "$status" "$command" | sudo tee -a "$warm_log" >/dev/null
+            test "$status" -eq 0
+          }
+          warm 'node --version'
+          warm 'npm --version'
+          warm 'uv --version'
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            warm '/usr/bin/defaults read NSGlobalDomain >/dev/null'
+            warm '/usr/bin/security list-keychains -d user >/dev/null'
+            warm '/usr/bin/xcrun --find clang >/dev/null'
+            warm '/usr/bin/xcodebuild -version >/dev/null'
+            warm 'mkdir -p "$HOME/.greenroom-warm" && /usr/bin/xcrun clang -x c -c /dev/null -o "$HOME/.greenroom-warm/empty.o" && rm -rf "$HOME/.greenroom-warm"'
           fi
-          sudo env PATH="$EVIDENCE_TOOL_PATH" node -e 'const s=require(process.argv[1]); if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true)) process.exit(1)' "$audit"
-          sudo chmod 0600 "$audit" "$errors"
-          sudo /usr/local/bin/node -e 'const fs=require("node:fs"); for(const p of process.argv.slice(1)){const s=fs.lstatSync(p); if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile()) process.exit(1)}' "$audit" "$errors"
-          for control_file in "$audit" "$errors"; do
-            if sudo -u "$EVIDENCE_USER" test -r "$control_file" ||
-               sudo -u "$EVIDENCE_USER" test -w "$control_file"; then
-              echo "audited UID can access $control_file" >&2
-              exit 1
+          warm 'git ls-remote https://github.com/git/git.git HEAD >/dev/null'
+          previous=""; accepted=false; attempts=0
+          for attempt in 1 2 3 4 5; do
+            attempts=$attempt
+            sleep 3
+            current="$CONTROL_ROOT/stabilization-$attempt.json"
+            current_errors="$CONTROL_ROOT/stabilization-$attempt-errors.log"
+            sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$current" "$current_errors" "${roots[@]}"
+            sudo test ! -s "$current_errors"
+            sudo /usr/local/bin/node -e 'const s=require(process.argv[1]);if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true))process.exit(1)' "$current"
+            if [[ -n "$previous" ]] && sudo /usr/local/bin/node -e '
+              const path=require("node:path"); const [a,b,root]=process.argv.slice(1); const outside=s=>s.entries.filter(e=>e.canonicalPath!==root&&!e.canonicalPath.startsWith(root+path.sep)); const x=require(a),y=require(b); if(JSON.stringify(x.roots)!==JSON.stringify(y.roots)||JSON.stringify(outside(x))!==JSON.stringify(outside(y)))process.exit(1);
+            ' "$previous" "$current" "$EVIDENCE_ROOT"; then
+              sudo cp "$current" "$audit"
+              sudo cp "$current_errors" "$CONTROL_ROOT/audit-before-errors.log"
+              accepted=true
+              break
             fi
-            sudo test -f "$control_file"
+            previous="$current"
+          done
+          test "$accepted" = true
+          sudo greenroom-uid-process-inventory "$EVIDENCE_UID" "$CONTROL_ROOT/processes-baseline.json"
+          sudo /usr/local/bin/node -e '
+            const fs=require("node:fs"); const [file,warm,attempts]=process.argv.slice(1); const p=require(file); p.warmCommands=fs.readFileSync(warm,"utf8").trim().split("\n").filter(Boolean).map(line=>{const i=line.indexOf("\t");return{command:line.slice(i+1),status:Number(line.slice(0,i))}}); p.stabilization={attempts:Number(attempts),consecutiveStableSnapshots:2,accepted:true,authoritativeSnapshot:"audit-before.json"}; fs.writeFileSync(file,JSON.stringify(p,null,2)+"\n");
+          ' "$CONTROL_ROOT/provisioning-evidence.json" "$warm_log" "$attempts"
+          for control_file in "$CONTROL_ROOT/audit-before.json" "$CONTROL_ROOT/audit-before-errors.log" "$CONTROL_ROOT/processes-baseline.json" "$CONTROL_ROOT/provisioning-evidence.json"; do
+            sudo /usr/local/bin/node -e 'const fs=require("node:fs"),s=fs.lstatSync(process.argv[1]);if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile())process.exit(1)' "$control_file"
+            if sudo -u "$EVIDENCE_USER" test -r "$control_file" || sudo -u "$EVIDENCE_USER" test -w "$control_file"; then exit 1; fi
           done
 
       - name: Public-clone and run the exact dispatched source as the evidence user
@@ -300,7 +390,10 @@ jobs:
           data_root="$EVIDENCE_ROOT/disposable-data"
           sudo -u "$EVIDENCE_USER" env \
             HOME="$EVIDENCE_SOURCE_HOME" \
+            TMPDIR="$EVIDENCE_SOURCE_TMP" \
             PATH="$EVIDENCE_TOOL_PATH" \
+            GREENROOM_ORIGINAL_HOME="$EVIDENCE_HOME" \
+            GREENROOM_FOUNDATION_HOME="$FOUNDATION_HOME" \
             SOURCE_URL="$SOURCE_URL" \
             SOURCE_SHA="$SOURCE_SHA" \
             SOURCE_REF="$GITHUB_REF" \
@@ -335,51 +428,8 @@ jobs:
             printf 'setup failed before the root control plane was available\n' > "$UPLOAD_ROOT/setup-failure.txt"
             exit 1
           fi
-          process_inventory="$CONTROL_ROOT/processes-after-source.json"
-          /bin/ps -axo uid=,pid=,ppid=,command= | sudo /usr/local/bin/node -e '
-            const fs = require("node:fs");
-            const uid = Number(process.argv[1]);
-            const output = process.argv[2];
-            let input = "";
-            process.stdin.setEncoding("utf8");
-            process.stdin.on("data", (chunk) => { input += chunk; });
-            process.stdin.on("end", () => {
-              const processes = input.split("\n").flatMap((line) => {
-                const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
-                return match && Number(match[1]) === uid
-                  ? [{ pid: Number(match[2]), ppid: Number(match[3]), command: match[4] }]
-                  : [];
-              }).sort((left, right) => left.pid - right.pid);
-              fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, uid, processes }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-            });
-          ' "$EVIDENCE_UID" "$process_inventory"
-          sudo chmod 0600 "$process_inventory"
-          if ! sudo /usr/local/bin/node -e 'const i=require(process.argv[1]); if(i.uid!==Number(process.argv[2])||i.processes.length!==0) process.exit(1)' "$process_inventory" "$EVIDENCE_UID"; then
-            echo "audited UID still owns processes after the source command completed" >&2
-            sudo pkill -TERM -U "$EVIDENCE_UID" || true
-            sleep 1
-            sudo pkill -KILL -U "$EVIDENCE_UID" || true
-          fi
-          cleanup_inventory="$CONTROL_ROOT/processes-after-cleanup.json"
-          /bin/ps -axo uid=,pid=,ppid=,command= | sudo /usr/local/bin/node -e '
-            const fs = require("node:fs");
-            const uid = Number(process.argv[1]);
-            const output = process.argv[2];
-            let input = "";
-            process.stdin.setEncoding("utf8");
-            process.stdin.on("data", (chunk) => { input += chunk; });
-            process.stdin.on("end", () => {
-              const processes = input.split("\n").flatMap((line) => {
-                const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
-                return match && Number(match[1]) === uid
-                  ? [{ pid: Number(match[2]), ppid: Number(match[3]), command: match[4] }]
-                  : [];
-              }).sort((left, right) => left.pid - right.pid);
-              fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, uid, processes }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-            });
-          ' "$EVIDENCE_UID" "$cleanup_inventory"
-          sudo chmod 0600 "$cleanup_inventory"
-          sudo /usr/local/bin/node -e 'const i=require(process.argv[1]); if(i.uid!==Number(process.argv[2])||i.processes.length!==0) process.exit(1)' "$cleanup_inventory" "$EVIDENCE_UID"
+          process_before_snapshot="$CONTROL_ROOT/processes-before-after-snapshot.json"
+          sudo greenroom-uid-process-inventory "$EVIDENCE_UID" "$process_before_snapshot"
           after="$CONTROL_ROOT/audit-after.json"
           errors="$CONTROL_ROOT/audit-after-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
@@ -410,6 +460,12 @@ jobs:
           fi
           sudo env PATH="$EVIDENCE_TOOL_PATH" greenroom-user-owned-snapshot "$EVIDENCE_UID" "$after" "$errors" "${roots[@]}"
           sudo chmod 0600 "$after" "$errors"
+          if ! sudo test ! -s "$errors"; then sudo cat "$errors" >&2; exit 1; fi
+          sudo /usr/local/bin/node -e 'const s=require(process.argv[1]);if(s.complete!==true||!s.roots.every(r=>r.traversed===true&&r.sameDeviceOnly===true))process.exit(1)' "$after"
+          process_after="$CONTROL_ROOT/processes-after-source.json"
+          sudo greenroom-uid-process-inventory "$EVIDENCE_UID" "$process_after"
+          sudo greenroom-tree-manifest "$EVIDENCE_HOME" "$CONTROL_ROOT/placeholder-home-final.json"
+          sudo cmp -s "$CONTROL_ROOT/placeholder-home-initial.json" "$CONTROL_ROOT/placeholder-home-final.json"
           script="$TRUSTED_CHECKOUT/scripts/clean-source-evidence.mjs"
           status=0
           test "$(realpath "$TRUSTED_CHECKOUT")" = "$TRUSTED_CHECKOUT"
@@ -422,7 +478,7 @@ jobs:
             echo "audited UID can mutate the trusted finalizer checkout" >&2
             exit 1
           fi
-          for control_file in "$CONTROL_ROOT/audit-before.json" "$CONTROL_ROOT/audit-before-errors.log" "$process_inventory" "$cleanup_inventory" "$after" "$errors"; do
+          for control_file in "$CONTROL_ROOT/audit-before.json" "$CONTROL_ROOT/audit-before-errors.log" "$CONTROL_ROOT/processes-baseline.json" "$process_before_snapshot" "$process_after" "$CONTROL_ROOT/provisioning-evidence.json" "$CONTROL_ROOT/placeholder-home-initial.json" "$CONTROL_ROOT/placeholder-home-final.json" "$after" "$errors"; do
             sudo /usr/local/bin/node -e 'const fs=require("node:fs"); const s=fs.lstatSync(process.argv[1]); if(s.uid!==0||(s.mode&0o777)!==0o600||!s.isFile()) process.exit(1)' "$control_file"
             if sudo -u "$EVIDENCE_USER" test -r "$control_file" ||
                sudo -u "$EVIDENCE_USER" test -w "$control_file"; then
@@ -439,7 +495,12 @@ jobs:
               --audit-after="$after" \
               --audit-before-errors="$CONTROL_ROOT/audit-before-errors.log" \
               --audit-after-errors="$errors" \
-              --process-inventory="$cleanup_inventory" \
+              --process-baseline="$CONTROL_ROOT/processes-baseline.json" \
+              --process-pre-after-snapshot="$process_before_snapshot" \
+              --process-after="$process_after" \
+              --provisioning-evidence="$CONTROL_ROOT/provisioning-evidence.json" \
+              --placeholder-initial="$CONTROL_ROOT/placeholder-home-initial.json" \
+              --placeholder-final="$CONTROL_ROOT/placeholder-home-final.json" \
               --allowed-root="$EVIDENCE_ROOT" \
               --uid="$EVIDENCE_UID" \
               --repository="$SOURCE_REPOSITORY" \
@@ -453,11 +514,18 @@ jobs:
           controlled=(
             "$CONTROL_ROOT/audit-before.json"
             "$CONTROL_ROOT/audit-before-errors.log"
+            "$CONTROL_ROOT/processes-baseline.json"
+            "$CONTROL_ROOT/processes-before-after-snapshot.json"
             "$CONTROL_ROOT/processes-after-source.json"
-            "$CONTROL_ROOT/processes-after-cleanup.json"
+            "$CONTROL_ROOT/provisioning-evidence.json"
+            "$CONTROL_ROOT/placeholder-home-initial.json"
+            "$CONTROL_ROOT/placeholder-home-final.json"
             "$CONTROL_ROOT/audit-after.json"
             "$CONTROL_ROOT/audit-after-errors.log"
           )
+          for stabilization in "$CONTROL_ROOT"/stabilization-*.json "$CONTROL_ROOT"/stabilization-*-errors.log; do
+            if sudo test -f "$stabilization"; then controlled+=("$stabilization"); fi
+          done
           for mount_inventory in "$CONTROL_ROOT/macos-mounts-before.json" "$CONTROL_ROOT/macos-mounts-after.json"; do
             if sudo test -f "$mount_inventory"; then controlled+=("$mount_inventory"); fi
           done

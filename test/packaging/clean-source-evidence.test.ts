@@ -13,8 +13,11 @@ const {
   assertProtectedDispatch,
   descendantProcesses,
   evaluateSourcePhaseAudit,
+  evaluateUidProcessAudit,
   finalizeCommandLogs,
+  parseDarwinPsProcessLine,
   pathsOutsideRoots,
+  validatePlaceholderHomeManifest,
 } = await import(pathToFileURL(join(process.cwd(), "scripts/clean-source-evidence.mjs")).href) as typeof import("../../scripts/clean-source-evidence.mjs");
 
 const EXPECTED_COMMAND_LOGS = [
@@ -197,6 +200,61 @@ test("source-phase audit fails closed on real-home modification, deletion, and s
   assert.equal(incomplete.coverage.complete, false);
 });
 
+test("source-phase audit never exempts macOS homes, caches, metadata, or analytics", () => {
+  const locations = [
+    "/Users/greenroomci/Library/Preferences/net.example.test.plist",
+    "/private/var/folders/aa/bb/T/cache-entry",
+    "/private/var/db/mds/messages/550/index-entry",
+    "/private/var/protected/sfanalytics/550/analytics-entry",
+  ];
+  const entry = (canonicalPath: string, sha: string) => ({ canonicalPath, type: "regular", uid: 550, gid: 20, mode: "00600", device: "1", inode: "42", linkCount: "1", size: "8", mtimeNs: "100", sha256: sha });
+  const snapshot = (entries: ReturnType<typeof entry>[]) => ({ schemaVersion: 1, uid: 550, complete: true, roots: [{ path: "/", device: "1", traversed: true, sameDeviceOnly: true }], entries });
+  for (const location of locations) {
+    const original = entry(location, "a".repeat(64));
+    const common = { beforeErrors: "", afterErrors: "", allowedRoot: "/private/tmp/evidence", expectedUid: 550 };
+    assert.equal(evaluateSourcePhaseAudit({ ...common, before: snapshot([]), after: snapshot([original]) }).passed, false, `created path accepted: ${location}`);
+    assert.equal(evaluateSourcePhaseAudit({ ...common, before: snapshot([original]), after: snapshot([entry(location, "b".repeat(64))]) }).passed, false, `modified path accepted: ${location}`);
+    assert.equal(evaluateSourcePhaseAudit({ ...common, before: snapshot([original]), after: snapshot([]) }).passed, false, `deleted path accepted: ${location}`);
+  }
+});
+
+test("process audit allows exact baseline instances and rejects restarts or PID reuse", () => {
+  const process = { pid: 42, startTime: "Tue Sep  1 12:00:00 2026", ppid: 1, executablePath: "/usr/sbin/cfprefsd", argv: "/usr/sbin/cfprefsd agent" };
+  const inventory = (processes: typeof process[]) => ({ schemaVersion: 2 as const, uid: 550, capturedAt: "2026-09-01T16:00:00.000Z", processes });
+  assert.equal(evaluateUidProcessAudit({ baseline: inventory([process]), after: inventory([process]), expectedUid: 550 }).passed, true);
+  assert.equal(evaluateUidProcessAudit({ baseline: inventory([process]), after: inventory([{ ...process, pid: 43 }]), expectedUid: 550 }).passed, false);
+  assert.equal(evaluateUidProcessAudit({ baseline: inventory([process]), after: inventory([{ ...process, startTime: "Tue Sep  1 12:00:01 2026" }]), expectedUid: 550 }).passed, false);
+  assert.equal(evaluateUidProcessAudit({ baseline: inventory([process]), after: inventory([{ ...process, ppid: 2 }]), expectedUid: 550 }).passed, false);
+  assert.equal(evaluateUidProcessAudit({ baseline: inventory([process]), after: inventory([{ ...process, argv: "/tmp/spoofed" }]), expectedUid: 550 }).passed, false);
+});
+
+test("Darwin ps parser normalizes lstart and fails closed on incomplete inventory", () => {
+  assert.deepEqual(parseDarwinPsProcessLine(
+    "  1 Tue Sep  1 12:03:04 2026 /usr/sbin/cfprefsd agent",
+    42,
+    "/usr/sbin/cfprefsd",
+  ), {
+    pid: 42,
+    startTime: "Tue Sep 1 12:03:04 2026",
+    ppid: 1,
+    executablePath: "/usr/sbin/cfprefsd",
+    argv: "/usr/sbin/cfprefsd agent",
+  });
+  assert.throws(() => parseDarwinPsProcessLine("1 not-a-date command", 42, "/usr/bin/x"));
+  assert.throws(() => parseDarwinPsProcessLine("1 Tue Sep 1 12:03:04 2026 command", 42, ""));
+});
+
+test("placeholder manifest validation rejects malformed and escaping entries", () => {
+  const root = "/Users/greenroomci";
+  const rootEntry = { path: root, uid: 550, gid: 20, mode: "00700", type: "directory", size: "64", mtimeNs: "100" };
+  const manifest = { schemaVersion: 1, root, entries: [rootEntry] };
+  assert.equal(validatePlaceholderHomeManifest(manifest, { root, expectedUid: 550, expectedGid: 20 }), manifest);
+  assert.throws(() => validatePlaceholderHomeManifest({ ...manifest, entries: [null] }, { root, expectedUid: 550, expectedGid: 20 }));
+  assert.throws(() => validatePlaceholderHomeManifest({ ...manifest, entries: [{ ...rootEntry, extra: true }] }, { root, expectedUid: 550, expectedGid: 20 }));
+  assert.throws(() => validatePlaceholderHomeManifest({ ...manifest, entries: [{ ...rootEntry, path: "/private/tmp/escape" }] }, { root, expectedUid: 550, expectedGid: 20 }));
+  assert.throws(() => validatePlaceholderHomeManifest({ ...manifest, entries: [{ ...rootEntry, mode: "00755" }] }, { root, expectedUid: 550, expectedGid: 20 }));
+});
+
 test("protected dispatch requires the exact true value", () => {
   assert.equal(assertProtectedDispatch("true"), true);
   assert.throws(() => assertProtectedDispatch("false"));
@@ -267,6 +325,18 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /sha256/);
   assert.match(workflow, /symlinkTarget/);
   assert.match(workflow, /git clone --filter=blob:none --no-checkout/);
+  const relocation = workflow.indexOf("dscl . -change \"/Users/$EVIDENCE_USER\" NFSHomeDirectory");
+  const firstSudoUser = workflow.indexOf("sudo -u \"$EVIDENCE_USER\"");
+  const warm = workflow.indexOf("warm 'node --version'");
+  const stabilize = workflow.indexOf("for attempt in 1 2 3 4 5");
+  const clone = workflow.indexOf("git clone --filter=blob:none --no-checkout");
+  assert.ok(relocation >= 0 && firstSudoUser > relocation, "Directory Services relocation must precede every sudo-u command");
+  assert.ok(warm > relocation && stabilize > warm && clone > stabilize, "warming and stabilization must precede the public clone");
+  assert.match(workflow, /FOUNDATION_HOME=.*NSHomeDirectory/);
+  assert.match(workflow, /placeholder-home-initial\.json/);
+  assert.match(workflow, /placeholder-home-final\.json/);
+  assert.match(workflow, /sudo cmp -s "\$CONTROL_ROOT\/placeholder-home-initial\.json" "\$CONTROL_ROOT\/placeholder-home-final\.json"/);
+  assert.match(workflow, /consecutiveStableSnapshots:2/);
   const harness = readFileSync("scripts/clean-source-evidence.mjs", "utf8");
   assert.match(workflow, /clean-source-evidence\.mjs.*run/);
   assert.match(harness, /declaredWriteRoots: \[workRoot\]/);
@@ -296,14 +366,21 @@ test("manual workflow keeps privileged evidence controls outside the audited roo
   assert.match(workflow, /case "\$CONTROL_ROOT\/" in "\$EVIDENCE_ROOT\/"\*/);
   assert.match(workflow, /audit="\$CONTROL_ROOT\/audit-before\.json"/);
   assert.match(workflow, /after="\$CONTROL_ROOT\/audit-after\.json"/);
-  const processAssertion = workflow.indexOf("process_inventory=\"$CONTROL_ROOT/processes-after-source.json\"");
+  const processAssertion = workflow.indexOf("process_after=\"$CONTROL_ROOT/processes-after-source.json\"");
+  const preSnapshotProcessAssertion = workflow.indexOf("process_before_snapshot=\"$CONTROL_ROOT/processes-before-after-snapshot.json\"");
   const afterSnapshot = workflow.indexOf("greenroom-user-owned-snapshot \"$EVIDENCE_UID\" \"$after\"");
-  assert.ok(processAssertion >= 0 && afterSnapshot > processAssertion, "UID-wide process inventory must precede the after snapshot");
-  assert.match(workflow, /\/bin\/ps -axo uid=,pid=,ppid=,command=/);
-  assert.match(workflow, /i\.processes\.length!==0/);
-  assert.match(workflow, /--process-inventory="\$cleanup_inventory"/);
+  assert.ok(preSnapshotProcessAssertion >= 0 && afterSnapshot > preSnapshotProcessAssertion, "process closure must be checked before the after snapshot");
+  assert.ok(afterSnapshot >= 0 && processAssertion > afterSnapshot, "after snapshot must precede the UID process inventory");
+  assert.match(workflow, /greenroom-uid-process-inventory/);
+  assert.match(workflow, /"-ww", "-p", String\(pid\), "-o", "ppid=", "-o", "lstart=", "-o", "args="/);
+  assert.match(workflow, /proc_pidpath/);
+  assert.doesNotMatch(workflow, /greenroom-darwin-process-inventory/);
+  assert.match(workflow, /--process-baseline="\$CONTROL_ROOT\/processes-baseline\.json"/);
+  assert.match(workflow, /--process-pre-after-snapshot="\$process_before_snapshot"/);
+  assert.match(workflow, /--process-after="\$process_after"/);
   assert.match(workflow, /sudo test -f "\$EVIDENCE_ROOT\/evidence\/harness-evidence\.json"/);
   assert.match(workflow, /processes-after-source\.json/);
+  assert.doesNotMatch(workflow, /pkill\s+-(?:TERM|KILL)\s+-U/);
   assert.doesNotMatch(workflow, /sudo -u "\$EVIDENCE_USER" (?:rmdir|rm -f)/);
   assert.match(workflow, /setup failed before the root control plane was available/);
   assert.match(workflow, /! sudo test -d "\$CONTROL_ROOT"/);
@@ -336,7 +413,9 @@ test("root finalizer treats harness JSON as an exact untrusted contract", () => 
   assert.match(harness, /evaluateSourcePhaseAudit\(\{/);
   assert.match(harness, /before: JSON\.parse\(await readFile\(beforePath/);
   assert.match(harness, /after: JSON\.parse\(await readFile\(afterPath/);
-  assert.match(harness, /processInventory\.processes\.length === 0/);
+  assert.match(harness, /evaluateUidProcessAudit\(\{/);
+  assert.match(harness, /baseline: JSON\.parse\(await readFile\(baselineProcessInventoryPath/);
+  assert.match(harness, /after: JSON\.parse\(await readFile\(afterProcessInventoryPath/);
   for (const name of EXPECTED_COMMAND_LOGS) assert.match(harness, new RegExp(`"${name.replace(".", "\\.")}"`));
   assert.match(harness, /entries\.map\(\(\{ name \}\) => name\)\.sort\(\), \[\.\.\.EXPECTED_COMMAND_LOG_NAMES\]/);
   assert.match(harness, /isFile\(\) && !entry\.isSymbolicLink\(\)/);
