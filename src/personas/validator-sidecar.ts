@@ -161,6 +161,24 @@ function terminateBestAvailable(child: ChildProcess): NodeJS.Timeout | undefined
   return setTimeout(() => signal("SIGKILL"), FORCE_KILL_DELAY_MS);
 }
 
+function forceTerminateBestAvailable(child: ChildProcess): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      return;
+    } catch {
+      // The process group may already be gone.
+    }
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // A concurrent exit is already the desired state.
+    }
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -377,7 +395,10 @@ export class ValidatorSidecar {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (forceKillTimer) {
+          clearTimeout(forceKillTimer);
+          if (terminalError) forceTerminateBestAvailable(child);
+        }
         signal?.removeEventListener("abort", abortListener);
 
         if (terminalError) {

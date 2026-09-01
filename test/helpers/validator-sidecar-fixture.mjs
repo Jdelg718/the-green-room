@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { basename } from "node:path";
 
 const args = process.argv.slice(2);
@@ -49,6 +50,18 @@ if (
   } else if (mode === "invalid-utf8") {
     process.stdout.write(Buffer.from([0xff, 0xfe]));
   } else if (mode === "hang") {
+    setInterval(() => {}, 10_000);
+  } else if (mode === "descendant-survival") {
+    const marker = `${archivePath}.marker`;
+    spawn(
+      process.execPath,
+      [
+        "-e",
+        "const fs=require('node:fs'); const marker=process.argv[1]; process.on('SIGTERM',()=>{}); setTimeout(()=>fs.writeFileSync(marker,'survived'),500); setInterval(()=>{},10000);",
+        marker,
+      ],
+      { stdio: "ignore" },
+    );
     setInterval(() => {}, 10_000);
   } else if (mode === "exit-2") {
     write(report({ valid: false }), 2);

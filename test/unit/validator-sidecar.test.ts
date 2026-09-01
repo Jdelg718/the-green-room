@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync } from "node:fs";
+import { chmodSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
@@ -90,6 +90,26 @@ test("times out a hanging validator on the hard wall", async () => {
   await assert.rejects(sidecar({ timeoutMs: 100 }).validate(archive("hang")), hasCode("validator_timeout"));
   assert.ok(performance.now() - started < 1_000);
 });
+
+test(
+  "kills a normal Unix descendant that ignores SIGTERM when the direct child closes",
+  { skip: process.platform === "win32" },
+  async () => {
+    const input = archive("descendant-survival");
+    const marker = `${input}.marker`;
+    rmSync(marker, { force: true });
+    try {
+      await assert.rejects(
+        sidecar({ timeoutMs: 100 }).validate(input),
+        hasCode("validator_timeout"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      assert.equal(existsSync(marker), false, "descendant survived process-group cleanup");
+    } finally {
+      rmSync(marker, { force: true });
+    }
+  },
+);
 
 test("honors AbortSignal before launch and while running", async () => {
   const preAborted = new AbortController();
