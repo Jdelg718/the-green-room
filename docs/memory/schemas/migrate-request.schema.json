@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.local/schemas/memory/1.0/migrate-request.schema.json",
+  "title": "Green Room migrate request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "operation_id",
+    "operation",
+    "idempotency_key",
+    "request_digest",
+    "target_storage_version",
+    "approved_backup_sha256"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "operation": {
+      "const": "migrate"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "target_storage_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "approved_backup_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resume_step_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  }
+}

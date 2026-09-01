@@ -61,9 +61,10 @@ Local room API and durable event store
     |      - emits candidate speech or deliberate silence
     |
     +--> Memory service
-    |      - transcript index and inspectable summaries
-    |      - bounded relationship state
-    |      - export, deletion, and reset
+    |      - SQLite ordered events remain authoritative
+    |      - bounded, source-attributed summaries and relationship state
+    |      - provider-context snapshot binding, export, deletion, and reset
+    |      - optional user-controlled Obsidian/HTTP projection sinks
     |
     +--> Provider registry
            - connection and model profiles
@@ -122,6 +123,7 @@ Custom endpoints are an advanced explicit opt-in. Save, test, and request paths 
 
 - Imported packs are untrusted data, never executable code; archive extraction rejects traversal and escaping links.
 - Memory is bounded, attributable, inspectable, exportable, and deletable.
+- Optional memory adapters follow proposed [ADR 0004](adr/0004-self-hosted-memory-adapters.md): they consume authority-assigned events through idempotent replay and never become room-order, acknowledgement, consent, or provider-context authority. Sink conflict/unavailability is visible and cannot revive forgotten/deleted content in model context.
 - Unit and property tests cover scheduling, budgets, cancellation, schemas, and profile revisions.
 - Adapter contract tests cover capability variance, timeout, malformed output, and sanitized failures.
 - Integration tests cover durable events, provider failure, restart, snapshots, and deletion.

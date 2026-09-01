@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroom.local/schemas/memory/1.0/health-response.schema.json",
+  "title": "Green Room health response 1.0",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "operation_id",
+        "operation",
+        "status",
+        "adapter",
+        "capabilities",
+        "limits",
+        "durability",
+        "schema_version",
+        "storage_version",
+        "migration_required"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "operation": {
+          "const": "health"
+        },
+        "adapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version",
+            "supported_contract_versions"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "supported_contract_versions": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "append_events",
+            "records",
+            "retrieve",
+            "export_import",
+            "migration",
+            "physical_erase"
+          ],
+          "properties": {
+            "append_events": {
+              "type": "boolean"
+            },
+            "records": {
+              "type": "boolean"
+            },
+            "retrieve": {
+              "type": "boolean"
+            },
+            "export_import": {
+              "type": "boolean"
+            },
+            "migration": {
+              "type": "boolean"
+            },
+            "physical_erase": {
+              "type": "boolean"
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_bytes",
+            "response_bytes",
+            "operations",
+            "records",
+            "evidence_ids",
+            "text_bytes",
+            "timeout_ms"
+          ],
+          "properties": {
+            "request_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "response_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "operations": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "evidence_ids": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "text_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "durability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "degradation_reasons"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "durable",
+                "best_effort",
+                "read_only"
+              ]
+            },
+            "degradation_reasons": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          }
+        },
+        "schema_version": {
+          "const": "1.0"
+        },
+        "storage_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "migration_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "operation_id",
+        "operation",
+        "status",
+        "error"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "operation": {
+          "const": "health"
+        },
+        "status": {
+          "const": "error"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "operation_id"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unsupported",
+                "timeout",
+                "unavailable",
+                "internal_error",
+                "migration_required",
+                "corrupt_store"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "operation_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "details": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [],
+              "properties": {
+                "current_revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "current_room_generation": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "migration_required": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

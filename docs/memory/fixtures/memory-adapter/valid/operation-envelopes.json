@@ -1,0 +1,454 @@
+[
+  {
+    "operation": "health",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000001",
+      "operation": "health"
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000001",
+      "operation": "health",
+      "status": "ok",
+      "adapter": {
+        "name": "fixture",
+        "version": "1.0.0",
+        "supported_contract_versions": [
+          "1.0"
+        ]
+      },
+      "capabilities": {
+        "append_events": true,
+        "records": true,
+        "retrieve": true,
+        "export_import": true,
+        "migration": true,
+        "physical_erase": true
+      },
+      "limits": {
+        "request_bytes": 1048576,
+        "response_bytes": 1048576,
+        "operations": 100,
+        "records": 100000,
+        "evidence_ids": 256,
+        "text_bytes": 16384,
+        "timeout_ms": 2000
+      },
+      "durability": {
+        "mode": "durable",
+        "degradation_reasons": []
+      },
+      "schema_version": "1.0",
+      "storage_version": 1,
+      "migration_required": false
+    }
+  },
+  {
+    "operation": "append_events",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000002",
+      "operation": "append_events",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000013",
+      "request_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "events": [
+        {
+          "contract_version": "1.0",
+          "event_id": "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a",
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "event_sequence": 10,
+          "occurred_at": "2026-08-30T16:03:00.000Z",
+          "kind": "speech",
+          "actor_id": "018f0f6e-bbc1-78c1-a23a-46588c34f46e",
+          "visibility": "room",
+          "payload": {
+            "text": "Let's compare both approaches before deciding."
+          },
+          "content_digest": "sha256:be6ed51fbb2b40a38eeb34dc6ed00628e2b2ba2ed0ec07b0ddff02f98aa1894d"
+        }
+      ],
+      "if_room_generation": 1
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000002",
+      "operation": "append_events",
+      "status": "ok",
+      "commit_id": "018f0f71-0000-7000-8000-000000000014",
+      "assigned": [
+        {
+          "event_id": "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a",
+          "event_sequence": 10,
+          "content_digest": "sha256:be6ed51fbb2b40a38eeb34dc6ed00628e2b2ba2ed0ec07b0ddff02f98aa1894d"
+        }
+      ],
+      "room_generation": 1
+    }
+  },
+  {
+    "operation": "commit_records",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000003",
+      "operation": "commit_records",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000015",
+      "request_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "writes": [
+        {
+          "record": {
+            "contract_version": "1.0",
+            "record_id": "018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd",
+            "revision_id": "018f0f70-a2c4-7ff8-972a-30543e84b43c",
+            "revision": 1,
+            "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+            "kind": "room",
+            "scope": {},
+            "body": "Decisions in this room use a compare-then-choose convention.",
+            "status": "active",
+            "classification": "exportable",
+            "provenance": {
+              "source_event_ids": [
+                "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"
+              ],
+              "derivation": {
+                "kind": "human_edit",
+                "producer": "human",
+                "policy_version": "memory-policy/1"
+              }
+            },
+            "created_at": "2026-08-30T16:04:00.000Z",
+            "created_by": "user"
+          },
+          "if_revision": 0
+        }
+      ],
+      "if_room_generation": 1
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000003",
+      "operation": "commit_records",
+      "status": "ok",
+      "commit_id": "018f0f71-0000-7000-8000-000000000016",
+      "committed": [
+        {
+          "record_id": "018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd",
+          "revision_id": "018f0f70-a2c4-7ff8-972a-30543e84b43c",
+          "revision": 1
+        }
+      ],
+      "room_generation": 1
+    }
+  },
+  {
+    "operation": "get_events",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000004",
+      "operation": "get_events",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "after_sequence": 0,
+      "page": {
+        "limit": 100,
+        "max_bytes": 1048576,
+        "timeout_ms": 1000
+      }
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000004",
+      "operation": "get_events",
+      "status": "ok",
+      "events": [
+        {
+          "contract_version": "1.0",
+          "event_id": "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a",
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "event_sequence": 10,
+          "occurred_at": "2026-08-30T16:03:00.000Z",
+          "kind": "speech",
+          "actor_id": "018f0f6e-bbc1-78c1-a23a-46588c34f46e",
+          "visibility": "room",
+          "payload": {
+            "text": "Let's compare both approaches before deciding."
+          },
+          "content_digest": "sha256:be6ed51fbb2b40a38eeb34dc6ed00628e2b2ba2ed0ec07b0ddff02f98aa1894d"
+        }
+      ],
+      "cursor": null,
+      "snapshot_room_generation": 1,
+      "items_returned": 1,
+      "bytes_returned": 432,
+      "truncated": false
+    }
+  },
+  {
+    "operation": "get_records",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000005",
+      "operation": "get_records",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "include_history": true,
+      "page": {
+        "limit": 100,
+        "max_bytes": 1048576,
+        "timeout_ms": 1000
+      }
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000005",
+      "operation": "get_records",
+      "status": "ok",
+      "records": [
+        {
+          "contract_version": "1.0",
+          "record_id": "018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd",
+          "revision_id": "018f0f70-a2c4-7ff8-972a-30543e84b43c",
+          "revision": 1,
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "kind": "room",
+          "scope": {},
+          "body": "Decisions in this room use a compare-then-choose convention.",
+          "status": "active",
+          "classification": "exportable",
+          "provenance": {
+            "source_event_ids": [
+              "018f0f6f-a3d2-7d09-bd19-d6325d4bc77a"
+            ],
+            "derivation": {
+              "kind": "human_edit",
+              "producer": "human",
+              "policy_version": "memory-policy/1"
+            }
+          },
+          "created_at": "2026-08-30T16:04:00.000Z",
+          "created_by": "user"
+        }
+      ],
+      "cursor": null,
+      "snapshot_room_generation": 1,
+      "items_returned": 1,
+      "bytes_returned": 512,
+      "truncated": false
+    }
+  },
+  {
+    "operation": "retrieve",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000006",
+      "operation": "retrieve",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "persona_id": "018f0f6e-bbc1-78c1-a23a-46588c34f46e",
+      "query": "What decision style has worked here?",
+      "kinds": [
+        "room",
+        "persona",
+        "episode"
+      ],
+      "classifications": [
+        "private",
+        "room",
+        "exportable"
+      ],
+      "as_of_event_sequence": 10,
+      "budget": {
+        "max_items": 5,
+        "max_total_bytes": 8192,
+        "max_item_bytes": 4096,
+        "timeout_ms": 250
+      }
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000006",
+      "operation": "retrieve",
+      "status": "ok",
+      "items": [],
+      "truncated": false,
+      "truncation_reason": "none",
+      "elapsed_ms": 1,
+      "items_returned": 0,
+      "bytes_returned": 0
+    }
+  },
+  {
+    "operation": "export",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000007",
+      "operation": "export",
+      "room_ids": [
+        "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1"
+      ],
+      "scope": "events_and_derived",
+      "classifications": [
+        "private"
+      ],
+      "snapshots": [
+        {
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "room_generation": 1,
+          "as_of_event_sequence": 10,
+          "policy_snapshot_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "provider_context_snapshot_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      ]
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000007",
+      "operation": "export",
+      "status": "ok",
+      "export_id": "018f0f71-0000-7000-8000-000000000017",
+      "created_at": "2026-08-30T16:03:00.000Z",
+      "snapshot_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "bundle_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "bytes": 1024,
+      "counts": {
+        "events": 1,
+        "record_revisions": 4,
+        "active_records": 4,
+        "tombstones": 0
+      }
+    }
+  },
+  {
+    "operation": "import",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000008",
+      "operation": "import",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000018",
+      "request_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "bundle_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "bundle_bytes": 1024,
+      "dry_run": true,
+      "if_room_generations": [
+        {
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "if_room_generation": 1
+        }
+      ]
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000008",
+      "operation": "import",
+      "status": "ok",
+      "dry_run": true,
+      "commit_id": null,
+      "plan": {
+        "events": 1,
+        "record_revisions": 4,
+        "active_records": 4,
+        "tombstones": 0
+      },
+      "room_generations": [
+        {
+          "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+          "room_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "operation": "migrate",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000009",
+      "operation": "migrate",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000019",
+      "request_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "target_storage_version": 2,
+      "approved_backup_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000009",
+      "operation": "migrate",
+      "status": "ok",
+      "commit_id": "018f0f71-0000-7000-8000-000000000020",
+      "storage_version": 2,
+      "completed_steps": [
+        "1-to-2"
+      ],
+      "verification_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  },
+  {
+    "operation": "reset",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000010",
+      "operation": "reset",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000021",
+      "request_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "scope": {
+        "kinds": [
+          "room"
+        ],
+        "classifications": [
+          "private"
+        ]
+      },
+      "preserve_events": true,
+      "if_room_generation": 1
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000010",
+      "operation": "reset",
+      "status": "ok",
+      "commit_id": "018f0f71-0000-7000-8000-000000000022",
+      "room_generation": 2,
+      "tombstoned_records": 1,
+      "preserved_events": 1
+    }
+  },
+  {
+    "operation": "erase",
+    "request": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000011",
+      "operation": "erase",
+      "idempotency_key": "018f0f71-0000-7000-8000-000000000023",
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+      "scope": "derived_only",
+      "confirmation": {
+        "token": "fixture-confirmation-token-00000000",
+        "room_id": "018f0f6e-7b6a-7c10-8af1-7f4c620b93c1",
+        "scope": "derived_only",
+        "expires_at": "2026-08-30T17:00:00.000Z"
+      },
+      "preserve_annotations": true
+    },
+    "response": {
+      "contract_version": "1.0",
+      "operation_id": "018f0f71-0000-7000-8000-000000000011",
+      "operation": "erase",
+      "status": "ok",
+      "commit_id": "018f0f71-0000-7000-8000-000000000024",
+      "erased_at": "2026-08-30T16:30:00.000Z",
+      "scope": "derived_only",
+      "removed": {
+        "events": 0,
+        "record_revisions": 4,
+        "idempotency_entries": 3,
+        "managed_files": 5
+      },
+      "annotation_archive": {
+        "relative_path": "user-annotations/018f0f6e-7b6a-7c10-8af1-7f4c620b93c1/018f0f70-9a8c-75dc-b6bf-dfe68dbe71bd.md",
+        "bytes": 64,
+        "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  }
+]

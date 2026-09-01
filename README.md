@@ -104,6 +104,8 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
 - [Programmable Character Contract v0.1](docs/programmable-character/README.md)
 - [Portable characters and reviewed community library](docs/adr/0003-portable-characters-and-community-library.md)
+- [Proposed optional self-hosted memory adapters](docs/adr/0004-self-hosted-memory-adapters.md)
+- [Memory adapter contract and conformance fixtures](docs/memory/MEMORY-ADAPTER-CONTRACT.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
