@@ -148,6 +148,71 @@ class StaticPolicyTests(unittest.TestCase):
             page.write_text(source, encoding="utf-8")
             self.assert_rejected(validate.collect_errors(site), "canonical non-simulation statement")
 
+    def test_profile_facts_reject_hidden_ancestor_and_extra_visible_call_slip(self) -> None:
+        mutations = {
+            "hidden canonical facts": (
+                '<aside class="call-slip" aria-label="Ada Lovelace profile facts">',
+                '<div aria-hidden="true"><aside class="call-slip" aria-label="Ada Lovelace profile facts">',
+                "</aside>",
+                "</aside></div>",
+            ),
+            "extra visible facts": (
+                "</main>",
+                '<aside class="call-slip" aria-label="Release facts"><h2>Release</h2><dl>'
+                '<dt>Catalog status</dt><dd>Official Catalog release available for public installation</dd>'
+                '</dl></aside></main>',
+                "",
+                "",
+            ),
+        }
+        for label, (first, first_replacement, second, second_replacement) in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "ada-lovelace" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                source = source.replace(first, first_replacement, 1)
+                if second:
+                    source = source.replace(second, second_replacement, 1)
+                page.write_text(source, encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), "visible semantic profile facts block")
+
+    def test_interpretation_rejects_hidden_ancestor_and_external_contradictions(self) -> None:
+        fixtures = {
+            "hidden interpretation": (
+                '<section class="section split" aria-labelledby="interpretation-title">',
+                '<div aria-hidden="true"><section class="section split" aria-labelledby="interpretation-title">',
+                "</section>",
+                "</section></div>",
+                "visible interpretation disclosure section",
+            ),
+            "external literal simulation": (
+                "</main>",
+                "<p>This is the person, a literal simulation.</p></main>",
+                "",
+                "",
+                "literal-simulation claim",
+            ),
+            "external Official release": (
+                "</main>",
+                "<p>Official Catalog release available for public installation.</p></main>",
+                "",
+                "",
+                "false Official Catalog release claim",
+            ),
+        }
+        for label, (first, first_replacement, second, second_replacement, reason) in fixtures.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "ada-lovelace" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                source = source.replace(first, first_replacement, 1)
+                if second:
+                    source = source.replace(second, second_replacement, 1)
+                page.write_text(source, encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
     def test_profiles_require_coherent_character_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"

@@ -399,6 +399,17 @@ def is_descendant(parser: PageParser, index: int, ancestor: int) -> bool:
     return False
 
 
+def is_visible(parser: PageParser, index: int) -> bool:
+    current: int | None = index
+    while isinstance(current, int):
+        attrs = element_attrs(parser.elements[current])
+        if "hidden" in attrs or attrs.get("aria-hidden", "").strip().lower() == "true":
+            return False
+        parent = parser.elements[current]["parent"]
+        current = parent if isinstance(parent, int) else None
+    return True
+
+
 def scoped_elements(parser: PageParser, tag: str, ancestor: int | None = None) -> list[tuple[int, dict[str, object]]]:
     return [
         (index, element)
@@ -502,15 +513,18 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     if len(ledes) != 1 or len(ledes[0]) < 60:
         fail(errors, f"{relative}: missing bounded educational summary")
 
-    fact_asides = [
+    all_fact_asides = [
         index
         for index, element in scoped_elements(parser, "aside")
         if element_attrs(element).get("class") == "call-slip"
-        and element_attrs(element).get("aria-label") == f"{name} profile facts"
-        and "aria-hidden" not in element_attrs(element)
-        and "hidden" not in element_attrs(element)
     ]
-    if len(fact_asides) != 1:
+    fact_asides = [
+        index
+        for index in all_fact_asides
+        if element_attrs(parser.elements[index]).get("aria-label") == f"{name} profile facts"
+        and is_visible(parser, index)
+    ]
+    if len(all_fact_asides) != 1 or len(fact_asides) != 1:
         fail(errors, f"{relative}: expected one visible semantic profile facts block")
         fields: dict[str, str] = {}
     else:
@@ -530,6 +544,10 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     for term, expected_value in expected_fields.items():
         if fields.get(term) != expected_value:
             fail(errors, f"{relative}: missing semantic {field_errors[term]}")
+    all_terms = [normalized_text(element) for _, element in scoped_elements(parser, "dt")]
+    for term in expected_fields:
+        if all_terms.count(term) != 1:
+            fail(errors, f"{relative}: profile fact term {term!r} must appear exactly once")
 
     strengths = section_index(parser, "strengths-title")
     strength_items = [] if strengths is None else scoped_elements(parser, "li", strengths)
@@ -541,14 +559,13 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     if behavior_items != list(PROFILE_BEHAVIOR[slug]):
         fail(errors, f"{relative}: bounded behavior labels do not match the reviewed public mapping")
 
-    interpretations = [
+    all_interpretations = [
         index
         for index, element in scoped_elements(parser, "section")
         if element_attrs(element).get("aria-labelledby") == "interpretation-title"
-        and "aria-hidden" not in element_attrs(element)
-        and "hidden" not in element_attrs(element)
     ]
-    if len(interpretations) != 1:
+    interpretations = [index for index in all_interpretations if is_visible(parser, index)]
+    if len(all_interpretations) != 1 or len(interpretations) != 1:
         fail(errors, f"{relative}: expected one visible interpretation disclosure section")
     else:
         disclosure_paragraphs = [
@@ -577,6 +594,14 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         (r"\b(?:initiative|interruption|verbosity|agreeableness|emotional(?:_|\s*)range|max(?:_|\s*)consecutive(?:_|\s*)turns)\s*[:=]\s*[0-9]", "hidden behavior number"),
     )
     for pattern, description in private_patterns:
+        if re.search(pattern, visible, re.I):
+            fail(errors, f"{relative}: exposed {description}")
+    contradictory_claims = (
+        (r"\b(?:this|the candidate|the pack|it)\s+is\s+(?:the person|a literal simulation)\b", "literal-simulation claim"),
+        (r"\bofficial catalog release\s+(?:available|ready|published|for public installation)\b", "false Official Catalog release claim"),
+        (r"\b(?:publicly installable|available for public installation)\b", "false public-installation claim"),
+    )
+    for pattern, description in contradictory_claims:
         if re.search(pattern, visible, re.I):
             fail(errors, f"{relative}: exposed {description}")
 
