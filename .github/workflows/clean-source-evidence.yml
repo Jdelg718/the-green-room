@@ -248,7 +248,28 @@ jobs:
           audit="$CONTROL_ROOT/audit-before.json"
           errors="$CONTROL_ROOT/audit-before-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
+            roots=(/Users /private/tmp /private/var /Applications /Library /usr/local /Volumes)
+            mounts="$CONTROL_ROOT/macos-mounts-before.json"
+            /sbin/mount | sudo /usr/local/bin/node -e '
+              const fs = require("node:fs");
+              const output = process.argv[1];
+              let input = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", (chunk) => { input += chunk; });
+              process.stdin.on("end", () => {
+                const monitored = ["/Users", "/private/tmp", "/private/var", "/Applications", "/Library", "/usr/local", "/Volumes"];
+                const writableNested = input.split("\n").flatMap((line) => {
+                  const match = line.match(/ on (.+) \(([^)]+)\)$/);
+                  if (!match) return [];
+                  const path = match[1];
+                  const options = match[2].split(",").map((option) => option.trim());
+                  return monitored.some((root) => path.startsWith(`${root}/`)) && !options.includes("read-only") ? [{ path, options, line }] : [];
+                }).sort((left, right) => left.path.localeCompare(right.path));
+                fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, monitoredRoots: monitored, writableNestedMounts: writableNested }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+              });
+            ' "$mounts"
+            sudo chmod 0600 "$mounts"
+            sudo /usr/local/bin/node -e 'const m=require(process.argv[1]); if(m.writableNestedMounts.length!==0) process.exit(1)' "$mounts"
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
@@ -362,7 +383,28 @@ jobs:
           after="$CONTROL_ROOT/audit-after.json"
           errors="$CONTROL_ROOT/audit-after-errors.log"
           if [[ "$RUNNER_OS" = macOS ]]; then
-            roots=(/Users /private/tmp /private/var /System/Volumes/Data)
+            roots=(/Users /private/tmp /private/var /Applications /Library /usr/local /Volumes)
+            mounts="$CONTROL_ROOT/macos-mounts-after.json"
+            /sbin/mount | sudo /usr/local/bin/node -e '
+              const fs = require("node:fs");
+              const output = process.argv[1];
+              let input = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", (chunk) => { input += chunk; });
+              process.stdin.on("end", () => {
+                const monitored = ["/Users", "/private/tmp", "/private/var", "/Applications", "/Library", "/usr/local", "/Volumes"];
+                const writableNested = input.split("\n").flatMap((line) => {
+                  const match = line.match(/ on (.+) \(([^)]+)\)$/);
+                  if (!match) return [];
+                  const path = match[1];
+                  const options = match[2].split(",").map((option) => option.trim());
+                  return monitored.some((root) => path.startsWith(`${root}/`)) && !options.includes("read-only") ? [{ path, options, line }] : [];
+                }).sort((left, right) => left.path.localeCompare(right.path));
+                fs.writeFileSync(output, `${JSON.stringify({ schemaVersion: 1, monitoredRoots: monitored, writableNestedMounts: writableNested }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+              });
+            ' "$mounts"
+            sudo chmod 0600 "$mounts"
+            sudo /usr/local/bin/node -e 'const m=require(process.argv[1]); if(m.writableNestedMounts.length!==0) process.exit(1)' "$mounts"
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
@@ -416,6 +458,9 @@ jobs:
             "$CONTROL_ROOT/audit-after.json"
             "$CONTROL_ROOT/audit-after-errors.log"
           )
+          for mount_inventory in "$CONTROL_ROOT/macos-mounts-before.json" "$CONTROL_ROOT/macos-mounts-after.json"; do
+            if sudo test -f "$mount_inventory"; then controlled+=("$mount_inventory"); fi
+          done
           for finalized in harness-evidence.json command-logs-manifest.json source-phase-write-audit.json final-evidence.json; do
             if sudo test -f "$CONTROL_ROOT/finalized/$finalized"; then
               controlled+=("$CONTROL_ROOT/finalized/$finalized")
