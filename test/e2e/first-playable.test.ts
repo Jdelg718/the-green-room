@@ -389,9 +389,9 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
     };
     const personas = room.participants?.filter(({ kind }) => kind === "persona");
     assert.deepEqual(personas, [
-      { id: "detective", kind: "persona", displayName: "The Detective", muted: false },
-      { id: "fixer", kind: "persona", displayName: "The Fixer", muted: false },
-      { id: "optimist", kind: "persona", displayName: "The Optimist", muted: false },
+      { id: "detective", kind: "persona", displayName: "The Detective", muted: false, personaSlug: "detective" },
+      { id: "fixer", kind: "persona", displayName: "The Fixer", muted: false, personaSlug: "fixer" },
+      { id: "optimist", kind: "persona", displayName: "The Optimist", muted: false, personaSlug: "optimist" },
     ]);
 
     const speakers = new Set<string>();

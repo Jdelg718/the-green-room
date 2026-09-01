@@ -28,6 +28,7 @@ const provider = selectProvider({
 const app = buildApp({
   allowedOrigin: config.allowedOrigin,
   database: store.database,
+  historicalCatalog,
   logger: true,
   provider,
   publicDir: fileURLToPath(new URL("../public", import.meta.url)),

@@ -4,6 +4,9 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   appendEventInTransaction,
   canonicalJson,
+  currentRoomId,
+  replaceCurrentRoomCast,
+  type CastReplacementResult,
   withImmediateTransaction,
 } from "../db/index.js";
 import type {
@@ -49,6 +52,11 @@ export interface PersonaControlCommand extends RoomCommand {
 export interface MuteCommand extends PersonaControlCommand {}
 export interface UnmuteCommand extends PersonaControlCommand {}
 
+export interface ReplaceCastCommand {
+  readonly requestId: string;
+  readonly personaSlugs: readonly string[];
+}
+
 export type MessageOutcome = "not_scheduled" | "silence" | "stale" | "text";
 
 export interface SendMessageResult {
@@ -87,6 +95,10 @@ export interface RoomServiceOptions {
   readonly now?: () => number;
   readonly pendingWorkLeaseMs?: number;
   readonly pendingWorkPollMs?: number;
+  readonly personaCatalog?: readonly {
+    readonly slug: string;
+    readonly name: string;
+  }[];
   readonly wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -104,6 +116,7 @@ interface DirectorStateRow {
 interface PersonaRow {
   readonly id: string;
   readonly muted: number;
+  readonly persona_slug: string | null;
   readonly sort_order: number;
 }
 
@@ -153,6 +166,25 @@ interface ClaimMaintenanceState {
 interface OwnedClaim {
   readonly roomId: string;
   readonly requestId: string;
+}
+
+const servicesByDatabase = new Map<string, Set<RoomService>>();
+const memoryDatabaseKeys = new WeakMap<DatabaseSync, string>();
+
+function databaseBroadcastKey(database: DatabaseSync): string {
+  const row = database.prepare("PRAGMA database_list").all().find(
+    (candidate) => (candidate as { name?: unknown }).name === "main",
+  ) as { file?: string } | undefined;
+  if (row?.file !== undefined && row.file !== "") {
+    return `file:${row.file}`;
+  }
+  const existing = memoryDatabaseKeys.get(database);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const key = `memory:${randomUUID()}`;
+  memoryDatabaseKeys.set(database, key);
+  return key;
 }
 
 export class RoomServiceClosedError extends Error {
@@ -245,6 +277,8 @@ export class RoomService {
   readonly #now: () => number;
   readonly #pendingWorkLeaseMs: number;
   readonly #pendingWorkPollMs: number;
+  readonly #personaCatalog: ReadonlyMap<string, { readonly slug: string; readonly name: string }>;
+  readonly #databaseKey: string;
   readonly #wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly #inFlight = new Map<string, InFlightMessage>();
   readonly #controllers = new Map<string, Set<ActiveGeneration>>();
@@ -298,6 +332,21 @@ export class RoomService {
     this.#pendingWorkLeaseMs = pendingWorkLeaseMs;
     this.#pendingWorkPollMs = pendingWorkPollMs;
     this.#wait = options.wait ?? defaultWait;
+    const catalog = options.personaCatalog ?? [];
+    this.#personaCatalog = new Map(catalog.map((persona) => [persona.slug, Object.freeze({
+      slug: persona.slug,
+      name: persona.name,
+    })]));
+    if (this.#personaCatalog.size !== catalog.length) {
+      throw new TypeError("personaCatalog contains duplicate slugs");
+    }
+    this.#databaseKey = databaseBroadcastKey(this.#database);
+    const services = servicesByDatabase.get(this.#databaseKey);
+    if (services === undefined) {
+      servicesByDatabase.set(this.#databaseKey, new Set([this]));
+    } else {
+      services.add(this);
+    }
   }
 
   sendMessage(command: SendMessageCommand): Promise<SendMessageResult> {
@@ -358,6 +407,39 @@ export class RoomService {
     return this.#personaControl("unmute", command);
   }
 
+  replaceCast(command: ReplaceCastCommand): Promise<CastReplacementResult> {
+    try {
+      this.#throwIfClosed();
+      const requestId = canonicalIdentifier(command.requestId, "requestId");
+      if (
+        !Array.isArray(command.personaSlugs) ||
+        command.personaSlugs.length < 1 ||
+        command.personaSlugs.length > 3 ||
+        new Set(command.personaSlugs).size !== command.personaSlugs.length
+      ) {
+        throw new TypeError("personaSlugs must contain one to three unique slugs");
+      }
+      const personas = command.personaSlugs.map((slug) => {
+        if (typeof slug !== "string") {
+          throw new TypeError("persona slug must be a string");
+        }
+        const persona = this.#personaCatalog.get(slug);
+        if (persona === undefined) {
+          throw new TypeError("persona slug is unknown");
+        }
+        return persona;
+      });
+      const result = replaceCurrentRoomCast(this.#database, { requestId, personas });
+      const authoritativeRoomId = currentRoomId(this.#database);
+      for (const service of servicesByDatabase.get(this.#databaseKey) ?? []) {
+        service.#abortAllExcept(authoritativeRoomId);
+      }
+      return Promise.resolve(result);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
   close(): Promise<void> {
     if (this.#closePromise !== undefined) {
       return this.#closePromise;
@@ -391,6 +473,11 @@ export class RoomService {
     this.#inFlight.clear();
     this.#controllers.clear();
     this.#ownedClaims.clear();
+    const services = servicesByDatabase.get(this.#databaseKey);
+    services?.delete(this);
+    if (services?.size === 0) {
+      servicesByDatabase.delete(this.#databaseKey);
+    }
     if (releaseError !== undefined) {
       throw releaseError;
     }
@@ -511,9 +598,15 @@ export class RoomService {
         throw new Error(`Missing director state for room: ${command.roomId}`);
       }
 
+      const humanParticipant = this.#database.prepare(
+        `SELECT id FROM participants WHERE room_id = ? AND kind = 'human'`,
+      ).get(command.roomId) as { id: string } | undefined;
+      if (humanParticipant === undefined) {
+        throw new Error(`Missing human participant for room: ${command.roomId}`);
+      }
       const human = appendEventInTransaction(this.#database, command.roomId, {
         type: "human_message",
-        participantId: "human",
+        participantId: humanParticipant.id,
         text: command.text,
       });
       const decision = this.#decide(command.roomId, state, command.wantsResponse);
@@ -600,7 +693,7 @@ export class RoomService {
     }
     const personas = this.#database
       .prepare(
-        `SELECT id, muted, sort_order FROM participants
+        `SELECT id, muted, persona_slug, sort_order FROM participants
          WHERE room_id = ? AND kind = 'persona' ORDER BY sort_order`,
       )
       .all(roomId) as unknown as PersonaRow[];
@@ -676,7 +769,7 @@ export class RoomService {
         const result: unknown = await this.#raceProviderGeneration(
           {
             id: `${roomId}:${pending.generation}:${pending.humanEventSequence}:${speaker}`,
-            personaId: speaker,
+            personaId: this.#providerPersonaId(roomId, speaker),
             prompt: pending.prompt,
           },
           controller,
@@ -871,7 +964,7 @@ export class RoomService {
         }
         const persona = this.#database
           .prepare(
-            `SELECT id, muted, sort_order FROM participants
+            `SELECT id, muted, persona_slug, sort_order FROM participants
              WHERE room_id = ? AND id = ? AND kind = 'persona'`,
           )
           .get(roomId, personaId) as PersonaRow | undefined;
@@ -1157,5 +1250,24 @@ export class RoomService {
     for (const active of this.#controllers.get(roomId) ?? []) {
       active.controller.abort();
     }
+  }
+
+  #abortAllExcept(currentId: string): void {
+    for (const roomId of this.#controllers.keys()) {
+      if (roomId !== currentId) {
+        this.#abortRoom(roomId);
+      }
+    }
+  }
+
+  #providerPersonaId(roomId: string, participantId: string): string {
+    const row = this.#database.prepare(
+      `SELECT persona_slug FROM participants
+       WHERE room_id = ? AND id = ? AND kind = 'persona'`,
+    ).get(roomId, participantId) as { persona_slug: string | null } | undefined;
+    if (row === undefined) {
+      throw new Error(`Unknown persona: ${participantId}`);
+    }
+    return row.persona_slug ?? participantId;
   }
 }

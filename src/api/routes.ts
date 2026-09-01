@@ -10,6 +10,11 @@ import type {
 
 import type { GenerationProvider } from "../providers/provider.js";
 import {
+  currentRoomId,
+  readCurrentRoom,
+} from "../db/index.js";
+import type { HistoricalCatalog } from "../personas/historical-catalog.js";
+import {
   ROOM_SERVICE_LIMITS,
   RoomService,
 } from "../runtime/room-service.js";
@@ -49,20 +54,6 @@ const ERROR_RESPONSES = Object.freeze({
   },
 } as const);
 
-interface RoomRow {
-  readonly generation: number;
-  readonly id: string;
-  readonly status: "active" | "paused" | "stopped";
-  readonly title: string;
-}
-
-interface ParticipantRow {
-  readonly display_name: string;
-  readonly id: string;
-  readonly kind: "human" | "persona";
-  readonly muted: number;
-}
-
 interface EventRow {
   readonly event_json: string;
   readonly sequence: number;
@@ -78,10 +69,16 @@ interface ParsedControlBody {
   readonly requestId: string;
 }
 
+interface ParsedCastBody {
+  readonly requestId: string;
+  readonly personaSlugs: readonly string[];
+}
+
 export interface ApiRoutesOptions {
   readonly allowedOrigin: string;
   readonly csrfToken: string;
   readonly database?: DatabaseSync;
+  readonly historicalCatalog?: HistoricalCatalog;
   readonly onSseClientCountChange?: (count: number) => void;
   readonly onSseQueueSizeChange?: (size: number) => void;
   readonly onSseResponse?: (response: ServerResponse) => void;
@@ -204,6 +201,25 @@ function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   return { requestId: value.requestId, text: value.text };
 }
 
+function parseCastBody(
+  value: unknown,
+  knownSlugs: ReadonlySet<string>,
+): ParsedCastBody | undefined {
+  if (
+    !isPlainRecord(value) ||
+    !hasExactlyKeys(value, ["requestId", "personaSlugs"]) ||
+    !validIdentifier(value.requestId) ||
+    !Array.isArray(value.personaSlugs) ||
+    value.personaSlugs.length < 1 ||
+    value.personaSlugs.length > 3 ||
+    value.personaSlugs.some((slug) => typeof slug !== "string" || !knownSlugs.has(slug)) ||
+    new Set(value.personaSlugs).size !== value.personaSlugs.length
+  ) {
+    return undefined;
+  }
+  return { requestId: value.requestId, personaSlugs: value.personaSlugs };
+}
+
 function invalidRequest(reply: FastifyReply): FastifyReply {
   return reply.code(400).send(ERROR_RESPONSES.request);
 }
@@ -228,6 +244,7 @@ function parseCursor(request: FastifyRequest): number | undefined {
 
 function readEvents(
   database: DatabaseSync,
+  roomId: string,
   after: number,
   limit: number,
 ): Array<{ sequence: number; event: unknown }> {
@@ -236,7 +253,7 @@ function readEvents(
       `SELECT sequence, event_json FROM events
        WHERE room_id = ? AND sequence > ? ORDER BY sequence LIMIT ?`,
     )
-    .all(ROOM_ID, after, limit) as unknown as EventRow[];
+    .all(roomId, after, limit) as unknown as EventRow[];
   return rows.map((row) => ({
     sequence: row.sequence,
     event: JSON.parse(row.event_json) as unknown,
@@ -289,7 +306,7 @@ class SseClients {
     }
   }
 
-  connect(request: FastifyRequest, reply: FastifyReply, after: number): void {
+  connect(request: FastifyRequest, reply: FastifyReply, roomId: string, after: number): void {
     reply.hijack();
     const response = reply.raw;
     response.writeHead(200, {
@@ -378,6 +395,7 @@ class SseClients {
       try {
         const events = readEvents(
           this.#database,
+          roomId,
           lastQueued,
           waitingForDrain ? capacity + 1 : capacity,
         );
@@ -480,11 +498,24 @@ export function registerApiRoutes(
       return { csrfToken: options.csrfToken };
     });
 
+    const catalogPersonas = Object.freeze((options.historicalCatalog?.personas ?? []).map(
+      ({ slug, name, summary, identity, behavior, knowledge, educationalNotice }) =>
+        Object.freeze({ slug, name, summary, identity, behavior, knowledge, educationalNotice }),
+    ));
+    api.get("/api/catalog/personas", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return catalogPersonas;
+    });
+
     if (options.database === undefined || options.provider === undefined) {
       return;
     }
     const database = options.database;
-    const service = new RoomService({ database, provider: options.provider });
+    const service = new RoomService({
+      database,
+      provider: options.provider,
+      personaCatalog: options.historicalCatalog?.personas ?? [],
+    });
     const streams = new SseClients({
       database,
       heartbeatMs: boundedPositiveInteger(
@@ -520,36 +551,15 @@ export function registerApiRoutes(
       await service.close();
     });
 
-    api.get(`/api/rooms/${ROOM_ID}`, async () => {
-      const room = database
-        .prepare("SELECT id, title, status, generation FROM rooms WHERE id = ?")
-        .get(ROOM_ID) as unknown as RoomRow;
-      const participants = database
-        .prepare(
-          `SELECT id, kind, display_name, muted FROM participants
-           WHERE room_id = ? ORDER BY sort_order`,
-        )
-        .all(ROOM_ID) as unknown as ParticipantRow[];
-      return {
-        id: room.id,
-        title: room.title,
-        status: room.status,
-        generation: room.generation,
-        participants: participants.map((participant) => ({
-          id: participant.id,
-          kind: participant.kind,
-          displayName: participant.display_name,
-          muted: participant.muted === 1,
-        })),
-      };
-    });
+    api.get(`/api/rooms/${ROOM_ID}`, async () => readCurrentRoom(database));
 
     api.get(`/api/rooms/${ROOM_ID}/events`, async (request, reply) => {
       const after = parseCursor(request);
       if (after === undefined) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      const events = readEvents(database, after, EVENT_REPLAY_LIMIT);
+      const roomId = currentRoomId(database);
+      const events = readEvents(database, roomId, after, EVENT_REPLAY_LIMIT);
       return {
         events,
         nextCursor: events.at(-1)?.sequence ?? after,
@@ -561,7 +571,8 @@ export function registerApiRoutes(
       if (after === undefined) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      streams.connect(request, reply, after);
+      const roomId = currentRoomId(database);
+      streams.connect(request, reply, roomId, after);
     });
 
     const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
@@ -574,7 +585,25 @@ export function registerApiRoutes(
           return invalidRequest(reply);
         }
         try {
-          return await service.sendMessage({ roomId: ROOM_ID, ...body });
+          const roomId = currentRoomId(database);
+          return await service.sendMessage({ roomId, ...body });
+        } catch (error) {
+          return sendServiceError(reply, error);
+        }
+      },
+    );
+
+    const knownCatalogSlugs = new Set(catalogPersonas.map(({ slug }) => slug));
+    api.post(
+      `/api/rooms/${ROOM_ID}/cast`,
+      routeOptions,
+      async (request, reply) => {
+        const body = parseCastBody(request.body, knownCatalogSlugs);
+        if (body === undefined) {
+          return invalidRequest(reply);
+        }
+        try {
+          return await service.replaceCast(body);
         } catch (error) {
           return sendServiceError(reply, error);
         }
@@ -595,7 +624,8 @@ export function registerApiRoutes(
             return invalidRequest(reply);
           }
           try {
-            return await operation({ roomId: ROOM_ID, ...body });
+            const roomId = currentRoomId(database);
+            return await operation({ roomId, ...body });
           } catch (error) {
             return sendServiceError(reply, error);
           }
@@ -615,12 +645,13 @@ export function registerApiRoutes(
           const { personaId } = request.params;
           if (
             body === undefined ||
-            !["detective", "fixer", "optimist"].includes(personaId)
+            !validIdentifier(personaId)
           ) {
             return invalidRequest(reply);
           }
           try {
-            return await operation({ roomId: ROOM_ID, personaId, ...body });
+            const roomId = currentRoomId(database);
+            return await operation({ roomId, personaId, ...body });
           } catch (error) {
             return sendServiceError(reply, error);
           }

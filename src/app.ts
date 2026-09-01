@@ -61,6 +61,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     allowedOrigin: options.allowedOrigin ?? "http://127.0.0.1:8787",
     csrfToken,
     ...(options.database === undefined ? {} : { database: options.database }),
+    ...(options.historicalCatalog === undefined
+      ? {}
+      : { historicalCatalog: options.historicalCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
     ...(options.sseHeartbeatMs === undefined
       ? {}

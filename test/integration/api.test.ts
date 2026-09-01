@@ -389,14 +389,15 @@ test("room api exposes only the fixed room and routes mutations through RoomServ
   assert.equal(room.statusCode, 200);
   assert.deepEqual(room.json(), {
     id: ROOM_ID,
+    sessionId: ROOM_ID,
     title: "The Green Room",
     status: "active",
     generation: 0,
     participants: [
       { id: "human", kind: "human", displayName: "You", muted: false },
-      { id: "detective", kind: "persona", displayName: "The Detective", muted: false },
-      { id: "fixer", kind: "persona", displayName: "The Fixer", muted: false },
-      { id: "optimist", kind: "persona", displayName: "The Optimist", muted: false },
+      { id: "detective", kind: "persona", displayName: "The Detective", muted: false, personaSlug: "detective" },
+      { id: "fixer", kind: "persona", displayName: "The Fixer", muted: false, personaSlug: "fixer" },
+      { id: "optimist", kind: "persona", displayName: "The Optimist", muted: false, personaSlug: "optimist" },
     ],
   });
 
