@@ -323,7 +323,10 @@ export function registerPersonaPackInspectionRoute(
       },
     );
 
-    inspectionApi.post("/api/persona-packs/inspect", async (request) => request.body);
+    inspectionApi.post("/api/persona-packs/inspect", async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return request.body;
+    });
   });
 }
 

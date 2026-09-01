@@ -47,9 +47,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     },
   };
 
-  app.addHook("onSend", async (_request, reply, payload) => {
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header("Cache-Control", "no-store");
+    }
     reply
-      .header("Cache-Control", "no-store")
       .header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
       .header("Referrer-Policy", "no-referrer")
       .header("X-Content-Type-Options", "nosniff");

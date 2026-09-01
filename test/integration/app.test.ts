@@ -61,6 +61,7 @@ test("static page and assets are served from the same Fastify process", async (c
   const styles = await app.inject({ method: "GET", url: "/styles.css" });
 
   assert.equal(page.statusCode, 200);
+  assert.equal(page.headers["cache-control"], undefined);
   assert.match(page.headers["content-type"] ?? "", /^text\/html/);
   assert.match(page.body, /<title>The Green Room<\/title>/);
   assert.match(page.body, /src="\/app\.js"/);
