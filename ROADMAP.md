@@ -2,6 +2,8 @@
 
 This is a status-based roadmap for the standalone, local-first application. Releases advance only when their acceptance criteria are verified; dates are intentionally unset.
 
+The latest measured state, exact publication evidence, current blockers, and recommended execution order are recorded in the [2026-09-01 verified checkpoint](docs/status/2026-09-01-verified-checkpoint.md).
+
 ## Completed — verified first playable
 
 The current executable baseline provides:
@@ -15,7 +17,7 @@ The current executable baseline provides:
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
 
-## R0 — reconcile and publish the executable baseline
+## R0 — completed: reconcile and publish the executable baseline
 
 **Outcome:** make the executable first-playable baseline reviewable as one focused pull request, update governing docs, and reconcile prerequisite contracts in a safe order instead of creating one collision-heavy change.
 
@@ -26,6 +28,8 @@ This establishes technical viability. It does not approve historical candidates 
 - prerequisite persona, memory, and downloadable-alpha work is rebased or cherry-picked one focused contract at a time;
 - duplicate ADR numbers, migrations, routes, dependency files, and stale planning assumptions are resolved by their designated owner; and
 - the integrated `npm run check` and `npm run acceptance` pass after each collision-prone merge.
+
+**Verified state:** the executable baseline, governing contracts, hybrid release gate, contributor governance, memory architecture, and focused prerequisite reconciliations are merged behind protected `main`. Later milestones remain gated independently; completing R0 did not create a downloadable release.
 
 ## R1 — local-first BYO LLM
 
@@ -47,7 +51,7 @@ This establishes technical viability. It does not approve historical candidates 
 
 The current packaging boundary and executable spike sequence are defined in the [accepted downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). Acceptance authorizes bounded private implementation spikes only. It replaces closed PR #52's obsolete greenfield/runtime assumptions but is not evidence that an installer, signed artifact, clean-host pass, supported platform, downloadable release, or publication exists.
 
-**Current truth:** the first P0/P1 source hardening slice is under implementation. Release-manifest, source-preflight, data-root, and single-writer-lock contracts may be exercised in source tests; clean macOS/Ubuntu host evidence, a packaged payload, signing/notarization, lifecycle acceptance, and every publication gate remain pending.
+**Current truth:** PR #86 merged the first P0/P1 source-hardening slice: release-manifest, clean-source preflight, source/package data-root, OS-backed single-writer-lock, and strict npm lifecycle-script contracts are implemented and tested. Exact Node `24.20.0` and npm `11.19.0` are enforced in CI and the source workflow. Clean macOS/Ubuntu evidence, a packaged payload, signing/notarization, lifecycle acceptance, and every downloadable-publication gate remain pending; issue #87 owns the clean-source proof.
 
 - Prove the locked source/operator workflow first on named clean macOS arm64 and Ubuntu 24.04 x64 targets.
 - Run one bounded macOS Apple-silicon downloadable spike that preserves the Node 24 runtime and strict validator as separate, supervised, absolute-path executables.
@@ -62,6 +66,8 @@ The current packaging boundary and executable spike sequence are defined in the 
 ## R3 — rooms and bounded memory
 
 **Outcome:** support a library of multiple local rooms with inspectable continuity.
+
+**Current truth:** the authoritative architecture and guided setup prototype are merged. SQLite ordered events remain sole authority; Obsidian and fixed-loopback HTTP are optional projections. Production adapters, multi-room runtime flows, real vault writes, and arbitrary projection endpoints are not implemented.
 
 - Add local room create/list/archive/delete flows.
 - Add bounded summaries and relationship memory linked to source events.
@@ -82,13 +88,18 @@ The current packaging boundary and executable spike sequence are defined in the 
 - Maintain portrait asset records binding exact bytes to provenance, generation/source basis, attribution, and review evidence.
 - Preserve text/monogram fallbacks wherever a portrait is unavailable or fails to load.
 - Treat the 12 approved AI-generated portraits as website and local-app presentation assets with explicit creative-interpretation labeling; that publication does not admit the associated packs or artwork to the Official Catalog.
+- Keep the six additional cypherpunk/economist packs in the non-runtime candidate hold even though their exact public profiles and portraits are approved and live on the website.
 - Hold portrait inclusion in downloadable packs and catalog distribution until exact-version asset-manifest review and Official Catalog admission.
 
 **Acceptance criteria:** a fresh local installation exposes all twelve exact historical candidate packs without a network request; identical wizard input exports deterministic bytes accepted by the strict validator; malformed or executable imports fail closed; inspection has no install side effect; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
 
+**Verified website state:** `greenroomai.net` now serves 18 historical profiles: the original twelve presentation profiles plus six approved website-only profiles for Hal Finney, Timothy C. May, Len Sassaman, Ludwig von Mises, Milton Friedman, and John Maynard Keynes. All six remain non-runtime holds and outside the Official Catalog.
+
 ## R5 — greenroomai.net and community release
 
 **Outcome:** maintain the live `greenroomai.net` static public project, documentation, download, and contribution surface while the application continues to run locally.
+
+**Current truth:** the static domain is live and independently verified with 18 cards and profiles, pinned portrait bytes, restrictive local-only resource policy, contribution/governance paths, and no key/transcript/room ingestion. The site has no downloadable application artifact yet. Cloudflare GitHub builds upload preview versions but production promotion remains a separate human gate.
 
 - Keep static project information, setup docs, contribution paths, and security/contact guidance current; publish downloads only after separate artifact and operator approval.
 - After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
@@ -99,6 +110,17 @@ The current packaging boundary and executable spike sequence are defined in the 
 **Acceptance criteria:** live DNS and deployment claims remain independently verified; release artifacts and checksums reproduce from a clean checkout; site code has no key-entry or transcript-ingestion path; local setup remains usable without a project account or project-operated service; public contribution/catalog paths enforce the content policy; and source-only integration does not trigger a redeploy.
 
 The portable-character and community boundary is specified in [ADR 0003](docs/adr/0003-portable-characters-and-community-library.md) and the [Character Wizard and community library delivery plan](docs/plans/2026-09-01-character-wizard-community-library.md).
+
+## Current execution order
+
+1. Prove the two named clean-source targets in issue #87.
+2. Implement package-aware runtime assets and frozen-validator equivalence.
+3. Build the minimal supervised macOS launcher and unsigned application payload.
+4. Pass the disposable backup/migration/restore/rollback/uninstall/reinstall/purge matrix before requesting signing or notarization access.
+5. Finish guided provider setup/runtime integration.
+6. Implement multi-room lifecycle and bounded memory behind the merged authority contracts.
+7. Integrate Character Wizard drafts/export/import and establish the versioned Official Catalog manifest gate.
+8. Keep the demo video blocked until stranger-ready download and onboarding acceptance pass.
 
 ## Future launch milestone — community demo video
 
