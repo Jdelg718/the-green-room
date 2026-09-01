@@ -17,6 +17,13 @@ export function assertAcceptanceSummary<T extends Record<string, any>>(summary: 
 export function assertInspectionReport<T extends Record<string, any>>(report: T): T;
 
 export function pathsOutsideRoots(paths: string[], roots: string[]): string[];
+export function parseDarwinPsProcessLine(line: string, pid: number, executablePath: string): {
+  pid: number;
+  startTime: string;
+  ppid: number;
+  executablePath: string;
+  argv: string;
+};
 export function assertProtectedDispatch(value: unknown): true;
 export function validateHarnessEvidence(
   harness: Record<string, any>,
@@ -51,6 +58,24 @@ export function evaluateSourcePhaseAudit(options: {
   modifiedUserOwnedPathsOutsideDeclaredRoot: Array<{ path: string; [key: string]: unknown }>;
   deletedUserOwnedPathsOutsideDeclaredRoot: Array<{ path: string; [key: string]: unknown }>;
 };
+
+export interface UidProcessInventory {
+  schemaVersion: 2;
+  uid: number;
+  capturedAt: string;
+  processes: Array<{ pid: number; startTime: string; ppid: number; executablePath: string; argv: string }>;
+}
+
+export function evaluateUidProcessAudit(options: {
+  baseline: UidProcessInventory;
+  after: UidProcessInventory;
+  expectedUid: number;
+}): { passed: boolean; unexpectedProcesses: UidProcessInventory["processes"]; [key: string]: unknown };
+
+export function validatePlaceholderHomeManifest<T extends Record<string, any>>(
+  manifest: T,
+  options: { root: string; expectedUid: number; expectedGid: number },
+): T;
 
 export interface ProcessEntry {
   pid: number;

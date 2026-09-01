@@ -106,6 +106,21 @@ export function pathsOutsideRoots(paths, roots) {
     .sort();
 }
 
+export function parseDarwinPsProcessLine(line, pid, executablePath) {
+  const match = line.trim().match(/^\s*(\d+)\s+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/);
+  assert.ok(match, "invalid Darwin ps process line");
+  assert.ok(Number.isSafeInteger(pid) && pid > 0, "invalid Darwin process PID");
+  assert.equal(typeof executablePath, "string");
+  assert.ok(executablePath.length > 0, "Darwin proc_pidpath result is empty");
+  return {
+    pid,
+    startTime: match[2].split(/\s+/).join(" "),
+    ppid: Number(match[1]),
+    executablePath,
+    argv: match[3],
+  };
+}
+
 export function assertProtectedDispatch(value) {
   assert.equal(value, "true", "SOURCE_REF_PROTECTED must be the exact string true");
   return true;
@@ -183,9 +198,87 @@ export function evaluateSourcePhaseAudit({ before, after, beforeErrors, afterErr
     modifiedUserOwnedPathsOutsideDeclaredRoot: modified,
     deletedUserOwnedPathsOutsideDeclaredRoot: deleted,
     passed: coverageComplete && errorsEmpty && created.length === 0 && modified.length === 0 && deleted.length === 0,
-    provisioningScope: "Root account creation and toolchain/snapshot-tool provisioning occur before the baseline and are explicitly outside this source-phase audit; they are not reported as a passed host-wide audit.",
-    limitation: "Coverage is limited to paths owned by the fresh temporary UID in the recorded same-device monitored roots. It compares canonical path, type, uid/gid, mode, device/inode/link count, size/mtime, regular-file SHA-256, and symlink target. It does not claim detection of changes to paths owned by other UIDs; the unprivileged source user normally cannot alter root-owned paths.",
+    claim: "Complete, error-free monitored snapshots found no net created, deleted, or metadata/content-modified UID-owned paths outside the declared work root.",
+    provisioningScope: "Root account creation, Directory Services home relocation, trusted prerequisite warming, stabilization, and toolchain/snapshot-tool provisioning occur before the authoritative baseline and are explicitly outside this source-phase audit; they are not reported as a passed host-wide audit.",
+    limitation: "Coverage is limited to paths owned by the fresh temporary UID in the recorded same-device monitored roots. It compares canonical path, type, uid/gid, mode, device/inode/link count, size/mtime, regular-file SHA-256, and symlink target. It detects net snapshot differences, not transient writes restored before the after snapshot, and does not claim detection of changes to paths owned by other UIDs.",
   };
+}
+
+function validateUidProcessInventory(inventory, expectedUid, context) {
+  assertExactKeys(inventory, ["schemaVersion", "uid", "capturedAt", "processes"], context);
+  assert.equal(inventory.schemaVersion, 2, `${context} schema mismatch`);
+  assert.equal(inventory.uid, expectedUid, `${context} UID mismatch`);
+  assertIsoTimestamp(inventory.capturedAt, `${context} capturedAt`);
+  assert.ok(Array.isArray(inventory.processes), `${context} entries are missing`);
+  const identities = new Set();
+  for (const entry of inventory.processes) {
+    assertExactKeys(entry, ["pid", "startTime", "ppid", "executablePath", "argv"], `${context} entry`);
+    assert.ok(Number.isSafeInteger(entry.pid) && entry.pid > 0);
+    assert.ok(Number.isSafeInteger(entry.ppid) && entry.ppid >= 0);
+    assert.equal(typeof entry.startTime, "string");
+    assert.ok(entry.startTime.length > 0);
+    assert.equal(typeof entry.executablePath, "string");
+    assert.ok(entry.executablePath.length > 0);
+    assert.equal(typeof entry.argv, "string");
+    assert.ok(entry.argv.length > 0);
+    const identity = `${entry.pid}\0${entry.startTime}`;
+    assert.equal(identities.has(identity), false, `${context} contains duplicate process identity`);
+    identities.add(identity);
+  }
+  return inventory;
+}
+
+export function evaluateUidProcessAudit({ baseline, after, expectedUid }) {
+  validateUidProcessInventory(baseline, expectedUid, "baseline UID process inventory");
+  validateUidProcessInventory(after, expectedUid, "after UID process inventory");
+  const baselineByIdentity = new Map(baseline.processes.map((entry) => [`${entry.pid}\0${entry.startTime}`, entry]));
+  const unexpected = after.processes.filter((entry) => {
+    const prior = baselineByIdentity.get(`${entry.pid}\0${entry.startTime}`);
+    return prior === undefined || prior.ppid !== entry.ppid || prior.executablePath !== entry.executablePath || prior.argv !== entry.argv;
+  });
+  return {
+    schemaVersion: 1,
+    passed: unexpected.length === 0,
+    identity: ["pid", "startTime", "ppid", "executablePath", "argv"],
+    requirement: "Every UID-owned process after source execution must be the exact process instance recorded at the authoritative baseline; executable-name allowlists are not used.",
+    baseline,
+    after,
+    unexpectedProcesses: unexpected,
+  };
+}
+
+export function validatePlaceholderHomeManifest(manifest, { root, expectedUid, expectedGid }) {
+  assertExactKeys(manifest, ["schemaVersion", "root", "entries"], "placeholder home manifest");
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.root, root);
+  assert.ok(Array.isArray(manifest.entries) && manifest.entries.length > 0);
+  const paths = new Set();
+  for (const entry of manifest.entries) {
+    const expectedKeys = ["path", "uid", "gid", "mode", "type", "size", "mtimeNs"];
+    if (entry?.type === "regular") expectedKeys.push("sha256");
+    if (entry?.type === "symlink") expectedKeys.push("symlinkTarget");
+    assertExactKeys(entry, expectedKeys, "placeholder home manifest entry");
+    assert.equal(typeof entry.path, "string");
+    assert.equal(resolve(entry.path), entry.path);
+    assert.equal(pathsOutsideRoots([entry.path], [root]).length, 0, "placeholder manifest entry escaped its root");
+    assert.equal(paths.has(entry.path), false, "duplicate placeholder manifest path");
+    paths.add(entry.path);
+    assert.ok(Number.isSafeInteger(entry.uid) && entry.uid >= 0);
+    assert.ok(Number.isSafeInteger(entry.gid) && entry.gid >= 0);
+    assert.match(entry.mode, /^0[0-7]{4}$/);
+    assert.ok(["directory", "regular", "symlink", "other"].includes(entry.type));
+    assert.match(entry.size, /^\d+$/);
+    assert.match(entry.mtimeNs, /^\d+$/);
+    if (entry.type === "regular") assert.match(entry.sha256, /^[0-9a-f]{64}$/);
+    if (entry.type === "symlink") assert.equal(typeof entry.symlinkTarget, "string");
+  }
+  const rootEntry = manifest.entries.find((entry) => entry.path === root);
+  assert.ok(rootEntry, "placeholder manifest omitted its root");
+  assert.equal(rootEntry.type, "directory");
+  assert.equal(rootEntry.uid, expectedUid);
+  assert.equal(rootEntry.gid, expectedGid);
+  assert.equal(rootEntry.mode, "00700");
+  return manifest;
 }
 
 function parseArguments(argv) {
@@ -411,7 +504,7 @@ async function runEvidence(options) {
     requestedSha: expectedSha,
     sourceRef: "refs/heads/main",
     sourceRefProtected: true,
-    auditScope: "unprivileged source phase after root account/toolchain provisioning",
+    auditScope: "unprivileged source phase after root provisioning, home relocation, trusted warming, and stable baseline selection",
     declaredWriteRoots: [workRoot],
     commands: [],
   };
@@ -453,13 +546,22 @@ async function runEvidence(options) {
       checkoutSha: currentSha,
       detachedHead: true,
       sourceRefProtected: true,
-      accountHome: identity.homedir,
+      originalProvisioningHome: process.env.GREENROOM_ORIGINAL_HOME,
+      effectiveAccountHome: identity.homedir,
+      exportedHome: process.env.HOME,
+      foundationHome: process.env.GREENROOM_FOUNDATION_HOME || null,
       syntheticSourceHome: syntheticHome,
       runnerDisclosure: "GitHub-hosted standard runners are fresh VMs with documented preinstalled host software; this run creates a separate temporary non-admin user but does not claim a blank operating-system image.",
     };
     assert.equal(process.version, "v24.20.0");
     assert.equal(evidence.environment.npm, "11.19.0");
     assert.match(evidence.environment.uv, /^uv 0\.12\.8(?:\s|$)/);
+    assert.equal(evidence.environment.originalProvisioningHome, process.env.GREENROOM_ORIGINAL_HOME);
+    assert.equal(evidence.environment.exportedHome, syntheticHome);
+    if (platform() === "darwin") {
+      assert.equal(evidence.environment.effectiveAccountHome, syntheticHome);
+      assert.equal(evidence.environment.foundationHome, syntheticHome);
+    }
 
     const absentArtifacts = {};
     for (const artifact of ["node_modules", ".venv", "dist"]) {
@@ -645,13 +747,14 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
   assert.equal(harness.requestedSha, expectedSha, "harness requested SHA mismatch");
   assert.equal(harness.sourceRef, "refs/heads/main", "harness source ref mismatch");
   assert.equal(harness.sourceRefProtected, true, "harness did not record a protected source ref");
-  assert.equal(harness.auditScope, "unprivileged source phase after root account/toolchain provisioning");
+  assert.equal(harness.auditScope, "unprivileged source phase after root provisioning, home relocation, trusted warming, and stable baseline selection");
   assert.deepEqual(harness.declaredWriteRoots, [allowedRoot], "harness declared-write root mismatch");
 
   assertExactKeys(harness.environment, [
     "platform", "architecture", "kernelRelease", "osRelease", "uid", "gid", "username", "groups",
     "node", "npm", "uv", "git", "repositoryOrigin", "checkoutSha", "detachedHead",
-    "sourceRefProtected", "accountHome", "syntheticSourceHome", "runnerDisclosure",
+    "sourceRefProtected", "originalProvisioningHome", "effectiveAccountHome", "exportedHome", "foundationHome",
+    "syntheticSourceHome", "runnerDisclosure",
   ], "harness environment");
   assert.ok(["darwin", "linux"].includes(harness.environment.platform));
   assert.ok(["arm64", "x64"].includes(harness.environment.architecture));
@@ -667,6 +770,16 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
   assert.equal(harness.environment.sourceRefProtected, true);
   assert.ok(harness.environment.repositoryOrigin === "https://github.com/Jdelg718/the-green-room.git" || harness.environment.repositoryOrigin === "https://github.com/Jdelg718/the-green-room");
   assert.equal(harness.environment.syntheticSourceHome, join(allowedRoot, "home"));
+  assert.equal(harness.environment.exportedHome, join(allowedRoot, "home"));
+  assert.equal(typeof harness.environment.originalProvisioningHome, "string");
+  if (harness.environment.platform === "darwin") {
+    assert.equal(harness.environment.originalProvisioningHome, `/Users/${harness.environment.username}`);
+    assert.equal(harness.environment.effectiveAccountHome, join(allowedRoot, "home"));
+    assert.equal(harness.environment.foundationHome, join(allowedRoot, "home"));
+  } else {
+    assert.equal(harness.environment.effectiveAccountHome, harness.environment.originalProvisioningHome);
+    assert.equal(harness.environment.foundationHome, null);
+  }
 
   assert.deepEqual(harness.cleanSourceBeforePreflight, { node_modules: true, ".venv": true, dist: true, dataRoot: true });
   assert.deepEqual(harness.installPolicy, {
@@ -779,7 +892,12 @@ async function finalizeEvidence(options) {
   const afterPath = requiredAbsolute(options, "audit-after");
   const beforeErrorsPath = requiredAbsolute(options, "audit-before-errors");
   const afterErrorsPath = requiredAbsolute(options, "audit-after-errors");
-  const processInventoryPath = requiredAbsolute(options, "process-inventory");
+  const baselineProcessInventoryPath = requiredAbsolute(options, "process-baseline");
+  const preAfterSnapshotProcessInventoryPath = requiredAbsolute(options, "process-pre-after-snapshot");
+  const afterProcessInventoryPath = requiredAbsolute(options, "process-after");
+  const provisioningEvidencePath = requiredAbsolute(options, "provisioning-evidence");
+  const placeholderInitialPath = requiredAbsolute(options, "placeholder-initial");
+  const placeholderFinalPath = requiredAbsolute(options, "placeholder-final");
   const allowedRoot = requiredAbsolute(options, "allowed-root");
   const expectedSha = requiredSha(options);
   const expectedRepository = options.repository;
@@ -805,23 +923,66 @@ async function finalizeEvidence(options) {
     allowedRoot,
     expectedUid,
   });
-  const processInventory = JSON.parse(await readFile(processInventoryPath, "utf8"));
-  assertExactKeys(processInventory, ["schemaVersion", "uid", "processes"], "UID process inventory");
-  assert.equal(processInventory.schemaVersion, 1);
-  assert.equal(processInventory.uid, expectedUid, "process inventory UID mismatch");
-  assert.ok(Array.isArray(processInventory.processes), "process inventory entries are missing");
-  for (const entry of processInventory.processes) {
-    assertExactKeys(entry, ["pid", "ppid", "command"], "UID process inventory entry");
-    assert.ok(Number.isSafeInteger(entry.pid) && entry.pid > 0);
-    assert.ok(Number.isSafeInteger(entry.ppid) && entry.ppid >= 0);
-    assert.equal(typeof entry.command, "string");
-  }
+  const preAfterSnapshotProcessClosure = evaluateUidProcessAudit({
+    baseline: JSON.parse(await readFile(baselineProcessInventoryPath, "utf8")),
+    after: JSON.parse(await readFile(preAfterSnapshotProcessInventoryPath, "utf8")),
+    expectedUid,
+  });
+  assert.equal(preAfterSnapshotProcessClosure.passed, true, "source phase left a new, restarted, or changed UID-owned process before the after snapshot");
+  const postAfterSnapshotProcessClosure = evaluateUidProcessAudit({
+    baseline: preAfterSnapshotProcessClosure.baseline,
+    after: JSON.parse(await readFile(afterProcessInventoryPath, "utf8")),
+    expectedUid,
+  });
+  assert.equal(postAfterSnapshotProcessClosure.passed, true, "source phase left a new, restarted, or changed UID-owned process after the after snapshot");
   const processClosure = {
-    passed: processInventory.processes.length === 0,
-    inventory: processInventory,
-    requirement: "No process may remain owned by the audited UID when the source command has completed and before the after snapshot is taken.",
+    schemaVersion: 1,
+    passed: preAfterSnapshotProcessClosure.passed && postAfterSnapshotProcessClosure.passed,
+    beforeFilesystemSnapshot: preAfterSnapshotProcessClosure,
+    afterFilesystemSnapshot: postAfterSnapshotProcessClosure,
   };
-  assert.equal(processClosure.passed, true, "audited UID still owns a process; command logs are not safe to finalize");
+  const provisioning = JSON.parse(await readFile(provisioningEvidencePath, "utf8"));
+  assertExactKeys(provisioning, ["schemaVersion", "platform", "originalHome", "effectiveHome", "exportedHome", "foundationHome", "homeMetadata", "warmCommands", "stabilization"], "provisioning evidence");
+  assert.equal(provisioning.schemaVersion, 1);
+  assert.ok(["darwin", "linux"].includes(provisioning.platform));
+  assert.equal(provisioning.platform, harness.environment.platform);
+  assert.equal(provisioning.exportedHome, join(allowedRoot, "home"));
+  assert.equal(provisioning.originalHome, harness.environment.originalProvisioningHome);
+  assert.equal(provisioning.effectiveHome, harness.environment.effectiveAccountHome);
+  assert.equal(provisioning.foundationHome, harness.environment.foundationHome);
+  assertExactKeys(provisioning.homeMetadata, ["placeholder", "synthetic"], "home metadata");
+  for (const [name, details] of Object.entries(provisioning.homeMetadata)) {
+    assertExactKeys(details, ["path", "canonicalPath", "uid", "gid", "ownerName", "groupName", "mode"], `${name} home metadata`);
+    assert.equal(details.path, name === "placeholder" ? provisioning.originalHome : provisioning.exportedHome);
+    assert.equal(details.canonicalPath, details.path);
+    assert.equal(details.uid, expectedUid);
+    assert.equal(details.gid, harness.environment.gid);
+    assert.equal(details.ownerName, harness.environment.username);
+    assert.equal(typeof details.groupName, "string");
+    assert.ok(details.groupName.length > 0);
+    assert.equal(details.mode, "00700");
+  }
+  assert.equal(pathsOutsideRoots([provisioning.originalHome], [allowedRoot]).length, 1, "placeholder home must remain outside the declared work root");
+  assert.ok(Array.isArray(provisioning.warmCommands) && provisioning.warmCommands.length >= 4);
+  for (const entry of provisioning.warmCommands) {
+    assertExactKeys(entry, ["command", "status"], "warm command evidence");
+    assert.equal(typeof entry.command, "string");
+    assert.ok(entry.command.length > 0);
+    assert.equal(entry.status, 0, `trusted prerequisite warming failed: ${entry.command}`);
+  }
+  assertExactKeys(provisioning.stabilization, ["attempts", "consecutiveStableSnapshots", "accepted", "authoritativeSnapshot"], "stabilization evidence");
+  assert.ok(Number.isSafeInteger(provisioning.stabilization.attempts) && provisioning.stabilization.attempts >= 2 && provisioning.stabilization.attempts <= 5);
+  assert.equal(provisioning.stabilization.consecutiveStableSnapshots, 2);
+  assert.equal(provisioning.stabilization.accepted, true);
+  assert.equal(provisioning.stabilization.authoritativeSnapshot, "audit-before.json");
+  const placeholderInitial = await readFile(placeholderInitialPath, "utf8");
+  const placeholderFinal = await readFile(placeholderFinalPath, "utf8");
+  assert.equal(placeholderFinal, placeholderInitial, "placeholder home changed during the measured workflow");
+  const placeholderManifest = validatePlaceholderHomeManifest(JSON.parse(placeholderInitial), {
+    root: provisioning.originalHome,
+    expectedUid,
+    expectedGid: harness.environment.gid,
+  });
   await mkdir(outputRoot, { mode: 0o700 });
   const commandLogs = await finalizeCommandLogs({ harnessRoot, outputRoot });
   const finalEvidence = {
@@ -831,6 +992,8 @@ async function finalizeEvidence(options) {
     protectedMain: harness.sourceRefProtected === true,
     harness,
     commandLogs,
+    provisioning,
+    placeholderHomeManifest: JSON.parse(placeholderInitial),
     sourcePhaseProcessClosure: processClosure,
     sourcePhaseWriteAudit: sourcePhaseAudit,
   };
