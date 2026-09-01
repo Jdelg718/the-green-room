@@ -18,6 +18,7 @@ greenroom-persona = "greenroom_persona.cli:main"
 dev = [
   "bandit>=1.8.6,<2",
   "hypothesis>=6.138,<7",
+  "jsonschema>=4.25,<5",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",

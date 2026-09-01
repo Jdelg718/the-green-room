@@ -11,7 +11,7 @@ The current executable baseline provides:
 - durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
 - a fixed-loopback LM Studio private provider plus deterministic test providers;
 - 12 strictly validated historical candidate packs and a text/monogram cast gallery; and
-- the current integrated release gate: 192 passing Node tests, 227 passing Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance.
+- the integrated release gate covering the Node and Python suites, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance; exact totals are recorded with release evidence rather than this roadmap.
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
 
