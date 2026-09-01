@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { chmod, mkdtemp, open, rm, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import type { ValidateOptions, ValidatorReport } from "./validator-sidecar.js";
+import {
+  ValidatorSidecarError,
+  type ValidateOptions,
+  type ValidatorReport,
+} from "./validator-sidecar.js";
 
 const MAX_ARCHIVE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 2;
@@ -26,6 +30,7 @@ export type PersonaPackInspectionErrorCode =
   | "inspection_stream_error"
   | "inspection_write_error"
   | "inspection_aborted"
+  | "inspection_timeout"
   | "inspection_validation_failed"
   | "inspection_cleanup_failed";
 
@@ -37,6 +42,7 @@ const ERROR_MESSAGES: Readonly<Record<PersonaPackInspectionErrorCode, string>> =
   inspection_stream_error: "Persona pack upload could not be read.",
   inspection_write_error: "Persona pack upload could not be stored safely.",
   inspection_aborted: "Persona pack inspection was cancelled.",
+  inspection_timeout: "Persona pack inspection timed out.",
   inspection_validation_failed: "Persona pack validator failed.",
   inspection_cleanup_failed: "Persona pack inspection cleanup failed.",
 });
@@ -367,7 +373,6 @@ export class PersonaPackInspectionService {
         throw failure("inspection_stream_error");
       }
 
-      if (uploadedBytes === 0) throw failure("inspection_empty");
       try {
         await handle.close();
         handle = undefined;
@@ -379,8 +384,12 @@ export class PersonaPackInspectionService {
       let report: ValidatorReport;
       try {
         report = await this.#validate(archivePath, { signal });
-      } catch {
-        throw failure(signalAborted(signal) ? "inspection_aborted" : "inspection_validation_failed");
+      } catch (error) {
+        if (signalAborted(signal)) throw failure("inspection_aborted");
+        if (error instanceof ValidatorSidecarError && error.code === "validator_timeout") {
+          throw failure("inspection_timeout");
+        }
+        throw failure("inspection_validation_failed");
       }
       if (signalAborted(signal)) throw failure("inspection_aborted");
       try {

@@ -1,4 +1,4 @@
-import { cpSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,3 +9,18 @@ for (const directory of ["migrations", "public", "personas/historical"]) {
   rmSync(destination, { force: true, recursive: true });
   cpSync(resolve(repositoryRoot, directory), destination, { recursive: true });
 }
+
+const fixtureDirectory = resolve(
+  repositoryRoot,
+  "dist/runtime-assets/persona-validator",
+);
+rmSync(fixtureDirectory, { force: true, recursive: true });
+const fixtureDestination = resolve(
+  fixtureDirectory,
+  "valid-minimal.greenroom",
+);
+mkdirSync(fixtureDirectory, { recursive: true });
+cpSync(
+  resolve(repositoryRoot, "tests/fixtures/persona-validator/valid-minimal.greenroom"),
+  fixtureDestination,
+);

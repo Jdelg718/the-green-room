@@ -14,6 +14,46 @@ uv sync --all-groups
 The runtime package has one dependency, PyYAML. The CLI uses no model, provider,
 network, credential, container, or deployment integration.
 
+## Local-source application startup
+
+The verified application workflow uses a locked repository virtual environment:
+
+```sh
+npm ci
+uv sync --locked --no-dev
+npm run build
+npm run start:local
+```
+
+The launcher passes the absolute repository console executable and starts with
+`GREENROOM_PERSONA_INSPECTION=required`. It never discovers a validator on
+`PATH`, runs through a shell, or invokes `uv` while serving a request. The build
+copies only the fixed valid preflight archive into Node runtime assets; it never
+copies `.venv`.
+
+Direct server startup supports these explicit modes:
+
+- `disabled`: keep the route unavailable without constructing the runtime;
+- `optional` (source default): use an explicitly configured validator, or return
+  the fixed `503 inspection_unavailable` response when none is configured; and
+- `required`: abort before health/listen if the executable is absent, broken, or
+  fails the fixed protocol preflight.
+
+`GREENROOM_PERSONA_VALIDATOR_EXECUTABLE` must be an absolute canonical regular
+executable. Any malformed explicit mode or executable value fails startup even
+in optional mode. Runtime CWD and temporary paths are derived from the absolute
+data directory under `runtime/persona-inspection/`, use app ownership markers
+and POSIX `0700` directories, reject symlink/canonical-parent violations, and
+apply only a bounded exact-prefix startup janitor. Shutdown first closes the
+HTTP/request lifecycle and only then removes empty runtime roots.
+
+This wiring does not claim downloadable production packaging. A relocatable
+Python and Node layout, installers and rollback, license/SBOM/signing gates,
+macOS notarization, and clean-host/offline verification are unimplemented.
+Windows-enabled inspection also remains blocked pending reviewed user-only ACLs
+and Job Object descendant cleanup; POSIX mode bits and direct-child termination
+are not presented as Windows equivalents.
+
 ## Commands
 
 ```sh

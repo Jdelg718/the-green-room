@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { buildApp } from "../../src/app.js";
 
 const expectedSecurityHeaders = {
-  "content-security-policy": "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+  "content-security-policy": "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 };
@@ -36,9 +36,14 @@ test("bootstrap returns a stable per-process CSRF token", async (context) => {
     url: "/api/bootstrap",
     headers: { host: "127.0.0.1:8787" },
   });
-  const token = first.json<{ csrfToken: string }>().csrfToken;
+  const body = first.json<{
+    csrfToken: string;
+    capabilities: { personaPackInspection: boolean };
+  }>();
+  const token = body.csrfToken;
 
   assert.equal(first.statusCode, 200);
+  assert.equal(body.capabilities.personaPackInspection, false);
   assert.match(token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(second.json<{ csrfToken: string }>().csrfToken, token);
 
@@ -61,6 +66,7 @@ test("static page and assets are served from the same Fastify process", async (c
   const styles = await app.inject({ method: "GET", url: "/styles.css" });
 
   assert.equal(page.statusCode, 200);
+  assert.equal(page.headers["cache-control"], undefined);
   assert.match(page.headers["content-type"] ?? "", /^text\/html/);
   assert.match(page.body, /<title>The Green Room<\/title>/);
   assert.match(page.body, /src="\/app\.js"/);

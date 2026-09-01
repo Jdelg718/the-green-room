@@ -11,7 +11,7 @@ import {
 import { EXPECTED_HISTORICAL_PERSONAS } from "./personas/historical-catalog.js";
 
 const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+  "default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
 
 interface BuildAppOptions
   extends Omit<ApiRoutesOptions, "allowedOrigin" | "csrfToken"> {
@@ -60,7 +60,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ])),
   };
 
-  app.addHook("onSend", async (_request, reply, payload) => {
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header("Cache-Control", "no-store");
+    }
     reply
       .header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
       .header("Referrer-Policy", "no-referrer")
@@ -78,6 +81,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? {}
       : { historicalCatalog: options.historicalCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(options.personaPackInspectionService === undefined
+      ? {}
+      : { personaPackInspectionService: options.personaPackInspectionService }),
+    ...(options.inspectionDeadlineMs === undefined
+      ? {}
+      : { inspectionDeadlineMs: options.inspectionDeadlineMs }),
     ...(options.sseHeartbeatMs === undefined
       ? {}
       : { sseHeartbeatMs: options.sseHeartbeatMs }),

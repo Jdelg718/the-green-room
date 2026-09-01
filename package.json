@@ -16,6 +16,7 @@
     "check:all": "npm run check && npm run check:python",
     "check:release": "npm run check:all && npm run acceptance",
     "start": "node dist/src/server.js",
+    "start:local": "node scripts/start-local.mjs",
     "dev": "npm run build && node --watch dist/src/server.js",
     "acceptance": "node scripts/accept-first-playable.mjs"
   },
