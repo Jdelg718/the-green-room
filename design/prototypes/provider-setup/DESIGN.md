@@ -4,7 +4,7 @@
 
 This contract covers the standalone prototype at `design/prototypes/provider-setup/index.html`. It is an implementation-ready design exploration, not deployed functionality, an accepted API contract, or permission to wire production provider routes. Kent must approve the direction before implementation handoff.
 
-The prototype is intentionally self-contained. It uses synthetic labels and in-memory interaction state; it makes no network requests, stores no credential, uses no browser storage, and changes no room or provider record.
+The prototype is intentionally self-contained. It uses synthetic labels and in-memory interaction state; it makes no provider request, stores no credential, uses no browser storage, and changes no room or provider record. Its default state is untested: the result and saved-profile preview are hidden and Save is unavailable.
 
 ## Problem and recommendation
 
@@ -52,9 +52,9 @@ Happy path:
 3. The adapter supplies a fixed loopback endpoint or approved cloud definition.
 4. User chooses or discovers a model.
 5. A local user optionally discloses that their loopback server requires a key. A cloud user enters a key and acknowledges which bounded context may leave the machine.
-6. User tests the connection.
-7. The result distinguishes reachability, model availability, and capability support.
-8. User saves a revisioned connection/model profile.
+6. User tests the exact current draft. Production captures an immutable draft revision and request token at test start.
+7. The result distinguishes reachability, model availability, and capability support. A delayed result is discarded if its token/revision no longer matches the current draft.
+8. User saves a revisioned connection/model profile only after success for that exact current draft.
 9. User can revise, disable, re-enable, or delete the profile later.
 
 Recovery paths:
@@ -63,7 +63,7 @@ Recovery paths:
 - Model unavailable: retain the connection choice and move focus logically to model selection.
 - Local server offline: explain that nothing answered at the selected loopback endpoint; do not imply a key problem.
 - Capability limitation: permit use only when deterministic fallback satisfies the room requirement; name the missing capability.
-- Stale/changed model: require a new test before binding the revision to new room decisions.
+- Stale/changed draft: every path, provider, model, key requirement/value, and cloud-acknowledgment change invalidates test success and Save eligibility. Require a new test before saving or binding the revision to new room decisions.
 - Delete: confirm consequences, invalidate the local credential reference, preserve readable non-secret historical decision snapshots, and require affected rooms to choose another active profile before generation.
 
 Completion: an active, tested connection and exact model-profile revision are available for room binding. A “test succeeded” result alone is not a save or room mutation.
@@ -107,19 +107,19 @@ The energy is reserved for hierarchy and state. Credential and cloud disclosures
 | --- | --- | --- | --- |
 | Default | Selections and disclosures; no result panel | Test connection | None |
 | Loading | “Testing connection”; controls that would duplicate mutation disabled in production | Cancel/timeout handled by backend | Testing connection |
-| Success | Reachable model and required capability result | Save exact revision | Connection ready |
+| Success | Reachable model and required capability result for the exact current draft; Save becomes eligible | Save exact revision | Connection ready |
 | Invalid key | Sanitized auth failure; no echoed key, header, provider body, or account detail | Re-enter key | Key was not accepted |
 | Model unavailable | Server reachable, selected model absent/unloaded | Choose/discover another model | Model unavailable |
 | Local server offline | Loopback endpoint did not answer | Start server/verify adapter-owned port/retry | Local server offline |
 | Capability limitation | Exact missing optional/required capability and deterministic fallback | Accept safe fallback or choose model | Connected with limitations |
 | Saved | Active tested revision; non-secret facts only | Revise/disable/delete | Connection saved |
-| Revised/stale | New draft separate from last active revision | Retest before binding | Retest required |
+| Revised/stale | New draft separate from last active revision; result hidden and Save unavailable | Retest before saving or binding | Retest required |
 | Disabled | No new provider calls or bindings; secret reference invalidated per accepted backend contract | Re-enable and retest | Connection disabled |
 | Deleted | Profile gone from discovery; affected rooms cannot generate with it | Select replacement; recreation is a new profile | Connection deleted |
 | Denied/read-only | Management controls absent or disabled only as a reflection of server capability response | Contact local administrator where such a role exists | Action unavailable |
 | Backend unavailable | Existing non-secret profile may be readable; no test/save/delete mutation | Retry without losing typed key to logs/storage | Local runtime unavailable |
 
-The prototype state selector exercises the required test outcomes without a request. Test/revise/disable/delete controls exercise local presentation behavior only.
+The prototype state selector labels every non-default outcome as a fixture and exercises required states without a request. Selecting a success/limited fixture marks only the exact current in-memory draft as tested so the Save gate can be reviewed; any relevant edit invalidates it. The ordinary Test connection control captures a draft revision/token, shows pending state, and then truthfully reports that this offline prototype cannot test a provider. It never fabricates local or cloud success. Test/revise/disable/delete controls exercise local presentation behavior only.
 
 ## Actor × scope × capability matrix
 
@@ -139,6 +139,7 @@ Backend enforcement assumptions:
 - Object IDs are server-scoped to the local companion and verified on every mutation to prevent IDOR/confused-deputy use.
 - Request schemas allowlist mutable fields; client-supplied credential references, status, capabilities, provider URL, headers, revision, and audit actor are rejected to prevent mass assignment.
 - Test and save reconstruct endpoint paths from adapter/provider definitions; direct API calls cannot override the closed endpoint class.
+- Test completion is accepted only when its immutable request token and draft revision still match the current draft. Save/activation requires successful test evidence for that exact revision; the server rejects stale, absent, client-invented, or mismatched evidence.
 - A room binding accepts only an exact active tested model-profile revision. Drafting or testing does not approve or mutate a room binding.
 - Denied/not-found responses do not reveal profile existence, model counts, key presence, endpoint details, or provider-account metadata.
 
@@ -195,12 +196,25 @@ Required events: profile created, revision proposed, connection test started/com
 7. Connection test → no transcript, persona pack, room memory, or scene context is sent.
 8. Disable/delete → subsequent provider call and room-binding attempts fail server-side; opaque credential reference is invalidated as defined by the backend contract.
 9. Existing decision snapshot after deletion → remains readable and non-secret, but cannot resolve to a callable mutable profile.
-10. Loading selection changes before result → stale result is discarded by revision/request token.
+10. Loading selection changes before result → stale result is discarded by revision/request token; result stays hidden and Save stays unavailable.
 11. Keyboard-only path covers every radio, checkbox, select, test/save/manage action, modal cancel/confirm, and skip link with visible focus.
 12. Viewports 320, 390, 760, 1050, and desktop show no horizontal overflow; targets remain at least 44px.
 13. Reduced motion removes transforms/transitions; 200% zoom reflows.
-14. Offline prototype load makes zero remote requests and performs no persistence.
+14. Offline prototype load makes zero remote/provider requests and performs no persistence. Default Test ends in an honest prototype-unavailable failure for both local and cloud paths; only the explicitly labeled selector can show fixtures.
 15. Console remains free of uncaught errors and warnings while every prototype state and management action is exercised.
+16. Default load has no result or Active/tested preview and cannot save. Path, provider, model, local-key requirement, key value, and cloud acknowledgment each invalidate success and Save eligibility.
+17. Save/activation fails before a current-draft success, succeeds for the exact current revision, and remains unavailable after a failure fixture.
+18. A sentinel key never appears in rendered text, local/session storage, cookies, IndexedDB, Cache Storage, request URLs/headers/bodies, screenshots, or cross-origin requests.
+
+Automated browser verification lives beside the prototype:
+
+```bash
+cd design/prototypes/provider-setup
+npm ci
+npm run verify
+```
+
+The Playwright verifier covers the truthful default, delayed stale-result discard, every invalidating input, save gating, exact-revision success, test failure, no fabricated local/cloud success, key non-rendering, browser-storage absence, request URL/header/body absence, horizontal overflow, console errors, and refreshed default-state screenshots at 1440×1100 and 390×844.
 
 ## Implementation inventory and non-goals
 
