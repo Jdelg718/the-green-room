@@ -18,12 +18,18 @@ EXPECTED_PROFILES = {
     "frederick-douglass": "Frederick Douglass",
     "galileo-galilei": "Galileo Galilei",
     "george-washington": "George Washington",
+    "hal-finney": "Hal Finney",
     "isaac-newton": "Isaac Newton",
     "jane-austen": "Jane Austen",
+    "john-maynard-keynes": "John Maynard Keynes",
     "leonardo-da-vinci": "Leonardo da Vinci",
+    "len-sassaman": "Len Sassaman",
+    "ludwig-von-mises": "Ludwig von Mises",
     "mary-shelley": "Mary Shelley",
+    "milton-friedman": "Milton Friedman",
     "nicolaus-copernicus": "Nicolaus Copernicus",
     "thomas-jefferson": "Thomas Jefferson",
+    "timothy-c-may": "Timothy C. May",
 }
 
 
@@ -56,6 +62,36 @@ class StaticPolicyTests(unittest.TestCase):
             f"characters/{slug}/index.html" for slug in EXPECTED_PROFILES
         }
         self.assertTrue(expected_pages.issubset(validate.PAGES))
+        self.assertEqual(len(validate.CHARACTER_PROFILES), 18)
+        self.assertEqual(len(validate.PORTRAIT_ASSETS), 18)
+
+    def test_new_profiles_reject_public_safety_and_accuracy_failures(self) -> None:
+        fixtures = {
+            "hal-finney": ("Satoshi identity speculation", "<p>Hal Finney was Satoshi Nakamoto.</p>"),
+            "timothy-c-may": ("operational criminal guidance", "<p>Follow these steps to launder funds.</p>"),
+            "len-sassaman": ("Satoshi identity speculation", "<p>Len Sassaman was Satoshi Nakamoto.</p>"),
+            "ludwig-von-mises": ("financial advice", "<p>You should buy this asset now.</p>"),
+            "milton-friedman": ("financial advice", "<p>This is investment advice: buy now.</p>"),
+            "john-maynard-keynes": ("fiat-money misconception", "<p>Keynes invented fiat money.</p>"),
+        }
+        for slug, (reason, injection) in fixtures.items():
+            with self.subTest(slug=slug), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / slug / "index.html"
+                self.assertTrue(page.is_file(), f"missing {slug} profile fixture")
+                source = page.read_text(encoding="utf-8")
+                page.write_text(source.replace("</main>", f"{injection}</main>"), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
+    def test_reviewed_portrait_dimensions_match_binary_files(self) -> None:
+        for slug, (_, expected_width, expected_height, _) in validate.PORTRAIT_ASSETS.items():
+            with self.subTest(slug=slug):
+                portrait = validate.SITE / "assets" / "portraits" / f"{slug}.webp"
+                self.assertEqual(
+                    validate.webp_dimensions(portrait.read_bytes()),
+                    (expected_width, expected_height),
+                )
 
     def test_character_index_requires_one_semantic_profile_link_per_cast_member(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -69,6 +105,31 @@ class StaticPolicyTests(unittest.TestCase):
             )
             page.write_text(source, encoding="utf-8")
             self.assert_rejected(validate.collect_errors(site), "profile link for Ada Lovelace")
+
+    def test_character_index_requires_exact_cards_and_held_status_labels(self) -> None:
+        mutations = {
+            "exactly 18 cast cards": (
+                "</ul>",
+                '<li class="cast-card"><a href="/characters/hal-finney/">Duplicate</a></li></ul>',
+            ),
+            "held status label for Hal Finney": (
+                "Website presentation approved · non-runtime hold",
+                "Website presentation approved · non-runtime hold — allegedly",
+            ),
+            "visible held status label for Hal Finney": (
+                "<small>Website presentation approved · non-runtime hold</small>",
+                '<div aria-hidden="true"><small>Website presentation approved · non-runtime hold</small></div>',
+            ),
+        }
+        for reason, (old, new) in mutations.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(old, source)
+                page.write_text(source.replace(old, new, 1), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
 
     def test_profile_fields_must_be_semantic_not_incidental_text(self) -> None:
         mutations = {
@@ -273,7 +334,7 @@ class StaticPolicyTests(unittest.TestCase):
                 self.fail("missing Ada Lovelace profile fixture")
             source = page.read_text(encoding="utf-8")
             page.write_text(
-                source.replace('<a href="/characters/">Back to all twelve</a>', '<span>Back to all twelve</span>'),
+                source.replace('<a href="/characters/">Back to all profiles</a>', '<span>Back to all profiles</span>'),
                 encoding="utf-8",
             )
             self.assert_rejected(validate.collect_errors(site), "back link to Characters")
@@ -358,6 +419,31 @@ class StaticPolicyTests(unittest.TestCase):
                 page,
             )
             self.assert_rejected(errors, "escapes site root")
+
+    def test_rejects_broken_local_fragment_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "hal-finney" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            self.assertIn('/characters/#review-title', source)
+            page.write_text(
+                source.replace('/characters/#review-title', '/characters/#missing-review-title'),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "broken local fragment")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "hal-finney" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            self.assertIn('href="#main"', source)
+            page.write_text(
+                source.replace('href="#main"', 'href="#missing-main"', 1),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "broken local fragment")
 
     def test_rejects_meta_refresh_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

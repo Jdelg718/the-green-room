@@ -28,7 +28,7 @@ The validator uses only the Python standard library. It checks required pages an
 - `download/index.html` — honest forthcoming-release state
 - `contribute/index.html` — contribution and security guidance
 - `assets/site.css` — shared Backstage Electric styles using system fonts
-- `assets/portraits/*.webp` — twelve approved, optimized AI-generated historical interpretations; originals and generation metadata are not web assets
+- `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations; six remain website-only non-runtime holds; originals and generation metadata are not web assets
 - `assets/favicon.svg` — local CSS-style GR slash mark
 - `assets/social-card-placeholder.svg` — text-only metadata placeholder, not approved campaign artwork
 - `scripts/validate.py` — dependency-free static policy validator

@@ -6,7 +6,8 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-import xml.etree.ElementTree as ET
+# The SVG gate rejects declarations/entities before parsing repository-controlled assets.
+import xml.etree.ElementTree as ET  # nosec B405
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -20,13 +21,29 @@ CHARACTER_PROFILES = {
     "frederick-douglass": "Frederick Douglass",
     "galileo-galilei": "Galileo Galilei",
     "george-washington": "George Washington",
+    "hal-finney": "Hal Finney",
     "isaac-newton": "Isaac Newton",
     "jane-austen": "Jane Austen",
+    "john-maynard-keynes": "John Maynard Keynes",
     "leonardo-da-vinci": "Leonardo da Vinci",
+    "len-sassaman": "Len Sassaman",
+    "ludwig-von-mises": "Ludwig von Mises",
     "mary-shelley": "Mary Shelley",
+    "milton-friedman": "Milton Friedman",
     "nicolaus-copernicus": "Nicolaus Copernicus",
     "thomas-jefferson": "Thomas Jefferson",
+    "timothy-c-may": "Timothy C. May",
 }
+HELD_PROFILE_SLUGS = frozenset(
+    {
+        "hal-finney",
+        "john-maynard-keynes",
+        "len-sassaman",
+        "ludwig-von-mises",
+        "milton-friedman",
+        "timothy-c-may",
+    }
+)
 PROFILE_HORIZONS = {
     "ada-lovelace": "Through 26 November 1852",
     "benjamin-franklin": "Through 16 April 1790",
@@ -34,12 +51,18 @@ PROFILE_HORIZONS = {
     "frederick-douglass": "Through 20 February 1895",
     "galileo-galilei": "Through 8 January 1642",
     "george-washington": "Through 14 December 1799",
+    "hal-finney": "Through 25 March 2013",
     "isaac-newton": "Through 20 March 1727 (Old Style)",
     "jane-austen": "Through 17 July 1817",
+    "john-maynard-keynes": "Through 22 July 1944",
     "leonardo-da-vinci": "Through 1 May 1519",
+    "len-sassaman": "Through 17 February 2011",
+    "ludwig-von-mises": "Through 14 September 1949",
     "mary-shelley": "Through 1 February 1851",
+    "milton-friedman": "Through 8 November 2002",
     "nicolaus-copernicus": "Through 24 May 1543",
     "thomas-jefferson": "Through 4 July 1826",
+    "timothy-c-may": "Through 31 December 1994",
 }
 PROFILE_BEHAVIOR = {
     "ada-lovelace": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
@@ -48,12 +71,18 @@ PROFILE_BEHAVIOR = {
     "frederick-douglass": ("Proactive initiative", "Rarely interrupts", "Expansive", "Independent", "Expressive range"),
     "galileo-galilei": ("Proactive initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
     "george-washington": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
+    "hal-finney": ("Measured initiative", "Rarely interrupts", "Measured detail", "Collaborative", "Controlled range"),
     "isaac-newton": ("Measured initiative", "Rarely interrupts", "Measured detail", "Challenging", "Controlled range"),
     "jane-austen": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "john-maynard-keynes": ("Proactive initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
     "leonardo-da-vinci": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "len-sassaman": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "ludwig-von-mises": ("Measured initiative", "Rarely interrupts", "Measured detail", "Challenging", "Restrained affect"),
     "mary-shelley": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "milton-friedman": ("Proactive initiative", "Sometimes interrupts", "Measured detail", "Challenging", "Controlled range"),
     "nicolaus-copernicus": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
     "thomas-jefferson": ("Measured initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
+    "timothy-c-may": ("Proactive initiative", "Sometimes interrupts", "Measured detail", "Challenging", "Controlled range"),
 }
 PORTRAIT_ASSETS = {
     "ada-lovelace": ("daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2", 840, 1200, "AI-generated creative historical interpretation of Ada Lovelace in a dark study, wearing a high-collared black dress."),
@@ -62,42 +91,60 @@ PORTRAIT_ASSETS = {
     "frederick-douglass": ("e445dd92b3c36e4dff5bc920b408bfc239fabfe6f6ad60d0e22e4a4b93892b2b", 768, 1024, "AI-generated creative historical interpretation of Frederick Douglass with swept gray hair and a dark formal suit."),
     "galileo-galilei": ("81c1826e479b4b8b6357e69da3bd9142c34f7f47a8742b8386ce4b78b3603605", 840, 1200, "AI-generated creative historical interpretation of Galileo Galilei, white-bearded and seated beside books and a candle."),
     "george-washington": ("3883588e3ac035deed560893b1ddc1bca34c356c197c0094f179365d4b7a3a03", 768, 1024, "AI-generated creative historical interpretation of George Washington in a dark blue Continental-era coat beside surveying instruments."),
+    "hal-finney": ("4afda0586162e6c7dbf71cee0e3af3006f7bfc4058e3175435aa78248c2fc6bb", 768, 1024, "AI-generated creative historical interpretation of Hal Finney with short graying hair and glasses in a dim engineering workspace."),
     "isaac-newton": ("b666032239adf370bfb187b612506466fabfa6d6d3272179d3055ef236c57466", 840, 1200, "AI-generated creative historical interpretation of Isaac Newton in a dark coat, seated at a candlelit desk."),
     "jane-austen": ("abf73e727337eb88b99dfbe2f318bced75e2ce9ef34689e96dd26758879345ea", 768, 1024, "AI-generated creative historical interpretation of Jane Austen in a modest cap and dark shawl beside a writing desk."),
+    "john-maynard-keynes": ("c9a98d99cd6de58c5d8b5189111cb4d4898f8b567d49ed1935e5ac1d4d8290a1", 768, 1024, "AI-generated creative historical interpretation of John Maynard Keynes in a dark 1940s suit and bow tie beside an unmarked world map."),
     "leonardo-da-vinci": ("6340c0f43e05e46175bfaad85f200d4e8cd1be2754cac3f2a3843df294842acd", 840, 1200, "AI-generated creative historical interpretation of Leonardo da Vinci, white-bearded with one hand raised in thought."),
+    "len-sassaman": ("7b126b0569ca82a19075b124158f64c593221699ae5b11158ba6c73db95c6b03", 768, 1024, "AI-generated creative historical interpretation of Len Sassaman with short dark hair, a beard, and glasses in a dim research workspace."),
+    "ludwig-von-mises": ("90bdf9fe2d1e9a6b1f5926e197f1c5cf80dc7ee25d101fc2605dbc418d9d6170", 768, 1024, "AI-generated creative historical interpretation of Ludwig von Mises in a dark suit and round glasses at a dim seminar desk."),
     "mary-shelley": ("6030a58352b00b3fea02b7e950d2a58fa464c51efbdd453933e68312486a633f", 768, 1024, "AI-generated creative historical interpretation of Mary Shelley in a black period dress at a storm-lit writing desk."),
+    "milton-friedman": ("90e95dfffcdc20693fc06f169ca5efeba18a135b0ea873872c3844bbd359c554", 768, 1024, "AI-generated creative historical interpretation of Milton Friedman in a dark suit and large glasses before an abstract economics chalkboard."),
     "nicolaus-copernicus": ("f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e", 768, 1024, "AI-generated creative historical interpretation of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes."),
     "thomas-jefferson": ("1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06", 768, 1024, "AI-generated creative historical interpretation of Thomas Jefferson in a dark period coat in an architectural study."),
+    "timothy-c-may": ("4117c268e92d8dfad6c9fed65b678ef0522b820a10d9f5794742e87a2fb0d46d", 768, 1024, "AI-generated creative historical interpretation of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop."),
 }
 PROFILE_MAIN_TEXT_SHA256 = {
-    "ada-lovelace": "e1adee83ce51b072c59b58082f0210a0d5e2867643f8f53f3eb6f2ed5df8905c",
-    "benjamin-franklin": "c0bf900a588e842d967784528ac8e77cedd268e58c5795373ca83597f39b8b50",
-    "elizabeth-i": "4e5e715b5727de184ec271f4a20cb1cee911ef2a703d01550b6858a6d6b881a7",
-    "frederick-douglass": "c030c974ae769f3626f0c3a8d76e4a895b7a120df94f2fb3f04bae48882daff9",
-    "galileo-galilei": "d6a3692553b0c11440533971052b6b708ce0f8017f9b6ee35fa3c6190f7e6370",
-    "george-washington": "00888020e8928d25964fbbbb7ce97e16786d85b90cb605a8bd935559c6fb0276",
-    "isaac-newton": "6047873db42dc17a58e025cdc58be655c7ecc30b642c183dad0c03cead9fbc94",
-    "jane-austen": "e0343293df4988041a302a13004879ed2a11e640d1915f498df20c54ff02666f",
-    "leonardo-da-vinci": "17b6c0b3caa8a6340ab7e095bee80092330f44fcda0ca54aaecfea8a460289fe",
-    "mary-shelley": "4b2134e220046d98a0caa4c7b56f145bc0c6ee12d3fae025ff2417015840a2ea",
-    "nicolaus-copernicus": "a7256c171f7106ca093c1a87e64723d3979b266e0db3f992c7086a1506da5022",
-    "thomas-jefferson": "03616e60517c9796d748d41b93bf2b8b7f22f3e032b36bb401c702221f0d7d52",
+    "ada-lovelace": "29c6d82d8f3b8909bbf69f768e7f90338cd2bf78dd4bc9d14072c14aec4cd09e",
+    "benjamin-franklin": "5bfb46cb1310184a1a24ee4c760cd4daf84f725330dca4616d06a9a6db126fec",
+    "elizabeth-i": "dbf4324ad6f0548a1811a0b63e3b0846fa0dfba38d3c65dee6ac3021fe52c088",
+    "frederick-douglass": "c5d7114bfa6549adcb9edc6082797bc799591730b24925cc8d0e154299ef8782",
+    "galileo-galilei": "664407b46d2b37f6d6c208a1f69960015dde338b0fec4161d35326c0ba69c4b3",
+    "george-washington": "1553d0aafc79076f46b31bc9b01f56b4b0620a10c3d6bf0fda773168a89d97b8",
+    "hal-finney": "74a36411f98e50372df579273263ec9cab28afd3634346b04df918fdb1772702",
+    "isaac-newton": "3ada6b152e241449bc82f9987440e0dd04f556ce2bb498365eb21999d6a35c39",
+    "jane-austen": "feeac97a84bc4423ad365179a5063f00ca98c427d0824d73cf43ce6c2402d59d",
+    "john-maynard-keynes": "0637c97aaad183a06a4a475c59e96abaa615fd17aa19c0bbc79552ebb580402c",
+    "leonardo-da-vinci": "b0505daf7550c832e07d9f4eda3e6779ff54bdbd5ee8efc0d30e965a8a5f64d1",
+    "len-sassaman": "9a09deb2372617d512012bb7b2c980efcd62a7fade46d669beab4c3c43e51bb1",
+    "ludwig-von-mises": "e11eac2aec8a447c90c6ad7b361ba2ab68b93765b639f679a56d9cfd7331c0e4",
+    "mary-shelley": "1778fd5051111634dd487e01365d6eceea369a685f5f10209ee9aeac433c675e",
+    "milton-friedman": "301be702d02c1cae560337f0a09a70d7018d43ce8e55816e8df56cd70bb07e5a",
+    "nicolaus-copernicus": "aae6dcbee4fa011c50b76099b3b41b236a2132f916d1232a458a19993417a652",
+    "thomas-jefferson": "13fe4c9bc0a9ddbfab10d22928bf7266e1cbcacb1088bf8add56ddb1cf821d18",
+    "timothy-c-may": "4919a7962b6d40168cdcb08d6f140e06ef13e95a2813134506d1998c13c0f861",
 }
 PROFILE_SOURCE_SHA256 = {
-    "ada-lovelace": "f53a16a183be7b9c35920a5ee72b0ef100b617ac516606526ba230ec717ecffc",
-    "benjamin-franklin": "84a1d18d0a03f3675e458af1ba65cdaaba4820e35f90a5c7126b028c107adf29",
-    "elizabeth-i": "16696c2114e0192fd6b324bc92833093f0d055c76d749da0afb144d3cbcf4596",
-    "frederick-douglass": "45cefa7b2e8c3ca4ec1f90cedd643937d29aafaff2f8a9afbdde6ed1338ac053",
-    "galileo-galilei": "6cddfb19ac73ed0cb060a49965f9bd37d6e3770cfae8db79f09db1c43d07de7f",
-    "george-washington": "28733255b2a678e6d69995bcce174d06570fa63f922c26eef4f31fd72eab8e97",
-    "isaac-newton": "2b0eee3b5734864ceed3c9af6f7f2f34d1b312319998761cf2049607d7c3da30",
-    "jane-austen": "07f6773ffbe5b5c6f12c6983a955007ce3cf50c4191f0a2bcb8b700912bc7244",
-    "leonardo-da-vinci": "a5c2bd6805d62204c14f552bb10e3d664be1e9e1a06cb7ecb7f416079f690da4",
-    "mary-shelley": "24b084889421732a4b26e5ed3e65895c3dd9f6adbb14f4479c0a425be94b6fbb",
-    "nicolaus-copernicus": "049edcae19224bf75e7a3a98058672c933c08a792e74584363cbd3a5a9ed171c",
-    "thomas-jefferson": "de86302ad7b03571e3530cd71bad436f1fa82a0b1f6f50d2065fb2735e5cd247",
+    "ada-lovelace": "e7c2c276f1ab868ab688f2922719a971ae47cd6b1d25dbdc5f85663301f2f943",
+    "benjamin-franklin": "8abd2fddfe3c5d66a968aafd962983a528a7bc092f0480b1ae318fdd82054c40",
+    "elizabeth-i": "9ffe1fb9c03c415ab61604d3266908bd0b2b4f4673d4f8a78bcbefb3bc4bed37",
+    "frederick-douglass": "d1bc0f2b61eddf5fc3e79e9d13cdd18e1f6316e38e623759a78413e382834145",
+    "galileo-galilei": "4bdca32485ab42f380fe15350cfd6c2014f6c2ea626cd7ad3f7dd6f350d9e33d",
+    "george-washington": "9adb7ce455ee77bdbebf373baa9f4beb1bb514e1b3229baef3263fd5c112caef",
+    "hal-finney": "d16baa32003161b4a174857ae9431c4f88feab0644633ae74046da81ab59ac75",
+    "isaac-newton": "6524eb5de2a3d1eda7639e51128a25f63ece4c60d7c00cf84fb4d02bdca56b29",
+    "jane-austen": "12eae66cb852bb0235d6cbbf44cfebdc6c98dd0b58b43f4d5aaf9e5cebb09a1f",
+    "john-maynard-keynes": "4eff7ff3e66249a995b4a796b41d9650b034bf8352134c318ea1f5efa53fc1af",
+    "leonardo-da-vinci": "dc1a192fb19214358d24ee3650c9036c32e345ca109ada3eed84623d210509fb",
+    "len-sassaman": "3cd18fa90e0e70150113fb4e7f317155de14c5994c3d26a357ab5fb8fd252934",
+    "ludwig-von-mises": "45efc6d14a7d2c10dd93d374dc0f601c9a5ecac4a31b558490d8aa58dd133bcf",
+    "mary-shelley": "24591ac096c21b0306c7c2846c88b76b13c2016ab99b75cc5b7caea71a474e97",
+    "milton-friedman": "bdb23ef0ffae1a650f9ab42ef72d48c50ea548b6a27ed04d97cbc2067a50d9ee",
+    "nicolaus-copernicus": "08c8205630525ff437373eebd260a0215dc4cab22a42cdf213bf2fe0436a34f7",
+    "thomas-jefferson": "19a8dfe761f40f8f5fc5e450a51d70042ff3390b43c52cd931ffe681f8e8ba3d",
+    "timothy-c-may": "be8ba6dfc40540feeb9f3552ce71063d4e64dd311845165cd5da38685e3db9e0",
 }
-PROFILE_STYLESHEET_SHA256 = "94019c60b3ecc356760c629b5e2e2e0d8037a846955555a3a0634c9bae0113f5"
+PROFILE_STYLESHEET_SHA256 = "e3dadfd5cc5907fbb36f48a0b926fba5e387bf289eb2dcdfadcdf66764ce4560"
 PAGES = {
     "index.html": "Project",
     "characters/index.html": "Characters",
@@ -123,7 +170,9 @@ REQUIRED_LANGUAGE = {
         "community library",
     ),
     "characters/index.html": (
-        "twelve researched historical character packs",
+        "eighteen public historical profiles",
+        "twelve local-alpha candidates",
+        "six additional profiles are approved for website presentation",
         "candidate packs—not approved Official Catalog releases",
         "after exact-version catalog admission",
         "Public preinstallation requires exact-version approval",
@@ -137,17 +186,25 @@ REQUIRED_LANGUAGE = {
         "Frederick Douglass",
         "Galileo Galilei",
         "George Washington",
+        "Hal Finney",
         "Isaac Newton",
         "Jane Austen",
+        "John Maynard Keynes",
         "Leonardo da Vinci",
+        "Len Sassaman",
+        "Ludwig von Mises",
         "Mary Shelley",
+        "Milton Friedman",
         "Nicolaus Copernicus",
         "Thomas Jefferson",
+        "Timothy C. May",
         "AI-generated creative historical interpretations",
         "not authentic portraits",
         "not Official Catalog admission",
         "remain in development",
         "no Official Catalog Manifest exists yet",
+        "approved for website presentation",
+        "Website presentation is not runtime activation",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
     "download/index.html": ("forthcoming", "no downloadable release"),
@@ -159,6 +216,9 @@ FORBIDDEN_TEXT = (
     "sign up",
     "join waitlist",
     "enter your api key",
+    "website presentation review only",
+    "await human visual approval",
+    "remains a candidate until a human approves",
 )
 
 HTML_ATTRS: dict[str, frozenset[str]] = {
@@ -259,7 +319,8 @@ class PageParser(HTMLParser):
         self.text.append(data)
         for element_index in self.open_elements:
             element_text = self.elements[element_index]["text"]
-            assert isinstance(element_text, list)
+            if not isinstance(element_text, list):
+                raise TypeError("parser element text invariant failed")
             element_text.append(data)
 
 
@@ -322,11 +383,27 @@ def validate_local_reference(
     site: Path,
     page: Path,
 ) -> None:
+    parsed = urlparse(compact_url(value))
     target, target_error = resolve_local_target(site, page, value)
     if target_error:
         fail(errors, f"{label}: local reference escapes site root: {value}")
     elif target is not None and not target.exists():
         fail(errors, f"{label}: broken local reference: {value}")
+    elif parsed.fragment:
+        fragment_target = target or page.resolve()
+        if fragment_target.suffix.lower() != ".html" or not fragment_target.is_file():
+            fail(errors, f"{label}: broken local fragment: {value}")
+            return
+        target_parser = PageParser()
+        target_parser.feed(fragment_target.read_text(encoding="utf-8"))
+        target_parser.close()
+        target_ids = {
+            element_attrs(element).get("id", "")
+            for element in target_parser.elements
+            if element_attrs(element).get("id")
+        }
+        if unquote(parsed.fragment) not in target_ids:
+            fail(errors, f"{label}: broken local fragment: {value}")
 
 
 def validate_same_site_url(
@@ -375,6 +452,7 @@ def validate_html_url(
         fail(errors, f"{label}: remote reference in {attribute} on <{tag}>: {value}")
         return
     if compact.startswith("#"):
+        validate_local_reference(label, value, errors, site, page)
         return
     validate_local_reference(label, value, errors, site, page)
 
@@ -429,13 +507,15 @@ def validate_html_policy(
 
 def normalized_text(element: dict[str, object]) -> str:
     text = element["text"]
-    assert isinstance(text, list)
+    if not isinstance(text, list):
+        raise TypeError("parser element text invariant failed")
     return " ".join(" ".join(text).split())
 
 
 def element_attrs(element: dict[str, object]) -> dict[str, str]:
     attrs = element["attrs"]
-    assert isinstance(attrs, dict)
+    if not isinstance(attrs, dict):
+        raise TypeError("parser element attribute invariant failed")
     return attrs
 
 
@@ -534,11 +614,39 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
     if len(cast_sections) != 1:
         fail(errors, "characters/index.html: expected one semantic cast grid")
         return
-    links = semantic_links(parser, cast_sections[0])
+    cast_section = cast_sections[0]
+    cast_cards = [
+        index
+        for index, element in scoped_elements(parser, "li", cast_section)
+        if "cast-card" in element_attrs(element).get("class", "").split()
+        and element["parent"] == cast_section
+    ]
+    if len(cast_cards) != len(CHARACTER_PROFILES):
+        fail(errors, "characters/index.html: expected exactly 18 cast cards")
+
+    links = semantic_links(parser, cast_section)
     for slug, name in CHARACTER_PROFILES.items():
         expected = (f"/characters/{slug}/", name)
         if links.count(expected) != 1:
             fail(errors, f"characters/index.html: missing exact profile link for {name}")
+
+        matching_cards = [
+            card
+            for card in cast_cards
+            if semantic_links(parser, card).count(expected) == 1
+        ]
+        if len(matching_cards) != 1:
+            fail(errors, f"characters/index.html: expected one cast card for {name}")
+        elif slug in HELD_PROFILE_SLUGS:
+            status_labels = [
+                index
+                for index, element in scoped_elements(parser, "small", matching_cards[0])
+                if normalized_text(element) == "Website presentation approved · non-runtime hold"
+            ]
+            if len(status_labels) != 1:
+                fail(errors, f"characters/index.html: missing held status label for {name}")
+            elif not is_visible(parser, status_labels[0]):
+                fail(errors, f"characters/index.html: missing visible held status label for {name}")
 
         _, width, height, alt = PORTRAIT_ASSETS[slug]
         expected_image = {
@@ -550,7 +658,7 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         }
         images = [
             element_attrs(element)
-            for _, element in scoped_elements(parser, "img", cast_sections[0])
+            for _, element in scoped_elements(parser, "img", cast_section)
             if element_attrs(element).get("src") == expected_image["src"]
         ]
         if images != [expected_image]:
@@ -612,12 +720,20 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         fields: dict[str, str] = {}
     else:
         fields = definition_fields(parser, fact_asides[0], errors, relative)
-    expected_fields = {
-        "Historical horizon": PROFILE_HORIZONS[slug],
-        "Catalog status": "Candidate pack in the verified local alpha",
-        "Preinstallation": "Intended only after exact-version Official Catalog approval",
-        "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
-    }
+    if slug in HELD_PROFILE_SLUGS:
+        expected_fields = {
+            "Historical horizon": PROFILE_HORIZONS[slug],
+            "Catalog status": "Website presentation approved under non-runtime hold",
+            "Preinstallation": "Not activated, built in, preinstalled, redistributed, or catalog-admitted",
+            "Portrait": "Approved AI-generated creative historical interpretation for website presentation; not authentic, and no endorsement is claimed",
+        }
+    else:
+        expected_fields = {
+            "Historical horizon": PROFILE_HORIZONS[slug],
+            "Catalog status": "Candidate pack in the verified local alpha",
+            "Preinstallation": "Intended only after exact-version Official Catalog approval",
+            "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
+        }
     field_errors = {
         "Historical horizon": "historical horizon field",
         "Catalog status": "candidate status field",
@@ -660,10 +776,13 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
 
     page_links = semantic_links(parser)
     required_links = {
-        ("/characters/", "Back to all twelve"): "back link to Characters",
-        ("/characters/#make-title", "Character Wizard roadmap"): "Wizard roadmap link",
+        ("/characters/", "Back to all profiles"): "back link to Characters",
         ("/characters/#community-title", "community library roadmap"): "community roadmap link",
     }
+    if slug in HELD_PROFILE_SLUGS:
+        required_links[("/characters/#review-title", "Artwork review boundary")] = "artwork review link"
+    else:
+        required_links[("/characters/#make-title", "Character Wizard roadmap")] = "Wizard roadmap link"
     for link, description in required_links.items():
         if page_links.count(link) != 1:
             fail(errors, f"{relative}: missing coherent {description}")
@@ -672,11 +791,15 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     visible = "" if not main_elements else normalized_text(main_elements[0][1])
     visible_digest = hashlib.sha256(visible.encode("utf-8")).hexdigest()
     if visible_digest != PROFILE_MAIN_TEXT_SHA256[slug]:
-        fail(errors, f"{relative}: visible profile text differs from the reviewed release content")
+        fail(
+            errors,
+            f"{relative}: visible profile text differs from the reviewed release content ({visible_digest})",
+        )
     private_patterns = (
         (r"\b(?:agents|background|voice|relationships|scenarios|sources|provenance)\.md\b", "runtime prompt detail"),
         (r"\b(?:runtime|system)\s+prompt\b", "runtime prompt detail"),
-        (r"(?:/users/|file://|\\users\\)", "private path detail"),
+        (r"(?:/(?:users|opt|home)/|file://|\\users\\)", "private path detail"),
+        (r"\b(?:api[_ -]?key|password|credential|secret|bearer token)\s*[:=]", "credential detail"),
         (r"\b(?:initiative|interruption|verbosity|agreeableness|emotional(?:_|\s*)range|max(?:_|\s*)consecutive(?:_|\s*)turns)\s*[:=]\s*[0-9]", "hidden behavior number"),
     )
     for pattern, description in private_patterns:
@@ -688,6 +811,16 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         (r"\b(?:publicly installable|available for public installation)\b", "false public-installation claim"),
     )
     for pattern, description in contradictory_claims:
+        if re.search(pattern, visible, re.I):
+            fail(errors, f"{relative}: exposed {description}")
+
+    public_safety_patterns = (
+        (r"\b(?:Hal Finney|Len Sassaman) was Satoshi Nakamoto\b", "Satoshi identity speculation"),
+        (r"\b(?:steps?|instructions?|guide)\s+(?:to|for)\s+(?:launder|evade|steal|hack|bypass)\b", "operational criminal guidance"),
+        (r"\bthis is (?:investment|financial) advice\b|\b(?:you should|I recommend)\s+buy\b|\bbuy (?:this|the) asset now\b", "financial advice"),
+        (r"\bKeynes (?:invented|created|originated) fiat money\b|\bfiat money (?:is|was) based on Keynes\b", "fiat-money misconception"),
+    )
+    for pattern, description in public_safety_patterns:
         if re.search(pattern, visible, re.I):
             fail(errors, f"{relative}: exposed {description}")
 
@@ -741,7 +874,10 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
         else:
             source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
             if source_digest != PROFILE_SOURCE_SHA256[slug]:
-                fail(errors, f"{relative}: profile HTML differs from the reviewed release source")
+                fail(
+                    errors,
+                    f"{relative}: profile HTML differs from the reviewed release source ({source_digest})",
+                )
             validate_profile_contract(relative, slug, name, parser, errors)
 
 
@@ -827,7 +963,8 @@ def validate_svg_source(
         fail(errors, f"{label}: SVG declarations/entities are forbidden")
         return
     try:
-        root = ET.fromstring(source)
+        # The precheck above rejects DTD/entity declarations before ElementTree sees input.
+        root = ET.fromstring(source)  # nosec B314
     except ET.ParseError as exc:
         fail(errors, f"{label}: malformed SVG: {exc}")
         return
@@ -867,6 +1004,36 @@ def validate_svg_source(
                 validate_svg_reference(label, reference, ids, errors)
 
 
+def webp_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Read canvas dimensions from a bounded RIFF WebP without image dependencies."""
+    if len(data) < 20 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return None
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_type = data[offset : offset + 4]
+        chunk_size = int.from_bytes(data[offset + 4 : offset + 8], "little")
+        payload_start = offset + 8
+        payload_end = payload_start + chunk_size
+        if payload_end > len(data):
+            return None
+        payload = data[payload_start:payload_end]
+        if chunk_type == b"VP8X" and len(payload) >= 10:
+            width = 1 + int.from_bytes(payload[4:7], "little")
+            height = 1 + int.from_bytes(payload[7:10], "little")
+            return width, height
+        if chunk_type == b"VP8 " and len(payload) >= 10 and payload[3:6] == b"\x9d\x01\x2a":
+            width = int.from_bytes(payload[6:8], "little") & 0x3FFF
+            height = int.from_bytes(payload[8:10], "little") & 0x3FFF
+            return width, height
+        if chunk_type == b"VP8L" and len(payload) >= 5 and payload[0] == 0x2F:
+            bits = int.from_bytes(payload[1:5], "little")
+            width = 1 + (bits & 0x3FFF)
+            height = 1 + ((bits >> 14) & 0x3FFF)
+            return width, height
+        offset = payload_end + (chunk_size % 2)
+    return None
+
+
 def collect_errors(site: Path = SITE) -> list[str]:
     errors: list[str] = []
     actual_pages = {
@@ -885,7 +1052,11 @@ def collect_errors(site: Path = SITE) -> list[str]:
         content = primary_css.read_text(encoding="utf-8")
         stylesheet_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if stylesheet_digest != PROFILE_STYLESHEET_SHA256:
-            fail(errors, "assets/site.css: stylesheet differs from the reviewed profile release source")
+            fail(
+                errors,
+                "assets/site.css: stylesheet differs from the reviewed profile release source "
+                f"({stylesheet_digest})",
+            )
         for requirement in ("@media (max-width:", "prefers-reduced-motion", ":focus-visible"):
             if requirement not in content:
                 fail(errors, f"assets/site.css: missing {requirement}")
@@ -908,14 +1079,21 @@ def collect_errors(site: Path = SITE) -> list[str]:
     } if portrait_directory.is_dir() else set()
     for unexpected in sorted(actual_portraits - expected_portraits):
         fail(errors, f"unexpected public portrait asset: {display_path(unexpected, site)}")
-    for slug, (expected_digest, _, _, _) in PORTRAIT_ASSETS.items():
+    for slug, (expected_digest, expected_width, expected_height, _) in PORTRAIT_ASSETS.items():
         portrait = portrait_directory / f"{slug}.webp"
         if not portrait.is_file():
             fail(errors, f"missing reviewed public portrait asset: assets/portraits/{slug}.webp")
             continue
-        actual_digest = hashlib.sha256(portrait.read_bytes()).hexdigest()
+        portrait_bytes = portrait.read_bytes()
+        actual_digest = hashlib.sha256(portrait_bytes).hexdigest()
         if actual_digest != expected_digest:
             fail(errors, f"assets/portraits/{slug}.webp: bytes differ from the reviewed asset digest")
+        dimensions = webp_dimensions(portrait_bytes)
+        if dimensions != (expected_width, expected_height):
+            fail(
+                errors,
+                f"assets/portraits/{slug}.webp: dimensions differ from the reviewed asset record",
+            )
     raster_assets = {
         path for path in site.rglob("*")
         if path.is_file() and path.suffix.lower() in {".webp", ".png", ".jpg", ".jpeg"}

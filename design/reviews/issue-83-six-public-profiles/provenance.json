@@ -1,0 +1,264 @@
+{
+  "schema_version": "1.0",
+  "issue": 83,
+  "created_utc": "2026-09-01T16:07:37Z",
+  "collection": "Six held historical website portrait candidates",
+  "scope": "Approved for website presentation only. These assets do not activate, build in, preinstall, redistribute, or admit any persona pack to an Official Catalog.",
+  "generation": {
+    "tool": "Hermes image_generate",
+    "provider": "FAL.ai",
+    "model": "GPT Image 2",
+    "aspect_ratio": "portrait",
+    "upscaled": false,
+    "seed": null,
+    "seed_availability": "No seed was provided by the generation response.",
+    "source_images_supplied": false,
+    "policy": "Text-to-image generation only; no photograph, archive scan, logo, signature, painting, or other source image was supplied. Prompts explicitly prohibited copying specific images and prohibited text, signatures, watermarks, logos, and authenticity claims."
+  },
+  "conversion": {
+    "tool": "ffmpeg",
+    "operation": "Original 768x1024 PNG converted to same-dimension WebP using libwebp, quality 82, compression level 6, picture preset. CSS applies crop, color wash, scanlines, and keyline nondestructively.",
+    "public_asset_policy": "Only final candidate WebPs are stored under site/. Working PNGs and prompts remain in this review directory outside the deployable static site."
+  },
+  "assets": [
+    {
+      "subject": "Hal Finney",
+      "slug": "hal-finney",
+      "pack_id": "org.greenroom.historical.hal-finney",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: Hal Finney in March 2013, recognizable as a middle-aged American cryptographic software engineer based only on broad documented biographical appearance, without copying or closely reconstructing any specific photograph. Three-quarter head-and-shoulders composition, slim face, short graying hair, clean-shaven, wire-frame glasses, calm alert expression, simple dark contemporary shirt. Dim accessible home engineering workspace with an abstract computer monitor glow and assistive input silhouette softly out of focus; no readable interface, code, coins, logos, medical equipment spectacle, or Satoshi symbolism. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, intelligent and practical rather than heroic, generous breathing room for 4:5 crop. No text, signature, watermark, frame, logo, cryptocurrency mark, copied photo, photorealistic claim, halo, extra hands, or medical melodrama.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b215/HUafxKI4w5rm1UpXxZWbO_gAHirKIT.png",
+      "original": {
+        "path": "originals/hal-finney.png",
+        "sha256": "b4eb7c2c5e4e5e4478b9972451785c2b0e9ec6687ba510436586f53a9002f81f",
+        "bytes": 1100932,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/hal-finney.webp",
+        "sha256": "4afda0586162e6c7dbf71cee0e3af3006f7bfc4058e3175435aa78248c2fc6bb",
+        "bytes": 33868,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of Hal Finney with short graying hair and glasses in a dim engineering workspace.",
+      "ui": {
+        "call_number": "CALL 13",
+        "discipline": "ENGINEER / PRIVACY",
+        "signal_accent": "#00a984",
+        "object_position_4x5": "50% 31%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, logo, watermark, severe anatomy artifact, Satoshi symbolism, or medical spectacle. Dark painterly composition remains legible at card crop.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    },
+    {
+      "subject": "Timothy C. May",
+      "slug": "timothy-c-may",
+      "pack_id": "org.greenroom.historical.timothy-c-may",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: Timothy C. May around 1994, recognizable as a middle-aged American semiconductor engineer and cypherpunk writer based only on broad documented biographical appearance, without copying or closely reconstructing any specific photograph. Three-quarter head-and-shoulders composition, stocky build, thinning dark hair with gray, full dark-gray beard, glasses, direct skeptical expression, plain dark open-collar shirt. Dim technical workshop with an abstract silicon wafer pattern and unmarked network diagrams softly out of focus; no readable writing, manifesto, weapons, money, logos, or criminal imagery. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, provocative and analytical rather than menacing, generous breathing room for 4:5 crop. No text, signature, watermark, frame, logo, copied photo, photorealistic authenticity claim, hacker cliché, extra hands, or heroic glow.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b215/2rjY4o5IilDI_o9WiLw99_iPTpyrJH.png",
+      "original": {
+        "path": "originals/timothy-c-may.png",
+        "sha256": "d5192fb4744db17ba1d3769edf1e57bbe2f134f0d8059a0288541dca9bd4688c",
+        "bytes": 1212643,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/timothy-c-may.webp",
+        "sha256": "4117c268e92d8dfad6c9fed65b678ef0522b820a10d9f5794742e87a2fb0d46d",
+        "bytes": 61126,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop.",
+      "ui": {
+        "call_number": "CALL 14",
+        "discipline": "ENGINEER / POWER",
+        "signal_accent": "#d77a22",
+        "object_position_4x5": "50% 31%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, logo, watermark, severe anatomy artifact, weapon, or criminal imagery. Semiconductor and network forms remain abstract and unlabelled.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    },
+    {
+      "subject": "Len Sassaman",
+      "slug": "len-sassaman",
+      "pack_id": "org.greenroom.historical.len-sassaman",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: Len Sassaman around February 2011, recognizable as a young adult American privacy and security researcher based only on broad documented biographical appearance, without copying or closely reconstructing any specific photograph. Three-quarter head-and-shoulders composition, oval face, short dark hair, neat dark beard and mustache, rectangular glasses, precise understated expression, simple dark collared shirt. Dim research workspace with abstract remailer routing nodes and parser geometry softly out of focus; no readable code, email, signatures, logos, memorial imagery, Bitcoin symbols, or hidden-identity clues. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, operations-aware and collaborative rather than romanticized, generous breathing room for 4:5 crop. No text, signature, watermark, frame, logo, copied photo, photorealistic authenticity claim, melancholy theater, extra hands, or halo.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b22b/oeF3B6rt4WTGX3_tnPtzS_VLbphjbH.png",
+      "original": {
+        "path": "originals/len-sassaman.png",
+        "sha256": "dc0373e8e31c0c4feb7385e4ad92114a1bdadcfa7a55d51c73f3c30136a64117",
+        "bytes": 1111724,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/len-sassaman.webp",
+        "sha256": "7b126b0569ca82a19075b124158f64c593221699ae5b11158ba6c73db95c6b03",
+        "bytes": 31662,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of Len Sassaman with short dark hair, a beard, and glasses in a dim research workspace.",
+      "ui": {
+        "call_number": "CALL 15",
+        "discipline": "PRIVACY / SYSTEMS",
+        "signal_accent": "#33b7d4",
+        "object_position_4x5": "50% 30%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, logo, watermark, severe anatomy artifact, memorial imagery, Bitcoin symbolism, or hidden-identity clue. Network forms remain abstract.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    },
+    {
+      "subject": "Ludwig von Mises",
+      "slug": "ludwig-von-mises",
+      "pack_id": "org.greenroom.historical.ludwig-von-mises",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: Ludwig von Mises in New York in 1949, recognizable as an older Austrian-born economist based broadly on public historical appearance without copying any specific photograph or painting. Three-quarter half-length pose, narrow older face, receding gray hair combed back, small neat mustache, round wire spectacles, severe attentive expression, dark mid-century suit, white shirt, restrained tie. Dim seminar study with unmarked price ledgers and geometric allocation cards softly out of focus; no readable text, currency, flags, logos, gold, campaign symbols, or institutional seals. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, formal and analytical rather than ideological mascot, generous breathing room for 4:5 crop. No text, signature, watermark, frame, copied photo, photorealistic authenticity claim, caricature, extra hands, or heroic glow.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b215/tYAF7DBcq2tyUE_WKY1Z7_CWUpnb6N.png",
+      "original": {
+        "path": "originals/ludwig-von-mises.png",
+        "sha256": "652772dc1b05ff7e89751b01e8a3b0f9aaad5e702b5da4605f4da888e473d976",
+        "bytes": 1118093,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/ludwig-von-mises.webp",
+        "sha256": "90bdf9fe2d1e9a6b1f5926e197f1c5cf80dc7ee25d101fc2605dbc418d9d6170",
+        "bytes": 37780,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of Ludwig von Mises in a dark suit and round glasses at a dim seminar desk.",
+      "ui": {
+        "call_number": "CALL 16",
+        "discipline": "ECONOMIST / METHOD",
+        "signal_accent": "#b0a51d",
+        "object_position_4x5": "50% 33%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, logo, seal, currency, watermark, or severe anatomy artifact. Allocation cards are abstract, unmarked shapes.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    },
+    {
+      "subject": "Milton Friedman",
+      "slug": "milton-friedman",
+      "pack_id": "org.greenroom.historical.milton-friedman",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: Milton Friedman in Chicago in 2002, recognizable as an elderly American economist based broadly on public historical appearance without copying any specific photograph, broadcast still, or commercial portrait. Three-quarter head-and-shoulders composition, compact elderly face, receding white hair, clean-shaven, large clear eyeglasses, brisk alert expression, dark suit with a muted red tie. Dim academic office with abstract monetary time-series lines and an unmarked chalkboard softly out of focus; no readable equations, slogans, currency, Chilean symbols, logos, seals, television set, or institutional branding. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, lucid and argumentative rather than promotional, generous breathing room for 4:5 crop. No text, signature, watermark, frame, copied photo, photorealistic authenticity claim, catchphrase, extra hands, or halo.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b21a/JuxipfJUfwurwc7CyApsY_KEcc448N.png",
+      "original": {
+        "path": "originals/milton-friedman.png",
+        "sha256": "838c9f6b632763d0ea32f45b25012e9cdc7c0f0376e73e3a57c7766fdcc9a4a1",
+        "bytes": 1274687,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/milton-friedman.webp",
+        "sha256": "90e95dfffcdc20693fc06f169ca5efeba18a135b0ea873872c3844bbd359c554",
+        "bytes": 62460,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of Milton Friedman in a dark suit and large glasses before an abstract economics chalkboard.",
+      "ui": {
+        "call_number": "CALL 17",
+        "discipline": "ECONOMIST / EVIDENCE",
+        "signal_accent": "#ed4f37",
+        "object_position_4x5": "50% 30%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, slogan, logo, seal, currency, watermark, or severe anatomy artifact. Chalkboard lines remain abstract and unlabelled.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    },
+    {
+      "subject": "John Maynard Keynes",
+      "slug": "john-maynard-keynes",
+      "pack_id": "org.greenroom.historical.john-maynard-keynes",
+      "pack_state": "non-runtime hold",
+      "prompt": "Original AI-generated historical portrait candidate for The Green Room website, subject: John Maynard Keynes at Bretton Woods in July 1944, recognizable as an older British economist and public official based broadly on public historical appearance without copying any specific photograph or painting. Three-quarter half-length pose, tall narrow older face, receding neatly combed gray hair, clean-shaven, thoughtful slightly weary expression, dark 1940s suit, white shirt, restrained bow tie. Dim conference study with abstract balance sheets, an unmarked world map, and two contrasting plan folders softly out of focus; no readable text, money, gold bars, flags, logos, seals, or quotation. Restrained painterly realism with subtle oil texture, dramatic backstage-style side light, deep shadows, strong silhouette, polished and pragmatic rather than aristocratic caricature, generous breathing room for 4:5 crop. No text, signature, watermark, frame, copied photo, photorealistic authenticity claim, fiat-money symbolism, extra hands, or heroic glow.",
+      "generation_response_url": "https://v3b.fal.media/files/b/0aa8b230/rUNpgJ7iDrg-iI_syBu1H_NVyiAk8g.png",
+      "original": {
+        "path": "originals/john-maynard-keynes.png",
+        "sha256": "728e1ea025662936c94a7e690de308503043b96a4bf60d5d508cb64b29231811",
+        "bytes": 1136111,
+        "width": 768,
+        "height": 1024,
+        "format": "PNG"
+      },
+      "public_candidate": {
+        "path": "site/assets/portraits/john-maynard-keynes.webp",
+        "sha256": "c9a98d99cd6de58c5d8b5189111cb4d4898f8b567d49ed1935e5ac1d4d8290a1",
+        "bytes": 38190,
+        "width": 768,
+        "height": 1024,
+        "format": "WEBP"
+      },
+      "alt_text": "AI-generated creative historical interpretation of John Maynard Keynes in a dark 1940s suit and bow tie beside an unmarked world map.",
+      "ui": {
+        "call_number": "CALL 18",
+        "discipline": "ECONOMIST / INSTITUTIONS",
+        "signal_accent": "#6f87ff",
+        "object_position_4x5": "50% 27%"
+      },
+      "review": {
+        "automated_visual_screen": "pass",
+        "notes": "No visible text, quotation, logo, flag, seal, gold, watermark, or severe anatomy artifact. Map and documents remain unlabelled.",
+        "human_visual_approval": "approved",
+        "catalog_admission": false,
+        "human_approved_by": "Kent",
+        "human_approved_utc": "2026-09-01T16:50:47Z"
+      }
+    }
+  ],
+  "approval": {
+    "approved_by": "Kent",
+    "approved_utc": "2026-09-01T16:50:47Z",
+    "scope": "Exact six public_candidate SHA-256 values approved for website presentation only; no runtime, preinstallation, redistribution, or Official Catalog admission."
+  }
+}
