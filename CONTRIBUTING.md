@@ -35,7 +35,7 @@ Python, or acceptance failure is returned immediately rather than hidden by a
 later command.
 
 GitHub runs the same clean-install sequence for pull requests to `main` and
-pushes to `main`. The stable required-check candidate is `release-gate`.
+pushes to `main`. Branch protection requires the `release-gate` status check.
 
 ## Local-first and provider rules
 
@@ -72,6 +72,8 @@ test: cover director cooldown behavior
 fix: stop autonomous turn loop after cancellation
 ```
 
-## Security
+## Governance and security
 
-Do not open public issues containing vulnerabilities, secrets, private room transcripts, personal data, or private-infrastructure details. Use the documented private reporting channel when one is available; until then, contact a maintainer privately before disclosure.
+Project triage, review criteria, licensing boundaries, escalation, and release authority are documented in [GOVERNANCE.md](GOVERNANCE.md).
+
+Do not open public issues containing vulnerabilities, secrets, private room transcripts, personal data, or private-infrastructure details. Follow [SECURITY.md](SECURITY.md) and use the repository's [private vulnerability-reporting form](https://github.com/Jdelg718/the-green-room/security/advisories/new).

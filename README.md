@@ -107,6 +107,8 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)
+- [Project governance](GOVERNANCE.md)
+- [Security policy](SECURITY.md)
 
 ## Principles
 

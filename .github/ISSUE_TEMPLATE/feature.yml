@@ -1,0 +1,76 @@
+name: Feature or suggestion
+description: Propose a focused improvement that fits Green Room's local-first boundaries.
+title: "[Suggestion]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Green Room is local-first: project-operated websites do not collect provider keys or room data, provider access stays bounded, and persona packs are untrusted declarative content rather than executable plugins.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need does this address? Describe the need before prescribing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the smallest useful behavior and what is intentionally out of scope.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Ensemble or room experience
+        - Local runtime, storage, or privacy
+        - Provider adapter or model setup
+        - Persona-pack format, validation, or tooling
+        - Web interface or accessibility
+        - Installation, build, or release process
+        - Documentation or contributor experience
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundary and compatibility analysis
+      description: Explain effects on local ownership, provider-key handling, constrained endpoints, Node 24/Python compatibility, stored data, and persona-pack schemas. State “no impact” where appropriate.
+    validations:
+      required: true
+  - type: textarea
+    id: content_rights
+    attributes:
+      label: Persona, media, and content rights
+      description: If the suggestion uses persona text, artwork, audio, likenesses, or third-party material, identify provenance and distribution rights. Do not attach unreviewed content.
+      placeholder: "Not applicable, or source/rightsholder/license details and proposed review path."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and verification
+      description: List observable outcomes, tests, documentation, security/privacy checks, and how the exact Node 24 hybrid release-gate should verify the change.
+      placeholder: |
+        - [ ] Observable outcome
+        - [ ] Focused tests
+        - [ ] npm ci && uv sync --locked && npm run check:release
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Project constraints
+      options:
+        - label: This proposal preserves local-first ownership of room data and provider configuration; hosted project infrastructure must not collect keys or transcripts.
+          required: true
+        - label: Persona packs remain untrusted, declarative, and non-executable, with no shell, filesystem, browser, credential, or messaging tools by default.
+          required: true
+        - label: I will not submit content without the provenance and rights needed for public distribution.
+          required: true
