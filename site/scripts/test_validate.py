@@ -11,6 +11,22 @@ from pathlib import Path
 import validate
 
 
+EXPECTED_PROFILES = {
+    "ada-lovelace": "Ada Lovelace",
+    "benjamin-franklin": "Benjamin Franklin",
+    "elizabeth-i": "Elizabeth I",
+    "frederick-douglass": "Frederick Douglass",
+    "galileo-galilei": "Galileo Galilei",
+    "george-washington": "George Washington",
+    "isaac-newton": "Isaac Newton",
+    "jane-austen": "Jane Austen",
+    "leonardo-da-vinci": "Leonardo da Vinci",
+    "mary-shelley": "Mary Shelley",
+    "nicolaus-copernicus": "Nicolaus Copernicus",
+    "thomas-jefferson": "Thomas Jefferson",
+}
+
+
 class StaticPolicyTests(unittest.TestCase):
     def assert_rejected(self, errors: list[str], reason: str) -> None:
         self.assertTrue(errors, "unsafe fixture unexpectedly passed validation")
@@ -21,6 +37,95 @@ class StaticPolicyTests(unittest.TestCase):
 
     def test_current_site_passes(self) -> None:
         self.assertEqual(validate.collect_errors(), [])
+
+    def test_all_canonical_character_profile_routes_are_release_gated(self) -> None:
+        self.assertEqual(
+            getattr(validate, "CHARACTER_PROFILES", {}),
+            EXPECTED_PROFILES,
+        )
+        expected_pages = {
+            f"characters/{slug}/index.html" for slug in EXPECTED_PROFILES
+        }
+        self.assertTrue(expected_pages.issubset(validate.PAGES))
+
+    def test_character_index_requires_one_semantic_profile_link_per_cast_member(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            source = source.replace(
+                '<a href="/characters/ada-lovelace/">Ada Lovelace</a>',
+                '<span>Ada Lovelace</span><a href="/characters/benjamin-franklin/">Profile</a>',
+            )
+            page.write_text(source, encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "profile link for Ada Lovelace")
+
+    def test_profile_fields_must_be_semantic_not_incidental_text(self) -> None:
+        mutations = {
+            "historical horizon field": (
+                "<dt>Historical horizon</dt>",
+                "<p>Historical horizon</p>",
+            ),
+            "candidate status field": (
+                "<dt>Catalog status</dt>",
+                "<p>Catalog status</p>",
+            ),
+            "portrait field": (
+                "<dt>Portrait</dt>",
+                "<p>Portrait</p>",
+            ),
+            "Wizard roadmap link": (
+                '<a href="/characters/#make-title">Character Wizard roadmap</a>',
+                '<span>Character Wizard roadmap</span>',
+            ),
+            "community roadmap link": (
+                '<a href="/characters/#community-title">community library roadmap</a>',
+                '<span>community library roadmap</span>',
+            ),
+        }
+        for reason, (required, replacement) in mutations.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "ada-lovelace" / "index.html"
+                if not page.is_file():
+                    self.fail("missing Ada Lovelace profile fixture")
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(required, source)
+                page.write_text(source.replace(required, replacement), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
+    def test_profiles_reject_private_pack_details_and_false_release_claims(self) -> None:
+        fixtures = {
+            "runtime prompt detail": "<p>AGENTS.md contains the runtime prompt.</p>",
+            "hidden behavior number": "<p>initiative: 0.5</p>",
+            "forbidden claim": "<p>Download now from the public installer.</p>",
+        }
+        for reason, injection in fixtures.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "ada-lovelace" / "index.html"
+                if not page.is_file():
+                    self.fail("missing Ada Lovelace profile fixture")
+                source = page.read_text(encoding="utf-8")
+                page.write_text(source.replace("</main>", f"{injection}</main>"), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
+    def test_profiles_require_coherent_character_navigation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "ada-lovelace" / "index.html"
+            if not page.is_file():
+                self.fail("missing Ada Lovelace profile fixture")
+            source = page.read_text(encoding="utf-8")
+            page.write_text(
+                source.replace('<a href="/characters/">Back to all twelve</a>', '<span>Back to all twelve</span>'),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "back link to Characters")
 
     def test_rejects_all_case_insensitive_event_handlers(self) -> None:
         for attribute in ("onfocus", "ONMOUSEOVER"):

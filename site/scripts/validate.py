@@ -12,12 +12,58 @@ from urllib.parse import unquote, urlparse
 
 SITE = Path(__file__).resolve().parents[1]
 SITE_ORIGIN = "https://greenroomai.net"
+CHARACTER_PROFILES = {
+    "ada-lovelace": "Ada Lovelace",
+    "benjamin-franklin": "Benjamin Franklin",
+    "elizabeth-i": "Elizabeth I",
+    "frederick-douglass": "Frederick Douglass",
+    "galileo-galilei": "Galileo Galilei",
+    "george-washington": "George Washington",
+    "isaac-newton": "Isaac Newton",
+    "jane-austen": "Jane Austen",
+    "leonardo-da-vinci": "Leonardo da Vinci",
+    "mary-shelley": "Mary Shelley",
+    "nicolaus-copernicus": "Nicolaus Copernicus",
+    "thomas-jefferson": "Thomas Jefferson",
+}
+PROFILE_HORIZONS = {
+    "ada-lovelace": "Through 26 November 1852",
+    "benjamin-franklin": "Through 16 April 1790",
+    "elizabeth-i": "Through 24 March 1603",
+    "frederick-douglass": "Through 20 February 1895",
+    "galileo-galilei": "Through 8 January 1642",
+    "george-washington": "Through 14 December 1799",
+    "isaac-newton": "Through 20 March 1727 (Old Style)",
+    "jane-austen": "Through 17 July 1817",
+    "leonardo-da-vinci": "Through 1 May 1519",
+    "mary-shelley": "Through 1 February 1851",
+    "nicolaus-copernicus": "Through 24 May 1543",
+    "thomas-jefferson": "Through 4 July 1826",
+}
+PROFILE_BEHAVIOR = {
+    "ada-lovelace": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "benjamin-franklin": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "elizabeth-i": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "frederick-douglass": ("Proactive initiative", "Rarely interrupts", "Expansive", "Independent", "Expressive range"),
+    "galileo-galilei": ("Proactive initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "george-washington": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
+    "isaac-newton": ("Measured initiative", "Rarely interrupts", "Measured detail", "Challenging", "Controlled range"),
+    "jane-austen": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "leonardo-da-vinci": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "mary-shelley": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
+    "nicolaus-copernicus": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
+    "thomas-jefferson": ("Measured initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
+}
 PAGES = {
     "index.html": "Project",
     "characters/index.html": "Characters",
     "docs/index.html": "Docs",
     "download/index.html": "Download",
     "contribute/index.html": "Contribute",
+    **{
+        f"characters/{slug}/index.html": "Characters"
+        for slug in CHARACTER_PROFILES
+    },
 }
 REQUIRED_LANGUAGE = {
     "index.html": (
@@ -126,15 +172,46 @@ class PageParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.tags: list[tuple[str, list[tuple[str, str]]]] = []
         self.text: list[str] = []
+        self.elements: list[dict[str, object]] = []
+        self.open_elements: list[int] = []
+
+    def record_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized_tag = tag.lower()
+        normalized_attrs = [(key.lower(), value or "") for key, value in attrs]
+        self.tags.append((normalized_tag, normalized_attrs))
+        parent = self.open_elements[-1] if self.open_elements else None
+        self.elements.append(
+            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+        )
+        if normalized_tag not in {"meta", "link"}:
+            self.open_elements.append(len(self.elements) - 1)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.tags.append((tag.lower(), [(key.lower(), value or "") for key, value in attrs]))
+        self.record_starttag(tag, attrs)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.handle_starttag(tag, attrs)
+        normalized_tag = tag.lower()
+        normalized_attrs = [(key.lower(), value or "") for key, value in attrs]
+        self.tags.append((normalized_tag, normalized_attrs))
+        parent = self.open_elements[-1] if self.open_elements else None
+        self.elements.append(
+            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+        )
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        for index in range(len(self.open_elements) - 1, -1, -1):
+            element_index = self.open_elements[index]
+            if self.elements[element_index]["tag"] == normalized_tag:
+                del self.open_elements[index:]
+                return
 
     def handle_data(self, data: str) -> None:
         self.text.append(data)
+        for element_index in self.open_elements:
+            element_text = self.elements[element_index]["text"]
+            assert isinstance(element_text, list)
+            element_text.append(data)
 
 
 class PolicyHTMLParser(PageParser):
@@ -301,6 +378,162 @@ def validate_html_policy(
     return parser
 
 
+def normalized_text(element: dict[str, object]) -> str:
+    text = element["text"]
+    assert isinstance(text, list)
+    return " ".join(" ".join(text).split())
+
+
+def element_attrs(element: dict[str, object]) -> dict[str, str]:
+    attrs = element["attrs"]
+    assert isinstance(attrs, dict)
+    return attrs
+
+
+def is_descendant(parser: PageParser, index: int, ancestor: int) -> bool:
+    parent = parser.elements[index]["parent"]
+    while isinstance(parent, int):
+        if parent == ancestor:
+            return True
+        parent = parser.elements[parent]["parent"]
+    return False
+
+
+def scoped_elements(parser: PageParser, tag: str, ancestor: int | None = None) -> list[tuple[int, dict[str, object]]]:
+    return [
+        (index, element)
+        for index, element in enumerate(parser.elements)
+        if element["tag"] == tag and (ancestor is None or is_descendant(parser, index, ancestor))
+    ]
+
+
+def section_index(parser: PageParser, heading_id: str) -> int | None:
+    for index, element in enumerate(parser.elements):
+        if element["tag"] == "section" and element_attrs(element).get("aria-labelledby") == heading_id:
+            return index
+    return None
+
+
+def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tuple[str, str]]:
+    return [
+        (element_attrs(element).get("href", ""), normalized_text(element))
+        for _, element in scoped_elements(parser, "a", ancestor)
+    ]
+
+
+def definition_fields(parser: PageParser) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for dl_index, _ in scoped_elements(parser, "dl"):
+        children = [
+            element
+            for element in parser.elements
+            if element["parent"] == dl_index and element["tag"] in {"dt", "dd"}
+        ]
+        for position in range(0, len(children) - 1, 2):
+            term, description = children[position : position + 2]
+            if term["tag"] == "dt" and description["tag"] == "dd":
+                fields[normalized_text(term)] = normalized_text(description)
+    return fields
+
+
+def validate_character_index(parser: PageParser, errors: list[str]) -> None:
+    cast_sections = [
+        index
+        for index, element in enumerate(parser.elements)
+        if element["tag"] == "ul" and element_attrs(element).get("class") == "cast-grid"
+    ]
+    if len(cast_sections) != 1:
+        fail(errors, "characters/index.html: expected one semantic cast grid")
+        return
+    links = semantic_links(parser, cast_sections[0])
+    for slug, name in CHARACTER_PROFILES.items():
+        expected = (f"/characters/{slug}/", name)
+        if links.count(expected) != 1:
+            fail(errors, f"characters/index.html: missing exact profile link for {name}")
+
+
+def validate_profile_contract(relative: str, slug: str, name: str, parser: PageParser, errors: list[str]) -> None:
+    h1_text = [normalized_text(element) for _, element in scoped_elements(parser, "h1")]
+    if h1_text != [name]:
+        fail(errors, f"{relative}: h1 must be the canonical character name {name}")
+
+    expected_url = f"{SITE_ORIGIN}/characters/{slug}/"
+    links = [element_attrs(element) for _, element in scoped_elements(parser, "link")]
+    if not any(attrs.get("rel") == "canonical" and attrs.get("href") == expected_url for attrs in links):
+        fail(errors, f"{relative}: canonical URL does not match canonical slug")
+    metas = [element_attrs(element) for _, element in scoped_elements(parser, "meta")]
+    if not any(meta.get("property") == "og:url" and meta.get("content") == expected_url for meta in metas):
+        fail(errors, f"{relative}: og:url does not match canonical slug")
+
+    ledes = [
+        normalized_text(element)
+        for _, element in scoped_elements(parser, "p")
+        if element_attrs(element).get("class") == "lede"
+    ]
+    if len(ledes) != 1 or len(ledes[0]) < 60:
+        fail(errors, f"{relative}: missing bounded educational summary")
+
+    fields = definition_fields(parser)
+    expected_fields = {
+        "Historical horizon": PROFILE_HORIZONS[slug],
+        "Catalog status": "Candidate pack in the verified local alpha",
+        "Preinstallation": "Intended only after exact-version Official Catalog approval",
+        "Portrait": "No portrait is published; item-specific rights, provenance, attribution, and catalog review remain required",
+    }
+    field_errors = {
+        "Historical horizon": "historical horizon field",
+        "Catalog status": "candidate status field",
+        "Preinstallation": "exact-version preinstallation field",
+        "Portrait": "portrait field",
+    }
+    for term, expected_value in expected_fields.items():
+        if fields.get(term) != expected_value:
+            fail(errors, f"{relative}: missing semantic {field_errors[term]}")
+
+    strengths = section_index(parser, "strengths-title")
+    strength_items = [] if strengths is None else scoped_elements(parser, "li", strengths)
+    if strengths is None or len(strength_items) < 5 or any(not normalized_text(item) for _, item in strength_items):
+        fail(errors, f"{relative}: discussion-strength domains must be a semantic list")
+
+    behavior = section_index(parser, "behavior-title")
+    behavior_items = [] if behavior is None else [normalized_text(item) for _, item in scoped_elements(parser, "li", behavior)]
+    if behavior_items != list(PROFILE_BEHAVIOR[slug]):
+        fail(errors, f"{relative}: bounded behavior labels do not match the reviewed public mapping")
+
+    interpretation = section_index(parser, "interpretation-title")
+    disclosure = "" if interpretation is None else normalized_text(parser.elements[interpretation]).lower()
+    for concept in (
+        "source-informed educational creative interpretation",
+        "not the person",
+        "literal simulation",
+        "not a historical quotation",
+    ):
+        if concept not in disclosure:
+            fail(errors, f"{relative}: interpretation disclosure is missing {concept!r}")
+
+    page_links = semantic_links(parser)
+    required_links = {
+        ("/characters/", "Back to all twelve"): "back link to Characters",
+        ("/characters/#make-title", "Character Wizard roadmap"): "Wizard roadmap link",
+        ("/characters/#community-title", "community library roadmap"): "community roadmap link",
+    }
+    for link, description in required_links.items():
+        if page_links.count(link) != 1:
+            fail(errors, f"{relative}: missing coherent {description}")
+
+    main_elements = scoped_elements(parser, "main")
+    visible = "" if not main_elements else normalized_text(main_elements[0][1])
+    private_patterns = (
+        (r"\b(?:agents|background|voice|relationships|scenarios|sources|provenance)\.md\b", "runtime prompt detail"),
+        (r"\b(?:runtime|system)\s+prompt\b", "runtime prompt detail"),
+        (r"(?:/users/|file://|\\users\\)", "private path detail"),
+        (r"\b(?:initiative|interruption|verbosity|agreeableness|emotional(?:_|\s*)range|max(?:_|\s*)consecutive(?:_|\s*)turns)\s*[:=]\s*[0-9]", "hidden behavior number"),
+    )
+    for pattern, description in private_patterns:
+        if re.search(pattern, visible, re.I):
+            fail(errors, f"{relative}: exposed {description}")
+
+
 def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
     page = site / relative
     if not page.is_file():
@@ -332,12 +565,23 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
     if not any(link.get("rel") == "canonical" and link.get("href") for link in links):
         fail(errors, f"{relative}: missing canonical link")
 
-    for phrase in REQUIRED_LANGUAGE[relative]:
+    for phrase in REQUIRED_LANGUAGE.get(relative, ()):
         if phrase.lower() not in lower:
             fail(errors, f"{relative}: missing required language: {phrase!r}")
     for phrase in FORBIDDEN_TEXT:
         if phrase in lower:
             fail(errors, f"{relative}: forbidden claim or collection language: {phrase!r}")
+
+    if relative == "characters/index.html":
+        validate_character_index(parser, errors)
+    profile_match = re.fullmatch(r"characters/([a-z0-9-]+)/index\.html", relative)
+    if profile_match:
+        slug = profile_match.group(1)
+        name = CHARACTER_PROFILES.get(slug)
+        if name is None:
+            fail(errors, f"{relative}: profile slug is not canonical")
+        else:
+            validate_profile_contract(relative, slug, name, parser, errors)
 
 
 def css_unescape(source: str) -> str:
@@ -464,6 +708,12 @@ def validate_svg_source(
 
 def collect_errors(site: Path = SITE) -> list[str]:
     errors: list[str] = []
+    actual_pages = {
+        page.relative_to(site).as_posix()
+        for page in site.rglob("*.html")
+    }
+    for unexpected in sorted(actual_pages - set(PAGES)):
+        fail(errors, f"unexpected static HTML page outside the release gate: {unexpected}")
     for page in PAGES:
         validate_page(page, errors, site)
 

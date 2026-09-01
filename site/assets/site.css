@@ -130,7 +130,7 @@ h1 {
 .call-slip h2 { margin: 0 0 1rem; font: 2.3rem/0.9 var(--display); text-transform: uppercase; }
 .call-slip dl { display: grid; grid-template-columns: 5.5rem 1fr; margin: 0; font: 700 0.78rem/1.7 var(--mono); }
 .call-slip dt { color: var(--muted); }
-.call-slip dd { margin: 0; border-bottom: 1px dashed var(--muted); }
+.call-slip dd { min-width: 0; margin: 0; border-bottom: 1px dashed var(--muted); overflow-wrap: anywhere; }
 .marquee { overflow: hidden; padding: 0.75rem 1rem; border-block: 0.55rem solid var(--acid); background: var(--ink); color: var(--paper); font: clamp(1.3rem, 3vw, 2rem)/1 var(--display); letter-spacing: 0.03em; text-align: center; text-transform: uppercase; }
 .marquee strong { color: var(--acid); }
 .section { padding-block: clamp(3.2rem, 7vw, 6rem); }
@@ -164,6 +164,7 @@ h1 {
 }
 .cast-grid li:nth-child(3n + 1) { background: var(--acid); }
 .cast-grid strong { display: block; font: 1.35rem/1 var(--display); text-transform: uppercase; }
+.cast-grid strong a { display: flex; min-height: 2.75rem; align-items: center; }
 .cast-grid small { display: block; margin-top: 0.55rem; color: var(--muted); font: 700 0.68rem/1.35 var(--mono); }
 .split { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(20rem, 1.15fr); gap: clamp(2rem, 6vw, 5rem); align-items: start; }
 .rule-list { margin: 0; padding: 0; list-style: none; border-top: var(--rule); }
@@ -211,7 +212,10 @@ h1 {
   .cast-grid li:nth-child(n) { background: var(--white); }
   .cast-grid li:nth-child(odd) { background: var(--acid); }
   .card .number { margin-bottom: 1.2rem; }
-  .call-slip dl { grid-template-columns: 4.6rem 1fr; font-size: 0.7rem; }
+  .call-slip dl { grid-template-columns: 1fr; font-size: 0.7rem; }
+  .call-slip dt { margin-top: 0.55rem; }
+  .call-slip dt:first-child { margin-top: 0; }
+  .call-slip dd { padding-bottom: 0.35rem; }
   .footer-inner { display: block; }
   .footer-inner span { display: block; margin-top: 0.7rem; }
 }
