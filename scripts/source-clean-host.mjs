@@ -59,6 +59,7 @@ export async function runSourceCleanHostPreflight(options = {}) {
   const repoRoot = resolve(options.repoRoot ?? process.cwd());
   const dataRoot = options.dataRoot ?? join(repoRoot, ".local", "first-playable");
   const nodeVersion = options.nodeVersion ?? process.version;
+  const npmVersion = options.npmVersion ?? commandVersion("npm", ["--version"]);
   const uvVersion = options.uvVersion ?? commandVersion("uv", ["--version"]);
   const platform = options.platform ?? process.platform;
   const architecture = options.architecture ?? process.arch;
@@ -70,10 +71,13 @@ export async function runSourceCleanHostPreflight(options = {}) {
   if (!/^v24\.[0-9]+\.[0-9]+$/.test(nodeVersion)) {
     fail("preflight_node_24_required", `expected Node 24.x, received ${nodeVersion}`);
   }
+  if (npmVersion !== "11.19.0") {
+    fail("preflight_npm_11_19_required", `expected npm 11.19.0, received ${npmVersion}`);
+  }
   if (!/^uv [0-9]+\.[0-9]+\.[0-9]+(?:[ +(-].*)?$/.test(uvVersion)) {
     fail("preflight_uv_required", `unexpected uv version output: ${uvVersion}`);
   }
-  for (const lockfile of ["package-lock.json", "uv.lock"]) {
+  for (const lockfile of ["package.json", "package-lock.json", "uv.lock", ".npmrc"]) {
     try {
       const stat = await lstat(join(repoRoot, lockfile));
       if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("not regular");
@@ -82,10 +86,20 @@ export async function runSourceCleanHostPreflight(options = {}) {
     }
   }
   try {
+    if (await readFile(join(repoRoot, ".npmrc"), "utf8") !== "strict-allow-scripts=true\n") {
+      fail("preflight_npm_policy_invalid", ".npmrc must contain only the exact strict install-script policy");
+    }
+  } catch (error) {
+    if (error instanceof PreflightError) throw error;
+    fail("preflight_npm_policy_invalid", ".npmrc must be readable and exact");
+  }
+  try {
     const packageContract = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
     const approvedScripts = packageContract.allowScripts;
     if (
       packageContract.dependencies?.["fs-ext"] !== "2.1.1" ||
+      packageContract.packageManager !== "npm@11.19.0" ||
+      packageContract.engines?.npm !== "11.19.0" ||
       approvedScripts === null ||
       typeof approvedScripts !== "object" ||
       Array.isArray(approvedScripts) ||
@@ -137,6 +151,7 @@ export async function runSourceCleanHostPreflight(options = {}) {
     code: "source_clean_host_preflight_ok",
     dataRoot,
     nodeVersion,
+    npmVersion,
     platform,
     architecture,
     repoRoot,

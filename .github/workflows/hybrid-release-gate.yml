@@ -40,7 +40,7 @@ jobs:
           enable-cache: false
 
       - name: Install Node.js dependencies
-        run: npm ci
+        run: npm ci --strict-allow-scripts=true
 
       - name: Install Python dependencies
         run: uv sync --locked

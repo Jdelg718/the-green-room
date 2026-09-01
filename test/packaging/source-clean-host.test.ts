@@ -14,8 +14,14 @@ function checkout(context: { after(callback: () => void): void }): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-source-preflight-"));
   writeFileSync(
     join(root, "package.json"),
-    `${JSON.stringify({ dependencies: { "fs-ext": "2.1.1" }, allowScripts: { "fs-ext@2.1.1": true } })}\n`,
+    `${JSON.stringify({
+      packageManager: "npm@11.19.0",
+      engines: { npm: "11.19.0" },
+      dependencies: { "fs-ext": "2.1.1" },
+      allowScripts: { "fs-ext@2.1.1": true },
+    })}\n`,
   );
+  writeFileSync(join(root, ".npmrc"), "strict-allow-scripts=true\n");
   writeFileSync(join(root, "package-lock.json"), "{}\n");
   writeFileSync(join(root, "uv.lock"), "version = 1\n");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -36,6 +42,7 @@ test("clean-host preflight reports exact locked Node/uv inputs without preparing
     repoRoot: root,
     dataRoot: join(root, "operator-data"),
     nodeVersion: "v24.20.0",
+    npmVersion: "11.19.0",
     uvVersion: "uv 0.11.11 (test)",
   });
   assert.equal(result.code, "source_clean_host_preflight_ok");
@@ -44,21 +51,25 @@ test("clean-host preflight reports exact locked Node/uv inputs without preparing
   }
 });
 
-test("clean-host preflight requires exact Node 24 and parseable uv", async (context) => {
+test("clean-host preflight requires exact Node 24, npm 11.19.0, and parseable uv", async (context) => {
   const root = checkout(context);
   await rejectsCode(
-    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v23.9.0", uvVersion: "uv 0.11.11" }),
+    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v23.9.0", npmVersion: "11.19.0", uvVersion: "uv 0.11.11" }),
     "preflight_node_24_required",
   );
   await rejectsCode(
-    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", uvVersion: "unknown" }),
+    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", npmVersion: "10.9.4", uvVersion: "uv 0.11.11" }),
+    "preflight_npm_11_19_required",
+  );
+  await rejectsCode(
+    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", npmVersion: "11.19.0", uvVersion: "unknown" }),
     "preflight_uv_required",
   );
 });
 
 test("clean-host preflight admits only the two named source evidence targets", async (context) => {
   const root = checkout(context);
-  const base = { repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", uvVersion: "uv 0.11.11" };
+  const base = { repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", npmVersion: "11.19.0", uvVersion: "uv 0.11.11" };
   await runSourceCleanHostPreflight({ ...base, platform: "darwin", architecture: "arm64" });
   await runSourceCleanHostPreflight({ ...base, platform: "linux", architecture: "x64" });
   await rejectsCode(
@@ -71,13 +82,13 @@ test("clean-host preflight refuses missing locks and prepared artifacts", async 
   const root = checkout(context);
   rmSync(join(root, "uv.lock"));
   await rejectsCode(
-    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", uvVersion: "uv 0.11.11" }),
+    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", npmVersion: "11.19.0", uvVersion: "uv 0.11.11" }),
     "preflight_lockfile_missing",
   );
   writeFileSync(join(root, "uv.lock"), "version = 1\n");
   mkdirSync(join(root, "dist"));
   await rejectsCode(
-    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", uvVersion: "uv 0.11.11" }),
+    () => runSourceCleanHostPreflight({ repoRoot: root, dataRoot: join(root, "data"), nodeVersion: "v24.0.0", npmVersion: "11.19.0", uvVersion: "uv 0.11.11" }),
     "preflight_prepared_artifact_present",
   );
 });
@@ -88,6 +99,7 @@ test("clean-host preflight requires the exact native install-script policy", asy
     repoRoot: root,
     dataRoot: join(root, "data"),
     nodeVersion: "v24.0.0",
+    npmVersion: "11.19.0",
     uvVersion: "uv 0.11.11",
   };
   writeFileSync(join(root, "package.json"), `${JSON.stringify({ dependencies: { "fs-ext": "2.1.1" } })}\n`);
@@ -100,6 +112,26 @@ test("clean-host preflight requires the exact native install-script policy", asy
     })}\n`,
   );
   await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_native_script_policy_invalid");
+});
+
+test("clean-host preflight requires an exact regular project npm policy", async (context) => {
+  const root = checkout(context);
+  const options = {
+    repoRoot: root,
+    dataRoot: join(root, "data"),
+    nodeVersion: "v24.0.0",
+    npmVersion: "11.19.0",
+    uvVersion: "uv 0.11.11",
+  };
+  rmSync(join(root, ".npmrc"));
+  await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_lockfile_missing");
+  writeFileSync(join(root, ".npmrc"), "strict-allow-scripts=false\n");
+  await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_npm_policy_invalid");
+  rmSync(join(root, ".npmrc"));
+  const target = join(root, "npm-policy-target");
+  writeFileSync(target, "strict-allow-scripts=true\n");
+  symlinkSync(target, join(root, ".npmrc"));
+  await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_lockfile_missing");
 });
 
 test("npm strict allow-scripts blocks an unapproved local install script before execution", (context) => {
@@ -134,10 +166,10 @@ test("npm strict allow-scripts blocks an unapproved local install script before 
   );
   writeFileSync(join(dependency, "install.cjs"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
 
-  const result = spawnSync("npm", ["install", "--offline", "--no-audit", "--no-fund"], {
+  const result = spawnSync("npm", ["install", "--offline", "--no-audit", "--no-fund", "--strict-allow-scripts=true"], {
     cwd: app,
     encoding: "utf8",
-    env: { PATH: process.env.PATH ?? "" },
+    env: { PATH: process.env.PATH ?? "", NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "false" },
     shell: false,
     timeout: 30_000,
   });
@@ -148,7 +180,7 @@ test("npm strict allow-scripts blocks an unapproved local install script before 
 
 test("clean-host preflight rejects relative, existing, symlinked, and unwritable data roots", async (context) => {
   const root = checkout(context);
-  const base = { repoRoot: root, nodeVersion: "v24.0.0", uvVersion: "uv 0.11.11" };
+  const base = { repoRoot: root, nodeVersion: "v24.0.0", npmVersion: "11.19.0", uvVersion: "uv 0.11.11" };
   await rejectsCode(
     () => runSourceCleanHostPreflight({ ...base, dataRoot: "relative-data" }),
     "preflight_data_root_noncanonical",

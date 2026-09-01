@@ -4,8 +4,10 @@
   "private": true,
   "description": "Private-first ensemble conversation playground",
   "type": "module",
+  "packageManager": "npm@11.19.0",
   "engines": {
-    "node": "24.x"
+    "node": "24.x",
+    "npm": "11.19.0"
   },
   "greenroomPackageIdentity": {
     "bundleIdentifier": "net.greenroomai.GreenRoom",
