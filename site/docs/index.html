@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Green Room project notes: local-first architecture, provider boundaries, ensemble behavior, and public-site responsibilities.">
+  <meta property="og:title" content="Green Room docs — working notes"><meta property="og:description" content="The architecture and trust boundary for a standalone, local-first ensemble conversation project."><meta property="og:type" content="website"><meta property="og:image" content="https://greenroomai.net/assets/social-card-placeholder.svg"><meta property="og:image:alt" content="Text-only Green Room project placeholder card">
+  <meta name="twitter:card" content="summary_large_image"><link rel="canonical" href="https://greenroomai.net/docs/"><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/site.css">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; connect-src 'none'; form-action 'none'; object-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'">
+  <title>Docs — The Green Room</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a><div class="topline" aria-hidden="true"></div>
+  <header class="site-header"><div class="mast"><a class="mark" href="/" aria-label="The Green Room home">GR//</a><div class="wordmark">The Green Room<small>Ensemble conversation workshop</small></div><nav class="nav" aria-label="Primary navigation"><a href="/">Project</a><a href="/docs/" aria-current="page">Docs</a><a href="/download/">Download</a><a href="/contribute/">Contribute</a></nav></div></header>
+  <main id="main">
+    <header class="page-hero"><span class="eyebrow">Working notes / architecture</span><h1>Read the <span class="outline">room.</span></h1><p class="lede">A concise map of the product, the local runtime, the provider boundary, and the static public plane.</p></header>
+    <div class="marquee">Local data plane. Static public plane. <strong>● Keep the line clear. ●</strong></div>
+    <section class="section split" aria-labelledby="map-title">
+      <div><span class="kicker">Architecture / two planes</span><h2 class="section-title" id="map-title">Information here. Rooms there.</h2></div>
+      <div class="prose">
+        <h2>Public project plane</h2><p>This site publishes project, documentation, download-status, and contribution guidance. It has no account, model proxy, credential entry, transcript ingestion, room state, analytics, or cookies.</p>
+        <h2>Local data plane</h2><p>The local runtime owns room state, provider configuration, scheduling, memory, provider calls, and local credential references. Green Room is usable without a project account or project-operated service.</p>
+        <h2>Provider boundary</h2><p>Users connect their own local or cloud LLM through the local application. A local provider can keep inference on the user’s machine. If a user selects a cloud provider, the provider receives the bounded context needed for inference; local setup must disclose that boundary.</p>
+      </div>
+    </section>
+    <section class="section" aria-labelledby="principles-title"><span class="kicker">House rules / product behavior</span><h2 class="section-title" id="principles-title">What stays true.</h2><div class="grid">
+      <article class="card card-acid"><span class="number">NOTE 01</span><h3>Ensemble first</h3><p>The room matters more than any single chatbot. Personas notice one another, and difference makes the scene move.</p></article>
+      <article class="card"><span class="number">NOTE 02</span><h3>Bounded direction</h3><p>The deterministic director chooses zero or one eligible speaker and enforces cooldowns, budgets, cancellation, pacing, and loop prevention.</p></article>
+      <article class="card card-dark"><span class="number">NOTE 03</span><h3>Inspectable continuity</h3><p>Memory is intended to remain bounded, attributable, inspectable, correctable, exportable, and deletable.</p></article>
+    </div></section>
+    <section class="section split" aria-labelledby="stage-title"><div><span class="kicker">Current stage / no release fiction</span><h2 class="section-title" id="stage-title">Private alpha to community release.</h2></div><div><ul class="rule-list"><li><strong>Verified baseline</strong>A standalone Node 24, Fastify, and SQLite private/local alpha.</li><li><strong>Next provider work</strong>Revisioned connection and model profiles behind adapters, with local secret references and bounded tests.</li><li><strong>Packaging direction</strong>Docker Compose and a local web bundle before evaluating a desktop wrapper.</li><li><strong>Public release</strong>Forthcoming; artifacts and checksums must be verified before any download is posted.</li></ul></div></section>
+    <section class="section"><div class="notice"><h2>Need the full working documents?</h2><p>The repository contains the product brief, roadmap, architecture, accepted ADRs, contribution policy, security policy, and content boundaries.</p><a class="button" href="https://github.com/Jdelg718/the-green-room">Open the GitHub repository</a></div></section>
+  </main>
+  <footer class="site-footer"><div class="footer-inner">Docs / public project plane <span>No keys · no transcripts · no model proxy</span></div></footer>
+</body>
+</html>
