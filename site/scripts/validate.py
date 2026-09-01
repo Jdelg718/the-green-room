@@ -421,18 +421,47 @@ def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tupl
     ]
 
 
-def definition_fields(parser: PageParser) -> dict[str, str]:
+PROFILE_INTERPRETATION_DISCLOSURE = (
+    "This is a source-informed educational creative interpretation of a historical person. "
+    "It is not the person, a literal simulation, an authoritative reconstruction, an endorsed "
+    "representative, or present-day expertise. Dramatic behavior is an interpretation, and "
+    "generated dialogue is not a historical quotation. Consult reliable historical sources "
+    "for the record."
+)
+
+
+def definition_fields(
+    parser: PageParser,
+    ancestor: int,
+    errors: list[str],
+    relative: str,
+) -> dict[str, str]:
+    dl_elements = scoped_elements(parser, "dl", ancestor)
+    if len(dl_elements) != 1 or parser.elements[dl_elements[0][0]]["parent"] != ancestor:
+        fail(errors, f"{relative}: profile facts require exactly one direct definition list")
+        return {}
+
+    dl_index = dl_elements[0][0]
+    children = [
+        element
+        for element in parser.elements
+        if element["parent"] == dl_index and element["tag"] in {"dt", "dd"}
+    ]
+    if len(children) != 8 or any(
+        element["tag"] != ("dt" if position % 2 == 0 else "dd")
+        for position, element in enumerate(children)
+    ):
+        fail(errors, f"{relative}: profile facts require four direct dt/dd pairs")
+        return {}
+
     fields: dict[str, str] = {}
-    for dl_index, _ in scoped_elements(parser, "dl"):
-        children = [
-            element
-            for element in parser.elements
-            if element["parent"] == dl_index and element["tag"] in {"dt", "dd"}
-        ]
-        for position in range(0, len(children) - 1, 2):
-            term, description = children[position : position + 2]
-            if term["tag"] == "dt" and description["tag"] == "dd":
-                fields[normalized_text(term)] = normalized_text(description)
+    for position in range(0, len(children), 2):
+        term, description = children[position : position + 2]
+        key = normalized_text(term)
+        if key in fields:
+            fail(errors, f"{relative}: profile facts contain duplicate field {key!r}")
+            return {}
+        fields[key] = normalized_text(description)
     return fields
 
 
@@ -473,7 +502,19 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     if len(ledes) != 1 or len(ledes[0]) < 60:
         fail(errors, f"{relative}: missing bounded educational summary")
 
-    fields = definition_fields(parser)
+    fact_asides = [
+        index
+        for index, element in scoped_elements(parser, "aside")
+        if element_attrs(element).get("class") == "call-slip"
+        and element_attrs(element).get("aria-label") == f"{name} profile facts"
+        and "aria-hidden" not in element_attrs(element)
+        and "hidden" not in element_attrs(element)
+    ]
+    if len(fact_asides) != 1:
+        fail(errors, f"{relative}: expected one visible semantic profile facts block")
+        fields: dict[str, str] = {}
+    else:
+        fields = definition_fields(parser, fact_asides[0], errors, relative)
     expected_fields = {
         "Historical horizon": PROFILE_HORIZONS[slug],
         "Catalog status": "Candidate pack in the verified local alpha",
@@ -500,16 +541,22 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
     if behavior_items != list(PROFILE_BEHAVIOR[slug]):
         fail(errors, f"{relative}: bounded behavior labels do not match the reviewed public mapping")
 
-    interpretation = section_index(parser, "interpretation-title")
-    disclosure = "" if interpretation is None else normalized_text(parser.elements[interpretation]).lower()
-    for concept in (
-        "source-informed educational creative interpretation",
-        "not the person",
-        "literal simulation",
-        "not a historical quotation",
-    ):
-        if concept not in disclosure:
-            fail(errors, f"{relative}: interpretation disclosure is missing {concept!r}")
+    interpretations = [
+        index
+        for index, element in scoped_elements(parser, "section")
+        if element_attrs(element).get("aria-labelledby") == "interpretation-title"
+        and "aria-hidden" not in element_attrs(element)
+        and "hidden" not in element_attrs(element)
+    ]
+    if len(interpretations) != 1:
+        fail(errors, f"{relative}: expected one visible interpretation disclosure section")
+    else:
+        disclosure_paragraphs = [
+            normalized_text(element)
+            for _, element in scoped_elements(parser, "p", interpretations[0])
+        ]
+        if disclosure_paragraphs != [PROFILE_INTERPRETATION_DISCLOSURE]:
+            fail(errors, f"{relative}: interpretation disclosure must match the canonical non-simulation statement")
 
     page_links = semantic_links(parser)
     required_links = {

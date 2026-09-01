@@ -113,6 +113,41 @@ class StaticPolicyTests(unittest.TestCase):
                 page.write_text(source.replace("</main>", f"{injection}</main>"), encoding="utf-8")
                 self.assert_rejected(validate.collect_errors(site), reason)
 
+    def test_profile_status_cannot_be_satisfied_by_hidden_duplicate_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "ada-lovelace" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            source = source.replace(
+                "<dt>Catalog status</dt><dd>Candidate pack in the verified local alpha</dd>",
+                "<dt>Catalog status</dt><dd>Official Catalog release available for public installation</dd>",
+                1,
+            )
+            hidden_duplicate = (
+                '<dl aria-hidden="true"><dt>Historical horizon</dt><dd>Through 26 November 1852</dd>'
+                '<dt>Catalog status</dt><dd>Candidate pack in the verified local alpha</dd>'
+                '<dt>Preinstallation</dt><dd>Intended only after exact-version Official Catalog approval</dd>'
+                '<dt>Portrait</dt><dd>No portrait is published; item-specific rights, provenance, attribution, '
+                'and catalog review remain required</dd></dl>'
+            )
+            page.write_text(source.replace("</main>", f"{hidden_duplicate}</main>"), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "candidate status field")
+
+    def test_interpretation_disclosure_rejects_polarity_reversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "ada-lovelace" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            source = source.replace(
+                "It is not the person, a literal simulation",
+                "It is the person, a literal simulation",
+                1,
+            )
+            page.write_text(source, encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "canonical non-simulation statement")
+
     def test_profiles_require_coherent_character_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
