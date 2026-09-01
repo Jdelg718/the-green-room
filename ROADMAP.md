@@ -68,11 +68,12 @@ This establishes technical viability. It does not approve historical candidates 
 **Outcome:** safely validate and import portable persona packs, then admit only reviewed content and assets to the official catalog.
 
 - Integrate the strict persona validator and safe import flow.
-- Define a portrait asset manifest binding exact bytes to provenance, rights basis, attribution, and review records.
-- Continue design exploration with text/monogram production fallbacks.
-- Hold all 12 existing production-portrait candidates until item-specific rights review, independent historical/content and provenance/rights reviews, and an approved Official Catalog Manifest entry.
+- Maintain portrait asset records binding exact bytes to provenance, generation/source basis, attribution, and review evidence.
+- Preserve text/monogram fallbacks wherever a portrait is unavailable or fails to load.
+- Treat the 12 approved AI-generated portraits as website and local-app presentation assets with explicit creative-interpretation labeling; that publication does not admit the associated packs or artwork to the Official Catalog.
+- Hold portrait inclusion in downloadable packs and catalog distribution until exact-version asset-manifest review and Official Catalog admission.
 
-**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; held portraits do not enter production, packs, website assets, or catalog distribution; and visual use passes accessibility and failure-fallback review.
+**Acceptance criteria:** malformed or executable imports fail closed; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
 
 ## R5 — greenroomai.net and community release
 
