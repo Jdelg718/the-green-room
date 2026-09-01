@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -53,6 +54,20 @@ PROFILE_BEHAVIOR = {
     "mary-shelley": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Controlled range"),
     "nicolaus-copernicus": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
     "thomas-jefferson": ("Measured initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
+}
+PROFILE_MAIN_TEXT_SHA256 = {
+    "ada-lovelace": "ef65986bfff357c921d37beb34af7f96aaa1901cbf05eaadec249d0a0ebb27a0",
+    "benjamin-franklin": "cdd50e5c97b1fd6ff5d1367875ee2e0ef20ed52b4d0588e74f9ecf83665b8f52",
+    "elizabeth-i": "92d13c7668a4496142115fe9165a5f084638795a4c99ff9338e15833d179917a",
+    "frederick-douglass": "0fa730a5dc3092a319be1ba495f2a8f9bc44c59d185d8ae2b74b38f8a3947a84",
+    "galileo-galilei": "23c8ce0db6f680efc9f01cec602af2467d22d93eea4d86dc7d4c342f59a7f4f4",
+    "george-washington": "9c1d522c1ef774d2d2cf7ad0f854be1bdf73ba72a863281762785d5c0450247d",
+    "isaac-newton": "e05e52c16a8cafc4f183d8fea6734fab7517a087a5b557b2087fe5eb1b1fb099",
+    "jane-austen": "74c90359d354f249e33d3af078b740cf16401b77a1e3ec96254b4d8cea1b4c07",
+    "leonardo-da-vinci": "591c50af2c39f646b3aa9dfddb386fddc0ff22b080768fe9d76c2a2041d29688",
+    "mary-shelley": "a588e6ba58ad7ad2dfe52e19ab7626cfa2db362385fcbc94324c33512020ea8d",
+    "nicolaus-copernicus": "e56f51658dbcdc0479eb10f6964fbbfba7e2327c72e945bf80dbf8226bea6ddf",
+    "thomas-jefferson": "f5bc7811cf4988c6dbbeb19f11c338e1f20f89ca79af323152ef5258d0ecfb3a",
 }
 PAGES = {
     "index.html": "Project",
@@ -587,6 +602,9 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
 
     main_elements = scoped_elements(parser, "main")
     visible = "" if not main_elements else normalized_text(main_elements[0][1])
+    visible_digest = hashlib.sha256(visible.encode("utf-8")).hexdigest()
+    if visible_digest != PROFILE_MAIN_TEXT_SHA256[slug]:
+        fail(errors, f"{relative}: visible profile text differs from the reviewed release content")
     private_patterns = (
         (r"\b(?:agents|background|voice|relationships|scenarios|sources|provenance)\.md\b", "runtime prompt detail"),
         (r"\b(?:runtime|system)\s+prompt\b", "runtime prompt detail"),

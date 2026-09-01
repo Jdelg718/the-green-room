@@ -213,6 +213,25 @@ class StaticPolicyTests(unittest.TestCase):
                 page.write_text(source, encoding="utf-8")
                 self.assert_rejected(validate.collect_errors(site), reason)
 
+    def test_profiles_reject_any_unreviewed_visible_claim(self) -> None:
+        claims = (
+            "This profile is a literal simulation.",
+            "Ada Lovelace is a literal simulation.",
+            "This character is the person.",
+            "This is an approved Official Catalog release.",
+            "The pack is an Official Catalog release.",
+            "The candidate is ready for public installation.",
+            "The candidate can be installed publicly.",
+        )
+        for claim in claims:
+            with self.subTest(claim=claim), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "characters" / "ada-lovelace" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                page.write_text(source.replace("</main>", f"<p>{claim}</p></main>"), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), "visible profile text differs from the reviewed release content")
+
     def test_profiles_require_coherent_character_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
