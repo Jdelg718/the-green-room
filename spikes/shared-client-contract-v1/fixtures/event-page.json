@@ -1,0 +1,76 @@
+{
+  "contractVersion": "1.0",
+  "schema": "greenroom.event_page",
+  "schemaVersion": "1.0",
+  "roomId": "first-playable",
+  "afterCursor": "39",
+  "nextCursor": "43",
+  "authorityHeadCursor": "44",
+  "hasMore": true,
+  "events": [
+    {
+      "eventId": "event-40",
+      "position": "40",
+      "occurredAt": "2026-09-01T16:04:06.000Z",
+      "criticality": "mandatory",
+      "source": {
+        "type": "account_human",
+        "participantId": "human-local-owner",
+        "displayName": "Amy"
+      },
+      "event": {
+        "type": "human_message",
+        "text": "What do you notice?"
+      }
+    },
+    {
+      "eventId": "event-41",
+      "position": "41",
+      "occurredAt": "2026-09-01T16:04:06.005Z",
+      "criticality": "mandatory",
+      "source": {
+        "type": "system",
+        "displayName": "Director"
+      },
+      "event": {
+        "type": "director_decision",
+        "sourceEventPosition": "40",
+        "speakerParticipantId": "persona-detective",
+        "reason": "selected"
+      }
+    },
+    {
+      "eventId": "event-42",
+      "position": "42",
+      "occurredAt": "2026-09-01T16:04:07.250Z",
+      "criticality": "mandatory",
+      "source": {
+        "type": "ai_persona",
+        "participantId": "persona-detective",
+        "displayName": "The Detective",
+        "personaSlug": "detective"
+      },
+      "event": {
+        "type": "persona_message",
+        "sourceEventPosition": "40",
+        "directorEventPosition": "41",
+        "text": "The timeline has a missing hour."
+      }
+    },
+    {
+      "eventId": "event-43",
+      "position": "43",
+      "occurredAt": "2026-09-01T16:04:08.500Z",
+      "criticality": "mandatory",
+      "source": {
+        "type": "guest_human",
+        "participantId": "guest-river",
+        "displayName": "River"
+      },
+      "event": {
+        "type": "human_message",
+        "text": "Could the clock have stopped?"
+      }
+    }
+  ]
+}

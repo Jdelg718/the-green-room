@@ -1,0 +1,48 @@
+{
+  "contractVersion": "1.0",
+  "schema": "greenroom.room_snapshot",
+  "schemaVersion": "1.0",
+  "snapshotId": "snapshot-018f1f8e-9f42-7d45-a311-8c7f4df92542",
+  "capturedAt": "2026-09-01T16:04:05.123Z",
+  "room": {
+    "id": "first-playable",
+    "sessionId": "room-018f1f8e-6bb5-7f5f-9010-8af09d0fd997",
+    "title": "The Green Room",
+    "status": "active",
+    "generation": "7",
+    "headCursor": "42",
+    "participants": [
+      {
+        "id": "human-local-owner",
+        "sourceType": "account_human",
+        "displayName": "Amy",
+        "muted": false,
+        "role": "owner",
+        "lifecycle": "active"
+      },
+      {
+        "id": "persona-detective",
+        "sourceType": "ai_persona",
+        "displayName": "The Detective",
+        "muted": false,
+        "role": "member",
+        "lifecycle": "active",
+        "personaSlug": "detective"
+      },
+      {
+        "id": "guest-river",
+        "sourceType": "guest_human",
+        "displayName": "River",
+        "muted": false,
+        "role": "member",
+        "lifecycle": "invited_placeholder"
+      }
+    ]
+  },
+  "extensions": {
+    "greenroom.example.unread_count": {
+      "required": false,
+      "value": 2
+    }
+  }
+}

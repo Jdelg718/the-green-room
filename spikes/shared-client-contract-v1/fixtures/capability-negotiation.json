@@ -1,0 +1,23 @@
+{
+  "contractVersion": "1.1",
+  "schema": "greenroom.capabilities",
+  "schemaVersion": "1.0",
+  "authorityId": "companion-018f1f8e",
+  "authorityRole": "sole_writer_scheduler",
+  "supportedContractMajors": [1],
+  "minimumMutationVersion": "1.1",
+  "maximumMutationVersion": "1.3",
+  "eventPositionEncoding": "decimal_string_uint64",
+  "timestampEncoding": "rfc3339_utc_milliseconds",
+  "catchUp": {
+    "pageSizeMaximum": 100,
+    "declaresAuthorityHead": true,
+    "declaresRetentionGap": true
+  },
+  "transport": {
+    "httpCatchUp": true,
+    "foregroundSse": true,
+    "offlineMutation": false
+  },
+  "knownRequiredExtensions": []
+}

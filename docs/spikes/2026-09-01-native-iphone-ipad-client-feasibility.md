@@ -19,7 +19,7 @@ The blocker is not Apple platform capability. It is that Green Room's present AP
 
 ### Recommended decision posture
 
-1. **Proceed now only with disposable evidence:** Swift decoding fixtures, a fixture-only SwiftUI shell, and a synthetic-server lifecycle/network/Keychain probe.
+1. **Proceed now only with disposable evidence:** Swift decoding fixtures, a fixture-only SwiftUI shell, and a synthetic-server lifecycle/network/Keychain probe. The first item is now exercised in the [shared Node/Swift client contract fixture spike](2026-09-01-shared-node-swift-client-contract-fixtures.md); it remains provisional evidence, not production API authorization.
 2. **Adopt companion authority in the future client ADR:** the Apple app submits commands and renders committed events; it does not schedule personas, call providers, or assign durable order.
 3. **Retain HTTP + SSE for the first proof:** use `URLSession` incremental bytes while active, close/cancel on background, and always reconcile through paginated HTTP catch-up on activation. Do not switch to WebSocket merely because it is available.
 4. **Make private Tailscale HTTPS the first remote-device path:** it preserves the companion's loopback bind through Tailscale Serve, avoids embedding tailnet credentials in Green Room, and gives a stable `https://…ts.net` endpoint. LAN Bonjour remains a useful second path only after pairing and TLS trust are solved.
