@@ -53,12 +53,14 @@ try {
   await page.goto(url, {waitUntil:'load'});
   assert.equal(await page.title(), 'Original Character Workshop — The Green Room');
   assert.match(await page.locator('.privacy').textContent(), /in this tab's memory only.+no browser storage.+external requests.+provider keys.+transcripts.+room memory/is);
+  assert.match(await page.locator('.panel').textContent(), /original first.+only authoring path.+researched historical character.+prebuilt.+source-informed educational interpretation.+provenance.+rights.+fidelity.+exact-version review.+does not improvise or approve/is);
 
   // Empty rehearsal state becomes a deterministic, explicit rehearsal state.
   await go(5);
   assert.match(await page.locator('#rehearsalResult').textContent(), /no rehearsal selected/i);
   await page.locator('[data-scenario="novelty"]').click();
   assert.match(await page.locator('#rehearsalResult').textContent(), /clever exception.+trigger.+temptation.+tell.+consequence.+recovery/is);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'rehearsalResult');
   await page.locator('[data-scenario="blocked"]').click();
   assert.match(await page.locator('#rehearsalResult').textContent(), /cannot reproduce a living performer.+copied dialogue.+original qualities/is);
 
@@ -156,7 +158,7 @@ try {
 
   // Required responsive widths: no overflow and at least 44 px for actionable controls.
   await fs.mkdir(path.join(ROOT, 'screenshots'), {recursive:true});
-  for (const [width,height] of [[1440,1100],[390,844],[320,720]]) {
+  for (const [width,height] of [[1440,1100],[800,900],[390,844],[320,720]]) {
     await page.setViewportSize({width,height});
     for (let step = 0; step < 8; step += 1) {
       await go(step);
@@ -165,15 +167,23 @@ try {
         const box = element.getBoundingClientRect(); return box.width && box.height && (box.width < 44 || box.height < 44);
       }).map((element) => `${element.tagName}.${element.className}:${Math.round(element.getBoundingClientRect().width)}x${Math.round(element.getBoundingClientRect().height)}`));
       assert.deepEqual(small, [], `${width}px step ${step} small targets: ${small}`);
+      for (let index = 0; index < 8; index += 1) {
+        assert.match(await page.locator(`[data-step="${index}"]`).getAttribute('aria-label'), new RegExp(`^Step ${index+1}: .+`), `${width}px step ${index} has a meaningful accessible name`);
+      }
     }
   }
 
   // Fresh text-only screenshot evidence.
   await page.reload({waitUntil:'load'});
+  await page.setViewportSize({width:1440,height:1100}); await go(0); await page.screenshot({path:path.join(ROOT,'screenshots','desktop-1440-gray-flaw-activated.png'),fullPage:true});
   await page.setViewportSize({width:1440,height:1100}); await go(6); await page.locator('#runChecks').click(); await page.locator('#toast').evaluate((element) => { element.hidden = true; });
   await page.screenshot({path:path.join(ROOT,'screenshots','desktop-1440-pack-review.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844}); await go(2); await page.locator('#toast').evaluate((element) => { element.hidden = true; });
+  await page.screenshot({path:path.join(ROOT,'screenshots','mobile-390-flaw-program.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844}); await go(5); await page.locator('[data-scenario="novelty"]').click(); await page.locator('#toast').evaluate((element) => { element.hidden = true; });
   await page.screenshot({path:path.join(ROOT,'screenshots','mobile-390-rehearsal.png'),fullPage:true});
+  await page.setViewportSize({width:320,height:720}); await go(6); await page.locator('#toast').evaluate((element) => { element.hidden = true; });
+  await page.screenshot({path:path.join(ROOT,'screenshots','mobile-320-files-export.png'),fullPage:true});
   await page.setViewportSize({width:320,height:720}); await go(7); await page.locator('#toast').evaluate((element) => { element.hidden = true; });
   await page.screenshot({path:path.join(ROOT,'screenshots','mobile-320-status-handoff.png'),fullPage:true});
 
@@ -200,7 +210,7 @@ try {
   console.log('PASS 4/8 secret and protected-character/voice inputs are blocked without rendering secrets');
   console.log('PASS 5/8 five lifecycle/trust states are distinct and status-honest');
   console.log('PASS 6/8 empty, rehearsal, boundary, blocker, stale, and handoff states exercised');
-  console.log('PASS 7/8 all 8 steps at 1440/390/320: no overflow and 44px controls');
+  console.log('PASS 7/8 all 8 steps at 1440/800/390/320: no overflow, 44px controls, and named navigation');
   console.log('PASS 8/8 keyboard focus, refresh discard, reduced motion, and screenshots');
 } finally {
   await browser.close();

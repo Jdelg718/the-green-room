@@ -188,7 +188,8 @@
       <fieldset><legend class="legend">Who are they in the room?</legend><div class="choice-grid">${[
         ['participant','Participant','Contributes a distinct perspective.'],['coach','Coach','Helps the user practice a bounded skill.'],['challenger','Challenger','Tests assumptions without controlling the decision.'],['adviser','Adviser','Organizes options without claiming authority.'],['fictional-character','Fictional character','Supports original scene play.'],['rehearsal-opponent','Rehearsal opponent','Role-plays only when explicitly selected.']
       ].map(([value,label,copy]) => `<label class="choice"><input type="radio" name="role" value="${value}" ${data.role===value?'checked':''}><span><strong>${label}</strong><small>${copy}</small></span></label>`).join('')}</div></fieldset>
-      <div class="callout warn"><strong>Original by default—and in this prototype, original only.</strong><p>No protected fictional character, living-person or performer likeness, cloned/imitated voice, copied dialogue, private data, or endorsement claim. Private use does not establish rights.</p></div>`;
+      <div class="callout warn"><strong>Original first—and the only authoring path in this prototype.</strong><p>No protected fictional character, living-person or performer likeness, cloned/imitated voice, copied dialogue, private data, or endorsement claim. Private use does not establish rights.</p></div>
+      <div class="callout"><strong>Looking for a researched historical character?</strong><p>Choose a prebuilt, source-informed educational interpretation in the local cast instead. Historical characters require provenance, rights, fidelity, and exact-version review; this wizard does not improvise or approve them.</p></div>`;
   }
 
   function identityTemplate() {
@@ -225,7 +226,7 @@
     const selected = scenarios.find((scenario) => scenario.id === data.selectedScenario);
     return heading('Rehearse with synthetic facts','Does the character stay useful under pressure?','Select a deterministic scene. Nothing is sent to a model, saved, or copied into the pack.') + `
       <div class="scenario-grid">${scenarios.map((scenario) => `<article class="scenario"><span class="tag">${esc(scenario.label)}</span><h4>${esc(scenario.title)}</h4><p>${esc(scenario.prompt)}</p><button type="button" class="btn ${data.selectedScenario===scenario.id?'violet':''}" data-scenario="${scenario.id}" aria-pressed="${data.selectedScenario===scenario.id}">Rehearse</button></article>`).join('')}</div>
-      <div id="rehearsalResult" style="margin-top:16px">${selected ? `<div class="transcript"><div class="bubble user"><span class="speaker">Synthetic user</span>${esc(selected.prompt)}</div><div class="bubble"><span class="speaker">${esc(safe(data.name))} · deterministic preview</span>${esc(selected.response)}</div><div class="callout ${selected.id==='blocked'?'bad':selected.id==='novelty'?'warn':'ok'}"><strong>Behavior trace</strong><p>${esc(selected.trace)}</p></div></div>` : `<div class="empty"><strong>No rehearsal selected</strong><p>Choose a scene above to inspect useful pressure, flaw activation, or an immutable boundary.</p></div>`}</div>
+      <div id="rehearsalResult" tabindex="-1" style="margin-top:16px">${selected ? `<div class="transcript"><div class="bubble user"><span class="speaker">Synthetic user</span>${esc(selected.prompt)}</div><div class="bubble"><span class="speaker">${esc(safe(data.name))} · deterministic preview</span>${esc(selected.response)}</div><div class="callout ${selected.id==='blocked'?'bad':selected.id==='novelty'?'warn':'ok'}"><strong>Behavior trace</strong><p>${esc(selected.trace)}</p></div></div>` : `<div class="empty"><strong>No rehearsal selected</strong><p>Choose a scene above to inspect useful pressure, flaw activation, or an immutable boundary.</p></div>`}</div>
       <p class="fine">Rehearsal is a browser-only deterministic preview. Production may use a selected local/provider model only through the local runtime's disclosed provider boundary; transcripts and room memory remain outside character packs.</p>`;
   }
 
@@ -271,7 +272,7 @@
 
   function renderSteps() {
     const steps = $('steps');
-    steps.innerHTML = titles.map((title,index) => `<li><button type="button" data-step="${index}" ${index===data.step?'aria-current="step"':''}><span class="num">${index<data.step?'✓':index+1}</span><span class="step-name">${esc(title)}</span></button></li>`).join('');
+    steps.innerHTML = titles.map((title,index) => `<li><button type="button" data-step="${index}" aria-label="Step ${index+1}: ${esc(title)}${index<data.step?' (complete)':''}" ${index===data.step?'aria-current="step"':''}><span class="num">${index<data.step?'✓':index+1}</span><span class="step-name">${esc(title)}</span></button></li>`).join('');
     steps.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => goTo(Number(button.dataset.step))));
   }
 

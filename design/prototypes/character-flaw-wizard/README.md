@@ -1,6 +1,6 @@
 # Original Character Workshop — reconciliation prototype
 
-Implementation-ready UX input for issues #44 and #47, reconciled from PR #50 onto the executable/strict-validator merge baseline.
+Implementation-ready UX input for issues #44 and #47, integrated from reviewed PR #62, which supersedes the earlier PR #50 prototype, onto the executable/strict-validator and portable-character baseline.
 
 This standalone Backstage Electric prototype broadens the niche Reluctant Counsel flaw workshop into a guided, original-character-first journey while preserving its strongest authoring ideas: drive, fear, virtue/shadow pairs, flaw pressure, an observable tell, consequence, and explicit recovery.
 
@@ -40,7 +40,7 @@ The prototype never advances the draft out of state 1.
 
 ## Content boundary
 
-Original characters are the default and only supported prototype path. Copy explains that protected fictional characters, living-person or performer likeness, cloned/imitated voices, copied dialogue/transcripts, private data, and affiliation/endorsement claims must be removed or replaced with original traits. Warnings narrow or privatize without pretending private use establishes rights.
+Original characters are the default and only authoring path in this prototype. The separate researched-historical path means choosing a prebuilt, source-informed educational interpretation that has passed the applicable provenance, rights, fidelity, and exact-version gates—not improvising a historical person in the wizard. Copy explains that protected fictional characters, living-person or performer likeness, cloned/imitated voices, copied dialogue/transcripts, private data, and affiliation/endorsement claims must be removed or replaced with original traits. Warnings narrow or privatize without pretending private use establishes rights.
 
 ## Interaction/state contract
 
@@ -70,10 +70,13 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run verify
 ```
 
-The Playwright verifier asserts in-memory-only behavior; storage/cookie/service-worker/cache prohibition; origin-only requests; secret non-rendering in file previews; current-check invalidation; canonical file roles and visibility; five honest status states; no archive download; keyboard/focus and empty/rehearsal/error states; reduced motion; and overflow/44 px targets at 1440, 390, and 320 px. It refreshes text-only UI screenshots only:
+The Playwright verifier asserts in-memory-only behavior; storage/cookie/service-worker/cache prohibition; origin-only requests; secret non-rendering in file previews; current-check invalidation; canonical file roles and visibility; five honest status states; no archive download; keyboard/focus and empty/rehearsal/error states; reduced motion; meaningful navigation names at the tablet breakpoint; and overflow/44 px targets at 1440, 800, 390, and 320 px. It refreshes all six text-only UI screenshots inherited in the reviewed file set:
 
+- `screenshots/desktop-1440-gray-flaw-activated.png` (current original/historical path distinction; legacy filename retained for reviewed-file-set continuity)
 - `screenshots/desktop-1440-pack-review.png`
+- `screenshots/mobile-390-flaw-program.png`
 - `screenshots/mobile-390-rehearsal.png`
+- `screenshots/mobile-320-files-export.png` (current non-exporting pack review; legacy filename retained for reviewed-file-set continuity)
 - `screenshots/mobile-320-status-handoff.png`
 
-The inherited PR #50 screenshots remain as historical prototype evidence; the current review evidence is the three text-only screenshots above. No portraits or external visual assets are introduced.
+No screenshot depicts the superseded PR #50 save/export controls. No portraits or external visual assets are introduced.
