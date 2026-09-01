@@ -57,6 +57,8 @@ Phases B and C may research in parallel after Phase A defines provisional fixtur
 
 ## Required ADRs
 
+The invited-human decisions are consolidated as a reviewable [proposed secure human room invitations ADR](../adr/proposed-secure-human-room-invitations.md), with bounded evidence tasks in the [secure human invitation architecture spike plan](2026-09-01-secure-human-room-invitation-spikes.md). The ADR remains intentionally unnumbered until acceptance allocates a collision-free number, and it does not accept accounts, a relay, E2EE, push, a public link router, or production implementation.
+
 Allocate final numbers at execution time; do not guess around concurrent ADR work.
 
 1. **Client API, authority, and compatibility.** Decide the canonical writer/scheduler, command acknowledgement semantics, API/event versioning, capability negotiation, minimum-supported versions, migration behavior, and whether any code or schemas are actually shared across Node and Swift. Default: the companion is authority and clients share contract fixtures, not runtime business logic.
