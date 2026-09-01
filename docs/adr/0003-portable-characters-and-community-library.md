@@ -17,8 +17,8 @@ The current integration has converged several previously overlapping workstreams
 - the executable historical runtime merged through PR #56;
 - the strict, non-extracting `.greenroom` validator merged through PR #37 and integrated through PR #70;
 - the bounded Node sidecar and inspection boundary merged through PRs #63 and #64;
-- the character-wizard UX exploration in PR #50; and
-- the programmable-character/flaw-state contract in PR #51.
+- the reviewed Character Wizard UX exploration; and
+- the reviewed programmable-character/flaw-state contract.
 
 These must converge on one pack format. A wizard-only JSON export, a runtime-only historical directory, a separately versioned character program, and a community-specific archive would create incompatible products and multiple security boundaries.
 
@@ -33,7 +33,7 @@ The canonical portable character artifact is the bounded, declarative `.greenroo
 - Character Wizard output MUST validate as this artifact.
 - Local import MUST use the same validator before any extraction, persistence, prompt assembly, or provider call.
 - Community artifacts MUST use the same format and validation gate.
-- Programmable-character state from PR #51 MAY extend a future schema version or project deterministically into canonical runtime files, but MUST NOT define a parallel archive or bypass validation.
+- Programmable-character state MAY extend a future schema version or project deterministically into canonical runtime files, but MUST NOT define a parallel archive or bypass validation.
 - Character packs remain data. They cannot contain scripts, executables, symlinks, tools, provider credentials, room transcripts, memories, or arbitrary network configuration.
 
 ### Installed historical cast
@@ -142,8 +142,8 @@ Maintainers can hold, delist, revoke, or tombstone exact versions. The catalog k
 ### Costs and limitations
 
 - The strict validator, sidecar, and bounded inspection flow are integrated; inspection remains non-installing, and the separate explicit local pack store/install flow still must be implemented.
-- PR #50 is design input, not production wizard code, until storage and export align with this ADR.
-- PR #51 needs schema projection and runtime state work; its current design does not itself install or execute safely.
+- The Character Wizard prototype is design input, not production wizard code, until storage and export align with this ADR.
+- The programmable-character contract includes a schema and deterministic projection oracle, but runtime state work remains future work and the design does not itself install or execute packs.
 - Community review is maintainer-intensive and deliberately slower than anonymous publishing.
 - Static search and GitHub submission are less convenient than a marketplace but materially reduce account, moderation, storage, and abuse risk.
 - The twelve historical candidates cannot be labeled Official Catalog entries until the existing manifest/review gate passes.

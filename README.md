@@ -8,7 +8,7 @@ The room—not a single chatbot—is the product.
 
 ## Status
 
-**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The current integrated release gate passes 211 Node tests, 228 Python validator tests, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance.
+**Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, a cast gallery, and 12 strictly validated historical candidate packs. The integrated release gate covers the Node and Python suites, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance; current totals belong to release evidence rather than this durable overview.
 
 This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
 
@@ -102,6 +102,8 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
 - [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
+- [Programmable Character Contract v0.1](docs/programmable-character/README.md)
+- [Portable characters and reviewed community library](docs/adr/0003-portable-characters-and-community-library.md)
 - [Official persona catalog policy](docs/PERSONA-CATALOG.md)
 - [Content and legal boundaries](docs/CONTENT-BOUNDARIES.md)
 - [Contributing](CONTRIBUTING.md)

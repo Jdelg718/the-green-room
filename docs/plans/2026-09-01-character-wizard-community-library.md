@@ -2,7 +2,7 @@
 
 ## Baseline and outcome
 
-This reconciliation was finalized against exact main commit `d2aaf2a830d1e3236481c3cbec09f576fbf91204`. That baseline includes the executable historical runtime, strict Python validator, bounded Node validator sidecar, non-installing inspection flow, approved local/site portrait presentation, shared Node/Swift client-contract fixture spike, and strict provider-profile contracts. The target product flow is:
+This plan follows the current integrated main architecture: the executable historical runtime, strict Python validator, bounded Node validator sidecar, non-installing inspection flow, approved local/site portrait presentation, shared Node/Swift client-contract fixture spike, strict provider-profile contracts, Character Wizard prototype, and reviewed programmable-character contract. The target product flow is:
 
 1. install Green Room with twelve researched historical characters present locally;
 2. create and rehearse original characters through a guided local wizard;
@@ -21,8 +21,8 @@ Current integrated executable + validator/sidecar/inspection baseline
   │    ├─ local import UI
   │    └─ community catalog client
   ├─ deterministic wizard exporter
-  │    └─ PR #51 programmable-character projection/reducer
-  ├─ PR #50 wizard UX reference (reconcile, do not merge as production storage)
+  │    └─ programmable-character projection and future reducer
+  ├─ Character Wizard UX reference (do not treat as production storage)
   └─ Official Catalog Manifest reviews for the bundled twelve
 
 Community policy + catalog schema
@@ -107,9 +107,9 @@ Add a local immutable character store separate from rooms and provider secrets. 
 
 ### Reuse
 
-Use PR #50 for visual flow, rehearsal concepts, hard-line presentation, and pack-review UX. Remove or replace its browser local-storage persistence and bespoke export.
+Use the reviewed Character Wizard prototype for visual flow, rehearsal concepts, hard-line presentation, and pack-review UX. Remove or replace its browser local-storage persistence and bespoke export.
 
-Use PR #51 for authored drive, fear, virtues/shadows, pressure triggers, flaw activation, suppression diagnostics, cooldown, recovery, and deterministic projection. Reconcile its versioning with the accepted pack schema.
+Use the reviewed programmable-character contract for authored drive, fear, virtues/shadows, pressure triggers, flaw activation, suppression diagnostics, cooldown, recovery, and deterministic projection. Reconcile its versioning with the accepted pack schema.
 
 ### Wizard stages
 
