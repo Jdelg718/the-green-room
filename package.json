@@ -37,7 +37,7 @@
     "package:validator:macos": "node scripts/package/build-validator.mjs",
     "package:launcher:macos": "node scripts/package/build-launcher.mjs",
     "package:macos:unsigned": "node packaging/macos/assemble-app.mjs",
-    "test:packaging": "node scripts/package/test-packaged-validator.mjs",
+    "test:packaging": "node scripts/package/test-packaged-validator.mjs && node scripts/package/test-packaged-runtime.mjs",
     "verify:payload": "node scripts/package/verify-payload.mjs",
     "verify:native-module": "node scripts/package/verify-native-module.mjs",
     "compare:unsigned-builds": "node scripts/package/compare-unsigned-apps.mjs",
