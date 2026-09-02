@@ -331,6 +331,11 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /warm '\/usr\/bin\/defaults domains >\/dev\/null'/);
   assert.doesNotMatch(workflow, /defaults read NSGlobalDomain/);
   assert.match(workflow, /NODE_DISABLE_COMPILE_CACHE=1/);
+  assert.match(workflow, /env -u NODE_COMPILE_CACHE/);
+  assert.match(workflow, /greenroom-trust-warm/);
+  assert.match(workflow, /-dynamiclib -x c \/dev\/null/);
+  assert.match(workflow, /ctypes\.CDLL/);
+  assert.match(workflow, /Signature=adhoc/);
   assert.match(workflow, /warm_env=\(NODE_DISABLE_COMPILE_CACHE=1\)/);
   assert.match(workflow, /source_env=\(NODE_DISABLE_COMPILE_CACHE=1\)/);
   assert.match(workflow, /DEVELOPER_DIR="\$clt_root"/);
@@ -363,6 +368,10 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /sudo cmp -s "\$CONTROL_ROOT\/placeholder-home-initial\.json" "\$CONTROL_ROOT\/placeholder-home-final\.json"/);
   assert.match(workflow, /consecutiveStableSnapshots:2/);
   const harness = readFileSync("scripts/clean-source-evidence.mjs", "utf8");
+  const preflight = readFileSync("scripts/source-clean-host.mjs", "utf8");
+  assert.match(preflight, /NODE_DISABLE_COMPILE_CACHE: "1"/);
+  assert.match(harness, /compileCacheStatus\.DISABLED/);
+  assert.match(harness, /delete env\.NODE_COMPILE_CACHE/);
   assert.match(workflow, /clean-source-evidence\.mjs.*run/);
   assert.match(harness, /declaredWriteRoots: \[workRoot\]/);
   assert.doesNotMatch(harness, /declaredWriteRoots: \[workRoot, homedir\(\)\]/);

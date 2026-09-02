@@ -20,7 +20,10 @@ function fail(code, message) {
 function commandVersion(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
-    env: { PATH: process.env.PATH ?? "" },
+    env: {
+      PATH: process.env.PATH ?? "",
+      NODE_DISABLE_COMPILE_CACHE: "1",
+    },
     shell: false,
     timeout: 10_000,
   });
