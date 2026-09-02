@@ -185,7 +185,8 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
   launchedBrowser.once("error", (error) => { browserError = error; });
 
   let target: { type: string; url: string; webSocketDebuggerUrl: string } | undefined;
-  for (let attempt = 0; attempt < 100 && target === undefined; attempt += 1) {
+  const discoveryDeadline = Date.now() + 15_000;
+  while (target === undefined && Date.now() < discoveryDeadline) {
     try {
       const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, {
         signal: AbortSignal.timeout(1_000),
