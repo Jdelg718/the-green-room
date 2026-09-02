@@ -6,8 +6,20 @@ import { test } from "node:test";
 import {
   ValidatorSidecar,
   ValidatorSidecarError,
+  validatorDetachedProcessGroup,
+  validatorProcessGroupForRuntime,
   type ValidatorSidecarErrorCode,
 } from "../../src/personas/validator-sidecar.js";
+
+test("packaged validators inherit the supervised application process group", () => {
+  assert.equal(validatorProcessGroupForRuntime("packaged-macos"), "inherit");
+  assert.equal(validatorProcessGroupForRuntime("source"), "private");
+  assert.equal(validatorProcessGroupForRuntime(undefined), "private");
+  assert.equal(validatorDetachedProcessGroup("inherit", "darwin"), false);
+  assert.equal(validatorDetachedProcessGroup("private", "darwin"), true);
+  assert.equal(validatorDetachedProcessGroup("private", "linux"), true);
+  assert.equal(validatorDetachedProcessGroup("private", "win32"), false);
+});
 
 const executablePath = join(process.cwd(), "test", "helpers", "validator-sidecar-fixture.mjs");
 chmodSync(executablePath, 0o755);
