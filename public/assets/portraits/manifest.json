@@ -48,6 +48,21 @@
       }
     },
     {
+      "trustedId": "ff2k",
+      "assetPath": "/assets/portraits/ff2k.webp",
+      "altText": "Stylized cartoon figure wearing an orange Bitcoin respirator mask with three Bitcoin-symbol filters and a blue market-chart visor, raising a clenched fist.",
+      "objectPosition": "50% 50%",
+      "sha256": "3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8",
+      "bytes": 43092,
+      "provenance": {
+        "assetStatus": "owner-authorized",
+        "sourceReference": "Owner/account-holder-authorized public profile illustration · 2026-09-01",
+        "creativeInterpretation": "Owner/account-holder authorized this exact public profile illustration for Green Room repository and local-app presentation; original illustrator and creation method are unknown. This record does not claim authorship or Official Catalog admission.",
+        "visualReviewDate": "2026-09-01",
+        "catalogAdmission": false
+      }
+    },
+    {
       "trustedId": "ada-lovelace",
       "assetPath": "/assets/portraits/ada-lovelace.webp",
       "altText": "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.",

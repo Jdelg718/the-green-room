@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 import { buildApp } from "../../src/app.js";
 import { appendEvent, currentRoomId, openGreenRoomDatabase } from "../../src/db/index.js";
+import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
 import type {
   GenerationProvider,
@@ -17,6 +18,9 @@ import { RoomService } from "../../src/runtime/room-service.js";
 
 const migrationsDir = resolve("migrations");
 const historicalCatalog = loadHistoricalCatalog(resolve("personas/historical"));
+const personaCatalog = loadBundledPersonaCatalog({
+  historicalRoot: resolve("personas/historical"), originalRoot: resolve("personas/original"),
+});
 const HOST = "127.0.0.1:8787";
 const ORIGIN = `http://${HOST}`;
 
@@ -359,7 +363,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   const app = buildApp({
     allowedOrigin: ORIGIN,
     database: store.database,
-    historicalCatalog,
+    personaCatalog,
     provider,
   });
   context.after(() => app.close());
@@ -371,14 +375,14 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   });
   assert.equal(catalogResponse.statusCode, 200);
   const catalog = catalogResponse.json<Array<Record<string, unknown>>>();
-  assert.equal(catalog.length, 12);
-  assert.deepEqual(catalog.map(({ slug }) => slug), historicalCatalog.personas.map(({ slug }) => slug));
+  assert.equal(catalog.length, 13);
+  assert.deepEqual(catalog.map(({ slug }) => slug), personaCatalog.personas.map(({ slug }) => slug));
   assert.deepEqual(Object.keys(catalog[0] ?? {}).sort(), [
-    "behavior", "educationalNotice", "identity", "knowledge", "name", "slug", "summary",
+    "behavior", "catalogKind", "educationalNotice", "identity", "knowledge", "name", "slug", "summary",
   ]);
   const forbiddenCatalogKeys = [
     "prompt", "promptSha256", "promptUtf8Bytes", "sourcePath", "path", "manifestId",
-    "manifest", "provenance", "sources", "license", "digest", "byteCount",
+    "manifest", "provenance", "sources", "license", "digest", "byteCount", "consent", "handle",
   ];
   for (const key of forbiddenCatalogKeys) {
     assert.equal(enumerableKeys(catalog).has(key), false, `catalog exposed ${key}`);
@@ -465,7 +469,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     method: "POST",
     url: "/api/rooms/first-playable/cast",
     headers,
-    payload: { requestId: "api-cast", personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
+    payload: { requestId: "api-cast", personaSlugs: ["ff2k", "isaac-newton", "frederick-douglass"] },
   });
   assert.equal(castResponse.statusCode, 200, castResponse.body);
   const cast = castResponse.json<{
@@ -483,7 +487,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     method: "POST",
     url: "/api/rooms/first-playable/cast",
     headers,
-    payload: { requestId: "api-cast", personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
+    payload: { requestId: "api-cast", personaSlugs: ["ff2k", "isaac-newton", "frederick-douglass"] },
   });
   assert.deepEqual(retry.json(), castResponse.json());
   const mismatch = await app.inject({
@@ -497,6 +501,16 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     error: { code: "request_conflict", message: "Request conflicts with existing state" },
   });
   assert.equal(currentRoomId(store.database), cast.sessionId);
+  const durableCast = JSON.stringify({
+    participants: store.database.prepare(
+      "SELECT id, display_name, persona_slug FROM participants WHERE room_id = ? ORDER BY sort_order",
+    ).all(cast.sessionId),
+    events: store.database.prepare("SELECT event_json FROM events WHERE room_id = ?").all(cast.sessionId),
+    commands: store.database.prepare("SELECT result_json FROM cast_commands WHERE request_id = ?").all("api-cast"),
+  });
+  assert.match(durableCast, /ff2k/);
+  assert.match(durableCast, /FF2K/);
+  assert.doesNotMatch(durableCast, /fb89a299|BEGIN GREEN ROOM|PROVENANCE|SOURCES|https?:|consent|handle/i);
 
   const room = await app.inject({ method: "GET", url: "/api/rooms/first-playable", headers: { host: HOST } });
   assert.equal(room.json().sessionId, cast.sessionId);
@@ -521,7 +535,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     payload: { requestId: "api-message", text: "Speak." },
   });
   assert.equal(message.statusCode, 200, message.body);
-  assert.equal(provider.calls[0]?.personaId, "ada-lovelace");
+  assert.equal(provider.calls[0]?.personaId, "ff2k");
   const replay = await app.inject({ method: "GET", url: "/api/rooms/first-playable/events?after=0", headers: { host: HOST } });
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().events[0].event.type, "room_started");
@@ -552,7 +566,7 @@ test("SSE pins an existing connection to its old session while new replay uses c
   const app = buildApp({
     allowedOrigin: origin,
     database: store.database,
-    historicalCatalog,
+    personaCatalog,
     provider: new RecordingProvider(),
     ssePollIntervalMs: 5,
     onSseClientCountChange: (count) => counts.push(count),

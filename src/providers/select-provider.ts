@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config.js";
-import type { HistoricalCatalog } from "../personas/historical-catalog.js";
+import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.js";
 import { AcceptanceFixtureProvider } from "./acceptance-fixture.js";
 import { LMStudioProvider } from "./lm-studio.js";
 import { DeterministicMockProvider } from "./mock.js";
@@ -7,7 +7,7 @@ import type { GenerationProvider } from "./provider.js";
 
 export interface SelectProviderOptions
   extends Pick<AppConfig, "acceptanceFixture" | "lmStudioModel" | "provider"> {
-  readonly historicalCatalog?: HistoricalCatalog;
+  readonly personaCatalog?: Pick<BundledPersonaCatalog, "resolvePrompt">;
   readonly onAcceptanceLatch?: () => void;
 }
 
@@ -22,11 +22,11 @@ export function selectProvider(
     });
   }
   if (options.provider === "lmstudio") {
-    if (options.historicalCatalog === undefined) {
-      throw new TypeError("LM Studio requires the loaded historical catalog");
+    if (options.personaCatalog === undefined) {
+      throw new TypeError("LM Studio requires the loaded bundled persona catalog");
     }
     return new LMStudioProvider({
-      historicalCatalog: options.historicalCatalog,
+      personaCatalog: options.personaCatalog,
       model: options.lmStudioModel,
     });
   }

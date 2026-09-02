@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { buildApp } from "../../src/app.js";
 import { openGreenRoomDatabase } from "../../src/db/index.js";
-import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
+import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
 
 const ROOT = resolve(".");
@@ -23,11 +23,14 @@ async function contract(): Promise<any> {
 function appFor(context: { after(callback: () => void): void }) {
   const dataDir = mkdtempSync(join(tmpdir(), "green-room-gallery-"));
   const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
-  const historicalCatalog = loadHistoricalCatalog(resolve("personas/historical"));
+  const personaCatalog = loadBundledPersonaCatalog({
+    historicalRoot: resolve("personas/historical"),
+    originalRoot: resolve("personas/original"),
+  });
   const app = buildApp({
     allowedOrigin: ORIGIN,
     database: store.database,
-    historicalCatalog,
+    personaCatalog,
     provider: new DeterministicMockProvider(),
   });
   context.after(async () => {
@@ -38,7 +41,7 @@ function appFor(context: { after(callback: () => void): void }) {
   return app;
 }
 
-test("historical gallery HTML exposes two accessible views, dialog, and mobile room path", () => {
+test("bundled gallery HTML exposes two accessible views, generalized copy, dialog, and mobile room path", () => {
   const html = readFileSync(resolve("public/index.html"), "utf8");
   assert.match(html, /id="live-view"/);
   assert.match(html, /id="skip-link"[^>]*href="#message-text"/);
@@ -57,6 +60,8 @@ test("historical gallery HTML exposes two accessible views, dialog, and mobile r
   assert.match(html, /Request one persona reply/);
   assert.match(html, /id="room-identity-roster"[^>]*aria-label="Character identities"/);
   assert.match(html, /Unchecked saves your line without an AI response\./);
+  assert.match(html, /Bundled room builder/);
+  assert.match(html, /twelve historical interpretations and one creator-authorized pseudonymous original/);
   assert.doesNotMatch(html, /<style\b|<script(?![^>]*\bsrc=)|https?:|src="\/\/|href="\/\//i);
 });
 
@@ -65,10 +70,10 @@ test("real Fastify serves all trusted portraits locally with verified bytes", as
   const manifestResponse = await app.inject({ method: "GET", url: "/assets/portraits/manifest.json", headers: { host: HOST } });
   assert.equal(manifestResponse.statusCode, 200);
   const manifest = manifestResponse.json<{ assets: Array<{ assetPath: string; sha256: string; altText: string }> }>();
-  assert.equal(manifest.assets.length, 15);
+  assert.equal(manifest.assets.length, 16);
   for (const asset of manifest.assets) {
     assert.match(asset.assetPath, /^\/assets\/portraits\/[a-z0-9-]+\.webp$/);
-    assert.match(asset.altText, /^(?:Creative historical portrait of |Original portrait of )/);
+    assert.match(asset.altText, /^(?:Creative historical portrait of |Original portrait of |Stylized cartoon figure )/);
     const response = await app.inject({ method: "GET", url: asset.assetPath, headers: { host: HOST } });
     assert.equal(response.statusCode, 200, asset.assetPath);
     assert.match(response.headers["content-type"] ?? "", /^image\/webp/);
@@ -77,22 +82,27 @@ test("real Fastify serves all trusted portraits locally with verified bytes", as
   assert.doesNotMatch(manifestResponse.body, /https?:|(?:^|["'])\/\/|portraitUrl|sourcePath|prompt/i);
 });
 
-test("real Fastify catalog supplies exactly twelve safe candidate DTO cards", async (context) => {
+test("real Fastify catalog supplies twelve historical and one FF2K original safe candidate DTO", async (context) => {
   const app = appFor(context);
   const response = await app.inject({ method: "GET", url: "/api/catalog/personas", headers: { host: HOST } });
   assert.equal(response.statusCode, 200);
   const ui = await contract();
   const catalog = ui.validateCatalogDto(response.json());
-  assert.equal(catalog.length, 12);
-  assert.equal(new Set(catalog.map((persona: any) => persona.slug)).size, 12);
+  assert.equal(catalog.length, 13);
+  assert.equal(new Set(catalog.map((persona: any) => persona.slug)).size, 13);
   assert.ok(catalog.every((persona: any) => persona.status === "candidate · draft"));
-  assert.ok(catalog.every((persona: any) => persona.educationalNotice === NOTICE));
+  assert.ok(catalog.filter((persona: any) => persona.catalogKind === "historical").every((persona: any) => persona.educationalNotice === NOTICE));
+  const ff2k = catalog.find((persona: any) => persona.slug === "ff2k");
+  assert.equal(ff2k.catalogKind, "original");
+  assert.equal(ff2k.educationalNotice, ui.CREATOR_AUTHORIZED_NOTICE);
+  assert.equal(ui.safeDetailsContent(ff2k).status, "Bundled original candidate · draft");
+  assert.deepEqual(ui.filterCatalog(catalog, { query: "FF2K", horizon: "all", domain: "all" }).map((persona: any) => persona.slug), ["ff2k"]);
   assert.doesNotMatch(JSON.stringify(catalog), /prompt|provenance|sourcePath|manifestId|approval/i);
 
   const invalid = structuredClone(response.json());
   invalid[0].knowledge.domains = [];
   assert.throws(() => ui.validateCatalogDto(invalid), /invalid catalog/i);
-  assert.throws(() => ui.validateCatalogDto(response.json().slice(0, 11)), /invalid catalog/i);
+  assert.throws(() => ui.validateCatalogDto(response.json().slice(0, 12)), /invalid catalog/i);
 });
 
 test("browser accepts the complete bootstrap capability contract", async (context) => {

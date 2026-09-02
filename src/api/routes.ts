@@ -19,7 +19,7 @@ import {
   currentRoomId,
   readCurrentRoom,
 } from "../db/index.js";
-import type { HistoricalCatalog } from "../personas/historical-catalog.js";
+import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.js";
 import {
   ROOM_SERVICE_LIMITS,
   RoomService,
@@ -98,7 +98,7 @@ export interface ApiRoutesOptions {
   readonly allowedOrigin: string;
   readonly csrfToken: string;
   readonly database?: DatabaseSync;
-  readonly historicalCatalog?: HistoricalCatalog;
+  readonly personaCatalog?: BundledPersonaCatalog;
   readonly onSseClientCountChange?: (count: number) => void;
   readonly onSseQueueSizeChange?: (size: number) => void;
   readonly onSseResponse?: (response: ServerResponse) => void;
@@ -602,9 +602,9 @@ export function registerApiRoutes(
         : { deadlineMs: options.inspectionDeadlineMs }),
     });
 
-    const catalogPersonas = Object.freeze((options.historicalCatalog?.personas ?? []).map(
-      ({ slug, name, summary, identity, behavior, knowledge, educationalNotice }) =>
-        Object.freeze({ slug, name, summary, identity, behavior, knowledge, educationalNotice }),
+    const catalogPersonas = Object.freeze((options.personaCatalog?.personas ?? []).map(
+      ({ slug, name, summary, identity, behavior, knowledge, educationalNotice, catalogKind }) =>
+        Object.freeze({ slug, name, summary, identity, behavior, knowledge, educationalNotice, catalogKind }),
     ));
     api.get("/api/catalog/personas", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
@@ -618,7 +618,7 @@ export function registerApiRoutes(
     const service = new RoomService({
       database,
       provider: options.provider,
-      personaCatalog: options.historicalCatalog?.personas ?? [],
+      personaCatalog: options.personaCatalog?.personas ?? [],
     });
     const streams = new SseClients({
       database,

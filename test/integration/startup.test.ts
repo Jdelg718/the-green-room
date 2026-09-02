@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 
+import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
 
 async function availablePort(): Promise<number> {
@@ -63,7 +64,7 @@ async function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<numb
   return result;
 }
 
-test("compiled server starts from a non-repository cwd with packaged migrations", async (context) => {
+test("compiled server starts from a non-repository cwd with packaged migrations, mixed catalog, and FF2K portrait", async (context) => {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "green-room-startup-"));
   const foreignCwd = join(temporaryRoot, "foreign-cwd");
   const dataDir = join(temporaryRoot, "data");
@@ -122,6 +123,20 @@ test("compiled server starts from a non-repository cwd with packaged migrations"
   );
   assert.equal(existsSync(packagedHistoricalRoot), true);
   assert.equal(loadHistoricalCatalog(packagedHistoricalRoot).personas.length, 12);
+  const packagedOriginalRoot = fileURLToPath(new URL("../../personas/original", import.meta.url));
+  assert.equal(existsSync(packagedOriginalRoot), true);
+  const bundled = loadBundledPersonaCatalog({
+    historicalRoot: packagedHistoricalRoot,
+    originalRoot: packagedOriginalRoot,
+  });
+  assert.equal(bundled.personas.length, 13);
+  assert.equal(bundled.personas[12]?.slug, "ff2k");
+  const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/catalog/personas`);
+  assert.equal(catalogResponse.status, 200);
+  assert.equal((await catalogResponse.json() as Array<{ slug: string }>)[12]?.slug, "ff2k");
+  const portraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/ff2k.webp`);
+  assert.equal(portraitResponse.status, 200);
+  assert.equal((await portraitResponse.arrayBuffer()).byteLength, 43_092);
 });
 
 test("local-source launcher inspects a real pack from a foreign cwd and cleans up on SIGTERM", async () => {

@@ -8,6 +8,7 @@ import {
   registerApiRoutes,
   type ApiRoutesOptions,
 } from "./api/routes.js";
+import { EXPECTED_ORIGINAL_PERSONAS } from "./personas/bundled-persona-catalog.js";
 import { EXPECTED_HISTORICAL_PERSONAS } from "./personas/historical-catalog.js";
 import { ORIGINAL_CAST } from "./personas/original-cast.js";
 
@@ -54,6 +55,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     },
     ...Object.fromEntries([
       ...EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug),
+      ...EXPECTED_ORIGINAL_PERSONAS.map(({ slug }) => slug),
       ...ORIGINAL_CAST.map(({ id }) => id),
     ].map((slug) => [
       `/assets/portraits/${slug}.webp`,
@@ -81,9 +83,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     allowedOrigin: options.allowedOrigin ?? "http://127.0.0.1:8787",
     csrfToken,
     ...(options.database === undefined ? {} : { database: options.database }),
-    ...(options.historicalCatalog === undefined
+    ...(options.personaCatalog === undefined
       ? {}
-      : { historicalCatalog: options.historicalCatalog }),
+      : { personaCatalog: options.personaCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
     ...(options.personaPackInspectionService === undefined
       ? {}

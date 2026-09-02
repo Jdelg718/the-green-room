@@ -36,8 +36,12 @@ def test_minimal_pack_is_loadable(pack_factory: Callable[..., Path]) -> None:
 
 
 def test_all_current_source_packs_validate_when_archived(tmp_path: Path) -> None:
-    persona_directories = sorted((REPOSITORY_ROOT / "personas" / "historical").iterdir())
-    assert persona_directories
+    persona_directories = sorted(
+        path
+        for root in ("historical", "original")
+        for path in (REPOSITORY_ROOT / "personas" / root).iterdir()
+    )
+    assert len(persona_directories) == 13
 
     failures: dict[str, set[str]] = {}
     for directory in persona_directories:
@@ -52,6 +56,11 @@ def test_all_current_source_packs_validate_when_archived(tmp_path: Path) -> None
             failures[directory.name] = error_codes(result)
 
     assert failures == {}
+    ff2k = inspect_pack(tmp_path / "ff2k.greenroom")
+    assert ff2k.valid is True
+    assert ff2k.manifest["id"] == "org.greenroom.original.ff2k"
+    assert ff2k.prompt_utf8_bytes == 13_918
+    assert ff2k.prompt_sha256 == "fb89a2994c8dcc71a8d4d217564705c6cb11084b2c9ee11b0b42e84cd9f50e1d"
 
 
 def test_reference_schema_is_closed_and_version_locked() -> None:

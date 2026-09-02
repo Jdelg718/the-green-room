@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-for (const directory of ["migrations", "public", "personas/historical"]) {
+for (const directory of ["migrations", "public", "personas/historical", "personas/original"]) {
   const destination = resolve(repositoryRoot, "dist", directory);
   rmSync(destination, { force: true, recursive: true });
   cpSync(resolve(repositoryRoot, directory), destination, { recursive: true });

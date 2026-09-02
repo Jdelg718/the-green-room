@@ -33,7 +33,7 @@
           </div>
         </section>
         <ul class="cast-list" id="cast-list" aria-label="Room participants" aria-busy="true"><li class="cast-placeholder">The cast list is being posted.</li></ul>
-        <button class="button button-primary cast-setup-action" id="open-cast-setup" type="button" disabled>Build historical room</button>
+        <button class="button button-primary cast-setup-action" id="open-cast-setup" type="button" disabled>Build bundled room</button>
         <p class="privacy-note"><strong>Private rehearsal.</strong> This page uses only this local server. Opening cast setup does not stop or change this room.</p>
       </aside>
       <section class="stage" aria-labelledby="room-title">
@@ -63,29 +63,29 @@
 
     <main id="cast-setup-view" class="gallery-shell" aria-labelledby="gallery-heading" hidden>
       <header class="gallery-intro">
-        <div><p class="kicker">Historical room builder</p><h1 id="gallery-heading" tabindex="-1">Choose the conversation</h1><p class="gallery-lede">Build one bounded room with you and up to three source-informed historical perspectives.</p></div>
+        <div><p class="kicker">Bundled room builder</p><h1 id="gallery-heading" tabindex="-1">Choose the conversation</h1><p class="gallery-lede">Build one bounded room with you and up to three source-informed bundled perspectives.</p></div>
         <button class="button button-secondary" id="cancel-cast-setup" type="button">Cancel</button>
       </header>
-      <div class="catalog-reality"><strong>Candidate · draft catalog.</strong> These twelve interpretations are not approved Official Catalog releases. Their independent reviews remain outstanding.</div>
+      <div class="catalog-reality"><strong>Candidate · draft catalog.</strong> These twelve historical interpretations and one creator-authorized pseudonymous original are not approved Official Catalog releases. Review status is shown per candidate.</div>
       <div class="gallery-layout">
         <section class="gallery-workspace" aria-labelledby="candidates-heading">
-          <h2 id="candidates-heading">Historical candidates</h2>
+          <h2 id="candidates-heading">Bundled candidates</h2>
           <form class="gallery-filters" id="gallery-filters" role="search">
             <div class="filter-search"><label for="persona-search">Search candidates</label><input id="persona-search" type="search" autocomplete="off" placeholder="Name, setting, summary, or domain"></div>
             <div><label for="horizon-filter">Knowledge horizon</label><select id="horizon-filter"><option value="all">All horizons</option></select></div>
             <div><label for="domain-filter">Domain</label><select id="domain-filter"><option value="all">All domains</option></select></div>
           </form>
-          <p class="result-count" id="gallery-results" role="status" aria-live="polite">Loading 12 candidates…</p>
-          <div class="persona-grid" id="persona-grid" aria-busy="true"><div class="gallery-state"><strong>Loading historical candidates…</strong><span>The safe local catalog is being checked.</span></div></div>
+          <p class="result-count" id="gallery-results" role="status" aria-live="polite">Loading 13 candidates…</p>
+          <div class="persona-grid" id="persona-grid" aria-busy="true"><div class="gallery-state"><strong>Loading bundled candidates…</strong><span>The safe local catalog is being checked.</span></div></div>
         </section>
         <aside class="cast-builder" id="cast-builder" aria-labelledby="cast-builder-heading">
           <a class="back-to-gallery" id="back-to-gallery" href="#gallery-heading">← Back to gallery</a>
           <p class="kicker">Your bounded room</p><h2 id="cast-builder-heading" tabindex="-1">Set the cast</h2>
           <div class="human-seat"><span class="seat-number" aria-hidden="true">YOU</span><div><strong>You</strong><span>Human participant · fixed</span></div></div>
-          <ol class="builder-seats" id="builder-seats" aria-label="Selected historical personas"></ol>
+          <ol class="builder-seats" id="builder-seats" aria-label="Selected bundled personas"></ol>
           <p class="builder-status" id="builder-status" role="status" aria-live="polite">0 of 3 persona seats filled. Choose at least one.</p>
           <p class="builder-boundary">Selected perspectives will share one bounded room. One persona may be cued for each requested reply.</p>
-          <button class="button button-primary start-room" id="start-historical-room" type="button" disabled>Start historical room</button>
+          <button class="button button-primary start-room" id="start-historical-room" type="button" disabled>Start bundled room</button>
           <p class="builder-error" id="builder-error" role="status" aria-live="polite"></p>
         </aside>
       </div>

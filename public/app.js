@@ -43,8 +43,9 @@ export const API_PATHS = Object.freeze({
 });
 
 export const EDUCATIONAL_NOTICE = "Educational creative interpretation. This AI persona is an original, source-informed interpretation of a historical person. It is not the person, an authoritative reconstruction, or an endorsed representative. Generated dialogue is not a historical quotation. Consult the cited sources for the record.";
-const CATALOG_SIZE = 12;
-const EXACT_CATALOG_KEYS = Object.freeze(["behavior", "educationalNotice", "identity", "knowledge", "name", "slug", "summary"]);
+export const CREATOR_AUTHORIZED_NOTICE = "Creator-authorized pseudonymous interpretation. This AI persona is an original, source-informed interpretation of FF2K. It is not the person, a literal consciousness, an authentic quotation, or a live representative. Generated dialogue is interpretive and is never presented as FF2K's actual words.";
+const CATALOG_SIZE = 13;
+const EXACT_CATALOG_KEYS = Object.freeze(["behavior", "catalogKind", "educationalNotice", "identity", "knowledge", "name", "slug", "summary"]);
 const EXACT_IDENTITY_KEYS = Object.freeze(["ageBand", "setting", "type"]);
 const EXACT_BEHAVIOR_KEYS = Object.freeze(["agreeableness", "emotionalRange", "initiative", "interruption", "maxConsecutiveTurns", "verbosity"]);
 const EXACT_KNOWLEDGE_KEYS = Object.freeze(["cutoff", "domains", "limitations"]);
@@ -61,6 +62,7 @@ export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
   detective: Object.freeze({ src: "/assets/portraits/detective.webp", alt: "Original portrait of The Detective holding a notebook in a shadowed study.", objectPosition: "50% 30%" }),
   fixer: Object.freeze({ src: "/assets/portraits/fixer.webp", alt: "Original portrait of The Fixer holding a brass key in a dim workshop-office.", objectPosition: "50% 28%" }),
   optimist: Object.freeze({ src: "/assets/portraits/optimist.webp", alt: "Original portrait of The Optimist holding planning cards in a welcoming meeting room.", objectPosition: "50% 27%" }),
+  ff2k: Object.freeze({ src: "/assets/portraits/ff2k.webp", alt: "Stylized cartoon figure wearing an orange Bitcoin respirator mask with three Bitcoin-symbol filters and a blue market-chart visor, raising a clenched fist.", objectPosition: "50% 50%" }),
   "ada-lovelace": Object.freeze({ src: "/assets/portraits/ada-lovelace.webp", alt: "Creative historical portrait of Ada Lovelace in a dark study, wearing a high-collared black dress.", objectPosition: "50% 33%" }),
   "benjamin-franklin": Object.freeze({ src: "/assets/portraits/benjamin-franklin.webp", alt: "Creative historical portrait of Benjamin Franklin in a brown coat, holding spectacles in a dim workshop.", objectPosition: "50% 36%" }),
   "elizabeth-i": Object.freeze({ src: "/assets/portraits/elizabeth-i.webp", alt: "Creative historical portrait of Elizabeth I in a red embroidered gown and white ruff.", objectPosition: "50% 32%" }),
@@ -115,7 +117,8 @@ function horizonFromCutoff(cutoff) {
   if (year < 1600) return "Before 1600";
   if (year < 1700) return "1600–1699";
   if (year < 1800) return "1700–1799";
-  return "1800–1899";
+  if (year < 1900) return "1800–1899";
+  return "Contemporary";
 }
 
 export function behaviorLabels(behavior) {
@@ -141,7 +144,10 @@ export function validateCatalogDto(value) {
   const slugs = new Set();
   const personas = value.map((persona) => {
     if (!exactKeys(persona, EXACT_CATALOG_KEYS) || !PERSONA_ID.test(persona.slug) || slugs.has(persona.slug) ||
-      !boundedText(persona.name, 128) || !boundedText(persona.summary) || persona.educationalNotice !== EDUCATIONAL_NOTICE ||
+      !["historical", "original"].includes(persona.catalogKind) ||
+      !boundedText(persona.name, 128) || !boundedText(persona.summary) ||
+      persona.educationalNotice !== (persona.catalogKind === "historical" ? EDUCATIONAL_NOTICE : CREATOR_AUTHORIZED_NOTICE) ||
+      (persona.catalogKind === "original" && (persona.slug !== "ff2k" || persona.identity?.type !== "original")) ||
       !exactKeys(persona.identity, EXACT_IDENTITY_KEYS) || !boundedText(persona.identity.type, 128) ||
       !boundedText(persona.identity.ageBand, 128) || !boundedText(persona.identity.setting, 1_000) ||
       !exactKeys(persona.knowledge, EXACT_KNOWLEDGE_KEYS) || !boundedText(persona.knowledge.cutoff, 256) ||
@@ -154,7 +160,7 @@ export function validateCatalogDto(value) {
       slug: persona.slug, name: persona.name, summary: persona.summary,
       identity: Object.freeze({ ...persona.identity }), behavior: Object.freeze({ ...persona.behavior }),
       knowledge: Object.freeze({ ...persona.knowledge, domains: Object.freeze([...persona.knowledge.domains]), limitations: Object.freeze([...persona.knowledge.limitations]) }),
-      educationalNotice: persona.educationalNotice, status: "candidate · draft",
+      educationalNotice: persona.educationalNotice, catalogKind: persona.catalogKind, status: "candidate · draft",
       horizon: horizonFromCutoff(persona.knowledge.cutoff), behaviorLabels: labels,
     });
   });
@@ -854,9 +860,10 @@ export async function transitionRoomSession(options) {
 export function safeDetailsContent(persona) {
   let expectedLabels;
   try { expectedLabels = behaviorLabels(persona?.behavior); } catch { throw new TypeError("Invalid safe details persona"); }
-  if (!exactKeys(persona, ["behavior", "behaviorLabels", "educationalNotice", "horizon", "identity", "knowledge", "name", "slug", "status", "summary"]) ||
+  if (!exactKeys(persona, ["behavior", "behaviorLabels", "catalogKind", "educationalNotice", "horizon", "identity", "knowledge", "name", "slug", "status", "summary"]) ||
     !PERSONA_ID.test(persona.slug) || !boundedText(persona.name, 128) || !boundedText(persona.summary) ||
-    persona.status !== "candidate · draft" || persona.educationalNotice !== EDUCATIONAL_NOTICE ||
+    persona.status !== "candidate · draft" || !["historical", "original"].includes(persona.catalogKind) ||
+    persona.educationalNotice !== (persona.catalogKind === "historical" ? EDUCATIONAL_NOTICE : CREATOR_AUTHORIZED_NOTICE) ||
     !exactKeys(persona.identity, EXACT_IDENTITY_KEYS) || !boundedText(persona.identity.type, 128) ||
     !boundedText(persona.identity.ageBand, 128) || !boundedText(persona.identity.setting, 1_000) ||
     !exactKeys(persona.knowledge, EXACT_KNOWLEDGE_KEYS) || !boundedText(persona.knowledge.cutoff, 256) ||
@@ -868,13 +875,18 @@ export function safeDetailsContent(persona) {
   }
   return Object.freeze({
     name: persona.name,
-    status: "Historical candidate · draft",
+    status: persona.catalogKind === "historical" ? "Historical candidate · draft" : "Bundled original candidate · draft",
     summary: persona.summary,
     setting: persona.identity.setting,
     cutoff: persona.knowledge.cutoff,
-    catalogFacts: Object.freeze([
+    catalogFacts: Object.freeze(persona.catalogKind === "historical" ? [
       "Candidate pack includes curator-only PROVENANCE.md and SOURCES.md.",
       "Independent historical-fidelity/content-boundary review remains outstanding.",
+      "Independent provenance/rights review remains outstanding.",
+      "No Official Catalog Manifest entry exists.",
+    ] : [
+      "Creator-authorized pseudonymous original synthesis.",
+      "Independent content/privacy review passed for the exact bundled pack.",
       "Independent provenance/rights review remains outstanding.",
       "No Official Catalog Manifest entry exists.",
     ]),
@@ -951,8 +963,8 @@ export function startBrowserApp() {
     elements.pauseResume.disabled = !availability.canPauseResume;
     elements.stopRoom.disabled = !availability.canStop;
     elements.openSetup.disabled = pending.size !== 0;
-    elements.openSetup.textContent = room.status === "stopped" ? "Start a new historical room" :
-      room.participants.some(({ kind }) => kind === "persona") ? "Change cast" : "Build historical room";
+    elements.openSetup.textContent = room.status === "stopped" ? "Start a new bundled room" :
+      room.participants.some(({ kind }) => kind === "persona") ? "Change cast" : "Build bundled room";
     elements.pauseResume.textContent = isPaused ? "Resume room" : "Pause room";
     elements.composerNote.textContent = room.status === "stopped" ? "This room has stopped permanently. The transcript remains available." :
       isPaused ? "Resume the room before sending another message." : pending.has("message") ? "The room is considering this cue." :
@@ -1133,7 +1145,7 @@ export function startBrowserApp() {
     article.setAttribute("aria-labelledby", `persona-${persona.slug}`);
     const top = node("div", "persona-card-top");
     const portrait = renderCharacterPortrait(persona.slug, persona.name, { className: "portrait-card", descriptive: true, width: 420, height: 525 });
-    top.append(portrait, node("span", "candidate-badge", "Candidate · draft"));
+    top.append(portrait, node("span", "candidate-badge", persona.catalogKind === "original" ? "Bundled original candidate · draft" : "Historical candidate · draft"));
     const title = node("h3", "", persona.name); title.id = `persona-${persona.slug}`;
     article.append(top, title, node("p", "card-setting", `${persona.identity.setting} · cutoff ${persona.knowledge.cutoff}`), node("p", "card-summary", persona.summary));
     const domains = node("ul", "tag-list");
@@ -1154,9 +1166,9 @@ export function startBrowserApp() {
 
   function renderGallery() {
     if (catalog === null) {
-      elements.galleryResults.textContent = catalogError ? "Catalog unavailable" : "Loading 12 candidates…";
+      elements.galleryResults.textContent = catalogError ? "Catalog unavailable" : "Loading 13 candidates…";
       elements.grid.setAttribute("aria-busy", String(!catalogError));
-      renderGalleryState(catalogError ? "Historical catalog unavailable" : "Loading historical candidates…", catalogError || "The safe local catalog is being checked.", Boolean(catalogError));
+      renderGalleryState(catalogError ? "Bundled catalog unavailable" : "Loading bundled candidates…", catalogError || "The safe local catalog is being checked.", Boolean(catalogError));
       return;
     }
     const matches = filterCatalog(catalog, currentFilters());
@@ -1232,8 +1244,9 @@ export function startBrowserApp() {
     details.productiveContrast.forEach((value) => contrast.append(node("li", "", value)));
     content.append(contrast);
     appendDetailSection(content, "Portrayal cautions", details.portrayalCautions);
-    const notice = node("p", "educational-notice"); const lead = node("strong", "", "Educational creative interpretation.");
-    notice.append(lead, document.createTextNode(details.notice.slice("Educational creative interpretation.".length))); content.append(notice);
+    const notice = node("p", "educational-notice");
+    const noticeLead = persona.catalogKind === "historical" ? "Educational creative interpretation." : "Creator-authorized pseudonymous interpretation.";
+    notice.append(node("strong", "", noticeLead), document.createTextNode(details.notice.slice(noticeLead.length))); content.append(notice);
     elements.detailsContent.replaceChildren(content);
     const selected = selection.slugs.includes(slug); elements.detailsAdd.textContent = selected ? "Remove from room" : "Add to room";
     elements.detailsAdd.disabled = !selected && selection.slugs.length >= 3;
@@ -1246,7 +1259,7 @@ export function startBrowserApp() {
     if (room === null || pending.size !== 0) return;
     selection = catalog === null ? createSelectionState() : historicalSelectionFromRoom(room, catalog);
     elements.liveView.hidden = true; elements.setupView.hidden = false; elements.builderError.textContent = "";
-    elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to historical candidates";
+    elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to bundled candidates";
     renderGallery(); renderBuilder(); elements.galleryHeading.focus();
   }
 
