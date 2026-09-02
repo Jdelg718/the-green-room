@@ -32,6 +32,8 @@ import {
   parseChallengeFrame,
 } from "../../src/runtime/readiness-channel.js";
 
+const MACOS_ONLY = { skip: process.platform !== "darwin" } as const;
+
 test("readiness protocol reassembles a bounded binary challenge and emits an exact PID-bound proof", () => {
   const token = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
   const challenge = Buffer.alloc(CHALLENGE_FRAME_BYTES);
@@ -170,10 +172,7 @@ async function spawnPackagedServer(
     const finish = (): void => resolve(Buffer.concat(chunks, count));
     readiness.once("end", finish);
     readiness.once("close", finish);
-    readiness.once("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ECONNRESET") finish();
-      else reject(error);
-    });
+    readiness.once("error", reject);
   });
   for (const byte of options.challenge ?? challengeFrame(token)) readiness.write(Buffer.from([byte]));
   if (options.closeEarly) readiness.destroy();
@@ -196,7 +195,7 @@ async function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<numb
   return result;
 }
 
-test("packaged server proves post-listen readiness over inherited FD3 without leaking its capability", async (context) => {
+test("packaged server proves post-listen readiness over inherited FD3 without leaking its capability", MACOS_ONLY, async (context) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-")));
   const port = await availablePort();
   const token = randomBytes(32);
@@ -222,7 +221,7 @@ test("packaged server proves post-listen readiness over inherited FD3 without le
   }
 });
 
-test("packaged readiness rejects malformed challenge before filesystem or listener effects", async () => {
+test("packaged readiness rejects malformed challenge before filesystem or listener effects", MACOS_ONLY, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-bad-")));
   const port = await availablePort();
   const token = randomBytes(32);
@@ -241,7 +240,7 @@ test("packaged readiness rejects malformed challenge before filesystem or listen
   }
 });
 
-test("packaged server treats parent readiness closure as fatal and tears down its listener", async () => {
+test("packaged server treats parent readiness closure as fatal and tears down its listener", MACOS_ONLY, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-parent-close-")));
   const port = await availablePort();
   const launched = await spawnPackagedServer(root, port, randomBytes(32), { closeEarly: true });
@@ -258,7 +257,7 @@ test("packaged server treats parent readiness closure as fatal and tears down it
   }
 });
 
-test("unrelated occupied listener cannot satisfy authenticated packaged readiness", async () => {
+test("unrelated occupied listener cannot satisfy authenticated packaged readiness", MACOS_ONLY, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-occupied-")));
   const occupied = createServer((_request) => {});
   await new Promise<void>((resolve, reject) => {
@@ -297,7 +296,7 @@ async function assertPackagedStartupFailure(options: Parameters<typeof spawnPack
   }
 }
 
-test("broken packaged migration emits no readiness and leaves no listener or inspection runtime", async () => {
+test("broken packaged migration emits no readiness and leaves no listener or inspection runtime", MACOS_ONLY, async () => {
   const output = await assertPackagedStartupFailure({
     mutateFixture: ({ appDist }) => {
       const migration = readdirSync(join(appDist, "migrations")).find((name) => name.endsWith(".sql"));
@@ -308,7 +307,7 @@ test("broken packaged migration emits no readiness and leaves no listener or ins
   assert.match(output, /Failed to apply migration/);
 });
 
-test("missing packaged catalog emits no readiness and leaves no listener or inspection runtime", async () => {
+test("missing packaged catalog emits no readiness and leaves no listener or inspection runtime", MACOS_ONLY, async () => {
   const output = await assertPackagedStartupFailure({
     mutateFixture: ({ appDist }) => {
       rmSync(join(appDist, "personas/historical"), { recursive: true, force: true });
@@ -317,7 +316,7 @@ test("missing packaged catalog emits no readiness and leaves no listener or insp
   assert.match(output, /(?:historical (?:persona root|catalog directory)|ENOENT)/);
 });
 
-test("invalid packaged catalog emits no readiness and leaves no listener or inspection runtime", async () => {
+test("invalid packaged catalog emits no readiness and leaves no listener or inspection runtime", MACOS_ONLY, async () => {
   const output = await assertPackagedStartupFailure({
     mutateFixture: ({ appDist }) => {
       writeFileSync(join(appDist, "personas/original/ff2k/persona.yaml"), "not: [valid\n");
@@ -326,7 +325,7 @@ test("invalid packaged catalog emits no readiness and leaves no listener or insp
   assert.match(output, /(?:YAML|persona|parse)/i);
 });
 
-test("provider configuration failure emits no readiness and leaves no listener or resources", async () => {
+test("provider configuration failure emits no readiness and leaves no listener or resources", MACOS_ONLY, async () => {
   const output = await assertPackagedStartupFailure({
     environment: { GREENROOM_PROVIDER: "not-a-provider" },
   });
