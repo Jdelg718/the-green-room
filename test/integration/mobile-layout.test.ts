@@ -258,7 +258,7 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
         await send("Runtime.evaluate", { expression: `document.documentElement.style.fontSize = "200%"` });
       }
       const evaluated = await send("Runtime.evaluate", {
-        expression: `(() => { const rectangle = (id) => { const {left, right, top, bottom, width, height} = document.getElementById(id).getBoundingClientRect(); return {left, right, top, bottom, width, height}; }; const name = document.getElementById("persona-name"); const uploadInput = document.getElementById("upload-input"); const input = uploadInput.getBoundingClientRect(); const uploadInputHit = [[input.left + input.width / 2, input.top + .5], [input.left + input.width / 2, input.bottom - .5], [input.left + .5, input.top + input.height / 2], [input.right - .5, input.top + input.height / 2]].every(([x, y]) => document.elementFromPoint(x, y) === uploadInput); return {viewport: innerWidth, pageScrollWidth: document.documentElement.scrollWidth, textSize: Number.parseFloat(getComputedStyle(name).fontSize), name: {clientHeight: name.clientHeight, clientWidth: name.clientWidth, scrollHeight: name.scrollHeight, scrollWidth: name.scrollWidth}, member: rectangle("member"), emoji: rectangle("emoji"), select: rectangle("select"), upload: rectangle("upload"), uploadInput: rectangle("upload-input"), uploadInputHit, mute: rectangle("mute")}; })()`,
+        expression: `(() => { const rectangle = (id) => { const {left, right, top, bottom, width, height} = document.getElementById(id).getBoundingClientRect(); return {left, right, top, bottom, width, height}; }; const name = document.getElementById("persona-name"); const uploadInput = document.getElementById("upload-input"); const input = uploadInput.getBoundingClientRect(); const inset = 2; const uploadInputHit = [[input.left + input.width / 2, input.top + inset], [input.left + input.width / 2, input.bottom - inset], [input.left + inset, input.top + input.height / 2], [input.right - inset, input.top + input.height / 2]].every(([x, y]) => document.elementFromPoint(x, y) === uploadInput); return {viewport: innerWidth, pageScrollWidth: document.documentElement.scrollWidth, textSize: Number.parseFloat(getComputedStyle(name).fontSize), name: {clientHeight: name.clientHeight, clientWidth: name.clientWidth, scrollHeight: name.scrollHeight, scrollWidth: name.scrollWidth}, member: rectangle("member"), emoji: rectangle("emoji"), select: rectangle("select"), upload: rectangle("upload"), uploadInput: rectangle("upload-input"), uploadInputHit, mute: rectangle("mute")}; })()`,
         returnByValue: true,
       }) as { result: { value: Geometry } };
       const geometry = evaluated.result.value;
@@ -281,9 +281,9 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
       assert.ok(geometry.select.height >= 44, `emoji target is too short at ${label}`);
       assert.ok(geometry.upload.width >= 44, `upload target is too narrow at ${label}`);
       assert.ok(geometry.upload.height >= 44, `upload target is too short at ${label}`);
-      assert.ok(geometry.uploadInput.width >= 44, `upload input is too narrow at ${label}`);
-      assert.ok(geometry.uploadInput.height >= 44, `upload input is too short at ${label}`);
-      assert.equal(geometry.uploadInputHit, true, `upload input edge hit-testing fails at ${label}`);
+      assert.ok(geometry.uploadInput.width >= 48, `upload input lacks a 44px inset-safe width at ${label}`);
+      assert.ok(geometry.uploadInput.height >= 48, `upload input lacks a 44px inset-safe height at ${label}`);
+      assert.equal(geometry.uploadInputHit, true, `upload input inset hit-testing fails at ${label}`);
       assert.ok(geometry.mute.width >= 44, `mute target is too narrow at ${label}`);
       assert.ok(geometry.mute.height >= 44, `mute target is too short at ${label}`);
     }

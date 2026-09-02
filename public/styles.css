@@ -103,7 +103,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .portrait-fallback.emoji-avatar { background: var(--paper-deep); color: var(--ink); font: 1.7rem/1 system-ui, sans-serif; }
 .human-emoji-picker { display: grid; gap: .2rem; font: 800 .55rem var(--mono); text-transform: uppercase; }
 .human-emoji-picker select { min-width: 4.7rem; border: 2px solid var(--ink); padding: .35rem; background: var(--paper); font-size: 1.1rem; }
-.human-avatar-upload { position: relative; overflow: hidden; min-width: 6.5rem; min-height: 3rem; padding: .5rem; font-size: .65rem; text-align: center; }
+.human-avatar-upload { position: relative; overflow: hidden; min-width: 6.5rem; min-height: 3.25rem; padding: .5rem; font-size: .65rem; text-align: center; }
 .human-avatar-upload input { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
 .human-avatar-upload:focus-within { outline: 3px solid var(--red); outline-offset: 2px; }
 .human-avatar-remove { min-width: 5.4rem; padding: .45rem; font-size: .65rem; }
