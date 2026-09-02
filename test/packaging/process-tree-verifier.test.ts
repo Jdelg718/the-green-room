@@ -54,6 +54,7 @@ test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout:
       "outer-sigkill",
       "startup-crossing",
       "cooperative-term",
+      "readiness-timeout",
     ]);
     for (const entry of evidence.cases) {
       assert.equal(entry.remainingPids.length, 0);
@@ -64,6 +65,10 @@ test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout:
     assert.equal(cooperative.termSent, true);
     assert.equal(cooperative.killSent, false);
     assert.deepEqual(cooperative.cleanTermRoles, ["descendant", "leader"]);
+    const readinessTimeout = evidence.cases.find((entry: { name: string }) => entry.name === "readiness-timeout");
+    assert.deepEqual(readinessTimeout.outerExit, { code: 1, signal: null });
+    assert.equal(readinessTimeout.termSent, true);
+    assert.deepEqual(readinessTimeout.cleanTermRoles, ["descendant", "leader"]);
     assert.equal(evidence.termIgnoringMutationRejected, true);
     assert.equal(evidence.hostilePathTrapTouched, false);
     assert.equal(evidence.highFdInherited, false);

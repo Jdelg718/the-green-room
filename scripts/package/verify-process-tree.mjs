@@ -226,7 +226,9 @@ function spawnOuter(bundle, hostilePath) {
   };
 }
 
-async function runCase(root, binaries, hostilePath, name, scenario, stop, cooperative = false) {
+async function runCase(
+  root, binaries, hostilePath, name, scenario, stop, cooperative = false, expectBrowser = true,
+) {
   const bundle = makeSyntheticBundle(root, binaries, scenario);
   const outer = spawnOuter(bundle, hostilePath);
   let records = [];
@@ -242,15 +244,21 @@ async function runCase(root, binaries, hostilePath, name, scenario, stop, cooper
         ? roles.has("leader")
         : roles.has("leader") && roles.has("descendant");
       const internalReady = current.some((entry) => entry.event === "internal-fixture-ready");
-      return required && internalReady ? current : null;
+      const browserOpens = current.filter((entry) => entry.event === "browser-open");
+      return required && internalReady && (!expectBrowser || browserOpens.length === 1) ? current : null;
     }, `${name} fixture readiness`);
     records = readEvidence(bundle.evidencePath);
+    if (expectBrowser && privateRecords.filter((entry) => entry.event === "browser-open").length !== 1) {
+      fail("browser_gate_unproven", `${name} did not open the test browser exactly once after readiness`);
+    }
     for (const record of records.filter((entry) => entry.role === "leader" || entry.role === "descendant")) {
+      const expectedFDs = scenario === "readiness-timeout" && record.role === "leader"
+        ? "[0,1,2,3]" : "[0,1,2]";
       if (record.executable !== bundle.node) {
         fail("wrong_executable", `${name} ran an unexpected executable`, record);
       }
       if (record.highFdOpen || record.testEvidenceFdOpen !== true || record.pathPresent
-          || JSON.stringify(record.fds) !== "[0,1,2]") {
+          || JSON.stringify(record.fds) !== expectedFDs) {
         fail("unsafe_inheritance", `${name} inherited forbidden process state`, record);
       }
     }
@@ -376,6 +384,9 @@ export async function verifyProcessTree() {
     cases.push(await runCase(root, binaries, hostile, "cooperative-term", "cooperative-term", async (child) => {
       process.kill(child.pid, "SIGTERM");
     }, true));
+    cases.push(await runCase(
+      root, binaries, hostile, "readiness-timeout", "readiness-timeout", async () => {}, true, false,
+    ));
     let termIgnoringMutationRejected = false;
     try {
       await runCase(root, binaries, hostile, "term-ignoring-mutation", "ignore-term", async (child) => {

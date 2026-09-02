@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 import XCTest
 @testable import GreenRoomLauncher
 
@@ -9,6 +10,45 @@ final class LauncherTests: XCTestCase {
     override func tearDownWithError() throws {
         for directory in temporaryDirectories {
             try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    func testReadinessTokenGenerationIsExactly256BitsAndFailsClosed() throws {
+        let token = try ReadinessToken.generate { raw in
+            raw.initializeMemory(as: UInt8.self, repeating: 0xa5)
+            return errSecSuccess
+        }
+        XCTAssertEqual(token, Data(repeating: 0xa5, count: 32))
+        XCTAssertThrowsError(try ReadinessToken.generate { _ in errSecParam }) { error in
+            XCTAssertEqual(error as? LauncherError, .randomFailed)
+        }
+    }
+
+    func testReadinessProtocolAuthenticatesExactFragmentedPIDBoundFrame() throws {
+        let token = Data((0..<32).map(UInt8.init))
+        let challenge = ReadinessProtocol.challengeFrame(token: token)
+        XCTAssertEqual(challenge.count, 40)
+        XCTAssertEqual(Array(challenge.prefix(8)), [0x47, 0x52, 0x52, 0x44, 1, 1, 0, 32])
+        let ready = ReadinessProtocol.readyFrameForTest(token: token, pid: 0x01020304)
+        XCTAssertNoThrow(try ReadinessProtocol.validateReady(ready, token: token, pid: 0x01020304))
+        XCTAssertEqual(ready.count, 44)
+    }
+
+    func testReadinessProtocolRejectsWrongTokenPIDHeaderTruncationTrailingAndDuplicate() throws {
+        let token = Data(repeating: 0x5a, count: 32)
+        let valid = ReadinessProtocol.readyFrameForTest(token: token, pid: 42)
+        var badHeader = valid; badHeader[0] = 0
+        var wrongVersion = valid; wrongVersion[4] = 2
+        var wrongType = valid; wrongType[5] = 1
+        var wrongLength = valid; wrongLength[7] = 35
+        let cases = [
+            badHeader, wrongVersion, wrongType, wrongLength, Data(valid.dropLast()),
+            valid + Data([0]), valid + valid,
+            ReadinessProtocol.readyFrameForTest(token: Data(repeating: 0x5b, count: 32), pid: 42),
+            ReadinessProtocol.readyFrameForTest(token: token, pid: 43),
+        ]
+        for frame in cases {
+            XCTAssertThrowsError(try ReadinessProtocol.validateReady(frame, token: token, pid: 42))
         }
     }
 

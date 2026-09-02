@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   chmodSync,
+  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -12,7 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +25,46 @@ import { test } from "node:test";
 import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
 import { verifyPackagedRuntimeAssets } from "../../src/platform/runtime-assets.js";
+import {
+  CHALLENGE_FRAME_BYTES,
+  READY_FRAME_BYTES,
+  buildReadyFrame,
+  parseChallengeFrame,
+} from "../../src/runtime/readiness-channel.js";
+
+test("readiness protocol reassembles a bounded binary challenge and emits an exact PID-bound proof", () => {
+  const token = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
+  const challenge = Buffer.alloc(CHALLENGE_FRAME_BYTES);
+  challenge.write("GRRD", 0, "ascii");
+  challenge[4] = 1;
+  challenge[5] = 1;
+  challenge.writeUInt16BE(32, 6);
+  token.copy(challenge, 8);
+
+  const parsed = parseChallengeFrame(Buffer.concat([...challenge].map((byte) => Buffer.from([byte]))));
+  assert.deepEqual(parsed, token);
+  const ready = buildReadyFrame(parsed, 0x01020304);
+  assert.equal(ready.length, READY_FRAME_BYTES);
+  assert.equal(ready.subarray(0, 8).toString("hex"), "4752524401020024");
+  assert.deepEqual(ready.subarray(8, 40), token);
+  assert.equal(ready.readUInt32BE(40), 0x01020304);
+});
+
+test("readiness challenge rejects malformed, truncated, trailing, and oversized input", () => {
+  const valid = Buffer.concat([
+    Buffer.from([0x47, 0x52, 0x52, 0x44, 1, 1, 0, 32]),
+    Buffer.alloc(32, 7),
+  ]);
+  for (const mutation of [
+    Buffer.from(valid.subarray(0, 39)),
+    Buffer.concat([valid, Buffer.from([0])]),
+    Buffer.concat([valid, Buffer.from([0, 1, 2, 3, 4, 5])]),
+    Buffer.from(valid.map((byte, index) => index === 0 ? 0 : byte)),
+    Buffer.from(valid.map((byte, index) => index === 4 ? 2 : byte)),
+    Buffer.from(valid.map((byte, index) => index === 5 ? 2 : byte)),
+    Buffer.from(valid.map((byte, index) => index === 7 ? 31 : byte)),
+  ]) assert.throws(() => parseChallengeFrame(mutation), /readiness_protocol_error/);
+});
 
 async function availablePort(): Promise<number> {
   const server = createServer();
@@ -53,6 +96,76 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   }
 }
 
+function realPackagedFixture(root: string) {
+  const payloadRoot = join(root, "The Green Room.app", "Contents");
+  const appDist = join(payloadRoot, "Resources/app/dist");
+  const validator = join(payloadRoot, "Resources/validator/greenroom-persona");
+  mkdirSync(appDist, { recursive: true });
+  mkdirSync(validator, { recursive: true });
+  const repositoryDist = fileURLToPath(new URL("../../", import.meta.url));
+  for (const name of ["public", "migrations", "personas", "runtime-assets"] as const) {
+    cpSync(join(repositoryDist, name), join(appDist, name), { recursive: true });
+  }
+  const validatorExecutable = join(validator, "greenroom-persona");
+  copyFileSync(fileURLToPath(new URL("../../../.venv/bin/greenroom-persona", import.meta.url)), validatorExecutable);
+  chmodSync(validatorExecutable, 0o555);
+  makePayloadReadOnly(payloadRoot);
+  return { payloadRoot, appDist, validatorExecutable };
+}
+
+function challengeFrame(token: Buffer): Buffer {
+  return Buffer.concat([Buffer.from([0x47, 0x52, 0x52, 0x44, 1, 1, 0, 32]), token]);
+}
+
+async function spawnPackagedServer(
+  root: string,
+  port: number,
+  token: Buffer,
+  options: { challenge?: Buffer; closeEarly?: boolean } = {},
+) {
+  const fixture = realPackagedFixture(root);
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../src/server.js", import.meta.url))], {
+    cwd: root,
+    env: {
+      ...process.env,
+      GREENROOM_RUNTIME_MODE: "packaged-macos",
+      GREENROOM_PACKAGE_PAYLOAD_ROOT: fixture.payloadRoot,
+      GREENROOM_PUBLIC_DIR: join(fixture.appDist, "public"),
+      GREENROOM_MIGRATIONS_DIR: join(fixture.appDist, "migrations"),
+      GREENROOM_HISTORICAL_CATALOG_DIR: join(fixture.appDist, "personas/historical"),
+      GREENROOM_ORIGINAL_CATALOG_DIR: join(fixture.appDist, "personas/original"),
+      GREENROOM_PERSONA_PREFLIGHT_FIXTURE: join(fixture.appDist, "runtime-assets/persona-validator/valid-minimal.greenroom"),
+      GREENROOM_PERSONA_VALIDATOR_EXECUTABLE: fixture.validatorExecutable,
+      GREENROOM_PERSONA_INSPECTION: "required",
+      GREENROOM_DATA_DIR: join(root, "data"),
+      GREENROOM_HOST: "127.0.0.1",
+      GREENROOM_PORT: String(port),
+    },
+    stdio: ["ignore", "pipe", "pipe", "pipe"],
+  });
+  const readiness = child.stdio[3] as Socket;
+  const output: Buffer[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => output.push(chunk));
+  const response = new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let count = 0;
+    readiness.on("data", (chunk: Buffer) => {
+      count += chunk.length;
+      if (count > 45) reject(new Error("oversized readiness response"));
+      else chunks.push(Buffer.from(chunk));
+    });
+    const finish = (): void => resolve(Buffer.concat(chunks, count));
+    readiness.once("end", finish);
+    readiness.once("close", finish);
+    readiness.once("error", reject);
+  });
+  for (const byte of options.challenge ?? challengeFrame(token)) readiness.write(Buffer.from([byte]));
+  if (options.closeEarly) readiness.destroy();
+  else readiness.end();
+  return { child, response, output, fixture };
+}
+
 async function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<number | null> {
   if (child.exitCode !== null || child.signalCode !== null) return child.exitCode;
   let timer: NodeJS.Timeout;
@@ -67,6 +180,90 @@ async function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<numb
   if (result === "timeout") throw new Error("child process did not exit in time");
   return result;
 }
+
+test("packaged server proves post-listen readiness over inherited FD3 without leaking its capability", async (context) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-")));
+  const port = await availablePort();
+  const token = randomBytes(32);
+  const launched = await spawnPackagedServer(root, port, token);
+  context.after(async () => {
+    await stopProcess(launched.child);
+    makePayloadRemovable(launched.fixture.payloadRoot);
+    rmSync(root, { recursive: true, force: true });
+  });
+  const ready = await launched.response;
+  assert.equal(ready.length, READY_FRAME_BYTES);
+  assert.equal(ready.subarray(0, 8).toString("hex"), "4752524401020024");
+  assert.deepEqual(ready.subarray(8, 40), token);
+  assert.equal(ready.readUInt32BE(40), launched.child.pid);
+  const response = await fetch(`http://127.0.0.1:${port}/api/bootstrap`);
+  assert.equal(response.status, 200);
+  const output = Buffer.concat(launched.output);
+  for (const secret of [token, Buffer.from(token.toString("hex")), Buffer.from(token.toString("base64"))]) {
+    assert.equal(output.includes(secret), false);
+    for (const entry of readdirSync(join(root, "data"), { recursive: true, withFileTypes: true })) {
+      if (entry.isFile()) assert.equal(readFileSync(join(entry.parentPath, entry.name)).includes(secret), false);
+    }
+  }
+});
+
+test("packaged readiness rejects malformed challenge before filesystem or listener effects", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-bad-")));
+  const port = await availablePort();
+  const token = randomBytes(32);
+  const malformed = challengeFrame(token);
+  malformed[0] = 0;
+  const launched = await spawnPackagedServer(root, port, token, { challenge: malformed });
+  try {
+    assert.notEqual(await waitForExit(launched.child), 0);
+    assert.deepEqual(await launched.response, Buffer.alloc(0));
+    assert.equal(existsSync(join(root, "data")), false);
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/health`));
+  } finally {
+    await stopProcess(launched.child);
+    makePayloadRemovable(launched.fixture.payloadRoot);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("packaged server treats parent readiness closure as fatal and tears down its listener", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-parent-close-")));
+  const port = await availablePort();
+  const launched = await spawnPackagedServer(root, port, randomBytes(32), { closeEarly: true });
+  try {
+    const responseSettled = launched.response.catch(() => Buffer.alloc(0));
+    assert.notEqual(await waitForExit(launched.child), 0);
+    await responseSettled;
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/health`));
+    assert.equal(existsSync(join(root, "data/runtime/persona-inspection")), false);
+  } finally {
+    await stopProcess(launched.child);
+    makePayloadRemovable(launched.fixture.payloadRoot);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unrelated occupied listener cannot satisfy authenticated packaged readiness", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-occupied-")));
+  const occupied = createServer((_request) => {});
+  await new Promise<void>((resolve, reject) => {
+    occupied.once("error", reject);
+    occupied.listen(0, "127.0.0.1", resolve);
+  });
+  const address = occupied.address();
+  assert.ok(address && typeof address !== "string");
+  const launched = await spawnPackagedServer(root, address.port, randomBytes(32));
+  try {
+    assert.notEqual(await waitForExit(launched.child), 0);
+    assert.equal((await launched.response).length, 0);
+    assert.match(Buffer.concat(launched.output).toString("utf8"), /EADDRINUSE/);
+  } finally {
+    occupied.close();
+    await stopProcess(launched.child);
+    makePayloadRemovable(launched.fixture.payloadRoot);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("compiled server starts from a non-repository cwd with packaged migrations, mixed catalog, and FF2K portrait", async (context) => {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "green-room-startup-"));

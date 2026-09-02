@@ -1,6 +1,8 @@
+import AppKit
 import CryptoKit
 import Darwin
 import Foundation
+import Security
 
 struct ReleaseManifest: Equatable {
     struct FileRecord: Equatable {
@@ -18,6 +20,10 @@ enum LauncherError: Error, Equatable, CustomStringConvertible {
     case payloadInvalid(String)
     case unsafeInvocation(String)
     case unsupportedArchitecture
+    case readinessProtocol
+    case readinessTimeout
+    case randomFailed
+    case browserOpenFailed
 
     var description: String {
         switch self {
@@ -27,7 +33,62 @@ enum LauncherError: Error, Equatable, CustomStringConvertible {
         case .payloadInvalid(let code): return "payload_invalid:\(code)"
         case .unsafeInvocation(let code): return "unsafe_invocation:\(code)"
         case .unsupportedArchitecture: return "unsupported_architecture"
+        case .readinessProtocol: return "readiness_protocol_error"
+        case .readinessTimeout: return "readiness_timeout"
+        case .randomFailed: return "readiness_random_failed"
+        case .browserOpenFailed: return "browser_open_failed"
         }
+    }
+}
+
+enum ReadinessProtocol {
+    static let tokenBytes = 32
+    static let challengeBytes = 40
+    static let readyBytes = 44
+    static let maximumResponseBytes = 45
+    private static let magic: [UInt8] = [0x47, 0x52, 0x52, 0x44]
+
+    static func challengeFrame(token: Data) -> Data {
+        precondition(token.count == tokenBytes)
+        return Data(magic + [1, 1, 0, UInt8(tokenBytes)]) + token
+    }
+
+    static func readyFrameForTest(token: Data, pid: UInt32) -> Data {
+        precondition(token.count == tokenBytes)
+        var frame = Data(magic + [1, 2, 0, 36]) + token
+        frame.append(contentsOf: [
+            UInt8((pid >> 24) & 0xff), UInt8((pid >> 16) & 0xff),
+            UInt8((pid >> 8) & 0xff), UInt8(pid & 0xff),
+        ])
+        return frame
+    }
+
+    static func validateReady(_ frame: Data, token: Data, pid: pid_t) throws {
+        guard frame.count == readyBytes, token.count == tokenBytes,
+              Array(frame.prefix(4)) == magic, frame[4] == 1, frame[5] == 2,
+              frame[6] == 0, frame[7] == 36 else { throw LauncherError.readinessProtocol }
+        var difference: UInt8 = 0
+        for index in 0..<tokenBytes { difference |= frame[8 + index] ^ token[index] }
+        guard difference == 0 else { throw LauncherError.readinessProtocol }
+        let reported = frame[40...43].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        guard reported == UInt32(bitPattern: pid) else { throw LauncherError.readinessProtocol }
+    }
+}
+
+enum ReadinessToken {
+    typealias RandomFill = (UnsafeMutableRawBufferPointer) -> OSStatus
+
+    static func generate(randomFill: RandomFill = { raw in
+        SecRandomCopyBytes(kSecRandomDefault, raw.count, raw.baseAddress!)
+    }) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: ReadinessProtocol.tokenBytes)
+        let status = bytes.withUnsafeMutableBytes(randomFill)
+        guard status == errSecSuccess else {
+            _ = bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+            throw LauncherError.randomFailed
+        }
+        defer { _ = bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
+        return Data(bytes)
     }
 }
 
@@ -364,7 +425,7 @@ enum SupervisedProcess {
     ) throws -> SupervisedProcessResult {
         try run(executable: executable, arguments: arguments, environment: environment, cwd: cwd,
                 graceNanoseconds: nanoseconds(grace), shutdownAfterNanoseconds: shutdownAfter.map(nanoseconds),
-                outputLimit: outputLimit, lifetimeFD: lifetimeFD, armedFD: nil)
+                outputLimit: outputLimit, lifetimeFD: lifetimeFD, armedFD: nil, readinessFD: nil)
     }
 
     static func run(
@@ -377,6 +438,7 @@ enum SupervisedProcess {
         outputLimit: Int = 64 * 1024,
         lifetimeFD: Int32?,
         armedFD: Int32?,
+        readinessFD: Int32?,
         testEvidenceFD: Int32? = nil,
         shutdownRequested: () -> Bool = { false }
     ) throws -> SupervisedProcessResult {
@@ -402,9 +464,15 @@ enum SupervisedProcess {
         try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[1]), "close_stderr_source")
         try checked(posix_spawn_file_actions_addclose(&actions, stdoutPipe[0]), "close_stdout_read")
         try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[0]), "close_stderr_read")
+        if let readinessFD {
+            try checked(posix_spawn_file_actions_adddup2(&actions, readinessFD, 3), "dup_readiness")
+            if readinessFD != 3 {
+                try checked(posix_spawn_file_actions_addclose(&actions, readinessFD), "close_readiness_source")
+            }
+        }
         if let testEvidenceFD {
-            try checked(posix_spawn_file_actions_adddup2(&actions, testEvidenceFD, 3), "dup_test_evidence")
-            if testEvidenceFD != 3 {
+            try checked(posix_spawn_file_actions_adddup2(&actions, testEvidenceFD, 4), "dup_test_evidence")
+            if testEvidenceFD != 4 {
                 try checked(posix_spawn_file_actions_addclose(&actions, testEvidenceFD), "close_test_evidence_source")
             }
         }
@@ -427,7 +495,7 @@ enum SupervisedProcess {
         var pid: pid_t = 0
         let argv = [executable] + arguments
         var childEnvironment = environment
-        if testEvidenceFD != nil { childEnvironment["GREENROOM_TEST_EVIDENCE_FD"] = "3" }
+        if testEvidenceFD != nil { childEnvironment["GREENROOM_TEST_EVIDENCE_FD"] = "4" }
         let env = childEnvironment.keys.sorted().map { "\($0)=\(childEnvironment[$0]!)" }
         let spawnCode = withMutableCStringArray(argv) { argvPointer in
             withMutableCStringArray(env) { envPointer in
@@ -450,8 +518,14 @@ enum SupervisedProcess {
         var armed = false
         func armOuter() throws {
             guard !armed, let armedFD else { return }
-            var byte: UInt8 = 1
-            guard write(armedFD, &byte, 1) == 1 else {
+            let bytes = [
+                UInt8((UInt32(bitPattern: pid) >> 24) & 0xff),
+                UInt8((UInt32(bitPattern: pid) >> 16) & 0xff),
+                UInt8((UInt32(bitPattern: pid) >> 8) & 0xff),
+                UInt8(UInt32(bitPattern: pid) & 0xff),
+            ]
+            let written = bytes.withUnsafeBytes { write(armedFD, $0.baseAddress!, $0.count) }
+            guard written == bytes.count else {
                 let code = errno
                 _ = killpg(pid, SIGKILL)
                 var cleanupStatus: Int32 = 0
@@ -628,7 +702,8 @@ private final class SignalLatch: @unchecked Sendable {
 private enum SupervisorMode {
     static let lifetimeFD: Int32 = 3
     static let armedFD: Int32 = 4
-    static let testEvidenceFD: Int32 = 5
+    static let readinessFD: Int32 = 5
+    static let testEvidenceFD: Int32 = 6
     static let inheritedTestEvidenceFD: Int32 = 200
 
     private static func availableTestEvidenceFD(_ fd: Int32) -> Int32? {
@@ -645,12 +720,17 @@ private enum SupervisorMode {
 
     static func runInternal(executable: URL) throws {
         guard CommandLine.arguments == [executable.path, "--internal-supervisor"],
-              fcntl(lifetimeFD, F_GETFD) >= 0, fcntl(armedFD, F_GETFD) >= 0
+              fcntl(lifetimeFD, F_GETFD) >= 0, fcntl(armedFD, F_GETFD) >= 0,
+              fcntl(readinessFD, F_GETFD) >= 0
         else { throw LauncherError.unsafeInvocation("internal_protocol") }
         #if !arch(arm64)
         throw LauncherError.unsupportedArchitecture
         #endif
+        #if DEBUG
         let evidenceFD = availableTestEvidenceFD(testEvidenceFD)
+        #else
+        let evidenceFD: Int32? = nil
+        #endif
         do {
             let bundle = try LauncherPreflight.bundleRoot(forExecutable: executable)
             let manifest = try LauncherPreflight.validate(bundleRoot: bundle)
@@ -659,6 +739,7 @@ private enum SupervisorMode {
             let result = try SupervisedProcess.run(
                 executable: runtime.node, arguments: [runtime.server], environment: runtime.environment,
                 cwd: runtime.cwd, lifetimeFD: lifetimeFD, armedFD: armedFD,
+                readinessFD: readinessFD,
                 testEvidenceFD: evidenceFD,
                 shutdownRequested: { signals.requested }
             )
@@ -676,36 +757,110 @@ private enum SupervisorMode {
         }
     }
 
+    private static func writeAll(_ fd: Int32, data: Data) throws {
+        try data.withUnsafeBytes { raw in
+            var offset = 0
+            while offset < raw.count {
+                let count = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+                if count > 0 { offset += count; continue }
+                if count < 0 && errno == EINTR { continue }
+                throw LauncherError.readinessProtocol
+            }
+        }
+    }
+
+    private static func readBoundedResponse(_ fd: Int32, deadline: UInt64) throws -> Data {
+        var response = Data()
+        var buffer = [UInt8](repeating: 0, count: ReadinessProtocol.maximumResponseBytes + 1)
+        defer { _ = buffer.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadline else { throw LauncherError.readinessTimeout }
+            let remaining = min(UInt64(Int32.max), (deadline - now + 999_999) / 1_000_000)
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP), revents: 0)
+            let result = poll(&descriptor, 1, Int32(remaining))
+            if result == 0 { throw LauncherError.readinessTimeout }
+            if result < 0 { if errno == EINTR { continue }; throw LauncherError.readinessProtocol }
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                response.append(contentsOf: buffer[0..<count])
+                if response.count > ReadinessProtocol.maximumResponseBytes { throw LauncherError.readinessProtocol }
+                continue
+            }
+            if count == 0 { return response }
+            if errno != EINTR { throw LauncherError.readinessProtocol }
+        }
+    }
+
+    private static func reap(_ pid: pid_t) throws {
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) < 0 {
+            if errno != EINTR { throw SpawnError.system("wait_supervisor", errno) }
+        }
+    }
+
     static func launchOuter(executable: URL, bundleRoot: URL) throws {
+        var token = try ReadinessToken.generate()
+        defer { token.resetBytes(in: 0..<token.count) }
         var lifetime = [Int32](repeating: -1, count: 2)
         var armed = [Int32](repeating: -1, count: 2)
+        var readiness = [Int32](repeating: -1, count: 2)
         guard pipe(&lifetime) == 0 else { throw SpawnError.system("lifetime_pipe", errno) }
         guard pipe(&armed) == 0 else {
             close(lifetime[0]); close(lifetime[1]); throw SpawnError.system("armed_pipe", errno)
         }
-        defer { lifetime.forEach { if $0 >= 0 { close($0) } }; armed.forEach { if $0 >= 0 { close($0) } } }
-        let inheritedLifetime = fcntl(lifetime[0], F_DUPFD_CLOEXEC, 10)
-        let inheritedArmed = fcntl(armed[1], F_DUPFD_CLOEXEC, 10)
-        guard inheritedLifetime >= 0, inheritedArmed >= 0 else { throw SpawnError.system("control_dup", errno) }
-        defer { close(inheritedLifetime); close(inheritedArmed) }
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &readiness) == 0 else {
+            lifetime.forEach { close($0) }; armed.forEach { close($0) }
+            throw SpawnError.system("readiness_socketpair", errno)
+        }
+        defer {
+            lifetime.forEach { if $0 >= 0 { close($0) } }
+            armed.forEach { if $0 >= 0 { close($0) } }
+            readiness.forEach { if $0 >= 0 { close($0) } }
+        }
+        var noSigPipe: Int32 = 1
+        guard setsockopt(readiness[0], SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw SpawnError.system("readiness_nosigpipe", errno)
+        }
+        for fd in lifetime + armed + readiness {
+            guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else {
+                throw SpawnError.system("control_cloexec", errno)
+            }
+        }
+        var inheritedLifetime = fcntl(lifetime[0], F_DUPFD_CLOEXEC, 10)
+        var inheritedArmed = fcntl(armed[1], F_DUPFD_CLOEXEC, 10)
+        var inheritedReadiness = fcntl(readiness[1], F_DUPFD_CLOEXEC, 10)
+        defer {
+            if inheritedLifetime >= 0 { close(inheritedLifetime) }
+            if inheritedArmed >= 0 { close(inheritedArmed) }
+            if inheritedReadiness >= 0 { close(inheritedReadiness) }
+        }
+        guard inheritedLifetime >= 0, inheritedArmed >= 0, inheritedReadiness >= 0 else {
+            throw SpawnError.system("control_dup", errno)
+        }
 
         var actions: posix_spawn_file_actions_t? = nil
         try checked(posix_spawn_file_actions_init(&actions), "supervisor_actions_init")
         defer { if actions != nil { posix_spawn_file_actions_destroy(&actions) } }
-        // CLOEXEC_DEFAULT closes every descriptor not named by a file action.
-        // Keep only standard I/O and the two private control channels.
         for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             try checked(posix_spawn_file_actions_adddup2(&actions, descriptor, descriptor), "supervisor_stdio_dup")
         }
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedLifetime, lifetimeFD), "supervisor_lifetime_dup")
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedArmed, armedFD), "supervisor_armed_dup")
+        try checked(posix_spawn_file_actions_adddup2(&actions, inheritedReadiness, readinessFD), "supervisor_readiness_dup")
+        #if DEBUG
         let evidenceFD = availableTestEvidenceFD(inheritedTestEvidenceFD)
+        #else
+        let evidenceFD: Int32? = nil
+        #endif
         if let evidenceFD {
             try checked(posix_spawn_file_actions_adddup2(&actions, evidenceFD, testEvidenceFD), "supervisor_evidence_dup")
             try checked(posix_spawn_file_actions_addclose(&actions, evidenceFD), "supervisor_evidence_source_close")
         }
-        try checked(posix_spawn_file_actions_addclose(&actions, inheritedLifetime), "supervisor_lifetime_source_close")
-        try checked(posix_spawn_file_actions_addclose(&actions, inheritedArmed), "supervisor_armed_source_close")
+        for fd in [inheritedLifetime, inheritedArmed, inheritedReadiness] {
+            try checked(posix_spawn_file_actions_addclose(&actions, fd), "supervisor_control_source_close")
+        }
         try checked(posix_spawn_file_actions_addchdir_np(&actions, bundleRoot.appendingPathComponent("Contents/Resources").path), "supervisor_chdir")
         var attributes: posix_spawnattr_t? = nil
         try checked(posix_spawnattr_init(&attributes), "supervisor_attr_init")
@@ -718,29 +873,63 @@ private enum SupervisorMode {
         }
         try checked(posix_spawnattr_setsigdefault(&attributes, &defaults), "supervisor_sigdefault")
         try checked(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)), "supervisor_flags")
-        var pid: pid_t = 0
+        var supervisorPID: pid_t = 0
         let code = withMutableCStringArray([executable.path, "--internal-supervisor"]) { argv in
             withMutableCStringArray(["LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8"]) { env in
-                posix_spawn(&pid, executable.path, &actions, &attributes, argv, env)
+                posix_spawn(&supervisorPID, executable.path, &actions, &attributes, argv, env)
             }
         }
         try checked(code, "spawn_supervisor")
-        writeTestEvidence(evidenceFD, ["event": "internal-supervisor", "pid": Int(pid)])
+        writeTestEvidence(evidenceFD, ["event": "internal-supervisor", "pid": Int(supervisorPID)])
         close(lifetime[0]); lifetime[0] = -1
         close(armed[1]); armed[1] = -1
-        var pollDescriptor = pollfd(fd: armed[0], events: Int16(POLLIN | POLLHUP), revents: 0)
-        let pollCode = poll(&pollDescriptor, 1, 10_000)
-        var byte: UInt8 = 0
-        guard pollCode > 0, read(armed[0], &byte, 1) == 1, byte == 1 else {
+        close(readiness[1]); readiness[1] = -1
+        close(inheritedLifetime); inheritedLifetime = -1
+        close(inheritedArmed); inheritedArmed = -1
+        close(inheritedReadiness); inheritedReadiness = -1
+
+        do {
+            var challenge = ReadinessProtocol.challengeFrame(token: token)
+            defer { challenge.resetBytes(in: 0..<challenge.count) }
+            try writeAll(readiness[0], data: challenge)
+            guard shutdown(readiness[0], SHUT_WR) == 0 else { throw LauncherError.readinessProtocol }
+            let deadline = DispatchTime.now().uptimeNanoseconds + 10_000_000_000
+            var pidBytes = [UInt8](repeating: 0, count: 4)
+            var pidOffset = 0
+            while pidOffset < pidBytes.count {
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadline else { throw LauncherError.readinessTimeout }
+                var descriptor = pollfd(fd: armed[0], events: Int16(POLLIN | POLLHUP), revents: 0)
+                let remaining = Int32(min(UInt64(Int32.max), (deadline - now + 999_999) / 1_000_000))
+                let polled = poll(&descriptor, 1, remaining)
+                guard polled > 0 else { throw polled == 0 ? LauncherError.readinessTimeout : LauncherError.readinessProtocol }
+                let count = pidBytes.withUnsafeMutableBytes { raw in
+                    Darwin.read(armed[0], raw.baseAddress!.advanced(by: pidOffset), raw.count - pidOffset)
+                }
+                guard count > 0 else { throw LauncherError.readinessProtocol }
+                pidOffset += count
+            }
+            let nodePID = pidBytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            var response = try readBoundedResponse(readiness[0], deadline: deadline)
+            defer { response.resetBytes(in: 0..<response.count) }
+            try ReadinessProtocol.validateReady(response, token: token, pid: pid_t(bitPattern: nodePID))
+            guard kill(pid_t(bitPattern: nodePID), 0) == 0 || errno == EPERM else {
+                throw LauncherError.readinessProtocol
+            }
+            if let evidenceFD {
+                writeTestEvidence(evidenceFD, ["event": "browser-open", "count": 1])
+            } else if !NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8787/")!) {
+                throw LauncherError.browserOpenFailed
+            }
+            guard kill(pid_t(bitPattern: nodePID), 0) == 0 || errno == EPERM else {
+                throw LauncherError.readinessProtocol
+            }
+        } catch {
             close(lifetime[1]); lifetime[1] = -1
-            _ = kill(pid, SIGTERM)
-            var status: Int32 = 0; while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
-            throw SpawnError.system("supervisor_arm_timeout", ETIMEDOUT)
+            try? reap(supervisorPID)
+            throw error
         }
-        var status: Int32 = 0
-        while waitpid(pid, &status, 0) < 0 {
-            if errno != EINTR { throw SpawnError.system("wait_supervisor", errno) }
-        }
+        try reap(supervisorPID)
     }
 }
 

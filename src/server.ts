@@ -13,6 +13,10 @@ import {
   DataRootInUseError,
   type DataRootWriterLock,
 } from "./runtime/data-root-lock.js";
+import {
+  acquirePackagedReadinessChannel,
+  type PackagedReadinessChannel,
+} from "./runtime/readiness-channel.js";
 
 const config = loadConfig();
 
@@ -20,10 +24,14 @@ let store: ReturnType<typeof openGreenRoomDatabase> | undefined;
 let runtime: PersonaPackInspectionRuntime | undefined;
 let app: ReturnType<typeof buildApp> | undefined;
 let dataRootLock: DataRootWriterLock | undefined;
+let readiness: PackagedReadinessChannel | undefined;
 let closing = false;
 
 async function closeResources(): Promise<void> {
   const errors: unknown[] = [];
+  const currentReadiness = readiness;
+  readiness = undefined;
+  currentReadiness?.close();
   const currentApp = app;
   app = undefined;
   if (currentApp) {
@@ -80,6 +88,11 @@ async function shutdown(signal: string): Promise<void> {
 }
 
 try {
+  if (config.runtimeMode === "packaged-macos") {
+    // Authenticate the private inherited capability before payload validation,
+    // locking, migrations, or any other startup side effect.
+    readiness = await acquirePackagedReadinessChannel();
+  }
   const runtimeAssets = await verifyPackagedRuntimeAssets(config);
   dataRootLock = acquireDataRootWriterLock(config.dataDir);
   // Inspection validates and prepares its owned data-directory boundary before
@@ -127,6 +140,11 @@ try {
   });
 
   await app.listen({ host: config.host, port: config.port });
+  if (readiness) {
+    const currentReadiness = readiness;
+    await currentReadiness.proveReady();
+    readiness = undefined;
+  }
 } catch (error) {
   if (error instanceof DataRootInUseError) {
     process.stderr.write(`${JSON.stringify({ code: error.code })}\n`);

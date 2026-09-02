@@ -65,6 +65,32 @@ private func spawnChild(_ arguments: [String]) -> pid_t {
     return childPID
 }
 
+private func completeReadinessHandshake() {
+    var challenge = [UInt8]()
+    var byte: UInt8 = 0
+    while challenge.count <= 40 {
+        let count = Darwin.read(3, &byte, 1)
+        if count == 1 { challenge.append(byte); continue }
+        if count == 0 { break }
+        if errno != EINTR { _exit(75) }
+    }
+    guard challenge.count == 40,
+          Array(challenge.prefix(8)) == [0x47, 0x52, 0x52, 0x44, 1, 1, 0, 32]
+    else { _exit(76) }
+    let pid = UInt32(bitPattern: getpid())
+    var ready = [UInt8]([0x47, 0x52, 0x52, 0x44, 1, 2, 0, 36])
+    ready.append(contentsOf: challenge[8..<40])
+    ready.append(contentsOf: [
+        UInt8((pid >> 24) & 0xff), UInt8((pid >> 16) & 0xff),
+        UInt8((pid >> 8) & 0xff), UInt8(pid & 0xff),
+    ])
+    for responseByte in ready { writeAll(3, [responseByte]) }
+    _ = shutdown(3, SHUT_WR)
+    close(3)
+    _ = challenge.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+    _ = ready.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+}
+
 private func runPackagedFixture(serverPath: String) {
     guard let data = FileManager.default.contents(atPath: serverPath),
           let configuration = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -72,6 +98,7 @@ private func runPackagedFixture(serverPath: String) {
           let evidencePath = configuration["evidencePath"] as? String,
           let highFD = configuration["highFd"] as? Int
     else { _exit(74) }
+    if scenario == "readiness-timeout" { _ = fcntl(3, F_SETFD, FD_CLOEXEC) }
     if scenario == "ignore-term" {
         signal(SIGTERM, SIG_IGN)
     } else {
@@ -126,6 +153,13 @@ if mode == "cooperative-child", CommandLine.arguments.count == 5 {
 }
 if ProcessInfo.processInfo.environment["GREENROOM_RUNTIME_MODE"] == "packaged-macos",
    mode.hasPrefix("/"), mode.hasSuffix("/server.js") {
+    let configurationData = FileManager.default.contents(atPath: mode)
+    let configuration = configurationData.flatMap {
+        try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+    }
+    if configuration?["scenario"] as? String != "readiness-timeout" {
+        completeReadinessHandshake()
+    }
     runPackagedFixture(serverPath: mode)
 }
 let openFDs = (0..<64).filter { fcntl(Int32($0), F_GETFD) >= 0 }.map(String.init).joined(separator: ",")
