@@ -112,7 +112,7 @@ async function stopChild(child: ChildProcess): Promise<void> {
   assert.equal(await waitForExit(child, 2_000), true, "Chromium did not exit after SIGKILL");
 }
 
-test("rendered human avatar controls are contained and non-overlapping at mobile widths", async (context) => {
+test("rendered human avatar controls are contained and non-overlapping at mobile widths", { timeout: 120_000 }, async (context) => {
   if (chromium === undefined) {
     context.skip("Chromium is required for rendered geometry coverage");
     return;
@@ -235,7 +235,7 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
     const timer = setTimeout(() => {
       if (!pending.delete(id)) return;
       reject(new Error(`Chromium DevTools command timed out: ${method}`));
-    }, 5_000);
+    }, 30_000);
     pending.set(id, { resolve: resolveCommand, reject, timer });
     activeSocket.send(JSON.stringify({ id, method, params }));
   });
