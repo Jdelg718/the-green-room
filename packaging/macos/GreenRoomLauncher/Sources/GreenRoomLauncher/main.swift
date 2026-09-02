@@ -328,6 +328,19 @@ private func checked(_ code: Int32, _ operation: String) throws {
     if code != 0 { throw SpawnError.system(operation, code) }
 }
 
+private func writeTestEvidence(_ fd: Int32?, _ values: [String: Any]) {
+    guard let fd, let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
+          data.count < 4_096 else { return }
+    var bytes = Array(data) + [UInt8(0x0a)]
+    bytes.withUnsafeMutableBytes { raw in
+        var offset = 0
+        while offset < raw.count {
+            let count = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+            if count > 0 { offset += count } else if errno != EINTR { break }
+        }
+    }
+}
+
 private func withMutableCStringArray<R>(_ strings: [String], _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> R) rethrows -> R {
     let pointers = strings.map { strdup($0) }
     defer { pointers.forEach { free($0) } }
@@ -364,6 +377,7 @@ enum SupervisedProcess {
         outputLimit: Int = 64 * 1024,
         lifetimeFD: Int32?,
         armedFD: Int32?,
+        testEvidenceFD: Int32? = nil,
         shutdownRequested: () -> Bool = { false }
     ) throws -> SupervisedProcessResult {
         guard executable.hasPrefix("/"), cwd.hasPrefix("/"), outputLimit > 0 else {
@@ -388,6 +402,12 @@ enum SupervisedProcess {
         try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[1]), "close_stderr_source")
         try checked(posix_spawn_file_actions_addclose(&actions, stdoutPipe[0]), "close_stdout_read")
         try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[0]), "close_stderr_read")
+        if let testEvidenceFD {
+            try checked(posix_spawn_file_actions_adddup2(&actions, testEvidenceFD, 3), "dup_test_evidence")
+            if testEvidenceFD != 3 {
+                try checked(posix_spawn_file_actions_addclose(&actions, testEvidenceFD), "close_test_evidence_source")
+            }
+        }
         try checked(posix_spawn_file_actions_addchdir_np(&actions, cwd), "addchdir")
 
         var attributes: posix_spawnattr_t? = nil
@@ -406,7 +426,9 @@ enum SupervisedProcess {
 
         var pid: pid_t = 0
         let argv = [executable] + arguments
-        let env = environment.keys.sorted().map { "\($0)=\(environment[$0]!)" }
+        var childEnvironment = environment
+        if testEvidenceFD != nil { childEnvironment["GREENROOM_TEST_EVIDENCE_FD"] = "3" }
+        let env = childEnvironment.keys.sorted().map { "\($0)=\(childEnvironment[$0]!)" }
         let spawnCode = withMutableCStringArray(argv) { argvPointer in
             withMutableCStringArray(env) { envPointer in
                 posix_spawn(&pid, executable, &actions, &attributes, argvPointer, envPointer)
@@ -425,7 +447,9 @@ enum SupervisedProcess {
                 throw SpawnError.system("nonblocking_pipe", code)
             }
         }
-        if let armedFD {
+        var armed = false
+        func armOuter() throws {
+            guard !armed, let armedFD else { return }
             var byte: UInt8 = 1
             guard write(armedFD, &byte, 1) == 1 else {
                 let code = errno
@@ -434,7 +458,9 @@ enum SupervisedProcess {
                 while waitpid(pid, &cleanupStatus, 0) < 0 && errno == EINTR {}
                 throw SpawnError.system("armed_write", code)
             }
+            armed = true
         }
+        if testEvidenceFD == nil { try armOuter() }
 
         var out = BoundedStream.Accumulator(limit: outputLimit)
         var err = BoundedStream.Accumulator(limit: outputLimit)
@@ -490,6 +516,11 @@ enum SupervisedProcess {
             }
             if !stdoutEOF { stdoutEOF = drain(stdoutPipe[0], into: &out) }
             if !stderrEOF { stderrEOF = drain(stderrPipe[0], into: &err) }
+            if testEvidenceFD != nil, !armed,
+               out.bytes.range(of: Data("GREENROOM_TEST_FIXTURE_READY\n".utf8)) != nil {
+                try armOuter()
+                writeTestEvidence(testEvidenceFD, ["event": "internal-fixture-ready", "leaderPid": Int(pid)])
+            }
             if termSent, groupExists(), let sent = termAt, now - sent >= graceNanoseconds, !killSent {
                 killSent = true
                 if killpg(pid, SIGKILL) != 0 && errno != ESRCH { throw SpawnError.system("killpg_kill", errno) }
@@ -597,6 +628,20 @@ private final class SignalLatch: @unchecked Sendable {
 private enum SupervisorMode {
     static let lifetimeFD: Int32 = 3
     static let armedFD: Int32 = 4
+    static let testEvidenceFD: Int32 = 5
+    static let inheritedTestEvidenceFD: Int32 = 200
+
+    private static func availableTestEvidenceFD(_ fd: Int32) -> Int32? {
+        var status = stat()
+        let flags = fcntl(fd, F_GETFL)
+        guard fstat(fd, &status) == 0, flags >= 0 else { return nil }
+        let kind = status.st_mode & S_IFMT
+        if kind == S_IFREG {
+            let permissions = status.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)
+            return permissions == (S_IRUSR | S_IWUSR) && flags & O_APPEND != 0 ? fd : nil
+        }
+        return kind == S_IFIFO || kind == S_IFSOCK ? fd : nil
+    }
 
     static func runInternal(executable: URL) throws {
         guard CommandLine.arguments == [executable.path, "--internal-supervisor"],
@@ -605,15 +650,30 @@ private enum SupervisorMode {
         #if !arch(arm64)
         throw LauncherError.unsupportedArchitecture
         #endif
-        let bundle = try LauncherPreflight.bundleRoot(forExecutable: executable)
-        let manifest = try LauncherPreflight.validate(bundleRoot: bundle)
-        let runtime = try PackagedRuntime.resolve(bundleRoot: bundle, manifest: manifest)
-        let signals = SignalLatch()
-        _ = try SupervisedProcess.run(
-            executable: runtime.node, arguments: [runtime.server], environment: runtime.environment,
-            cwd: runtime.cwd, lifetimeFD: lifetimeFD, armedFD: armedFD,
-            shutdownRequested: { signals.requested }
-        )
+        let evidenceFD = availableTestEvidenceFD(testEvidenceFD)
+        do {
+            let bundle = try LauncherPreflight.bundleRoot(forExecutable: executable)
+            let manifest = try LauncherPreflight.validate(bundleRoot: bundle)
+            let runtime = try PackagedRuntime.resolve(bundleRoot: bundle, manifest: manifest)
+            let signals = SignalLatch()
+            let result = try SupervisedProcess.run(
+                executable: runtime.node, arguments: [runtime.server], environment: runtime.environment,
+                cwd: runtime.cwd, lifetimeFD: lifetimeFD, armedFD: armedFD,
+                testEvidenceFD: evidenceFD,
+                shutdownRequested: { signals.requested }
+            )
+            writeTestEvidence(evidenceFD, [
+                "event": "supervisor-result", "leaderPid": Int(result.pid),
+                "termSent": result.termSent, "killSent": result.killSent, "reaped": result.reaped,
+                "status": Int(result.status),
+                "stdoutTail": result.stdout.retained.suffix(1_024).base64EncodedString(),
+                "stderrTail": result.stderr.retained.suffix(1_024).base64EncodedString(),
+                "stdoutDiscarded": result.stdout.discardedBytes, "stderrDiscarded": result.stderr.discardedBytes,
+            ])
+        } catch {
+            writeTestEvidence(evidenceFD, ["event": "supervisor-error", "code": "internal_supervision_failed"])
+            throw error
+        }
     }
 
     static func launchOuter(executable: URL, bundleRoot: URL) throws {
@@ -639,6 +699,11 @@ private enum SupervisorMode {
         }
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedLifetime, lifetimeFD), "supervisor_lifetime_dup")
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedArmed, armedFD), "supervisor_armed_dup")
+        let evidenceFD = availableTestEvidenceFD(inheritedTestEvidenceFD)
+        if let evidenceFD {
+            try checked(posix_spawn_file_actions_adddup2(&actions, evidenceFD, testEvidenceFD), "supervisor_evidence_dup")
+            try checked(posix_spawn_file_actions_addclose(&actions, evidenceFD), "supervisor_evidence_source_close")
+        }
         try checked(posix_spawn_file_actions_addclose(&actions, inheritedLifetime), "supervisor_lifetime_source_close")
         try checked(posix_spawn_file_actions_addclose(&actions, inheritedArmed), "supervisor_armed_source_close")
         try checked(posix_spawn_file_actions_addchdir_np(&actions, bundleRoot.appendingPathComponent("Contents/Resources").path), "supervisor_chdir")
@@ -660,6 +725,7 @@ private enum SupervisorMode {
             }
         }
         try checked(code, "spawn_supervisor")
+        writeTestEvidence(evidenceFD, ["event": "internal-supervisor", "pid": Int(pid)])
         close(lifetime[0]); lifetime[0] = -1
         close(armed[1]); armed[1] = -1
         var pollDescriptor = pollfd(fd: armed[0], events: Int16(POLLIN | POLLHUP), revents: 0)

@@ -21,7 +21,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const packageRoot = join(repositoryRoot, "packaging/macos/GreenRoomLauncher");
 const HIGH_FD = 200;
-const CASE_TIMEOUT_MS = 10_000;
+// The launcher has a 10s fixture-arm deadline and a 5s TERM grace period.
+// Evidence waits remain strictly outside both nested deadlines.
+const CASE_TIMEOUT_MS = 18_000;
 
 function fail(code, message, details = undefined) {
   const error = new Error(message);
@@ -70,6 +72,7 @@ function makeSyntheticBundle(root, binaries, scenario) {
   const server = join(bundle, "Contents/Resources/app/dist/src/server.js");
   const validator = join(bundle, "Contents/Resources/validator/greenroom-persona");
   const evidencePath = join(root, `${scenario}-fixture.jsonl`);
+  const testEvidencePath = join(root, `${scenario}-private-evidence.jsonl`);
   const quitPath = join(root, `${scenario}-quit`);
   for (const directory of [dirname(launcher), dirname(node), dirname(server), dirname(validator)]) {
     mkdirSync(directory, { recursive: true });
@@ -103,7 +106,7 @@ function makeSyntheticBundle(root, binaries, scenario) {
   writeFileSync(join(bundle, "Contents/Resources/release-manifest.json"), `${JSON.stringify(manifest)}\n`, {
     mode: 0o644,
   });
-  return { launcher, node, evidencePath, quitPath };
+  return { launcher, node, evidencePath, testEvidencePath, quitPath };
 }
 
 function makeHostilePath(root) {
@@ -122,6 +125,35 @@ function readEvidence(path) {
   const text = readFileSync(path, "utf8");
   if (text.length > 64 * 1024) fail("evidence_unbounded", "fixture evidence exceeded 64 KiB");
   return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+class TestEvidenceReader {
+  constructor(path) {
+    this.path = path;
+  }
+
+  records() {
+    if (!existsSync(this.path)) return [];
+    const text = readFileSync(this.path, "utf8");
+    if (text.length > 64 * 1024) {
+      fail("evidence_unbounded", "private test evidence exceeded 64 KiB");
+    }
+    return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  }
+}
+
+export function validateCooperativeEvidence(records, name) {
+  const result = records.findLast((entry) => entry.event === "supervisor-result");
+  const cleanRoles = [...new Set(records
+    .filter((entry) => entry.event === "term-clean")
+    .map((entry) => entry.role))].sort();
+  if (result?.termSent !== true || result?.killSent !== false
+      || !cleanRoles.includes("leader") || !cleanRoles.includes("descendant")) {
+    fail("cooperative_shutdown_unproven", `${name} did not prove cooperative TERM-only shutdown`, {
+      termSent: result?.termSent, killSent: result?.killSent, cleanRoles,
+    });
+  }
+  return { termSent: true, killSent: false, cleanRoles };
 }
 
 function existsProcess(pid) {
@@ -168,60 +200,90 @@ function waitForExit(child, timeout = CASE_TIMEOUT_MS) {
   });
 }
 
-function spawnOuter(bundle, hostilePath, inheritedFD) {
+function spawnOuter(bundle, hostilePath) {
   const stdio = ["ignore", "pipe", "pipe"];
   while (stdio.length <= HIGH_FD) stdio.push("ignore");
-  stdio[HIGH_FD] = inheritedFD;
-  const child = spawn(bundle.launcher, [], {
-    argv0: bundle.launcher,
-    env: { LANG: "C", LC_ALL: "C", PATH: hostilePath },
-    stdio,
-  });
+  const evidenceFD = openSync(bundle.testEvidencePath, "a+", 0o600);
+  stdio[HIGH_FD] = evidenceFD;
+  let child;
+  try {
+    child = spawn(bundle.launcher, [], {
+      argv0: bundle.launcher,
+      env: { LANG: "C", LC_ALL: "C", PATH: hostilePath },
+      stdio,
+    });
+  } finally {
+    closeSync(evidenceFD);
+  }
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => { stdout = (stdout + chunk).slice(-8192); });
   child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-8192); });
-  return { child, output: () => ({ stdout, stderr }) };
+  return {
+    child,
+    evidence: new TestEvidenceReader(bundle.testEvidencePath),
+    output: () => ({ stdout, stderr }),
+  };
 }
 
-async function runCase(root, binaries, hostilePath, inheritedFD, name, scenario, stop) {
+async function runCase(root, binaries, hostilePath, name, scenario, stop, cooperative = false) {
   const bundle = makeSyntheticBundle(root, binaries, scenario);
-  const outer = spawnOuter(bundle, hostilePath, inheritedFD);
+  const outer = spawnOuter(bundle, hostilePath);
   let records = [];
+  let privateRecords = [];
+  let absenceEstablished = false;
   try {
-    records = await waitUntil(() => {
-      const current = readEvidence(bundle.evidencePath);
-      const roles = new Set(current.map((entry) => entry.role));
+    privateRecords = await waitUntil(() => {
+      const current = outer.evidence.records();
+      const roles = new Set(current
+        .filter((entry) => entry.event === "fixture-ready")
+        .map((entry) => entry.role));
       const required = scenario === "startup-crossing"
         ? roles.has("leader")
         : roles.has("leader") && roles.has("descendant");
-      return required ? current : null;
+      const internalReady = current.some((entry) => entry.event === "internal-fixture-ready");
+      return required && internalReady ? current : null;
     }, `${name} fixture readiness`);
+    records = readEvidence(bundle.evidencePath);
     for (const record of records.filter((entry) => entry.role === "leader" || entry.role === "descendant")) {
       if (record.executable !== bundle.node) {
         fail("wrong_executable", `${name} ran an unexpected executable`, record);
       }
-      if (record.highFdOpen || record.pathPresent || JSON.stringify(record.fds) !== "[0,1,2]") {
+      if (record.highFdOpen || record.testEvidenceFdOpen !== true || record.pathPresent
+          || JSON.stringify(record.fds) !== "[0,1,2]") {
         fail("unsafe_inheritance", `${name} inherited forbidden process state`, record);
       }
     }
     await stop(outer.child, bundle);
     const exit = await waitForExit(outer.child);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 30));
+    privateRecords = await waitUntil(() => {
+      const current = outer.evidence.records();
+      return current.some((entry) => entry.event === "supervisor-result") ? current : null;
+    }, `${name} internal supervisor result`);
     records = readEvidence(bundle.evidencePath);
+    const supervisor = privateRecords.find((entry) => entry.event === "internal-supervisor");
+    if (!Number.isInteger(supervisor?.pid)) {
+      fail("internal_supervisor_unreported", `${name} did not report its internal supervisor`);
+    }
     const knownPids = [...new Set(records
       .filter((entry) => entry.role === "leader" || entry.role === "descendant" || entry.role === "spawned-descendant")
-      .map((entry) => entry.pid))];
+      .map((entry) => entry.pid).concat([outer.child.pid, supervisor.pid]))];
     const pgids = [...new Set(records.map((entry) => entry.pgid).filter(Number.isInteger))];
     await waitUntil(
       () => knownPids.every((pid) => !existsProcess(pid)) && pgids.every((pgid) => !existsGroup(pgid)),
       `${name} process-tree cleanup`,
     );
+    absenceEstablished = true;
     const remainingPids = knownPids.filter(existsProcess);
     const groupExists = pgids.some(existsGroup);
     if (remainingPids.length !== 0 || groupExists) {
       fail("process_tree_survived", `${name} left a live process tree`, { remainingPids, pgids });
     }
+    const result = privateRecords.findLast((entry) => entry.event === "supervisor-result");
+    const cooperativeResult = cooperative
+      ? validateCooperativeEvidence(privateRecords, name)
+      : { cleanRoles: [...new Set(privateRecords
+        .filter((entry) => entry.event === "term-clean").map((entry) => entry.role))].sort() };
     return {
       name,
       outerExit: exit,
@@ -229,22 +291,64 @@ async function runCase(root, binaries, hostilePath, inheritedFD, name, scenario,
       pgids,
       remainingPids,
       groupExists,
+      internalSupervisorPid: supervisor.pid,
+      internalSupervisorAbsent: !existsProcess(supervisor.pid),
+      termSent: result?.termSent,
+      killSent: result?.killSent,
+      cleanTermRoles: cooperativeResult.cleanRoles,
     };
   } catch (error) {
+    // Failure cleanup uses only the still-owned outer process/lifetime channel.
+    // Waiting for its supervised result makes bounded child diagnostics available
+    // before the verifier reports the original failure.
+    if (outer.child.exitCode === null && outer.child.signalCode === null) {
+      try { process.kill(outer.child.pid, "SIGTERM"); } catch (signalError) {
+        if (signalError?.code !== "ESRCH") throw signalError;
+      }
+      try { await waitForExit(outer.child, CASE_TIMEOUT_MS); } catch {}
+    }
+    try {
+      const started = outer.evidence.records();
+      if (started.some((entry) => entry.event === "internal-supervisor")) {
+        await waitUntil(() => {
+          const current = outer.evidence.records();
+          return current.some((entry) => entry.event === "supervisor-result"
+            || entry.event === "supervisor-error") ? current : null;
+        }, `${name} failure diagnostics`);
+      }
+      const cleanupPrivate = outer.evidence.records();
+      const cleanupFixture = readEvidence(bundle.evidencePath);
+      const cleanupPids = [...new Set([
+        outer.child.pid,
+        ...cleanupPrivate.filter((entry) => entry.event === "internal-supervisor"
+          || entry.event === "fixture-ready").map((entry) => entry.pid),
+        ...cleanupFixture.map((entry) => entry.pid).filter(Number.isInteger),
+      ])];
+      const cleanupGroups = [...new Set(cleanupFixture.map((entry) => entry.pgid).filter(Number.isInteger))];
+      await waitUntil(() => cleanupPids.every((pid) => !existsProcess(pid))
+        && cleanupGroups.every((pgid) => !existsGroup(pgid)), `${name} failure cleanup`);
+    } catch (cleanupError) {
+      error.cleanupError = String(cleanupError);
+    }
     const output = outer.output();
+    let evidenceDiagnostics = [];
+    try { evidenceDiagnostics = outer.evidence.records(); } catch (evidenceError) {
+      evidenceDiagnostics = [{ event: "evidence-parse-error", message: String(evidenceError) }];
+    }
     error.details = {
       ...(error.details ?? {}), case: name, outerExitCode: outer.child.exitCode,
-      outerSignal: outer.child.signalCode, ...output,
+      outerSignal: outer.child.signalCode, privateEvidence: evidenceDiagnostics,
+      cleanupError: error.cleanupError, ...output,
     };
     throw error;
   } finally {
-    if (outer.child.exitCode === null && outer.child.signalCode === null) {
-      try { process.kill(outer.child.pid, "SIGKILL"); } catch {}
-    }
-    for (const record of readEvidence(bundle.evidencePath)) {
-      if (Number.isInteger(record.pgid)) {
-        try { process.kill(-record.pgid, "SIGKILL"); } catch {}
+    // Cleanup is owned by the still-live outer process and its lifetime pipe.
+    // Never signal a historical PID/PGID after absence has been established.
+    if (!absenceEstablished && outer.child.exitCode === null && outer.child.signalCode === null) {
+      try { process.kill(outer.child.pid, "SIGTERM"); } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
       }
+      try { await waitForExit(outer.child, CASE_TIMEOUT_MS); } catch {}
     }
   }
 }
@@ -257,31 +361,45 @@ export async function verifyProcessTree() {
   // executable. Keep the spelling returned by mkdtemp so argv[0] is canonical
   // under the launcher's strict invocation contract.
   const root = mkdtempSync(join(tmpdir(), "GreenRoomProcessTree-"));
-  const inheritedFD = openSync("/dev/null", "r");
   try {
     const { hostile, trap } = makeHostilePath(root);
     const cases = [];
-    cases.push(await runCase(root, binaries, hostile, inheritedFD, "outer-exit", "normal-exit", async (_child, bundle) => {
+    cases.push(await runCase(root, binaries, hostile, "outer-exit", "normal-exit", async (_child, bundle) => {
       writeFileSync(bundle.quitPath, "quit\n", { mode: 0o600 });
     }));
-    cases.push(await runCase(root, binaries, hostile, inheritedFD, "outer-sigkill", "outer-sigkill", async (child) => {
+    cases.push(await runCase(root, binaries, hostile, "outer-sigkill", "outer-sigkill", async (child) => {
       process.kill(child.pid, "SIGKILL");
     }));
-    cases.push(await runCase(root, binaries, hostile, inheritedFD, "startup-crossing", "startup-crossing", async (child) => {
+    cases.push(await runCase(root, binaries, hostile, "startup-crossing", "startup-crossing", async (child) => {
       process.kill(child.pid, "SIGKILL");
     }));
+    cases.push(await runCase(root, binaries, hostile, "cooperative-term", "cooperative-term", async (child) => {
+      process.kill(child.pid, "SIGTERM");
+    }, true));
+    let termIgnoringMutationRejected = false;
+    try {
+      await runCase(root, binaries, hostile, "term-ignoring-mutation", "ignore-term", async (child) => {
+        process.kill(child.pid, "SIGTERM");
+      }, true);
+    } catch (error) {
+      if (error?.code !== "cooperative_shutdown_unproven") throw error;
+      termIgnoringMutationRejected = true;
+    }
+    if (!termIgnoringMutationRejected) {
+      fail("mutation_false_pass", "TERM-ignoring fixture unexpectedly passed cooperative verification");
+    }
     const hostilePathTrapTouched = existsSync(trap);
     if (hostilePathTrapTouched) fail("hostile_path_executed", "a hostile PATH executable ran");
     return {
       code: "process_tree_verified",
       schemaVersion: 1,
       cases,
+      termIgnoringMutationRejected,
       hostilePathTrapTouched,
       highFd: HIGH_FD,
       highFdInherited: false,
     };
   } finally {
-    closeSync(inheritedFD);
     rmSync(root, { recursive: true, force: true });
   }
 }

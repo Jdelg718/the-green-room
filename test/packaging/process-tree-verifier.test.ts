@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 
 // The verifier is JavaScript because it is also a directly executable packaging gate.
-const { platformDisposition } = await import(pathToFileURL(
+const { platformDisposition, validateCooperativeEvidence } = await import(pathToFileURL(
   resolve("scripts/package/verify-process-tree.mjs"),
 ).href);
 
@@ -16,6 +16,27 @@ test("process-tree verifier has an explicit non-macOS skip contract", () => {
     reason: "requires_darwin_arm64",
   });
   assert.equal(platformDisposition("darwin", "arm64").action, "run");
+});
+
+test("cooperative evidence rejects TERM-ignoring fixtures and KILL escalation", () => {
+  assert.throws(
+    () => validateCooperativeEvidence([
+      { event: "supervisor-result", termSent: true, killSent: true },
+    ], "mutation"),
+    (error: Error & { code?: string }) => error.code === "cooperative_shutdown_unproven",
+  );
+  assert.throws(
+    () => validateCooperativeEvidence([
+      { event: "supervisor-result", termSent: true, killSent: false },
+      { event: "term-clean", role: "leader" },
+    ], "missing-descendant"),
+    (error: Error & { code?: string }) => error.code === "cooperative_shutdown_unproven",
+  );
+  assert.doesNotThrow(() => validateCooperativeEvidence([
+    { event: "supervisor-result", termSent: true, killSent: false },
+    { event: "term-clean", role: "leader" },
+    { event: "term-clean", role: "descendant" },
+  ], "cooperative"));
 });
 
 test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout: 60_000 }, () => {
@@ -32,11 +53,18 @@ test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout:
       "outer-exit",
       "outer-sigkill",
       "startup-crossing",
+      "cooperative-term",
     ]);
     for (const entry of evidence.cases) {
       assert.equal(entry.remainingPids.length, 0);
       assert.equal(entry.groupExists, false);
+      assert.equal(entry.internalSupervisorAbsent, true);
     }
+    const cooperative = evidence.cases.find((entry: { name: string }) => entry.name === "cooperative-term");
+    assert.equal(cooperative.termSent, true);
+    assert.equal(cooperative.killSent, false);
+    assert.deepEqual(cooperative.cleanTermRoles, ["descendant", "leader"]);
+    assert.equal(evidence.termIgnoringMutationRejected, true);
     assert.equal(evidence.hostilePathTrapTouched, false);
     assert.equal(evidence.highFdInherited, false);
   } else {

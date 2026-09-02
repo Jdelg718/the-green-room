@@ -17,8 +17,35 @@ private func writeAll(_ fd: Int32, _ bytes: [UInt8]) {
     }
 }
 
-private func installCooperativeTERMHandler() {
-    signal(SIGTERM) { _ in _exit(0) }
+nonisolated(unsafe) private var termEvidenceFD: Int32 = -1
+nonisolated(unsafe) private var termEvidenceBytes: UnsafeMutablePointer<CChar>?
+nonisolated(unsafe) private var termEvidenceCount = 0
+
+private func testEvidenceFD() -> Int32? {
+    guard let value = ProcessInfo.processInfo.environment["GREENROOM_TEST_EVIDENCE_FD"],
+          let fd = Int32(value), fcntl(fd, F_GETFD) >= 0 else { return nil }
+    return fd
+}
+
+private func emitTestEvidence(_ values: [String: Any]) {
+    guard let fd = testEvidenceFD(),
+          let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]) else { return }
+    writeAll(fd, Array(data) + [0x0a])
+}
+
+private func installCooperativeTERMHandler(role: String? = nil) {
+    if let fd = testEvidenceFD(), let role {
+        let line = "{\"event\":\"term-clean\",\"role\":\"\(role)\"}\n"
+        termEvidenceFD = fd
+        termEvidenceBytes = strdup(line)
+        termEvidenceCount = line.utf8.count
+    }
+    signal(SIGTERM) { _ in
+        if termEvidenceFD >= 0, let bytes = termEvidenceBytes {
+            _ = Darwin.write(termEvidenceFD, bytes, termEvidenceCount)
+        }
+        _exit(0)
+    }
 }
 
 private func appendEvidence(_ path: String, _ values: [String: Any]) {
@@ -45,14 +72,23 @@ private func runPackagedFixture(serverPath: String) {
           let evidencePath = configuration["evidencePath"] as? String,
           let highFD = configuration["highFd"] as? Int
     else { _exit(74) }
-    installCooperativeTERMHandler()
+    if scenario == "ignore-term" {
+        signal(SIGTERM, SIG_IGN)
+    } else {
+        installCooperativeTERMHandler(role: "leader")
+    }
+    let evidenceFD = testEvidenceFD()
     let openFDs = (0..<256).filter { fcntl(Int32($0), F_GETFD) >= 0 }
+    let productionFDs = openFDs.filter { Int32($0) != evidenceFD }
     appendEvidence(evidencePath, [
         "role": "leader", "pid": Int(getpid()), "pgid": Int(getpgrp()),
-        "scenario": scenario, "fds": openFDs, "highFdOpen": openFDs.contains(highFD),
+        "scenario": scenario, "fds": productionFDs, "highFdOpen": openFDs.contains(highFD),
+        "testEvidenceFdOpen": evidenceFD != nil,
         "pathPresent": ProcessInfo.processInfo.environment["PATH"] != nil,
         "executable": CommandLine.arguments[0],
     ])
+    emitTestEvidence(["event": "fixture-ready", "role": "leader", "pid": Int(getpid())])
+    writeAll(STDOUT_FILENO, Array("GREENROOM_TEST_FIXTURE_READY\n".utf8))
     if scenario == "startup-crossing" {
         usleep(500_000)
     }
@@ -69,16 +105,23 @@ private func runPackagedFixture(serverPath: String) {
 
 let mode = CommandLine.arguments.dropFirst().first ?? "report"
 if mode == "cooperative-child", CommandLine.arguments.count == 5 {
-    installCooperativeTERMHandler()
+    if CommandLine.arguments[3] == "ignore-term" {
+        signal(SIGTERM, SIG_IGN)
+    } else {
+        installCooperativeTERMHandler(role: "descendant")
+    }
     let highFD = Int(CommandLine.arguments[4]) ?? -1
+    let evidenceFD = testEvidenceFD()
     let openFDs = (0..<256).filter { fcntl(Int32($0), F_GETFD) >= 0 }
+    let productionFDs = openFDs.filter { Int32($0) != evidenceFD }
     appendEvidence(CommandLine.arguments[2], [
         "role": "descendant", "pid": Int(getpid()), "pgid": Int(getpgrp()),
-        "scenario": CommandLine.arguments[3], "fds": openFDs,
-        "highFdOpen": openFDs.contains(highFD),
+        "scenario": CommandLine.arguments[3], "fds": productionFDs,
+        "highFdOpen": openFDs.contains(highFD), "testEvidenceFdOpen": evidenceFD != nil,
         "pathPresent": ProcessInfo.processInfo.environment["PATH"] != nil,
         "executable": CommandLine.arguments[0],
     ])
+    emitTestEvidence(["event": "fixture-ready", "role": "descendant", "pid": Int(getpid())])
     while true { pause() }
 }
 if ProcessInfo.processInfo.environment["GREENROOM_RUNTIME_MODE"] == "packaged-macos",
