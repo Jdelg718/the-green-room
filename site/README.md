@@ -30,7 +30,8 @@ The validator uses only the Python standard library. It checks required pages an
 - `assets/site.css` — shared Backstage Electric styles using system fonts
 - `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations; six remain website-only non-runtime holds; originals and generation metadata are not web assets
 - `assets/favicon.svg` — local CSS-style GR slash mark
-- `assets/social-card-placeholder.svg` — text-only metadata placeholder, not approved campaign artwork
+- `assets/social-card.png` — approved 1200 × 630 Backstage Electric Open Graph/Twitter image
+- `../design/social-card/backstage-electric.svg` — editable source for the approved social card
 - `scripts/validate.py` — dependency-free static policy validator
 
 ## Deployment contract

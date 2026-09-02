@@ -518,7 +518,26 @@ class StaticPolicyTests(unittest.TestCase):
             original.write_bytes(b"not approved for the public site")
             errors = validate.collect_errors(site)
             self.assert_rejected(errors, "unexpected public portrait asset")
-            self.assert_rejected(errors, "outside portrait allowlist")
+            self.assert_rejected(errors, "outside reviewed allowlist")
+
+    def test_social_card_metadata_is_exact_and_unique(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            duplicate = (
+                '<meta property="og:image" '
+                'content="https://greenroomai.net/assets/portraits/ada-lovelace.webp">\n  '
+            )
+            page.write_text(
+                source.replace('<meta property="og:image"', duplicate + '<meta property="og:image"', 1),
+                encoding="utf-8",
+            )
+            self.assert_rejected(
+                validate.collect_errors(site),
+                "missing unique exact og:image social-card metadata",
+            )
 
     def test_character_portraits_require_reviewed_local_markup_and_alt_text(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
