@@ -388,6 +388,7 @@ jobs:
             warm '/usr/bin/defaults domains >/dev/null'
             warm '/usr/bin/security list-keychains -d user >/dev/null'
             warm 'mkdir -p "$HOME/.greenroom-warm" && "$CC" -x c -c /dev/null -o "$HOME/.greenroom-warm/empty.o" && rm -rf "$HOME/.greenroom-warm"'
+            warm 'mkdir -p "$HOME/.greenroom-trust-warm" && "$CC" -isysroot "$SDKROOT" -dynamiclib -x c /dev/null -o "$HOME/.greenroom-trust-warm/empty.dylib" && /usr/bin/file "$HOME/.greenroom-trust-warm/empty.dylib" | /usr/bin/grep -q "Mach-O 64-bit dynamically linked shared library arm64" && /usr/bin/codesign -dv --verbose=4 "$HOME/.greenroom-trust-warm/empty.dylib" 2>&1 | /usr/bin/grep -q "Signature=adhoc" && /usr/bin/python3 -c '\''import ctypes,sys; ctypes.CDLL(sys.argv[1])'\'' "$HOME/.greenroom-trust-warm/empty.dylib" && rm -rf "$HOME/.greenroom-trust-warm"'
           fi
           warm 'git ls-remote https://github.com/git/git.git HEAD >/dev/null'
           previous=""; accepted=false; attempts=0
@@ -439,7 +440,7 @@ jobs:
               npm_package_config_node_gyp_devdir="$EVIDENCE_ROOT/cache/node-gyp"
             )
           fi
-          sudo -u "$EVIDENCE_USER" env \
+          sudo -u "$EVIDENCE_USER" env -u NODE_COMPILE_CACHE \
             HOME="$EVIDENCE_SOURCE_HOME" \
             TMPDIR="$EVIDENCE_SOURCE_TMP" \
             PATH="$EVIDENCE_TOOL_PATH" \
