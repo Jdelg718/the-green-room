@@ -124,6 +124,7 @@ function sidecarEnvironment(executablePath: string): NodeJS.ProcessEnv {
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     PYTHONNOUSERSITE: "1",
+    PYTHONDONTWRITEBYTECODE: "1",
     PYTHONSAFEPATH: "1",
     PYTHONUTF8: "1",
     PYTHONIOENCODING: "utf-8",

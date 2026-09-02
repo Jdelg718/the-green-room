@@ -13,8 +13,16 @@ import pytest
 
 from greenroom_persona import inspect_pack, render_human, render_json, validated_prompt
 from greenroom_persona.limits import MAX_REPORT_BYTES
+from greenroom_persona.runtime_policy import install_runtime_policy
 
 from .fixture_builder import manifest_yaml, minimal_files
+
+
+def test_cli_runtime_policy_denies_network_without_opening_a_socket() -> None:
+    install_runtime_policy()
+
+    with pytest.raises(PermissionError, match="network access is disabled"):
+        sys.audit("socket.connect", None)
 
 
 def expected_section(name: str, content: bytes) -> bytes:

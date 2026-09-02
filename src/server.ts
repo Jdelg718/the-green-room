@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url";
-
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
@@ -9,6 +7,7 @@ import {
   type PersonaPackInspectionRuntime,
 } from "./personas/persona-pack-inspection-runtime.js";
 import { selectProvider } from "./providers/select-provider.js";
+import { verifyPackagedRuntimeAssets } from "./platform/runtime-assets.js";
 import {
   acquireDataRootWriterLock,
   DataRootInUseError,
@@ -16,10 +15,6 @@ import {
 } from "./runtime/data-root-lock.js";
 
 const config = loadConfig();
-const personaCatalog = loadBundledPersonaCatalog({
-  historicalRoot: fileURLToPath(new URL("../personas/historical", import.meta.url)),
-  originalRoot: fileURLToPath(new URL("../personas/original", import.meta.url)),
-});
 
 let store: ReturnType<typeof openGreenRoomDatabase> | undefined;
 let runtime: PersonaPackInspectionRuntime | undefined;
@@ -85,13 +80,21 @@ async function shutdown(signal: string): Promise<void> {
 }
 
 try {
+  const runtimeAssets = await verifyPackagedRuntimeAssets(config);
   dataRootLock = acquireDataRootWriterLock(config.dataDir);
   // Inspection validates and prepares its owned data-directory boundary before
   // SQLite can create or migrate anything beneath an explicitly symlinked path.
-  runtime = await buildPersonaPackInspectionRuntime(config);
+  runtime = await buildPersonaPackInspectionRuntime({
+    ...config,
+    personaPreflightFixture: runtimeAssets.personaPreflightFixture,
+  });
   store = openGreenRoomDatabase({
     dataDir: config.dataDir,
-    migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
+    migrationsDir: runtimeAssets.migrationsDir,
+  });
+  const personaCatalog = loadBundledPersonaCatalog({
+    historicalRoot: runtimeAssets.historicalCatalogDir,
+    originalRoot: runtimeAssets.originalCatalogDir,
   });
   const provider = selectProvider({
     acceptanceFixture: config.acceptanceFixture,
@@ -113,7 +116,7 @@ try {
     ...(runtime.service === undefined
       ? {}
       : { personaPackInspectionService: runtime.service }),
-    publicDir: fileURLToPath(new URL("../public", import.meta.url)),
+    publicDir: runtimeAssets.publicDir,
   });
 
   process.once("SIGINT", () => {
