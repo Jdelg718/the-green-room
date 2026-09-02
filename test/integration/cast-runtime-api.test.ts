@@ -123,12 +123,14 @@ test("selected historical slug reaches provider while durable participant id sta
   });
   context.after(() => service.close());
   const replaced = await service.replaceCast({
+    selectionRevision: 0,
     requestId: "runtime-cast",
     personaSlugs: ["ada-lovelace"],
   });
   const participant = replaced.room.participants.find(({ kind }) => kind === "persona");
   assert.ok(participant);
   const result = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "historical-message",
     text: "What is the engine?",
@@ -154,11 +156,13 @@ test("selected historical slug reaches provider while durable participant id sta
   ), false);
   assert.doesNotMatch(durableRuntimeState, /org\.greenroom\.historical|AGENTS\.md|SOURCES\.md|PROVENANCE\.md|sourcePath/);
   await service.mute({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "mute-historical",
     personaId: participant.id,
   });
   const muted = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "muted-message",
     text: "Can anyone answer?",
@@ -166,11 +170,13 @@ test("selected historical slug reaches provider while durable participant id sta
   assert.equal(muted.decision.reason, "no_eligible_persona");
   assert.equal(provider.calls.length, 1);
   await service.unmute({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "unmute-historical",
     personaId: participant.id,
   });
   const eligible = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "cooldown-message",
     text: "Immediately again?",
@@ -178,6 +184,7 @@ test("selected historical slug reaches provider while durable participant id sta
   assert.equal(eligible.decision.speaker, participant.id);
   assert.equal(provider.calls.length, 2);
   const consecutive = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "eligible-message",
     text: "Now again?",
@@ -198,6 +205,7 @@ test("three-person casts schedule only selected slugs while preserving mute, coo
   });
   context.after(() => service.close());
   const replaced = await service.replaceCast({
+    selectionRevision: 0,
     requestId: "runtime-cast-three",
     personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"],
   });
@@ -205,29 +213,34 @@ test("three-person casts schedule only selected slugs while preserving mute, coo
   assert.equal(personas.length, 3);
 
   const first = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-first",
     text: "First response.",
   });
   assert.equal(first.decision.speaker, personas[0]?.id);
   await service.mute({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-mute-newton",
     personaId: personas[1]?.id ?? "",
   });
   const second = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-second",
     text: "Skip the muted cast member.",
   });
   assert.equal(second.decision.speaker, personas[2]?.id);
   const third = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-third",
     text: "Respect the last-speaker cooldown.",
   });
   assert.equal(third.decision.speaker, personas[0]?.id);
   const exhausted = await service.sendMessage({
+    selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-budget",
     text: "The hard budget now applies.",
@@ -240,7 +253,7 @@ test("three-person casts schedule only selected slugs while preserving mute, coo
   ]);
 });
 
-test("replacement aborts latched old generation and stale completion appends no persona row", async (context) => {
+test("creating another room leaves latched generation scoped to its original room", async (context) => {
   const store = temporaryStore(context);
   const provider = new LatchingProvider();
   const service = new RoomService({
@@ -250,27 +263,29 @@ test("replacement aborts latched old generation and stale completion appends no 
   });
   context.after(() => service.close());
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "old-latched",
     text: "Wait here.",
   });
   await provider.entered;
   const replaced = await service.replaceCast({
+    selectionRevision: 0,
     requestId: "replace-latched",
     personaSlugs: ["isaac-newton"],
   });
-  assert.equal(provider.signal?.aborted, true);
+  assert.equal(provider.signal?.aborted, false);
   provider.release();
-  assert.equal((await pending).outcome, "stale");
+  assert.equal((await pending).outcome, "text");
   assert.equal(currentRoomId(store.database), replaced.sessionId);
   assert.equal(store.database.prepare(
     `SELECT count(*) AS count FROM events
      WHERE room_id = 'first-playable'
        AND json_extract(event_json, '$.type') = 'persona_message'`,
-  ).get()?.count, 0);
+  ).get()?.count, 1);
 });
 
-test("replacement through a second database handle aborts the old service promptly", async (context) => {
+test("creating through a second database handle does not abort another room", async (context) => {
   const dataDir = mkdtempSync(join(tmpdir(), "green-room-cross-handle-"));
   const firstStore = openGreenRoomDatabase({ dataDir, migrationsDir });
   const secondStore = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -291,18 +306,20 @@ test("replacement through a second database handle aborts the old service prompt
     await firstService.close();
   });
   const pending = firstService.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "cross-handle-latched",
     text: "Fence this generation.",
   });
   await provider.entered;
   await secondService.replaceCast({
+    selectionRevision: 0,
     requestId: "cross-handle-cast",
     personaSlugs: ["mary-shelley"],
   });
-  assert.equal(provider.signal?.aborted, true);
+  assert.equal(provider.signal?.aborted, false);
   provider.release();
-  assert.equal((await pending).outcome, "stale");
+  assert.equal((await pending).outcome, "text");
 });
 
 test("replaying an older successful cast request never aborts or fences the newer authoritative session", async (context) => {
@@ -315,14 +332,17 @@ test("replaying an older successful cast request never aborts or fences the newe
   });
   context.after(() => service.close());
   const older = await service.replaceCast({
+    selectionRevision: 0,
     requestId: "older-cast-request",
     personaSlugs: ["ada-lovelace"],
   });
   const newer = await service.replaceCast({
+    selectionRevision: 1,
     requestId: "newer-cast-request",
     personaSlugs: ["isaac-newton"],
   });
   const pending = service.sendMessage({
+    selectionRevision: 2,
     roomId: newer.sessionId,
     requestId: "newer-latched-message",
     text: "Remain authoritative.",
@@ -330,6 +350,7 @@ test("replaying an older successful cast request never aborts or fences the newe
   await provider.entered;
 
   assert.deepEqual(await service.replaceCast({
+    selectionRevision: 0,
     requestId: "older-cast-request",
     personaSlugs: ["ada-lovelace"],
   }), older);
@@ -337,6 +358,7 @@ test("replaying an older successful cast request never aborts or fences the newe
   assert.equal(provider.signal?.aborted, false);
   await assert.rejects(
     service.replaceCast({
+      selectionRevision: 0,
       requestId: "older-cast-request",
       personaSlugs: ["mary-shelley"],
     }),
@@ -409,17 +431,17 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     {
       expected: 400,
       headers: { ...headers, host: "evil.example" },
-      payload: { requestId: "hostile", personaSlugs: ["ada-lovelace"] },
+      payload: { requestId: "hostile", selectionRevision: 0, personaSlugs: ["ada-lovelace"] },
     },
     {
       expected: 403,
       headers: { ...headers, origin: "http://evil.example" },
-      payload: { requestId: "origin", personaSlugs: ["ada-lovelace"] },
+      payload: { requestId: "origin", selectionRevision: 0, personaSlugs: ["ada-lovelace"] },
     },
     {
       expected: 403,
       headers: { ...headers, "x-csrf-token": `${token}bad` },
-      payload: { requestId: "csrf", personaSlugs: ["ada-lovelace"] },
+      payload: { requestId: "csrf", selectionRevision: 0, personaSlugs: ["ada-lovelace"] },
     },
   ];
   for (const blocked of blockedRequests) {
@@ -438,6 +460,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     headers,
     payload: JSON.stringify({
       requestId: "oversized",
+      selectionRevision: 0,
       personaSlugs: ["ada-lovelace"],
       padding: "x".repeat(65_536),
     }),
@@ -445,11 +468,11 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   assert.equal(oversized.statusCode, 413);
   assertNoCastSideEffects();
   for (const payload of [
-    { requestId: "zero", personaSlugs: [] },
-    { requestId: "duplicate", personaSlugs: ["ada-lovelace", "ada-lovelace"] },
-    { requestId: "unknown", personaSlugs: ["unknown"] },
-    { requestId: "four", personaSlugs: ["ada-lovelace", "isaac-newton", "mary-shelley", "jane-austen"] },
-    { requestId: "extra", personaSlugs: ["ada-lovelace"], extra: true },
+    { requestId: "zero", selectionRevision: 0, personaSlugs: [] },
+    { requestId: "duplicate", selectionRevision: 0, personaSlugs: ["ada-lovelace", "ada-lovelace"] },
+    { requestId: "unknown", selectionRevision: 0, personaSlugs: ["unknown"] },
+    { requestId: "four", selectionRevision: 0, personaSlugs: ["ada-lovelace", "isaac-newton", "mary-shelley", "jane-austen"] },
+    { requestId: "extra", selectionRevision: 0, personaSlugs: ["ada-lovelace"], extra: true },
   ]) {
     const invalid = await app.inject({
       method: "POST",
@@ -465,14 +488,14 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     method: "POST",
     url: "/api/rooms/first-playable/cast",
     headers,
-    payload: { requestId: "api-cast", personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
+    payload: { requestId: "api-cast", selectionRevision: 0, personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
   });
   assert.equal(castResponse.statusCode, 200, castResponse.body);
   const cast = castResponse.json<{
     sessionId: string;
     room: { id: string; sessionId: string; participants: Array<{ id: string; kind: string }> };
   }>();
-  assert.equal(cast.room.id, "first-playable");
+  assert.equal(cast.room.id, cast.sessionId);
   assert.equal(cast.room.sessionId, cast.sessionId);
   assert.equal(cast.room.participants.length, 4);
   const castParticipantIds = cast.room.participants
@@ -483,14 +506,14 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
     method: "POST",
     url: "/api/rooms/first-playable/cast",
     headers,
-    payload: { requestId: "api-cast", personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
+    payload: { requestId: "api-cast", selectionRevision: 0, personaSlugs: ["ada-lovelace", "isaac-newton", "frederick-douglass"] },
   });
   assert.deepEqual(retry.json(), castResponse.json());
   const mismatch = await app.inject({
     method: "POST",
     url: "/api/rooms/first-playable/cast",
     headers,
-    payload: { requestId: "api-cast", personaSlugs: ["mary-shelley"] },
+    payload: { requestId: "api-cast", selectionRevision: 0, personaSlugs: ["mary-shelley"] },
   });
   assert.equal(mismatch.statusCode, 409);
   assert.deepEqual(mismatch.json(), {
@@ -498,7 +521,28 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   });
   assert.equal(currentRoomId(store.database), cast.sessionId);
 
-  const room = await app.inject({ method: "GET", url: "/api/rooms/first-playable", headers: { host: HOST } });
+  const oldRoomEvents = store.database.prepare(
+    "SELECT count(*) AS count FROM events WHERE room_id = 'first-playable'",
+  ).get() as { count: number };
+  const staleOldRoomMessage = await app.inject({
+    method: "POST",
+    url: "/api/rooms/first-playable/messages",
+    headers,
+    payload: { requestId: "stale-old-room-message", selectionRevision: 0, text: "Must not commit." },
+  });
+  assert.equal(staleOldRoomMessage.statusCode, 409, staleOldRoomMessage.body);
+  assert.deepEqual(store.database.prepare(
+    "SELECT count(*) AS count FROM events WHERE room_id = 'first-playable'",
+  ).get(), oldRoomEvents);
+  const staleCurrentRevision = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${cast.sessionId}/messages`,
+    headers,
+    payload: { requestId: "stale-current-revision", selectionRevision: 0, text: "Also must not commit." },
+  });
+  assert.equal(staleCurrentRevision.statusCode, 409, staleCurrentRevision.body);
+
+  const room = await app.inject({ method: "GET", url: `/api/rooms/${cast.sessionId}`, headers: { host: HOST } });
   assert.equal(room.json().sessionId, cast.sessionId);
   for (const [path, requestId] of [
     [`personas/${castParticipantIds[1]}/mute`, "api-mute"],
@@ -508,28 +552,28 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   ] as const) {
     const control = await app.inject({
       method: "POST",
-      url: `/api/rooms/first-playable/${path}`,
+      url: `/api/rooms/${cast.sessionId}/${path}`,
       headers,
-      payload: { requestId },
+      payload: { requestId, selectionRevision: 1 },
     });
     assert.equal(control.statusCode, 200, `${path}: ${control.body}`);
   }
   const message = await app.inject({
     method: "POST",
-    url: "/api/rooms/first-playable/messages",
+    url: `/api/rooms/${cast.sessionId}/messages`,
     headers,
-    payload: { requestId: "api-message", text: "Speak." },
+    payload: { requestId: "api-message", selectionRevision: 1, text: "Speak." },
   });
   assert.equal(message.statusCode, 200, message.body);
   assert.equal(provider.calls[0]?.personaId, "ada-lovelace");
-  const replay = await app.inject({ method: "GET", url: "/api/rooms/first-playable/events?after=0", headers: { host: HOST } });
+  const replay = await app.inject({ method: "GET", url: `/api/rooms/${cast.sessionId}/events?after=0`, headers: { host: HOST } });
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().events[0].event.type, "room_started");
   const stop = await app.inject({
     method: "POST",
-    url: "/api/rooms/first-playable/stop",
+    url: `/api/rooms/${cast.sessionId}/stop`,
     headers,
-    payload: { requestId: "api-stop" },
+    payload: { requestId: "api-stop", selectionRevision: 1 },
   });
   assert.equal(stop.statusCode, 200, stop.body);
   assert.equal(store.database.prepare(
@@ -574,14 +618,14 @@ test("SSE pins an existing connection to its old session while new replay uses c
       "content-type": "application/json",
       "x-csrf-token": token,
     },
-    body: JSON.stringify({ requestId: "sse-cast", personaSlugs: ["ada-lovelace"] }),
+    body: JSON.stringify({ requestId: "sse-cast", selectionRevision: 0, personaSlugs: ["ada-lovelace"] }),
   });
   assert.equal(castResponse.status, 200);
   const cast = await castResponse.json() as { sessionId: string };
   appendEvent(store.database, "first-playable", { type: "old_after" });
   assert.deepEqual(await readSseEvent(oldReader), { id: 2, event: { type: "old_after" } });
 
-  const newResponse = await fetch(`${origin}/api/rooms/first-playable/stream?after=0`);
+  const newResponse = await fetch(`${origin}/api/rooms/${cast.sessionId}/stream?after=0`);
   assert.ok(newResponse.body);
   const newReader = newResponse.body.getReader();
   const started = await readSseEvent(newReader);
