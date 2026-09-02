@@ -2,7 +2,7 @@
 
 This is a status-based roadmap for the standalone, local-first application. Releases advance only when their acceptance criteria are verified; dates are intentionally unset.
 
-The latest measured state, exact publication evidence, current blockers, and recommended execution order are recorded in the [2026-09-01 verified checkpoint](docs/status/2026-09-01-verified-checkpoint.md).
+The [2026-09-01 verified checkpoint](docs/status/2026-09-01-verified-checkpoint.md) is the prior measured baseline and is intentionally preserved as dated evidence. Current measured state and execution order are maintained below; the immediate next-day lanes and human gates are fixed in the [2026-09-02 execution plan](docs/plans/2026-09-02-next-day-execution.md).
 
 ## Completed — verified first playable
 
@@ -51,7 +51,7 @@ This establishes technical viability. It does not approve historical candidates 
 
 The current packaging boundary and executable spike sequence are defined in the [accepted downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). Acceptance authorizes bounded private implementation spikes only. It replaces closed PR #52's obsolete greenfield/runtime assumptions but is not evidence that an installer, signed artifact, clean-host pass, supported platform, downloadable release, or publication exists.
 
-**Current truth:** PR #86 merged the first P0/P1 source-hardening slice: release-manifest, clean-source preflight, source/package data-root, OS-backed single-writer-lock, and strict npm lifecycle-script contracts are implemented and tested. Exact Node `24.20.0` and npm `11.19.0` are enforced in CI and the source workflow. Clean macOS/Ubuntu evidence, a packaged payload, signing/notarization, lifecycle acceptance, and every downloadable-publication gate remain pending; issue #87 owns the clean-source proof.
+**Current truth:** the source-hardening contract and both named clean-source targets are complete. Issue #87 closed against independently reviewed macOS 14 arm64 and Ubuntu 24.04 x64 artifacts from the same protected-main SHA `172b1d46657374b8f2db8c3622fe4c2636f82260`. Node `24.20.0`, npm `11.19.0`, strict lifecycle-script policy, source acceptance, outside-root write audit, process closure, and artifact manifests passed. Issue #98 is now the active bounded lane for explicit packaged runtime assets and frozen-validator equivalence. No signed/notarized application or public download exists yet.
 
 - Prove the locked source/operator workflow first on named clean macOS arm64 and Ubuntu 24.04 x64 targets.
 - Run one bounded macOS Apple-silicon downloadable spike that preserves the Node 24 runtime and strict validator as separate, supervised, absolute-path executables.
@@ -67,7 +67,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 
 **Outcome:** support a library of multiple local rooms with inspectable continuity.
 
-**Current truth:** the authoritative architecture and guided setup prototype are merged. SQLite ordered events remain sole authority; Obsidian and fixed-loopback HTTP are optional projections. Production adapters, multi-room runtime flows, real vault writes, and arbitrary projection endpoints are not implemented.
+**Current truth:** the authoritative architecture and guided setup prototype are merged. SQLite ordered events remain sole authority; Obsidian and fixed-loopback HTTP are optional projections. Reopenable multi-room history is implemented on PR #106 but remains outside protected `main` pending exact-head review and a successful required release gate. Production memory adapters, real vault writes, arbitrary projection endpoints, and cross-device synchronization are not implemented.
 
 - Add local room create/list/archive/delete flows.
 - Add bounded summaries and relationship memory linked to source events.
@@ -99,7 +99,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 
 **Outcome:** maintain the live `greenroomai.net` static public project, documentation, download, and contribution surface while the application continues to run locally.
 
-**Current truth:** the static domain is live and independently verified with 18 cards and profiles, pinned portrait bytes, restrictive local-only resource policy, contribution/governance paths, and no key/transcript/room ingestion. The site has no downloadable application artifact yet. Cloudflare GitHub builds upload preview versions but production promotion remains a separate human gate.
+**Current truth:** the static domain is live and independently verified with 18 cards and profiles, pinned portrait bytes, restrictive local-only resource policy, contribution/governance paths, and no key/transcript/room ingestion. Protected `main` now contains the approved Backstage Electric 1200 × 630 Open Graph/Twitter card with exact-byte and metadata validation. Production still serves the preceding static version until an authenticated Cloudflare deployment succeeds and is read back from `greenroomai.net`. The site has no downloadable application artifact yet.
 
 - Keep static project information, setup docs, contribution paths, and security/contact guidance current; publish downloads only after separate artifact and operator approval.
 - After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
@@ -113,14 +113,13 @@ The portable-character and community boundary is specified in [ADR 0003](docs/ad
 
 ## Current execution order
 
-1. Prove the two named clean-source targets in issue #87.
-2. Implement package-aware runtime assets and frozen-validator equivalence.
-3. Build the minimal supervised macOS launcher and unsigned application payload.
-4. Pass the disposable backup/migration/restore/rollback/uninstall/reinstall/purge matrix before requesting signing or notarization access.
-5. Finish guided provider setup/runtime integration.
-6. Implement multi-room lifecycle and bounded memory behind the merged authority contracts.
-7. Integrate Character Wizard drafts/export/import and establish the versioned Official Catalog manifest gate.
-8. Keep the demo video blocked until stranger-ready download and onboarding acceptance pass.
+1. Repair the authenticated Cloudflare build/deploy configuration, deploy exact protected `main`, and verify live HTML, security headers, routes, portraits, and the approved social-card bytes without publishing a download.
+2. Re-review PR #106 at its exact latest head, require the room-ordering, mobile-containment, and concurrent-selection fixes plus a successful protected release gate, then merge only if all three are closed.
+3. Reconfirm PR #110 at its exact head and merge the FF2K bundled-original candidate only after its protected gate and privacy/content approval remain current; it must never be automatically seated or represented as Official Catalog admission.
+4. Start issue #98 on a fresh focused branch: explicit immutable package-mode assets first, then one native macOS arm64 frozen-validator candidate, then source/frozen semantic equivalence across the hostile corpus.
+5. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
+6. Continue the minimal supervised macOS launcher and lifecycle matrix only after issue #98 closes; signing, notarization, download publication, updater work, and demo video remain separate human gates.
+7. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
 
 ## Future launch milestone — community demo video
 
