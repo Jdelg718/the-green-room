@@ -983,7 +983,7 @@ export function safeDetailsContent(persona) {
     ] : [
       "Creator-authorized pseudonymous original synthesis.",
       "Independent content/privacy review passed for the exact bundled pack.",
-      "Independent provenance/rights review remains outstanding.",
+      "Exact portrait ownership and modification/redistribution grant independently reviewed.",
       "No Official Catalog Manifest entry exists.",
     ]),
     roomStrengths: Object.freeze(persona.knowledge.domains.slice(0, 3)),

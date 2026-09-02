@@ -29,8 +29,8 @@ The portrait is intentionally outside this text-only pack at `public/assets/port
 - **Source item:** public GitHub avatar uploaded by the FF2K account holder
 - **Exact source URL:** https://avatars.githubusercontent.com/u/150862258?v=4
 - **Access date:** 2026-09-01
-- **Authorization:** direct creator/account-holder authorization for Green Room public use and distribution
-- **Creator credit:** FF2K account holder as uploader and authorizing source; original illustrator and generation method are not documented and are not claimed
+- **Authorization and rights:** direct statement from the FF2K account holder, recorded 2026-09-02, confirming copyright ownership and granting Green Room modification and public redistribution rights for the exact source and derivative bytes
+- **Creator credit:** FF2K as copyright owner, uploader, and authorizing source; the illustration method is not claimed
 - **Source format/dimensions/mode:** PNG, 427 × 427, RGB, one image
 - **Source bytes:** 164353
 - **Source SHA-256:** `c12850b3b5830b94e80c0f446911a5aaea6a090fa6c4aa7af6d2f0b96a088063`
@@ -41,7 +41,7 @@ The portrait is intentionally outside this text-only pack at `public/assets/port
 - **Accessible alt-text concept:** Stylized cartoon figure wearing an orange Bitcoin respirator mask with three Bitcoin-symbol filters and a blue market-chart visor, raising a clenched fist.
 - **Portrayal limit:** The art represents the FF2K pseudonymous character and must not be identified as a depiction of a real person.
 
-Direct authorization establishes the account holder's consent to this use. It does not establish who originally illustrated the image or how it was generated; those facts remain unknown.
+The direct rights-holder statement establishes copyright ownership plus Green Room's exact modification and public redistribution grant. The illustration method remains unspecified and is not claimed. The grant does not permit legal-identity correlation, real-person identification, or Official Catalog admission.
 
 ## Safety review
 
@@ -49,7 +49,7 @@ The manifest sets `impersonates_real_person: false` because this is an authored 
 
 ## Release state and limitations
 
-- Authorial source, privacy, consent, and content-boundary review: completed 2026-09-01.
+- Authorial source, privacy, consent, content-boundary, and exact portrait-rights review: completed through 2026-09-02.
 - Structural archive validation: to be recorded from the final text-only artifact.
 - Independent catalog admission: not claimed.
 - Runtime knowledge cutoff: 2026-09-01.

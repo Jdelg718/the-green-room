@@ -51,7 +51,8 @@ test("trusted portrait registry maps every canonical built-in ID to an app-owned
       assert.equal(entry.bytes, 43_092);
       assert.equal(entry.sha256, "3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8");
       assert.equal(entry.provenance.assetStatus, "owner-authorized");
-      assert.match(entry.provenance.creativeInterpretation, /original illustrator and creation method are unknown/i);
+      assert.match(entry.provenance.sourceReference, /copyright-owner\/account-holder-authorized/i);
+      assert.match(entry.provenance.creativeInterpretation, /confirmed copyright ownership and granted Green Room modification and public redistribution rights/i);
     } else {
       assert.match(entry.provenance.creativeInterpretation, /^Original AI-generated (?:historical interpretation|archetype portrait);/);
     }

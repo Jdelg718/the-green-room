@@ -152,14 +152,14 @@ Accessed **2026-09-01**. These first-party public sources bound the interpretati
 ## A01 — FF2K public GitHub avatar
 
 - **Exact URL:** https://avatars.githubusercontent.com/u/150862258?v=4
-- **Type / creator:** Public profile avatar uploaded by the FF2K GitHub account holder; original illustrator and generation method undocumented
+- **Type / creator:** Public profile avatar owned and uploaded by the FF2K GitHub account holder; generation method unspecified
 - **Access date:** 2026-09-01
-- **Authorization:** The creator/account holder directly authorized Green Room public use and distribution.
+- **Authorization and rights:** On 2026-09-02, the FF2K account holder directly confirmed copyright ownership and granted Green Room modification and public redistribution rights for the exact source and derivative bytes.
 - **Source record:** PNG, 427 × 427, RGB, 164353 bytes; SHA-256 `c12850b3b5830b94e80c0f446911a5aaea6a090fa6c4aa7af6d2f0b96a088063`.
 - **Transformation/output:** Decoded once, copied into a clean RGB buffer, and encoded once as metadata-free high-quality lossy static WebP (quality 95, method 6) without resizing, cropping, or color adjustment. Output: 427 × 427, 43092 bytes; SHA-256 `3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8`.
 - **Location:** Separate presentation asset at `public/assets/portraits/ff2k.webp`; not a pack asset.
 - **Alt-text concept:** Stylized cartoon figure wearing an orange Bitcoin respirator mask with three Bitcoin-symbol filters and a blue market-chart visor, raising a clenched fist.
-- **Rights / decision:** **Use by direct creator/account-holder authorization.** Do not claim knowledge of original illustration authorship or generation method; do not identify the figure as a real person.
+- **Rights / decision:** **Use under direct copyright-owner grant.** The exact source and documented derivative may be modified and publicly redistributed by Green Room. Do not infer a legal identity, identify the figure as a real person, or claim an unspecified generation method.
 
 ## Evidence map
 

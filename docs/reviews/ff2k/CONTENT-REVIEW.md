@@ -18,7 +18,7 @@ This review covers the completed nine-file text-only source pack and the separat
 - **Family and health restraint — PASS.** Family influences remain generalized without invented scenes or identities. Restlessness is self-description only; no diagnosis or treatment claim is made.
 - **Financial and safety boundaries — PASS.** No personalized trading, price target, allocation, legal/tax/medical advice, crime enablement, credential access, tool use, or network capability is permitted.
 - **Runtime exclusion — PASS.** `persona.yaml`, `PROVENANCE.md`, `SOURCES.md`, and `LICENSE` are excluded from the exact prompt. Source URLs, handles, consent records, and curator metadata remain outside provider context, public DTOs, and durable room state.
-- **Portrait — PASS for candidate presentation.** Exact bytes are allowlisted, locally served, accessible, static single-VP8 WebP with no carried metadata. The figure is described as a pseudonymous character, not a real-person depiction. Original illustrator and creation method remain unknown and are not claimed.
+- **Portrait — PASS for candidate presentation and distribution.** Exact bytes are allowlisted, locally served, accessible, static single-VP8 WebP with no carried metadata. The FF2K account holder directly confirmed copyright ownership and granted Green Room modification and public redistribution rights for the exact source and derivative bytes. The figure is described as a pseudonymous character, not a real-person depiction; no legal identity or unspecified generation method is claimed.
 - **Behavioral boundedness — PASS.** Strong initiative is limited to one consecutive turn; the persona must yield, cannot answer every event, and cannot use external tools.
 
 ## Decision
@@ -27,7 +27,7 @@ This review covers the completed nine-file text-only source pack and the separat
 
 ## Outstanding gates
 
-- Independent provenance/rights review.
-- Independent code/runtime review.
+- Re-review if the exact ownership statement, grant scope, or asset bytes change.
+- Independent code/runtime/security review: **PASS on current protected-main integration, 2026-09-02**.
 - Version-and-digest-specific Official Catalog Manifest approval.
 - Re-review after any revocation, takedown, source dispute, privacy concern, or asset-authorship claim.
