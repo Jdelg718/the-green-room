@@ -148,6 +148,16 @@ crossed.
 
 ## Distribution scope
 
+The macOS Apple-silicon packaging spike locks PyInstaller `6.16.0` in the
+development dependency group only. PyInstaller is GPL-2.0-or-later with its
+bootloader exception; it is a build/freezing tool, not a validator runtime
+dependency. The spike uses one-folder output so the embedded CPython runtime,
+PyYAML extension and every emitted library remain individually inventoryable
+and signable, and so startup never extracts executable code into a mutable
+temporary directory. The resulting bytes remain experimental until hostile
+corpus equivalence, payload/license inventory, signing and later clean-host
+gates pass. A repository `.venv` is never copied into the payload.
+
 The Hatch source distribution uses an explicit allowlist for the runtime
 source, reference schema, build metadata, README, and license, plus generated
 `PKG-INFO` and Hatch's VCS exclusion metadata. Explicit exclusions cover local

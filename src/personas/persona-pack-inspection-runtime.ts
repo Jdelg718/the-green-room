@@ -14,7 +14,6 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { PersonaPackInspectionService } from "./persona-pack-inspection.js";
 import { ValidatorSidecar } from "./validator-sidecar.js";
@@ -34,6 +33,7 @@ export interface PersonaPackInspectionRuntimeConfig {
   readonly dataDir: string;
   readonly personaInspectionExecutable: string | null;
   readonly personaInspectionMode: "disabled" | "optional" | "required";
+  readonly personaPreflightFixture: string;
   readonly personaInspectionSafeCwd: string;
   readonly personaInspectionTempParent: string;
 }
@@ -360,9 +360,7 @@ export async function buildPersonaPackInspectionRuntime(
   );
 
   try {
-    const fixturePath = options.fixturePath ?? fileURLToPath(
-      new URL("../../runtime-assets/persona-validator/valid-minimal.greenroom", import.meta.url),
-    );
+    const fixturePath = options.fixturePath ?? config.personaPreflightFixture;
     const canonicalFixture = await canonicalRegularFile(fixturePath, "preflight fixture");
     const fixtureBytes = await readFile(canonicalFixture);
 

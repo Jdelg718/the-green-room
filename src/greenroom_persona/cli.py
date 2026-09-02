@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .report import render_human, render_json
+from .runtime_policy import install_runtime_policy
 from .validator import inspect_pack
 
 
@@ -24,6 +25,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    install_runtime_policy()
     arguments = _parser().parse_args(argv)
     result = inspect_pack(arguments.pack)
     include_prompt = bool(getattr(arguments, "include_prompt", False))

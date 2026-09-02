@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { httpOrigin, loadConfig } from "../../src/config.js";
@@ -20,6 +21,16 @@ test("config uses private loopback defaults", () => {
       "/tmp/green-room-checkout/.local/first-playable/runtime/persona-inspection/tmp",
     port: 8787,
     provider: "mock",
+    runtimeAssets: {
+      payloadRoot: null,
+      publicDir: fileURLToPath(new URL("../../public", import.meta.url)),
+      migrationsDir: fileURLToPath(new URL("../../migrations", import.meta.url)),
+      historicalCatalogDir: fileURLToPath(new URL("../../personas/historical", import.meta.url)),
+      originalCatalogDir: fileURLToPath(new URL("../../personas/original", import.meta.url)),
+      personaPreflightFixture: fileURLToPath(
+        new URL("../../runtime-assets/persona-validator/valid-minimal.greenroom", import.meta.url),
+      ),
+    },
     runtimeMode: "source",
   });
 });
@@ -192,4 +203,72 @@ test("explicit malformed persona inspection configuration always fails", () => {
       /GREENROOM_PERSONA_VALIDATOR_EXECUTABLE/,
     );
   }
+});
+
+test("packaged mode requires every executable and runtime asset path explicitly", () => {
+  const environment = {
+    GREENROOM_RUNTIME_MODE: "packaged-macos",
+    GREENROOM_DATA_DIR: "/tmp/green-room-data",
+    GREENROOM_PACKAGE_PAYLOAD_ROOT: "/Applications/The Green Room.app/Contents",
+    GREENROOM_PUBLIC_DIR: "/Applications/The Green Room.app/Contents/Resources/app/dist/public",
+    GREENROOM_MIGRATIONS_DIR: "/Applications/The Green Room.app/Contents/Resources/app/dist/migrations",
+    GREENROOM_HISTORICAL_CATALOG_DIR:
+      "/Applications/The Green Room.app/Contents/Resources/app/dist/personas/historical",
+    GREENROOM_ORIGINAL_CATALOG_DIR:
+      "/Applications/The Green Room.app/Contents/Resources/app/dist/personas/original",
+    GREENROOM_PERSONA_PREFLIGHT_FIXTURE:
+      "/Applications/The Green Room.app/Contents/Resources/app/dist/runtime-assets/persona-validator/valid-minimal.greenroom",
+    GREENROOM_PERSONA_VALIDATOR_EXECUTABLE:
+      "/Applications/The Green Room.app/Contents/Resources/validator/greenroom-persona/greenroom-persona",
+  } as const;
+
+  const config = loadConfig(environment);
+  assert.deepEqual(config.runtimeAssets, {
+    payloadRoot: environment.GREENROOM_PACKAGE_PAYLOAD_ROOT,
+    publicDir: environment.GREENROOM_PUBLIC_DIR,
+    migrationsDir: environment.GREENROOM_MIGRATIONS_DIR,
+    historicalCatalogDir: environment.GREENROOM_HISTORICAL_CATALOG_DIR,
+    originalCatalogDir: environment.GREENROOM_ORIGINAL_CATALOG_DIR,
+    personaPreflightFixture: environment.GREENROOM_PERSONA_PREFLIGHT_FIXTURE,
+  });
+  assert.equal(config.personaInspectionExecutable, environment.GREENROOM_PERSONA_VALIDATOR_EXECUTABLE);
+  assert.equal(config.personaInspectionMode, "required");
+
+  for (const missing of [
+    "GREENROOM_PACKAGE_PAYLOAD_ROOT",
+    "GREENROOM_PUBLIC_DIR",
+    "GREENROOM_MIGRATIONS_DIR",
+    "GREENROOM_HISTORICAL_CATALOG_DIR",
+    "GREENROOM_ORIGINAL_CATALOG_DIR",
+    "GREENROOM_PERSONA_PREFLIGHT_FIXTURE",
+    "GREENROOM_PERSONA_VALIDATOR_EXECUTABLE",
+  ] as const) {
+    assert.throws(
+      () => loadConfig({ ...environment, [missing]: undefined }),
+      new RegExp(missing),
+      missing,
+    );
+  }
+});
+
+test("packaged path controls reject relative values and cannot be supplied in source mode", () => {
+  const packaged = {
+    GREENROOM_RUNTIME_MODE: "packaged-macos",
+    GREENROOM_DATA_DIR: "/tmp/green-room-data",
+    GREENROOM_PACKAGE_PAYLOAD_ROOT: "/payload",
+    GREENROOM_PUBLIC_DIR: "/payload/public",
+    GREENROOM_MIGRATIONS_DIR: "/payload/migrations",
+    GREENROOM_HISTORICAL_CATALOG_DIR: "/payload/personas/historical",
+    GREENROOM_ORIGINAL_CATALOG_DIR: "/payload/personas/original",
+    GREENROOM_PERSONA_PREFLIGHT_FIXTURE: "/payload/preflight.greenroom",
+    GREENROOM_PERSONA_VALIDATOR_EXECUTABLE: "/payload/validator",
+  };
+  assert.throws(
+    () => loadConfig({ ...packaged, GREENROOM_PUBLIC_DIR: "public" }),
+    /GREENROOM_PUBLIC_DIR.*absolute/,
+  );
+  assert.throws(
+    () => loadConfig({ GREENROOM_PUBLIC_DIR: "/tmp/foreign-public" }),
+    /GREENROOM_PUBLIC_DIR.*packaged-macos/,
+  );
 });

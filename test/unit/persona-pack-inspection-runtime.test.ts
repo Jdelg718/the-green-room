@@ -39,6 +39,7 @@ function makeConfig(
     dataDir,
     personaInspectionExecutable: validatorExecutable,
     personaInspectionMode: "required",
+    personaPreflightFixture: fixturePath,
     personaInspectionSafeCwd: join(
       dataDir,
       "runtime/persona-inspection/validator-cwd",

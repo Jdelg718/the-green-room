@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -18,6 +21,7 @@ import { test } from "node:test";
 
 import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
+import { verifyPackagedRuntimeAssets } from "../../src/platform/runtime-assets.js";
 
 async function availablePort(): Promise<number> {
   const server = createServer();
@@ -300,5 +304,110 @@ test("required mode rejects a symlinked data directory before database effects",
   } finally {
     await stopProcess(child);
     rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+function packagedAssetFixture(root: string) {
+  const payloadRoot = join(root, "The Green Room.app", "Contents");
+  const runtimeAssets = {
+    payloadRoot,
+    publicDir: join(payloadRoot, "Resources/app/dist/public"),
+    migrationsDir: join(payloadRoot, "Resources/app/dist/migrations"),
+    historicalCatalogDir: join(payloadRoot, "Resources/app/dist/personas/historical"),
+    originalCatalogDir: join(payloadRoot, "Resources/app/dist/personas/original"),
+    personaPreflightFixture: join(
+      payloadRoot,
+      "Resources/app/dist/runtime-assets/persona-validator/valid-minimal.greenroom",
+    ),
+  };
+  for (const directory of [
+    runtimeAssets.publicDir,
+    runtimeAssets.migrationsDir,
+    runtimeAssets.historicalCatalogDir,
+    runtimeAssets.originalCatalogDir,
+    join(payloadRoot, "Resources/validator/greenroom-persona"),
+    join(payloadRoot, "Resources/app/dist/runtime-assets/persona-validator"),
+  ]) mkdirSync(directory, { recursive: true });
+  for (const path of [
+    join(runtimeAssets.publicDir, "index.html"),
+    join(runtimeAssets.migrationsDir, "0001.sql"),
+    join(runtimeAssets.historicalCatalogDir, "fixture.txt"),
+    join(runtimeAssets.originalCatalogDir, "fixture.txt"),
+    runtimeAssets.personaPreflightFixture,
+  ]) writeFileSync(path, "fixture");
+  const personaInspectionExecutable = join(
+    payloadRoot,
+    "Resources/validator/greenroom-persona/greenroom-persona",
+  );
+  writeFileSync(personaInspectionExecutable, "#!/bin/sh\nexit 0\n", { mode: 0o555 });
+  return {
+    runtimeMode: "packaged-macos" as const,
+    runtimeAssets,
+    personaInspectionExecutable,
+  };
+}
+
+function makePayloadReadOnly(path: string): void {
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) makePayloadReadOnly(child);
+    else chmodSync(child, entry.name === "greenroom-persona" ? 0o555 : 0o444);
+  }
+  chmodSync(path, 0o555);
+}
+
+function makePayloadRemovable(path: string): void {
+  chmodSync(path, 0o755);
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory() && !entry.isSymbolicLink()) makePayloadRemovable(child);
+  }
+}
+
+test("packaged startup accepts only explicit canonical immutable payload assets", async (context) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-packaged-assets-")));
+  context.after(() => {
+    makePayloadRemovable(join(root, "The Green Room.app", "Contents"));
+    rmSync(root, { recursive: true, force: true });
+  });
+  const config = packagedAssetFixture(root);
+  makePayloadReadOnly(config.runtimeAssets.payloadRoot);
+
+  assert.equal(await verifyPackagedRuntimeAssets(config), config.runtimeAssets);
+});
+
+test("packaged startup rejects symlink, non-file, and writable payload replacement", async (context) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-packaged-hostile-")));
+  context.after(() => {
+    for (const attack of ["symlink", "non-file", "writable"] as const) {
+      const payload = join(root, attack, "The Green Room.app", "Contents");
+      if (existsSync(payload)) makePayloadRemovable(payload);
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  for (const attack of ["symlink", "non-file", "writable"] as const) {
+    const caseRoot = join(root, attack);
+    mkdirSync(caseRoot);
+    const config = packagedAssetFixture(caseRoot);
+    if (attack === "symlink") {
+      const target = join(caseRoot, "outside-public");
+      mkdirSync(target);
+      rmSync(config.runtimeAssets.publicDir, { recursive: true });
+      symlinkSync(target, config.runtimeAssets.publicDir, "dir");
+    } else if (attack === "non-file") {
+      rmSync(config.runtimeAssets.personaPreflightFixture);
+      mkdirSync(config.runtimeAssets.personaPreflightFixture);
+    } else {
+      writeFileSync(join(config.runtimeAssets.publicDir, "mutable.js"), "mutable", {
+        mode: 0o644,
+      });
+    }
+    if (attack !== "writable") makePayloadReadOnly(config.runtimeAssets.payloadRoot);
+    await assert.rejects(
+      verifyPackagedRuntimeAssets(config),
+      /Packaged runtime payload rejected:.*(?:symlink|regular file|writable)/,
+      attack,
+    );
   }
 });
