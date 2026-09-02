@@ -8,8 +8,24 @@ CREATE TABLE room_library_state (
   next_activity_order INTEGER NOT NULL CHECK (next_activity_order >= 1)
 ) STRICT;
 
-INSERT INTO room_library_state(singleton, next_activity_order) VALUES (1, 2);
-UPDATE rooms SET activity_order = 1 WHERE id = 'first-playable';
+UPDATE rooms
+SET activity_order = (
+  SELECT ordered.activity_order
+  FROM (
+    SELECT
+      rooms.id,
+      ROW_NUMBER() OVER (
+        ORDER BY COALESCE(MAX(events.created_at), rooms.created_at), rooms.created_at, rooms.id
+      ) AS activity_order
+    FROM rooms
+    LEFT JOIN events ON events.room_id = rooms.id
+    GROUP BY rooms.id
+  ) AS ordered
+  WHERE ordered.id = rooms.id
+);
+
+INSERT INTO room_library_state(singleton, next_activity_order)
+SELECT 1, COALESCE(MAX(activity_order), 0) + 1 FROM rooms;
 
 CREATE TRIGGER room_event_updates_activity
 AFTER INSERT ON events

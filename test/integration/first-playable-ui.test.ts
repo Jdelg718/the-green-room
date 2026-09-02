@@ -89,6 +89,12 @@ interface BrowserContract {
   };
   readonly reasonLabel: (reason: string) => string;
   readonly openStopConfirmation: (dialog: { returnValue: string; showModal(): void }) => void;
+  readonly createRoomSelectionFence: (options: {
+    readonly requestSelection: (roomId: string, signal: AbortSignal) => Promise<unknown>;
+    readonly readCurrentRoom: (signal: AbortSignal) => Promise<{ readonly sessionId: string }>;
+    readonly commitRoom: (room: { readonly sessionId: string }, signal: AbortSignal) => Promise<void>;
+    readonly onBusyChange?: (busy: boolean) => void;
+  }) => { select(roomId: string): Promise<boolean> };
   readonly renderTranscriptEvent: (
     record: EventRecord,
     participantName: (participantId: string) => string,
@@ -258,6 +264,40 @@ test("composer Enter shortcut sends without stealing multiline or composed input
   assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", isComposing: true }), false);
   assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", ctrlKey: true }), false);
   assert.equal(contract.shouldSubmitComposerKey({ key: "a" }), false);
+});
+
+test("room selection fence ignores an older out-of-order response and renders authoritative current room", async () => {
+  const contract = await browserContract();
+  const olderResponse = deferred<void>();
+  const newerResponse = deferred<void>();
+  const currentReads: string[] = [];
+  const rendered: string[] = [];
+  let authoritativeRoom = "room-newer";
+  const fence = contract.createRoomSelectionFence({
+    requestSelection: async (roomId) => {
+      await (roomId === "room-older" ? olderResponse.promise : newerResponse.promise);
+    },
+    readCurrentRoom: async () => {
+      currentReads.push(authoritativeRoom);
+      return { sessionId: authoritativeRoom };
+    },
+    commitRoom: async (room) => { rendered.push(room.sessionId); },
+  });
+
+  const older = fence.select("room-older");
+  const newer = fence.select("room-newer");
+  newerResponse.resolve();
+  assert.equal(await newer, true);
+  olderResponse.resolve();
+  assert.equal(await older, false);
+  assert.deepEqual(currentReads, ["room-newer"]);
+  assert.deepEqual(rendered, ["room-newer"]);
+
+  authoritativeRoom = "room-authoritative";
+  const reconciled = fence.select("room-requested");
+  newerResponse.resolve();
+  assert.equal(await reconciled, true);
+  assert.deepEqual(rendered, ["room-newer", "room-authoritative"]);
 });
 
 test("first playable UI reconnect catches up before resubscribing and suppresses duplicate events", async () => {

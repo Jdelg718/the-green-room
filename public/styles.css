@@ -265,6 +265,10 @@ dialog::backdrop { background: rgb(18 20 17 / 72%); }
   .pacing-note { align-self: flex-start; }
   .cast-member { grid-template-columns: 2.6rem minmax(0, 1fr); }
   .portrait-roster { width: 2.6rem; height: 2.6rem; }
+  .cast-member > .human-emoji-picker,
+  .cast-member > .human-avatar-upload,
+  .cast-member > .human-avatar-remove { grid-column: 1 / -1; min-width: 0; width: 100%; }
+  .human-emoji-picker select { width: 100%; min-width: 0; min-height: 2.75rem; }
   .mute-toggle { grid-column: 1 / -1; width: 100%; }
   .transcript-item { grid-template-columns: 3.3rem minmax(0, 1fr); }
   .event-sequence { padding-inline: .5rem; }

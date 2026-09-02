@@ -772,13 +772,44 @@ async function getJson(path, signal) {
   }));
 }
 
-async function postJson(path, body, csrfToken) {
+async function postJson(path, body, csrfToken, signal) {
   return readJson(await fetch(sameOriginPath(path), {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify(body),
+    signal,
   }));
+}
+
+export function createRoomSelectionFence({ requestSelection, readCurrentRoom, commitRoom, onBusyChange = () => {} }) {
+  let generation = 0;
+  let activeController = null;
+  return Object.freeze({
+    async select(roomId) {
+      const ownGeneration = ++generation;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      onBusyChange(true);
+      try {
+        await requestSelection(roomId, controller.signal);
+        if (ownGeneration !== generation) return false;
+        const authoritativeRoom = await readCurrentRoom(controller.signal);
+        if (ownGeneration !== generation) return false;
+        await commitRoom(authoritativeRoom, controller.signal);
+        return ownGeneration === generation;
+      } catch (error) {
+        if (ownGeneration !== generation || error?.name === "AbortError") return false;
+        throw error;
+      } finally {
+        if (ownGeneration === generation) {
+          activeController = null;
+          onBusyChange(false);
+        }
+      }
+    },
+  });
 }
 
 export function validateRoomDto(value) {
@@ -1098,11 +1129,14 @@ export function startBrowserApp() {
     const rows = roomLibrary.map(roomHistoryRow);
     elements.roomHistoryList.replaceChildren(...rows);
     elements.roomDrawerList.replaceChildren(...roomLibrary.map(roomHistoryRow));
+    for (const button of document.querySelectorAll("[data-room-id]")) {
+      button.disabled = pending.has("room-selection");
+    }
     elements.roomHistoryList.setAttribute("aria-busy", "false");
   }
 
-  async function refreshRoomLibrary() {
-    roomLibrary = validateRoomLibraryDto(await getJson(API_PATHS.rooms)).rooms;
+  async function refreshRoomLibrary(signal) {
+    roomLibrary = validateRoomLibraryDto(await getJson(API_PATHS.rooms, signal)).rooms;
     renderRoomLibrary();
   }
 
@@ -1178,16 +1212,41 @@ export function startBrowserApp() {
     } finally { pending.delete(key); renderControls(); renderBuilder(); }
   }
 
-  async function switchRoom(roomId, trigger) {
-    if (!ROOM_ID.test(roomId) || roomId === room?.sessionId) { elements.roomDrawer.close(); return; }
-    trigger.disabled = true;
-    try {
-      const nextRoom = validateRoomDto(await postJson(API_PATHS.selectRoom(roomId), { requestId: createRequestId("select-room") }, csrfToken));
+  const roomSelectionFence = createRoomSelectionFence({
+    async requestSelection(roomId, signal) {
+      validateRoomDto(await postJson(
+        API_PATHS.selectRoom(roomId),
+        { requestId: createRequestId("select-room") },
+        csrfToken,
+        signal,
+      ));
+    },
+    async readCurrentRoom(signal) {
+      return validateRoomDto(await getJson(API_PATHS.currentRoom, signal));
+    },
+    async commitRoom(nextRoom, signal) {
       lifecycle.replace(createChannel(nextRoom.sessionId));
-      clearSession(); renderRoom(nextRoom); await refreshRoomLibrary(); await lifecycle.startIfActive();
-      elements.roomDrawer.close(); elements.messageText.focus();
+      clearSession();
+      renderRoom(nextRoom);
+      await refreshRoomLibrary(signal);
+      await lifecycle.startIfActive();
+      if (!signal.aborted) {
+        elements.roomDrawer.close();
+        elements.messageText.focus();
+      }
+    },
+    onBusyChange(busy) {
+      if (busy) pending.add("room-selection"); else pending.delete("room-selection");
+      renderControls();
+      renderRoomLibrary();
+    },
+  });
+
+  async function switchRoom(roomId) {
+    if (!ROOM_ID.test(roomId) || roomId === room?.sessionId) { elements.roomDrawer.close(); return; }
+    try {
+      await roomSelectionFence.select(roomId);
     } catch (error) { setActionStatus(userMessage(error), "error"); }
-    finally { trigger.disabled = false; }
   }
 
   function fillSelect(select, values) {
@@ -1486,7 +1545,7 @@ export function startBrowserApp() {
   elements.openRoomDrawer.addEventListener("click", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "true"); elements.roomDrawer.showModal(); });
   elements.closeRoomDrawer.addEventListener("click", () => elements.roomDrawer.close());
   elements.roomDrawer.addEventListener("close", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "false"); elements.openRoomDrawer.focus(); });
-  const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button) void switchRoom(button.dataset.roomId, button); };
+  const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button && !button.disabled) void switchRoom(button.dataset.roomId); };
   elements.roomHistoryList.addEventListener("click", chooseRoom); elements.roomDrawerList.addEventListener("click", chooseRoom);
   elements.filters.addEventListener("submit", (event) => event.preventDefault());
   elements.filters.addEventListener("input", renderGallery); elements.filters.addEventListener("change", renderGallery);

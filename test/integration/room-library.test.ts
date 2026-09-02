@@ -54,6 +54,56 @@ test("0006 preserves the fixed room id, cast, event order, and transcript", (con
   ]);
 });
 
+test("0006 deterministically backfills every pre-existing room and advances its activity counter", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const oldMigrations = join(dataDir, "old-migrations");
+  cpSync(migrationsDir, oldMigrations, { recursive: true });
+  rmSync(join(oldMigrations, "0006-room-library.sql"));
+  const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
+  old.database.exec(`
+    UPDATE rooms SET status = 'stopped', created_at = '2026-01-01 09:00:00' WHERE id = 'first-playable';
+    INSERT INTO rooms(id, title, status, created_at, next_event_sequence)
+      VALUES ('older-room', 'Older room', 'stopped', '2026-01-01 10:00:00', 2);
+    INSERT INTO rooms(id, title, status, created_at, next_event_sequence)
+      VALUES ('newest-selected-room', 'Newest room', 'active', '2026-01-01 11:00:00', 2);
+    INSERT INTO events(room_id, sequence, event_json, created_at)
+      VALUES ('older-room', 1, '{"type":"legacy-older"}', '2026-01-01 12:00:00');
+    INSERT INTO events(room_id, sequence, event_json, created_at)
+      VALUES ('newest-selected-room', 1, '{"type":"legacy-newest"}', '2026-01-01 13:00:00');
+    UPDATE current_room SET room_id = 'newest-selected-room' WHERE singleton = 1;
+  `);
+  old.close();
+
+  const upgraded = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => upgraded.close());
+  assert.deepEqual(listRooms(upgraded.database).map(({ id }) => id), [
+    "newest-selected-room",
+    "older-room",
+    "first-playable",
+  ]);
+  const backfill = upgraded.database.prepare(
+    "SELECT id, activity_order FROM rooms ORDER BY activity_order",
+  ).all().map((row) => ({ ...row }));
+  assert.deepEqual(backfill, [
+    { id: "first-playable", activity_order: 1 },
+    { id: "older-room", activity_order: 2 },
+    { id: "newest-selected-room", activity_order: 3 },
+  ]);
+  assert.deepEqual({ ...upgraded.database.prepare(
+    "SELECT next_activity_order FROM room_library_state WHERE singleton = 1",
+  ).get() }, { next_activity_order: 4 });
+
+  appendEvent(upgraded.database, "first-playable", { type: "new-activity" });
+  assert.deepEqual(listRooms(upgraded.database).map(({ id }) => id), [
+    "first-playable",
+    "newest-selected-room",
+    "older-room",
+  ]);
+  assert.deepEqual({ ...upgraded.database.prepare(
+    "SELECT next_activity_order FROM room_library_state WHERE singleton = 1",
+  ).get() }, { next_activity_order: 5 });
+});
+
 test("room library isolates rooms, orders recent activity, and restores selection after restart", (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
