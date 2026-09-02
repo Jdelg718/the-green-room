@@ -16,11 +16,13 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const packageRoot = join(repositoryRoot, "packaging/macos/GreenRoomLauncher");
 const HIGH_FD = 200;
+const BROWSER_CONTROL_FD = 201;
 // The launcher has a 10s fixture-arm deadline and a 5s TERM grace period.
 // Evidence waits remain strictly outside both nested deadlines.
 const CASE_TIMEOUT_MS = 18_000;
@@ -73,6 +75,7 @@ function makeSyntheticBundle(root, binaries, scenario) {
   const validator = join(bundle, "Contents/Resources/validator/greenroom-persona");
   const evidencePath = join(root, `${scenario}-fixture.jsonl`);
   const testEvidencePath = join(root, `${scenario}-private-evidence.jsonl`);
+  const browserControlPath = join(root, `${scenario}-browser-control`);
   const quitPath = join(root, `${scenario}-quit`);
   for (const directory of [dirname(launcher), dirname(node), dirname(server), dirname(validator)]) {
     mkdirSync(directory, { recursive: true });
@@ -106,7 +109,9 @@ function makeSyntheticBundle(root, binaries, scenario) {
   writeFileSync(join(bundle, "Contents/Resources/release-manifest.json"), `${JSON.stringify(manifest)}\n`, {
     mode: 0o644,
   });
-  return { launcher, node, evidencePath, testEvidencePath, quitPath };
+  const browserMode = scenario === "browser-failure" ? 1 : scenario === "browser-timeout" ? 2 : 0;
+  writeFileSync(browserControlPath, Buffer.from([browserMode]), { mode: 0o600 });
+  return { launcher, node, evidencePath, testEvidencePath, browserControlPath, quitPath };
 }
 
 function makeHostilePath(root) {
@@ -202,9 +207,11 @@ function waitForExit(child, timeout = CASE_TIMEOUT_MS) {
 
 function spawnOuter(bundle, hostilePath) {
   const stdio = ["ignore", "pipe", "pipe"];
-  while (stdio.length <= HIGH_FD) stdio.push("ignore");
+  while (stdio.length <= BROWSER_CONTROL_FD) stdio.push("ignore");
   const evidenceFD = openSync(bundle.testEvidencePath, "a+", 0o600);
+  const browserControlFD = openSync(bundle.browserControlPath, "a+", 0o600);
   stdio[HIGH_FD] = evidenceFD;
+  stdio[BROWSER_CONTROL_FD] = browserControlFD;
   let child;
   try {
     child = spawn(bundle.launcher, [], {
@@ -214,6 +221,7 @@ function spawnOuter(bundle, hostilePath) {
     });
   } finally {
     closeSync(evidenceFD);
+    closeSync(browserControlFD);
   }
   let stdout = "";
   let stderr = "";
@@ -361,6 +369,69 @@ async function runCase(
   }
 }
 
+async function occupyFixedLoopbackPort() {
+  const server = createServer();
+  const owned = await new Promise((resolvePromise, reject) => {
+    server.once("error", (error) => {
+      if (error?.code === "EADDRINUSE") resolvePromise(false);
+      else reject(error);
+    });
+    server.listen(8787, "127.0.0.1", () => resolvePromise(true));
+  });
+  return owned ? server : null;
+}
+
+async function runLaunchFailureCase(root, binaries, hostilePath, name, scenario, expectedReason) {
+  const bundle = makeSyntheticBundle(root, binaries, scenario);
+  const outer = spawnOuter(bundle, hostilePath);
+  try {
+    const exit = await waitForExit(outer.child);
+    if (exit.code === 0) fail("failure_false_pass", `${name} unexpectedly exited successfully`);
+    const privateRecords = await waitUntil(() => {
+      const current = outer.evidence.records();
+      return current.some((entry) => entry.event === "supervisor-result"
+        || entry.event === "supervisor-error") ? current : null;
+    }, `${name} supervisor completion`);
+    if (privateRecords.some((entry) => entry.event === "browser-open")) {
+      fail("browser_opened_on_failure", `${name} opened a browser on a failed launch`);
+    }
+    const output = outer.output();
+    if (!output.stderr.includes(expectedReason)) {
+      fail("wrong_launch_failure", `${name} did not report the expected bounded failure`, output);
+    }
+    const supervisor = privateRecords.find((entry) => entry.event === "internal-supervisor");
+    const result = privateRecords.findLast((entry) => entry.event === "supervisor-result");
+    const fixtureRecords = readEvidence(bundle.evidencePath);
+    const knownPids = [...new Set([
+      outer.child.pid,
+      supervisor?.pid,
+      result?.leaderPid,
+      ...fixtureRecords.map((entry) => entry.pid),
+    ].filter(Number.isInteger))];
+    const pgids = [...new Set([
+      result?.leaderPid,
+      ...fixtureRecords.map((entry) => entry.pgid),
+    ].filter(Number.isInteger))];
+    await waitUntil(() => knownPids.every((pid) => !existsProcess(pid))
+      && pgids.every((pgid) => !existsGroup(pgid)), `${name} process-tree cleanup`);
+    return {
+      name,
+      outerExit: exit,
+      reason: expectedReason,
+      browserOpened: false,
+      remainingPids: knownPids.filter(existsProcess),
+      remainingGroups: pgids.filter(existsGroup),
+      termSent: result?.termSent,
+      killSent: result?.killSent,
+    };
+  } finally {
+    if (outer.child.exitCode === null && outer.child.signalCode === null) {
+      outer.child.kill("SIGTERM");
+      try { await waitForExit(outer.child); } catch {}
+    }
+  }
+}
+
 export async function verifyProcessTree() {
   const disposition = platformDisposition(process.platform, process.arch);
   if (disposition.action === "skip") return disposition;
@@ -387,6 +458,39 @@ export async function verifyProcessTree() {
     cases.push(await runCase(
       root, binaries, hostile, "readiness-timeout", "readiness-timeout", async () => {}, true, false,
     ));
+    const launchFailureCases = [];
+    for (const [name, scenario, reason] of [
+      ["wrong-token", "wrong-token", "readiness_protocol_error"],
+      ["wrong-pid", "wrong-pid", "readiness_protocol_error"],
+      ["bad-header", "bad-header", "readiness_protocol_error"],
+      ["bad-version", "bad-version", "readiness_protocol_error"],
+      ["bad-type", "bad-type", "readiness_protocol_error"],
+      ["bad-length", "bad-length", "readiness_protocol_error"],
+      ["truncated", "truncated", "readiness_protocol_error"],
+      ["oversized", "oversized", "readiness_protocol_error"],
+      ["trailing", "trailing", "readiness_protocol_error"],
+      ["duplicate", "duplicate", "readiness_protocol_error"],
+      ["child-exit-before-readiness", "child-exit-before-ready", "readiness_protocol_error"],
+      ["browser-failure", "browser-failure", "browser_open_failed"],
+      ["browser-timeout", "browser-timeout", "browser_open_timeout"],
+    ]) {
+      launchFailureCases.push(await runLaunchFailureCase(
+        root, binaries, hostile, name, scenario, reason,
+      ));
+    }
+    const unrelatedListener = await occupyFixedLoopbackPort();
+    try {
+      launchFailureCases.push(await runLaunchFailureCase(
+        root, binaries, hostile, "occupied-port-unrelated-listener", "occupied-port",
+        "readiness_protocol_error",
+      ));
+    } finally {
+      if (unrelatedListener) {
+        await new Promise((resolvePromise, reject) => unrelatedListener.close((error) => {
+          if (error) reject(error); else resolvePromise();
+        }));
+      }
+    }
     let termIgnoringMutationRejected = false;
     try {
       await runCase(root, binaries, hostile, "term-ignoring-mutation", "ignore-term", async (child) => {
@@ -405,6 +509,7 @@ export async function verifyProcessTree() {
       code: "process_tree_verified",
       schemaVersion: 1,
       cases,
+      launchFailureCases,
       termIgnoringMutationRejected,
       hostilePathTrapTouched,
       highFd: HIGH_FD,

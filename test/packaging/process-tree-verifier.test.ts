@@ -69,6 +69,16 @@ test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout:
     assert.deepEqual(readinessTimeout.outerExit, { code: 1, signal: null });
     assert.equal(readinessTimeout.termSent, true);
     assert.deepEqual(readinessTimeout.cleanTermRoles, ["descendant", "leader"]);
+    assert.deepEqual(evidence.launchFailureCases.map((entry: { name: string }) => entry.name), [
+      "wrong-token", "wrong-pid", "bad-header", "bad-version", "bad-type", "bad-length",
+      "truncated", "oversized", "trailing", "duplicate", "child-exit-before-readiness",
+      "browser-failure", "browser-timeout", "occupied-port-unrelated-listener",
+    ]);
+    for (const entry of evidence.launchFailureCases) {
+      assert.equal(entry.browserOpened, false);
+      assert.deepEqual(entry.remainingPids, []);
+      assert.deepEqual(entry.remainingGroups, []);
+    }
     assert.equal(evidence.termIgnoringMutationRejected, true);
     assert.equal(evidence.hostilePathTrapTouched, false);
     assert.equal(evidence.highFdInherited, false);

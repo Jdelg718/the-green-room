@@ -96,7 +96,11 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   }
 }
 
-function realPackagedFixture(root: string) {
+function realPackagedFixture(root: string, mutate?: (fixture: {
+  payloadRoot: string;
+  appDist: string;
+  validatorExecutable: string;
+}) => void) {
   const payloadRoot = join(root, "The Green Room.app", "Contents");
   const appDist = join(payloadRoot, "Resources/app/dist");
   const validator = join(payloadRoot, "Resources/validator/greenroom-persona");
@@ -109,8 +113,10 @@ function realPackagedFixture(root: string) {
   const validatorExecutable = join(validator, "greenroom-persona");
   copyFileSync(fileURLToPath(new URL("../../../.venv/bin/greenroom-persona", import.meta.url)), validatorExecutable);
   chmodSync(validatorExecutable, 0o555);
+  const fixture = { payloadRoot, appDist, validatorExecutable };
+  mutate?.(fixture);
   makePayloadReadOnly(payloadRoot);
-  return { payloadRoot, appDist, validatorExecutable };
+  return fixture;
 }
 
 function challengeFrame(token: Buffer): Buffer {
@@ -121,9 +127,14 @@ async function spawnPackagedServer(
   root: string,
   port: number,
   token: Buffer,
-  options: { challenge?: Buffer; closeEarly?: boolean } = {},
+  options: {
+    challenge?: Buffer;
+    closeEarly?: boolean;
+    environment?: Record<string, string>;
+    mutateFixture?: Parameters<typeof realPackagedFixture>[1];
+  } = {},
 ) {
-  const fixture = realPackagedFixture(root);
+  const fixture = realPackagedFixture(root, options.mutateFixture);
   const child = spawn(process.execPath, [fileURLToPath(new URL("../../src/server.js", import.meta.url))], {
     cwd: root,
     env: {
@@ -140,6 +151,7 @@ async function spawnPackagedServer(
       GREENROOM_DATA_DIR: join(root, "data"),
       GREENROOM_HOST: "127.0.0.1",
       GREENROOM_PORT: String(port),
+      ...options.environment,
     },
     stdio: ["ignore", "pipe", "pipe", "pipe"],
   });
@@ -263,6 +275,59 @@ test("unrelated occupied listener cannot satisfy authenticated packaged readines
     makePayloadRemovable(launched.fixture.payloadRoot);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+async function assertPackagedStartupFailure(options: Parameters<typeof spawnPackagedServer>[3]): Promise<string> {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "green-room-ready-startup-failure-")));
+  const port = await availablePort();
+  const launched = await spawnPackagedServer(root, port, randomBytes(32), options);
+  try {
+    assert.notEqual(await waitForExit(launched.child), 0);
+    assert.deepEqual(await launched.response, Buffer.alloc(0));
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/health`));
+    assert.equal(existsSync(join(root, "data/runtime/persona-inspection")), false);
+    return Buffer.concat(launched.output).toString("utf8");
+  } finally {
+    await stopProcess(launched.child);
+    makePayloadRemovable(launched.fixture.payloadRoot);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("broken packaged migration emits no readiness and leaves no listener or inspection runtime", async () => {
+  const output = await assertPackagedStartupFailure({
+    mutateFixture: ({ appDist }) => {
+      const migration = readdirSync(join(appDist, "migrations")).find((name) => name.endsWith(".sql"));
+      assert.ok(migration);
+      writeFileSync(join(appDist, "migrations", migration), "THIS IS NOT VALID SQLITE;\n");
+    },
+  });
+  assert.match(output, /Failed to apply migration/);
+});
+
+test("missing packaged catalog emits no readiness and leaves no listener or inspection runtime", async () => {
+  const output = await assertPackagedStartupFailure({
+    mutateFixture: ({ appDist }) => {
+      rmSync(join(appDist, "personas/historical"), { recursive: true, force: true });
+    },
+  });
+  assert.match(output, /(?:historical (?:persona root|catalog directory)|ENOENT)/);
+});
+
+test("invalid packaged catalog emits no readiness and leaves no listener or inspection runtime", async () => {
+  const output = await assertPackagedStartupFailure({
+    mutateFixture: ({ appDist }) => {
+      writeFileSync(join(appDist, "personas/original/ff2k/persona.yaml"), "not: [valid\n");
+    },
+  });
+  assert.match(output, /(?:YAML|persona|parse)/i);
+});
+
+test("provider configuration failure emits no readiness and leaves no listener or resources", async () => {
+  const output = await assertPackagedStartupFailure({
+    environment: { GREENROOM_PROVIDER: "not-a-provider" },
+  });
+  assert.match(output, /GREENROOM_PROVIDER must be mock or lmstudio/);
 });
 
 test("compiled server starts from a non-repository cwd with packaged migrations, mixed catalog, and FF2K portrait", async (context) => {

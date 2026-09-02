@@ -24,6 +24,7 @@ enum LauncherError: Error, Equatable, CustomStringConvertible {
     case readinessTimeout
     case randomFailed
     case browserOpenFailed
+    case browserOpenTimeout
 
     var description: String {
         switch self {
@@ -37,6 +38,7 @@ enum LauncherError: Error, Equatable, CustomStringConvertible {
         case .readinessTimeout: return "readiness_timeout"
         case .randomFailed: return "readiness_random_failed"
         case .browserOpenFailed: return "browser_open_failed"
+        case .browserOpenTimeout: return "browser_open_timeout"
         }
     }
 }
@@ -705,6 +707,14 @@ private enum SupervisorMode {
     static let readinessFD: Int32 = 5
     static let testEvidenceFD: Int32 = 6
     static let inheritedTestEvidenceFD: Int32 = 200
+    #if DEBUG
+    static let inheritedBrowserTestControlFD: Int32 = 201
+    static let browserTestControlFD: Int32 = 4
+    #endif
+    static let browserAuthorizationFD: Int32 = 3
+    static let browserOpenTimeoutNanoseconds: UInt64 = 2_000_000_000
+    private static let browserAuthorization: [UInt8] = [0x47, 0x52, 0x4f, 0x50]
+    private static let browserURL = URL(string: "http://127.0.0.1:8787/")!
 
     private static func availableTestEvidenceFD(_ fd: Int32) -> Int32? {
         var status = stat()
@@ -754,6 +764,128 @@ private enum SupervisorMode {
         } catch {
             writeTestEvidence(evidenceFD, ["event": "supervisor-error", "code": "internal_supervision_failed"])
             throw error
+        }
+    }
+
+    static func runBrowserOpener(executable: URL) throws {
+        guard CommandLine.arguments == [executable.path, "--internal-browser-opener"],
+              fcntl(browserAuthorizationFD, F_GETFD) >= 0
+        else { throw LauncherError.unsafeInvocation("browser_protocol") }
+        var authorization = [UInt8](repeating: 0, count: browserAuthorization.count + 1)
+        var count = 0
+        while count < authorization.count {
+            let result = authorization.withUnsafeMutableBytes { raw in
+                Darwin.read(browserAuthorizationFD, raw.baseAddress!.advanced(by: count), raw.count - count)
+            }
+            if result > 0 { count += result; continue }
+            if result == 0 { break }
+            if errno != EINTR { throw LauncherError.browserOpenFailed }
+        }
+        guard count == browserAuthorization.count,
+              Array(authorization.prefix(count)) == browserAuthorization
+        else { throw LauncherError.unsafeInvocation("browser_protocol") }
+        #if DEBUG
+        if fcntl(browserTestControlFD, F_GETFD) >= 0 {
+            var mode: UInt8 = 0xff
+            guard Darwin.read(browserTestControlFD, &mode, 1) == 1 else {
+                throw LauncherError.browserOpenFailed
+            }
+            switch mode {
+            case 0: return
+            case 1: throw LauncherError.browserOpenFailed
+            case 2: while true { pause() }
+            default: throw LauncherError.browserOpenFailed
+            }
+        }
+        #endif
+        guard NSWorkspace.shared.open(browserURL) else { throw LauncherError.browserOpenFailed }
+    }
+
+    private static func openBrowserBounded(executable: URL, evidenceFD: Int32?) throws {
+        var authorization = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &authorization) == 0 else {
+            throw SpawnError.system("browser_socketpair", errno)
+        }
+        defer { authorization.forEach { if $0 >= 0 { close($0) } } }
+        var noSigPipe: Int32 = 1
+        guard setsockopt(authorization[0], SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw SpawnError.system("browser_nosigpipe", errno)
+        }
+        for fd in authorization {
+            guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else {
+                throw SpawnError.system("browser_cloexec", errno)
+            }
+        }
+        var inheritedAuthorization = fcntl(authorization[1], F_DUPFD_CLOEXEC, 10)
+        guard inheritedAuthorization >= 0 else { throw SpawnError.system("browser_dup", errno) }
+        defer { if inheritedAuthorization >= 0 { close(inheritedAuthorization) } }
+
+        var actions: posix_spawn_file_actions_t? = nil
+        try checked(posix_spawn_file_actions_init(&actions), "browser_actions_init")
+        defer { if actions != nil { posix_spawn_file_actions_destroy(&actions) } }
+        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            try checked(posix_spawn_file_actions_adddup2(&actions, descriptor, descriptor), "browser_stdio_dup")
+        }
+        try checked(posix_spawn_file_actions_adddup2(&actions, inheritedAuthorization, browserAuthorizationFD), "browser_authorization_dup")
+        try checked(posix_spawn_file_actions_addclose(&actions, inheritedAuthorization), "browser_authorization_source_close")
+        #if DEBUG
+        if availableTestEvidenceFD(inheritedBrowserTestControlFD) != nil {
+            try checked(posix_spawn_file_actions_adddup2(&actions, inheritedBrowserTestControlFD, browserTestControlFD), "browser_test_control_dup")
+        }
+        #endif
+        var attributes: posix_spawnattr_t? = nil
+        try checked(posix_spawnattr_init(&attributes), "browser_attr_init")
+        defer { if attributes != nil { posix_spawnattr_destroy(&attributes) } }
+        var empty = sigset_t(); try checked(sigemptyset(&empty), "browser_sigemptyset")
+        var defaults = sigset_t(); try checked(sigemptyset(&defaults), "browser_defaults_empty")
+        for number in [SIGTERM, SIGINT, SIGHUP, SIGPIPE] {
+            try checked(sigaddset(&defaults, number), "browser_default_signal")
+        }
+        try checked(posix_spawnattr_setsigmask(&attributes, &empty), "browser_sigmask")
+        try checked(posix_spawnattr_setsigdefault(&attributes, &defaults), "browser_sigdefault")
+        try checked(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)), "browser_flags")
+        var openerPID: pid_t = 0
+        let code = withMutableCStringArray([executable.path, "--internal-browser-opener"]) { argv in
+            withMutableCStringArray(["LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8"]) { env in
+                posix_spawn(&openerPID, executable.path, &actions, &attributes, argv, env)
+            }
+        }
+        try checked(code, "spawn_browser_opener")
+        var openerReaped = false
+        defer {
+            if !openerReaped {
+                _ = kill(openerPID, SIGKILL)
+                try? reap(openerPID)
+            }
+        }
+        close(authorization[1]); authorization[1] = -1
+        close(inheritedAuthorization); inheritedAuthorization = -1
+        try writeAll(authorization[0], data: Data(browserAuthorization))
+        guard shutdown(authorization[0], SHUT_WR) == 0 else {
+            _ = kill(openerPID, SIGKILL); try? reap(openerPID); openerReaped = true
+            throw LauncherError.browserOpenFailed
+        }
+        let deadline = DispatchTime.now().uptimeNanoseconds + browserOpenTimeoutNanoseconds
+        var status: Int32 = 0
+        while true {
+            let waited = waitpid(openerPID, &status, WNOHANG)
+            if waited == openerPID {
+                openerReaped = true
+                guard status == 0 else {
+                    throw LauncherError.browserOpenFailed
+                }
+                writeTestEvidence(evidenceFD, ["event": "browser-open", "count": 1])
+                return
+            }
+            if waited < 0 && errno != EINTR { throw SpawnError.system("wait_browser_opener", errno) }
+            if DispatchTime.now().uptimeNanoseconds >= deadline {
+                _ = kill(openerPID, SIGKILL)
+                try? reap(openerPID)
+                openerReaped = true
+                throw LauncherError.browserOpenTimeout
+            }
+            usleep(2_000)
         }
     }
 
@@ -916,11 +1048,7 @@ private enum SupervisorMode {
             guard kill(pid_t(bitPattern: nodePID), 0) == 0 || errno == EPERM else {
                 throw LauncherError.readinessProtocol
             }
-            if let evidenceFD {
-                writeTestEvidence(evidenceFD, ["event": "browser-open", "count": 1])
-            } else if !NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8787/")!) {
-                throw LauncherError.browserOpenFailed
-            }
+            try openBrowserBounded(executable: executable, evidenceFD: evidenceFD)
             guard kill(pid_t(bitPattern: nodePID), 0) == 0 || errno == EPERM else {
                 throw LauncherError.readinessProtocol
             }
@@ -940,6 +1068,10 @@ struct GreenRoomLauncherMain {
             let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
             if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--internal-supervisor" {
                 try SupervisorMode.runInternal(executable: executable)
+                return
+            }
+            if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--internal-browser-opener" {
+                try SupervisorMode.runBrowserOpener(executable: executable)
                 return
             }
             try LauncherInvocation.validate(
