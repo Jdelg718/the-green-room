@@ -163,6 +163,28 @@ final class LauncherTests: XCTestCase {
         XCTAssertEqual(errno, ESRCH)
     }
 
+    func testTERMStopsLiveCooperativeLeaderAndDescendantWithoutKILL() throws {
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["cooperative-descendant"], environment: [:],
+            cwd: try makeDirectory(named: "cooperative-descendant").path,
+            grace: .milliseconds(500), shutdownAfter: .milliseconds(500)
+        )
+        let output = String(decoding: result.stdout.retained, as: UTF8.self)
+        let processIDs = output.split(separator: "\n").compactMap { line -> pid_t? in
+            guard line.hasPrefix("ready "), let value = line.split(separator: " ").last else { return nil }
+            return pid_t(value)
+        }
+        XCTAssertEqual(processIDs.count, 2, output)
+        XCTAssertTrue(result.termSent)
+        XCTAssertFalse(result.killSent)
+        for processID in processIDs {
+            XCTAssertEqual(kill(processID, 0), -1, "PID \(processID) survived TERM")
+            XCTAssertEqual(errno, ESRCH)
+        }
+        XCTAssertEqual(killpg(result.pid, 0), -1)
+        XCTAssertEqual(errno, ESRCH)
+    }
+
     func testLeaderExitTriggersCleanupOfStubbornDescendant() throws {
         let result = try SupervisedProcess.runForTest(
             executable: try fixtureExecutable(), arguments: ["stubborn-descendant"], environment: [:],

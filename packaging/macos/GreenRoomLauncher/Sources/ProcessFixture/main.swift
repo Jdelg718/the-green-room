@@ -17,11 +17,87 @@ private func writeAll(_ fd: Int32, _ bytes: [UInt8]) {
     }
 }
 
+private func installCooperativeTERMHandler() {
+    signal(SIGTERM) { _ in _exit(0) }
+}
+
+private func appendEvidence(_ path: String, _ values: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]) else { _exit(72) }
+    let fd = open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR)
+    if fd < 0 { _exit(73) }
+    writeAll(fd, Array(data) + [0x0a])
+    close(fd)
+}
+
+private func spawnChild(_ arguments: [String]) -> pid_t {
+    var childPID: pid_t = 0
+    let rc = withCStringArray([CommandLine.arguments[0]] + arguments) { argv in
+        posix_spawn(&childPID, CommandLine.arguments[0], nil, nil, argv, environ)
+    }
+    if rc != 0 { _exit(70) }
+    return childPID
+}
+
+private func runPackagedFixture(serverPath: String) {
+    guard let data = FileManager.default.contents(atPath: serverPath),
+          let configuration = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let scenario = configuration["scenario"] as? String,
+          let evidencePath = configuration["evidencePath"] as? String,
+          let highFD = configuration["highFd"] as? Int
+    else { _exit(74) }
+    installCooperativeTERMHandler()
+    let openFDs = (0..<256).filter { fcntl(Int32($0), F_GETFD) >= 0 }
+    appendEvidence(evidencePath, [
+        "role": "leader", "pid": Int(getpid()), "pgid": Int(getpgrp()),
+        "scenario": scenario, "fds": openFDs, "highFdOpen": openFDs.contains(highFD),
+        "pathPresent": ProcessInfo.processInfo.environment["PATH"] != nil,
+        "executable": CommandLine.arguments[0],
+    ])
+    if scenario == "startup-crossing" {
+        usleep(500_000)
+    }
+    let childPID = spawnChild(["cooperative-child", evidencePath, scenario, String(highFD)])
+    appendEvidence(evidencePath, [
+        "role": "spawned-descendant", "pid": Int(childPID), "pgid": Int(getpgrp()), "scenario": scenario,
+    ])
+    if scenario == "normal-exit", let quitPath = configuration["quitPath"] as? String {
+        while !FileManager.default.fileExists(atPath: quitPath) { usleep(2_000) }
+        _exit(0)
+    }
+    while true { pause() }
+}
+
 let mode = CommandLine.arguments.dropFirst().first ?? "report"
+if mode == "cooperative-child", CommandLine.arguments.count == 5 {
+    installCooperativeTERMHandler()
+    let highFD = Int(CommandLine.arguments[4]) ?? -1
+    let openFDs = (0..<256).filter { fcntl(Int32($0), F_GETFD) >= 0 }
+    appendEvidence(CommandLine.arguments[2], [
+        "role": "descendant", "pid": Int(getpid()), "pgid": Int(getpgrp()),
+        "scenario": CommandLine.arguments[3], "fds": openFDs,
+        "highFdOpen": openFDs.contains(highFD),
+        "pathPresent": ProcessInfo.processInfo.environment["PATH"] != nil,
+        "executable": CommandLine.arguments[0],
+    ])
+    while true { pause() }
+}
+if ProcessInfo.processInfo.environment["GREENROOM_RUNTIME_MODE"] == "packaged-macos",
+   mode.hasPrefix("/"), mode.hasSuffix("/server.js") {
+    runPackagedFixture(serverPath: mode)
+}
 let openFDs = (0..<64).filter { fcntl(Int32($0), F_GETFD) >= 0 }.map(String.init).joined(separator: ",")
 let report = "pid=\(getpid()) pgid=\(getpgrp()) cwd=\(FileManager.default.currentDirectoryPath) args=\(CommandLine.arguments.dropFirst().joined(separator: "|")) env=\(ProcessInfo.processInfo.environment.keys.sorted().joined(separator: ",")) fds=\(openFDs)\n"
 writeAll(STDOUT_FILENO, Array(report.utf8))
-if mode == "flood" {
+if mode == "cooperative-descendant" {
+    installCooperativeTERMHandler()
+    writeAll(STDOUT_FILENO, Array("ready leader \(getpid())\n".utf8))
+    let childPID = spawnChild(["cooperative-live-child"])
+    writeAll(STDOUT_FILENO, Array("ready descendant \(childPID)\n".utf8))
+    while true { pause() }
+} else if mode == "cooperative-live-child" {
+    installCooperativeTERMHandler()
+    while true { pause() }
+} else if mode == "flood" {
     let block = [UInt8](repeating: 0x41, count: 65_536) + [0xff, 0x00]
     for _ in 0..<64 { writeAll(STDOUT_FILENO, block); writeAll(STDERR_FILENO, block) }
 } else if mode == "descendant" || mode == "stubborn-descendant" {

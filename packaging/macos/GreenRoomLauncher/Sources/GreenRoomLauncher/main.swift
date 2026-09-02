@@ -632,6 +632,11 @@ private enum SupervisorMode {
         var actions: posix_spawn_file_actions_t? = nil
         try checked(posix_spawn_file_actions_init(&actions), "supervisor_actions_init")
         defer { if actions != nil { posix_spawn_file_actions_destroy(&actions) } }
+        // CLOEXEC_DEFAULT closes every descriptor not named by a file action.
+        // Keep only standard I/O and the two private control channels.
+        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            try checked(posix_spawn_file_actions_adddup2(&actions, descriptor, descriptor), "supervisor_stdio_dup")
+        }
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedLifetime, lifetimeFD), "supervisor_lifetime_dup")
         try checked(posix_spawn_file_actions_adddup2(&actions, inheritedArmed, armedFD), "supervisor_armed_dup")
         try checked(posix_spawn_file_actions_addclose(&actions, inheritedLifetime), "supervisor_lifetime_source_close")
