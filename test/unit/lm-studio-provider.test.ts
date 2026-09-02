@@ -217,20 +217,23 @@ test("LM Studio sends the exact validated FF2K runtime prompt once without curat
   assert.deepEqual(request.messages[2], { role: "user", content: invitation.prompt });
 });
 
-test("LM Studio preserves the exact historical persona as the first message and adds final host policy", async () => {
+test("LM Studio preserves exact legacy and promoted historical personas as the first message and adds final host policy", async () => {
   const historicalRoot = fileURLToPath(
     new URL("../../personas/historical", import.meta.url),
   );
   const catalog = loadHistoricalCatalog(historicalRoot);
-  const expectedPrompt = catalog.resolvePrompt("ada-lovelace");
-  const requests: Array<Array<{ role: string; content: string }>> = [];
+  const expectedPrompts = new Map([
+    ["ada-lovelace", catalog.resolvePrompt("ada-lovelace")],
+    ["hal-finney", catalog.resolvePrompt("hal-finney")],
+  ]);
+  const requests: Array<{ personaId: string; messages: Array<{ role: string; content: string }> }> = [];
   const provider = new LMStudioProvider({
     personaCatalog: catalog,
     fetch: async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as {
         messages: Array<{ role: string; content: string }>;
       };
-      requests.push(body.messages);
+      requests.push({ personaId: JSON.parse(String(init?.body)).messages[0].content === expectedPrompts.get("hal-finney") ? "hal-finney" : "ada-lovelace", messages: body.messages });
       return jsonResponse({ choices: [{ message: { content: "A direct answer." } }] });
     },
   });
@@ -238,6 +241,8 @@ test("LM Studio preserves the exact historical persona as the first message and 
   for (const personaId of [
     "ada-lovelace",
     "org.greenroom.historical.ada-lovelace",
+    "hal-finney",
+    "org.greenroom.historical.hal-finney",
   ]) {
     await provider.generate(
       { ...invitation, personaId },
@@ -245,11 +250,11 @@ test("LM Studio preserves the exact historical persona as the first message and 
     );
   }
 
-  assert.equal(requests.length, 2);
-  for (const messages of requests) {
+  assert.equal(requests.length, 4);
+  for (const { personaId, messages } of requests) {
     assert.equal(messages.length, 3);
     const bytes = Buffer.from(messages[0]!.content, "utf8");
-    const expectedBytes = Buffer.from(expectedPrompt, "utf8");
+    const expectedBytes = Buffer.from(expectedPrompts.get(personaId)!, "utf8");
     assert.equal(bytes.equals(expectedBytes), true);
     assert.deepEqual(messages[1], { role: "system", content: HOST_RESPONSE_POLICY });
     assert.deepEqual(messages[2], { role: "user", content: invitation.prompt });

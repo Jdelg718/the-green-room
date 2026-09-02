@@ -106,19 +106,19 @@ class StaticPolicyTests(unittest.TestCase):
             page.write_text(source, encoding="utf-8")
             self.assert_rejected(validate.collect_errors(site), "profile link for Ada Lovelace")
 
-    def test_character_index_requires_exact_cards_and_held_status_labels(self) -> None:
+    def test_character_index_requires_exact_cards_and_promoted_status_labels(self) -> None:
         mutations = {
             "exactly 18 cast cards": (
                 "</ul>",
                 '<li class="cast-card"><a href="/characters/hal-finney/">Duplicate</a></li></ul>',
             ),
-            "held status label for Hal Finney": (
-                "Website presentation approved · non-runtime hold",
-                "Website presentation approved · non-runtime hold — allegedly",
+            "promoted status label for Hal Finney": (
+                "Preinstalled candidate · not Official Catalog admitted",
+                "Preinstalled candidate · not Official Catalog admitted — allegedly",
             ),
-            "visible held status label for Hal Finney": (
-                "<small>Website presentation approved · non-runtime hold</small>",
-                '<div aria-hidden="true"><small>Website presentation approved · non-runtime hold</small></div>',
+            "visible promoted status label for Hal Finney": (
+                "<small>Preinstalled candidate · not Official Catalog admitted</small>",
+                '<div aria-hidden="true"><small>Preinstalled candidate · not Official Catalog admitted</small></div>',
             ),
         }
         for reason, (old, new) in mutations.items():
@@ -197,7 +197,7 @@ class StaticPolicyTests(unittest.TestCase):
             hidden_duplicate = (
                 '<dl aria-hidden="true"><dt>Historical horizon</dt><dd>Through 26 November 1852</dd>'
                 '<dt>Catalog status</dt><dd>Candidate pack in the verified local alpha</dd>'
-                '<dt>Preinstallation</dt><dd>Intended only after exact-version Official Catalog approval</dd>'
+                '<dt>Preinstallation</dt><dd>Preinstalled separately from Official Catalog admission</dd>'
                 '<dt>Portrait</dt><dd>Published AI-generated creative historical interpretation; not an authentic '
                 'portrait, and no endorsement is claimed</dd></dl>'
             )
@@ -587,17 +587,13 @@ class StaticPolicyTests(unittest.TestCase):
                 "no Official Catalog Manifest exists yet",
                 "catalog work continues",
             ),
-            "candidate packs—not approved Official Catalog releases": (
-                "candidate packs—not approved Official Catalog releases",
-                "candidate packs—approved Official Catalog releases",
+            "candidate packs are preinstalled but are not approved Official Catalog releases": (
+                "candidate packs are preinstalled but are not approved Official Catalog releases",
+                "candidate packs are preinstalled and approved Official Catalog releases",
             ),
-            "after exact-version catalog admission": (
-                "after exact-version catalog admission",
-                "after a future release",
-            ),
-            "Public preinstallation requires exact-version approval": (
-                "Public preinstallation requires exact-version approval",
-                "Public preinstallation is automatic",
+            "Official Catalog admission requires exact-version approval": (
+                "Official Catalog admission requires exact-version approval",
+                "Official Catalog admission is automatic",
             ),
         }
         for reason, (required, replacement) in fixtures.items():

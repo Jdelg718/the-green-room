@@ -41,7 +41,7 @@ def test_all_current_source_packs_validate_when_archived(tmp_path: Path) -> None
         for root in ("historical", "original")
         for path in (REPOSITORY_ROOT / "personas" / root).iterdir()
     )
-    assert len(persona_directories) == 13
+    assert len(persona_directories) == 19
 
     failures: dict[str, set[str]] = {}
     for directory in persona_directories:

@@ -21,6 +21,7 @@ function temporaryDirectory(context: { after(callback: () => void): void }): str
 }
 
 const ADA = Object.freeze({ slug: "ada-lovelace", name: "Ada Lovelace" });
+const HAL = Object.freeze({ slug: "hal-finney", name: "Hal Finney" });
 const NEWTON = Object.freeze({ slug: "isaac-newton", name: "Isaac Newton" });
 const DOUGLASS = Object.freeze({ slug: "frederick-douglass", name: "Frederick Douglass" });
 
@@ -140,7 +141,7 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   const second = replaceCurrentRoomCast(store.database, {
     expectedRevision: 1,
     requestId: "cast-three",
-    personas: [NEWTON, ADA, DOUGLASS],
+    personas: [HAL, ADA, DOUGLASS],
   });
   assert.equal(currentRoomId(store.database), second.sessionId);
   assert.equal(store.database.prepare("SELECT status FROM rooms WHERE id = ?").get(first.sessionId)?.status, "active");
@@ -153,7 +154,7 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
     ).all(second.sessionId).map((row) => ({ ...row })),
     [
       { kind: "human", persona_slug: null, display_name: "You", sort_order: 0 },
-      { kind: "persona", persona_slug: "isaac-newton", display_name: "Isaac Newton", sort_order: 1 },
+      { kind: "persona", persona_slug: "hal-finney", display_name: "Hal Finney", sort_order: 1 },
       { kind: "persona", persona_slug: "ada-lovelace", display_name: "Ada Lovelace", sort_order: 2 },
       { kind: "persona", persona_slug: "frederick-douglass", display_name: "Frederick Douglass", sort_order: 3 },
     ],
