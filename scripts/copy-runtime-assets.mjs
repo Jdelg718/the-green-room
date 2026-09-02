@@ -32,6 +32,7 @@ cpSync(resolve(repositoryRoot, "scripts/source-clean-host.mjs"), scriptDestinati
 for (const relativePath of [
   "scripts/package/verify-release-manifest.mjs",
   "packaging/release-manifest.schema.json",
+  "packaging/macos/assemble-app.mjs",
 ]) {
   const destination = resolve(repositoryRoot, "dist", relativePath);
   mkdirSync(dirname(destination), { recursive: true });

@@ -15,6 +15,8 @@ import {
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { verifyUnsignedApp } from "../../packaging/macos/assemble-app.mjs";
+
 function fail(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -118,8 +120,11 @@ export function inventoryValidatorPayload({ validatorRoot }) {
 }
 
 function parseArguments(argv) {
+  if (argv.length === 2 && argv[0] === "--artifact" && isAbsolute(argv[1])) {
+    return { artifact: argv[1] };
+  }
   if (argv.length !== 4 || argv[0] !== "--validator-root" || argv[2] !== "--inventory-out") {
-    fail("payload_usage", "usage: verify-payload.mjs --validator-root ABSOLUTE --inventory-out ABSOLUTE");
+    fail("payload_usage", "usage: verify-payload.mjs --artifact ABSOLUTE_APP | --validator-root ABSOLUTE --inventory-out ABSOLUTE");
   }
   if (!isAbsolute(argv[1]) || !isAbsolute(argv[3])) {
     fail("payload_usage", "payload and inventory paths must be absolute");
@@ -131,13 +136,18 @@ const invokedPath = process.argv[1] === undefined ? null : pathToFileURL(resolve
 if (invokedPath === import.meta.url) {
   try {
     const options = parseArguments(process.argv.slice(2));
-    const inventory = inventoryValidatorPayload(options);
-    writeFileSync(options.inventoryOut, `${JSON.stringify(inventory, null, 2)}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600,
-    });
-    process.stdout.write(`${JSON.stringify(inventory)}\n`);
+    if (options.artifact !== undefined) {
+      const verified = verifyUnsignedApp(options.artifact);
+      process.stdout.write(`${JSON.stringify({ code: "unsigned_app_payload_verified", appDigest: verified.appDigest, inventoryCount: verified.inventory.length })}\n`);
+    } else {
+      const inventory = inventoryValidatorPayload(options);
+      writeFileSync(options.inventoryOut, `${JSON.stringify(inventory, null, 2)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      process.stdout.write(`${JSON.stringify(inventory)}\n`);
+    }
   } catch (error) {
     process.stderr.write(`${JSON.stringify({
       code: error?.code ?? "payload_verification_failed",

@@ -11,7 +11,15 @@
   },
   "greenroomPackageIdentity": {
     "bundleIdentifier": "net.greenroomai.GreenRoom",
-    "releaseManifestSchemaVersion": 1
+    "releaseManifestSchemaVersion": 1,
+    "macosBuildVersion": "120",
+    "pythonVersion": "3.13.13",
+    "nodeRuntime": {
+      "version": "24.20.0",
+      "architecture": "arm64",
+      "sourceUrl": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-darwin-arm64.tar.gz",
+      "archiveSha256": "40e5607e5ecb3db9192723776da2d75d966260fc74a7a9e731c1bd67dda96bc8"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
@@ -22,6 +30,7 @@
     "check:all": "npm run check && npm run check:python",
     "check:release": "npm run check:all && npm run acceptance",
     "package:validator:macos": "node scripts/package/build-validator.mjs",
+    "package:macos:unsigned": "node packaging/macos/assemble-app.mjs",
     "test:packaging": "node scripts/package/test-packaged-validator.mjs",
     "verify:payload": "node scripts/package/verify-payload.mjs",
     "deploy:site": "wrangler deploy",

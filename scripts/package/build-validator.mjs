@@ -95,6 +95,11 @@ try {
   }
   const uv = executableOnPath("uv");
   const uvVersion = run(uv, ["--version"]);
+  const pythonVersionOutput = run(uv, ["run", "--locked", "python", "--version"]);
+  const pythonVersion = pythonVersionOutput.replace(/^Python\s+/, "");
+  if (!/^3\.13\.13$/.test(pythonVersion)) {
+    fail("validator_build_python_version", `expected Python 3.13.13, received ${pythonVersion}`);
+  }
   run(uv, ["lock", "--check"]);
 
   mkdirSync(packagingRoot, { recursive: true });
@@ -141,6 +146,7 @@ try {
     schemaVersion: 1,
     targetTriple: inventory.targetTriple,
     nodeVersion: process.version,
+    pythonVersion,
     uvVersion,
     pyinstallerVersion: "6.16.0",
     outputRoot: finalRoot,
