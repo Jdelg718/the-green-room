@@ -16,8 +16,10 @@ import {
   type PersonaPackInspectionHttpService,
 } from "./persona-pack-inspection-route.js";
 import {
-  currentRoomId,
-  readCurrentRoom,
+  listRooms,
+  readRoom,
+  readRoomSelection,
+  selectRoom,
 } from "../db/index.js";
 import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.js";
 import {
@@ -25,7 +27,6 @@ import {
   RoomService,
 } from "../runtime/room-service.js";
 
-const ROOM_ID = "first-playable";
 const JSON_BODY_LIMIT = 64 * 1024;
 const EVENT_REPLAY_LIMIT = 100;
 const DEFAULT_SSE_QUEUE_LIMIT = 128;
@@ -69,16 +70,19 @@ interface EventRow {
 
 interface ParsedMessageBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly text: string;
   readonly wantsResponse?: boolean;
 }
 
 interface ParsedControlBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
 }
 
 interface ParsedCastBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly personaSlugs: readonly string[];
 }
 
@@ -189,22 +193,35 @@ function validIdentifier(value: unknown): value is string {
   );
 }
 
+function validRoomId(value: unknown): value is string {
+  return typeof value === "string" && (
+    value === "first-playable" ||
+    /^room-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+  );
+}
+
+function validSelectionRevision(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function parseControlBody(value: unknown): ParsedControlBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId"]) ||
-    !validIdentifier(value.requestId)
+    !hasExactlyKeys(value, ["requestId", "selectionRevision"]) ||
+    !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision)
   ) {
     return undefined;
   }
-  return { requestId: value.requestId };
+  return { requestId: value.requestId, selectionRevision: value.selectionRevision };
 }
 
 function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId", "text"], ["wantsResponse"]) ||
+    !hasExactlyKeys(value, ["requestId", "selectionRevision", "text"], ["wantsResponse"]) ||
     !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision) ||
     typeof value.text !== "string" ||
     value.text.trim().length === 0 ||
     value.text.length > ROOM_SERVICE_LIMITS.MAX_MESSAGE_LENGTH ||
@@ -216,11 +233,12 @@ function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   if (typeof value.wantsResponse === "boolean") {
     return {
       requestId: value.requestId,
+      selectionRevision: value.selectionRevision,
       text: value.text,
       wantsResponse: value.wantsResponse,
     };
   }
-  return { requestId: value.requestId, text: value.text };
+  return { requestId: value.requestId, selectionRevision: value.selectionRevision, text: value.text };
 }
 
 function parseCastBody(
@@ -229,8 +247,9 @@ function parseCastBody(
 ): ParsedCastBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId", "personaSlugs"]) ||
+    !hasExactlyKeys(value, ["requestId", "selectionRevision", "personaSlugs"]) ||
     !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision) ||
     !Array.isArray(value.personaSlugs) ||
     value.personaSlugs.length < 1 ||
     value.personaSlugs.length > 3 ||
@@ -239,7 +258,11 @@ function parseCastBody(
   ) {
     return undefined;
   }
-  return { requestId: value.requestId, personaSlugs: value.personaSlugs };
+  return {
+    requestId: value.requestId,
+    selectionRevision: value.selectionRevision,
+    personaSlugs: value.personaSlugs,
+  };
 }
 
 function parseHumanProfileBody(value: unknown): ParsedHumanProfileBody | undefined {
@@ -347,7 +370,7 @@ function readEvents(
 
 function sendServiceError(reply: FastifyReply, error: unknown): FastifyReply {
   const message = error instanceof Error ? error.message : "";
-  if (/already used|room is|unknown persona/i.test(message)) {
+  if (/already used|room is|room selection|room library|unknown room|unknown persona/i.test(message)) {
     return reply.code(409).send(ERROR_RESPONSES.conflict);
   }
   return reply.code(503).send(ERROR_RESPONSES.generation);
@@ -656,7 +679,39 @@ export function registerApiRoutes(
     });
 
     const routeOptions = { bodyLimit: JSON_BODY_LIMIT } as const;
-    api.get(`/api/rooms/${ROOM_ID}`, async () => readCurrentRoom(database));
+    api.get("/api/rooms", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return { rooms: listRooms(database) };
+    });
+
+    api.get("/api/rooms/current", async () => readRoomSelection(database));
+
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId", async (request, reply) => {
+      if (!validRoomId(request.params.roomId)) return invalidRequest(reply);
+      try {
+        return readRoom(database, request.params.roomId);
+      } catch (error) {
+        return sendServiceError(reply, error);
+      }
+    });
+
+    api.post<{ Params: { roomId: string } }>(
+      "/api/rooms/:roomId/select",
+      routeOptions,
+      async (request, reply) => {
+        const body = parseControlBody(request.body);
+        if (body === undefined || !validRoomId(request.params.roomId)) return invalidRequest(reply);
+        try {
+          return selectRoom(database, {
+            requestId: body.requestId,
+            expectedRevision: body.selectionRevision,
+            roomId: request.params.roomId,
+          });
+        } catch (error) {
+          return sendServiceError(reply, error);
+        }
+      },
+    );
 
     api.get("/api/human-profile", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
@@ -700,12 +755,13 @@ export function registerApiRoutes(
       return humanProfileDto(readHumanProfile(database));
     });
 
-    api.get(`/api/rooms/${ROOM_ID}/events`, async (request, reply) => {
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/events", async (request, reply) => {
       const after = parseCursor(request);
-      if (after === undefined) {
+      if (after === undefined || !validRoomId(request.params.roomId)) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      const roomId = currentRoomId(database);
+      const roomId = request.params.roomId;
+      try { readRoom(database, roomId); } catch (error) { return sendServiceError(reply, error); }
       const events = readEvents(database, roomId, after, EVENT_REPLAY_LIMIT);
       return {
         events,
@@ -713,26 +769,32 @@ export function registerApiRoutes(
       };
     });
 
-    api.get(`/api/rooms/${ROOM_ID}/stream`, async (request, reply) => {
+    api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/stream", async (request, reply) => {
       const after = parseCursor(request);
-      if (after === undefined) {
+      if (after === undefined || !validRoomId(request.params.roomId)) {
         return reply.code(400).send(ERROR_RESPONSES.cursor);
       }
-      const roomId = currentRoomId(database);
+      const roomId = request.params.roomId;
+      try { readRoom(database, roomId); } catch (error) { return sendServiceError(reply, error); }
       streams.connect(request, reply, roomId, after);
     });
 
-    api.post(
-      `/api/rooms/${ROOM_ID}/messages`,
+    api.post<{ Params: { roomId: string } }>(
+      "/api/rooms/:roomId/messages",
       routeOptions,
       async (request, reply) => {
         const body = parseMessageBody(request.body);
-        if (body === undefined) {
+        if (body === undefined || !validRoomId(request.params.roomId)) {
           return invalidRequest(reply);
         }
         try {
-          const roomId = currentRoomId(database);
-          return await service.sendMessage({ roomId, ...body });
+          return await service.sendMessage({
+            roomId: request.params.roomId,
+            requestId: body.requestId,
+            selectionRevision: body.selectionRevision,
+            text: body.text,
+            ...(body.wantsResponse === undefined ? {} : { wantsResponse: body.wantsResponse }),
+          });
         } catch (error) {
           return sendServiceError(reply, error);
         }
@@ -740,10 +802,7 @@ export function registerApiRoutes(
     );
 
     const knownCatalogSlugs = new Set(catalogPersonas.map(({ slug }) => slug));
-    api.post(
-      `/api/rooms/${ROOM_ID}/cast`,
-      routeOptions,
-      async (request, reply) => {
+    const createCast = async (request: FastifyRequest, reply: FastifyReply) => {
         const body = parseCastBody(request.body, knownCatalogSlugs);
         if (body === undefined) {
           return invalidRequest(reply);
@@ -753,8 +812,10 @@ export function registerApiRoutes(
         } catch (error) {
           return sendServiceError(reply, error);
         }
-      },
-    );
+      };
+    api.post("/api/rooms/current/cast", routeOptions, createCast);
+    api.post("/api/rooms/first-playable/cast", routeOptions, createCast);
+    api.post("/api/rooms", routeOptions, createCast);
 
     for (const [path, operation] of [
       ["pause", service.pause.bind(service)],
@@ -762,16 +823,20 @@ export function registerApiRoutes(
       ["stop", service.stop.bind(service)],
     ] as const) {
       api.post(
-        `/api/rooms/${ROOM_ID}/${path}`,
+        `/api/rooms/:roomId/${path}`,
         routeOptions,
         async (request, reply) => {
           const body = parseControlBody(request.body);
-          if (body === undefined) {
+          const roomId = (request.params as { roomId?: string }).roomId;
+          if (body === undefined || !validRoomId(roomId)) {
             return invalidRequest(reply);
           }
           try {
-            const roomId = currentRoomId(database);
-            return await operation({ roomId, ...body });
+            return await operation({
+              roomId,
+              requestId: body.requestId,
+              selectionRevision: body.selectionRevision,
+            });
           } catch (error) {
             return sendServiceError(reply, error);
           }
@@ -784,20 +849,26 @@ export function registerApiRoutes(
       ["unmute", service.unmute.bind(service)],
     ] as const) {
       api.post<{ Params: { personaId: string } }>(
-        `/api/rooms/${ROOM_ID}/personas/:personaId/${path}`,
+        `/api/rooms/:roomId/personas/:personaId/${path}`,
         routeOptions,
         async (request, reply) => {
           const body = parseControlBody(request.body);
           const { personaId } = request.params;
+          const roomId = (request.params as { roomId?: string }).roomId;
           if (
             body === undefined ||
+            !validRoomId(roomId) ||
             !validIdentifier(personaId)
           ) {
             return invalidRequest(reply);
           }
           try {
-            const roomId = currentRoomId(database);
-            return await operation({ roomId, personaId, ...body });
+            return await operation({
+              roomId,
+              personaId,
+              requestId: body.requestId,
+              selectionRevision: body.selectionRevision,
+            });
           } catch (error) {
             return sendServiceError(reply, error);
           }

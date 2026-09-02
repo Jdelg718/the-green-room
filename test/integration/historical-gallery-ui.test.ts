@@ -286,9 +286,9 @@ test("cast response validation fails before transition and lifecycle starts a va
   const ui = await contract();
   const selected = ["ada-lovelace"];
   const response = {
-    kind: "cast", requestId: "ui-cast-123", sessionId: "room-123",
+    kind: "cast", requestId: "ui-cast-123", selectionRevision: 1, sessionId: "room-123",
     room: {
-      id: "first-playable", sessionId: "room-123", title: "The Green Room", status: "active", generation: 0,
+      id: "room-123", sessionId: "room-123", title: "The Green Room", status: "active", generation: 0,
       participants: [
         { id: "human-room-123", kind: "human", displayName: "You", muted: false },
         { id: "persona-room-123", kind: "persona", displayName: "Ada Lovelace", muted: false, personaSlug: "ada-lovelace" },
@@ -335,18 +335,18 @@ test("cast response validation fails before transition and lifecycle starts a va
 
 test("historical room reconciliation is authoritative, strict, private, and deterministic", async () => {
   const ui = await contract();
-  const oldSessionId = "old-room";
+  const oldSessionId = "room-old";
   const requestId = "ui-cast-idempotent";
   const personaSlugs = ["ada-lovelace"];
   const room = {
-    id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+    id: "room-new", sessionId: "room-new", title: "The Green Room", status: "active", generation: 0,
     participants: [
       { id: "human-new", kind: "human", displayName: "You", muted: false },
       { id: "ada-new", kind: "persona", displayName: "Ada Lovelace", muted: false, personaSlug: "ada-lovelace" },
     ],
   };
   const response = {
-    kind: "cast", requestId, sessionId: "new-room", room,
+    kind: "cast", requestId, selectionRevision: 1, sessionId: "room-new", room,
     selectedCast: [{ participantId: "ada-new", slug: "ada-lovelace", name: "Ada Lovelace", sortOrder: 1 }],
   };
   const input = { requestId, personaSlugs, oldSessionId };
@@ -363,13 +363,14 @@ test("historical room reconciliation is authoritative, strict, private, and dete
   });
   assert.equal(malformedCommitted.kind, "committed");
 
-  const unchangedRoom = structuredClone(room); unchangedRoom.sessionId = oldSessionId;
+  const unchangedRoom = structuredClone(room); unchangedRoom.id = oldSessionId; unchangedRoom.sessionId = oldSessionId;
   assert.equal(ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: unchangedRoom }).kind, "unchanged");
   assert.equal(ui.reconcileHistoricalRoomAttempt(input).kind, "unknown");
   assert.equal(ui.reconcileHistoricalRoomAttempt({ ...input, authoritativeRoom: { ...room, secret: "no" } }).kind, "unknown");
 
   const concurrentRoom = structuredClone(room);
-  concurrentRoom.sessionId = "concurrent-room";
+  concurrentRoom.id = "room-concurrent";
+  concurrentRoom.sessionId = "room-concurrent";
   concurrentRoom.participants[1] = {
     id: "newton-concurrent", kind: "persona", displayName: "Isaac Newton", muted: false, personaSlug: "isaac-newton",
   };
@@ -402,9 +403,9 @@ test("replacement lifecycle follows only the new channel and stale old-session c
   await lifecycle.activate();
 
   const response = {
-    kind: "cast", requestId: "ui-cast-lifecycle", sessionId: "replacement-room",
+    kind: "cast", requestId: "ui-cast-lifecycle", selectionRevision: 1, sessionId: "replacement-room",
     room: {
-      id: "first-playable", sessionId: "replacement-room", title: "The Green Room", status: "active", generation: 0,
+      id: "room-replacement", sessionId: "room-replacement", title: "The Green Room", status: "active", generation: 0,
       participants: [
         { id: "human-replacement", kind: "human", displayName: "You", muted: false },
         { id: "ada-replacement", kind: "persona", displayName: "Ada Lovelace", muted: false, personaSlug: "ada-lovelace" },
@@ -460,7 +461,7 @@ test("persisted pagehide defers a cast replacement transport until one BFCache p
   listeners.get("pagehide")?.({ persisted: true });
   await ui.transitionRoomSession({
     room: {
-      id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+      id: "room-new", sessionId: "room-new", title: "The Green Room", status: "active", generation: 0,
       participants: [{ id: "human-new", kind: "human", displayName: "You", muted: false }],
     },
     oldSessionId: "old-room", lifecycle, clearSession: () => calls.push("clear"),
@@ -499,7 +500,7 @@ test("nonpersisted pagehide disposes before a cast replacement and never starts 
   listeners.get("pagehide")?.({ persisted: false });
   await ui.transitionRoomSession({
     room: {
-      id: "first-playable", sessionId: "new-room", title: "The Green Room", status: "active", generation: 0,
+      id: "room-new", sessionId: "room-new", title: "The Green Room", status: "active", generation: 0,
       participants: [{ id: "human-new", kind: "human", displayName: "You", muted: false }],
     },
     oldSessionId: "old-room", lifecycle, clearSession: () => calls.push("clear"),
@@ -524,15 +525,15 @@ test("real Fastify catalog to cast to unchecked message uses the closed UI contr
   const requestId = "gallery-real-cast";
   const castResponse = await app.inject({
     method: "POST", url: ui.API_PATHS.cast, headers,
-    payload: { requestId, personaSlugs },
+    payload: { requestId, selectionRevision: 0, personaSlugs },
   });
   assert.equal(castResponse.statusCode, 200, castResponse.body);
   const cast = ui.validateCastResponse(castResponse.json(), { requestId, personaSlugs, oldSessionId: "first-playable" });
   assert.deepEqual(cast.selectedCast.map(({ slug }: { slug: string }) => slug), personaSlugs);
 
   const messageResponse = await app.inject({
-    method: "POST", url: ui.API_PATHS.messages, headers,
-    payload: { requestId: "gallery-real-message", text: "Record this line without a reply.", wantsResponse: false },
+    method: "POST", url: ui.API_PATHS.messages(cast.sessionId), headers,
+    payload: { requestId: "gallery-real-message", selectionRevision: 1, text: "Record this line without a reply.", wantsResponse: false },
   });
   assert.equal(messageResponse.statusCode, 200, messageResponse.body);
   assert.equal(messageResponse.json().outcome, "not_scheduled");
@@ -544,7 +545,7 @@ test("gallery assets retain accessibility, mobile, textContent, and same-origin 
   const styles = readFileSync(resolve("public/styles.css"), "utf8");
   const ui = await contract();
   assert.equal(ui.API_PATHS.catalog, "/api/catalog/personas");
-  assert.equal(ui.API_PATHS.cast, "/api/rooms/first-playable/cast");
+  assert.equal(ui.API_PATHS.cast, "/api/rooms");
   assert.match(script, /textContent/);
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|https?:\/\//);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);

@@ -40,6 +40,7 @@ function replaceCastInWorker(
         });
         try {
           const result = replaceCurrentRoomCast(store.database, {
+            expectedRevision: 0,
             requestId: workerData.requestId,
             personas: [workerData.persona],
           });
@@ -67,6 +68,8 @@ test("0003 upgrades the fixed room without rewriting its history", (context) => 
   rmSync(join(oldMigrations, "0003-room-cast.sql"));
   rmSync(join(oldMigrations, "0004-human-emoji.sql"));
   rmSync(join(oldMigrations, "0005-human-avatar.sql"));
+  rmSync(join(oldMigrations, "0006-room-library.sql"));
+  rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.prepare(
     `INSERT INTO events(room_id, sequence, event_json)
@@ -103,6 +106,7 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
   const first = replaceCurrentRoomCast(store.database, {
+    expectedRevision: 0,
     requestId: "cast-one",
     personas: [ADA],
   });
@@ -110,11 +114,13 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   assert.equal(currentRoomId(store.database), first.sessionId);
   assert.deepEqual(first.selectedCast.map(({ slug, name }) => ({ slug, name })), [ADA]);
   assert.deepEqual(replaceCurrentRoomCast(store.database, {
+    expectedRevision: 0,
     requestId: "cast-one",
     personas: [ADA],
   }), first);
   assert.throws(
     () => replaceCurrentRoomCast(store.database, {
+      expectedRevision: 0,
       requestId: "cast-one",
       personas: [NEWTON],
     }),
@@ -131,12 +137,13 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   ).run(first.sessionId, "b".repeat(64));
 
   const second = replaceCurrentRoomCast(store.database, {
+    expectedRevision: 1,
     requestId: "cast-three",
     personas: [NEWTON, ADA, DOUGLASS],
   });
   assert.equal(currentRoomId(store.database), second.sessionId);
-  assert.equal(store.database.prepare("SELECT status FROM rooms WHERE id = ?").get(first.sessionId)?.status, "stopped");
-  assert.equal(store.database.prepare("SELECT status FROM rooms WHERE id = 'first-playable'").get()?.status, "stopped");
+  assert.equal(store.database.prepare("SELECT status FROM rooms WHERE id = ?").get(first.sessionId)?.status, "active");
+  assert.equal(store.database.prepare("SELECT status FROM rooms WHERE id = 'first-playable'").get()?.status, "active");
   assert.equal(store.database.prepare("SELECT count(*) AS count FROM rooms").get()?.count, 3);
   assert.deepEqual(
     store.database.prepare(
@@ -229,27 +236,29 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   ]);
 });
 
-test("two database handles serialize replacements with exactly one active current room", async (context) => {
+test("two database handles serialize room creation with exactly one selected room", async (context) => {
   const dataDir = temporaryDirectory(context);
   const observer = openGreenRoomDatabase({ dataDir, migrationsDir });
   context.after(() => observer.close());
-  const [left, right] = await Promise.all([
+  const attempts = await Promise.allSettled([
     replaceCastInWorker(dataDir, "concurrent-left", ADA),
     replaceCastInWorker(dataDir, "concurrent-right", NEWTON),
   ]);
-  assert.notEqual(left.sessionId, right.sessionId);
-  const authoritative = currentRoomId(observer.database);
-  assert.ok([left.sessionId, right.sessionId].includes(authoritative));
+  const fulfilled = attempts.filter((result): result is PromiseFulfilledResult<{ sessionId: string }> =>
+    result.status === "fulfilled");
+  const rejected = attempts.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.match(String(rejected[0]?.reason), /selection revision conflict/i);
+  const winner = fulfilled[0]?.value;
+  assert.ok(winner);
+  assert.equal(currentRoomId(observer.database), winner.sessionId);
   assert.equal(observer.database.prepare(
     "SELECT count(*) AS count FROM rooms WHERE status = 'active'",
-  ).get()?.count, 1);
+  ).get()?.count, 2);
   assert.equal(observer.database.prepare(
-    `SELECT count(*) AS count FROM rooms
-     WHERE status = 'active' AND id = (SELECT room_id FROM current_room WHERE singleton = 1)`,
-  ).get()?.count, 1);
-  assert.equal(observer.database.prepare(
-    "SELECT count(*) AS count FROM rooms WHERE id IN (?, ?) AND status = 'stopped'",
-  ).get(left.sessionId, right.sessionId)?.count, 1);
+    "SELECT count(*) AS count FROM current_room WHERE singleton = 1 AND room_id = ?",
+  ).get(winner.sessionId)?.count, 1);
 });
 
 test("a failed 0003 upgrade rolls back its ALTER, indexes, triggers, and migration record", (context) => {
@@ -259,6 +268,8 @@ test("a failed 0003 upgrade rolls back its ALTER, indexes, triggers, and migrati
   rmSync(join(oldMigrations, "0003-room-cast.sql"));
   rmSync(join(oldMigrations, "0004-human-emoji.sql"));
   rmSync(join(oldMigrations, "0005-human-avatar.sql"));
+  rmSync(join(oldMigrations, "0006-room-library.sql"));
+  rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.prepare(
     "INSERT INTO rooms(id, title, status) VALUES ('legacy-second-active', 'Legacy', 'active')",
@@ -282,17 +293,14 @@ test("a failed 0003 upgrade rolls back its ALTER, indexes, triggers, and migrati
   ).get()?.count, 0);
 });
 
-test("0003 enforces bounded cast identities, one active session, foreign keys, and private-result exclusion", (context) => {
+test("room migrations enforce bounded cast identities, multiple active rooms, foreign keys, and private-result exclusion", (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
   context.after(() => store.close());
 
-  assert.throws(
-    () => store.database.prepare(
-      "INSERT INTO rooms(id, title, status) VALUES ('another-active', 'No', 'active')",
-    ).run(),
-    /unique/i,
-  );
+  store.database.prepare(
+    "INSERT INTO rooms(id, title, status) VALUES ('another-active', 'Allowed', 'active')",
+  ).run();
   store.database.prepare(
     "INSERT INTO rooms(id, title, status) VALUES ('constraint-room', 'Constraint', 'stopped')",
   ).run();

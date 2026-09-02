@@ -20,9 +20,15 @@
         <span class="cue-lamp" aria-hidden="true"></span>
         <span id="connection-status" role="status" aria-live="polite">Opening the local room…</span>
       </div>
+      <button class="button room-drawer-trigger" id="open-room-drawer" type="button" aria-controls="room-drawer" aria-expanded="false">Rooms</button>
     </header>
 
     <main id="live-view" class="room-shell" aria-labelledby="room-title">
+      <aside class="room-history-rail" id="room-history" aria-label="Room history">
+        <div class="room-history-heading"><p class="kicker">Room library</p><h2>History</h2></div>
+        <button class="button button-primary new-room" id="new-room" type="button">New room</button>
+        <ol class="room-history-list" id="room-history-list" aria-label="Recent rooms" aria-busy="true"></ol>
+      </aside>
       <aside class="call-board" aria-labelledby="cast-heading">
         <div class="section-heading"><p class="kicker">Call board / live cast</p><h2 id="cast-heading">On deck</h2></div>
         <section class="room-card" aria-labelledby="room-status-heading">
@@ -92,6 +98,14 @@
     </main>
 
     <div class="mobile-room-action" id="mobile-room-action" hidden><button class="button button-primary" id="view-room" type="button" aria-controls="cast-builder">View room (0 of 3)</button></div>
+
+    <dialog class="room-drawer" id="room-drawer" aria-labelledby="room-drawer-title">
+      <section class="room-drawer-panel">
+        <header class="room-drawer-heading"><div><p class="kicker">Room library</p><h2 id="room-drawer-title">Your rooms</h2></div><button class="button" id="close-room-drawer" type="button">Close</button></header>
+        <button class="button button-primary new-room" id="new-room-drawer" type="button">New room</button>
+        <ol class="room-history-list" id="room-drawer-list" aria-label="Recent rooms"></ol>
+      </section>
+    </dialog>
 
     <dialog id="persona-details" aria-labelledby="persona-details-title">
       <article class="details-panel">

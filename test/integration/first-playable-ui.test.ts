@@ -17,12 +17,14 @@ const MIGRATIONS_DIR = resolve("migrations");
 interface BrowserContract {
   readonly API_PATHS: {
     readonly bootstrap: string;
-    readonly room: string;
-    readonly events: (after: number) => string;
-    readonly stream: (after: number) => string;
-    readonly messages: string;
-    readonly roomControl: (action: string) => string;
-    readonly personaControl: (personaId: string, action: string) => string;
+    readonly rooms: string;
+    readonly currentRoom: string;
+    readonly room: (roomId: string) => string;
+    readonly events: (roomId: string, after: number) => string;
+    readonly stream: (roomId: string, after: number) => string;
+    readonly messages: (roomId: string) => string;
+    readonly roomControl: (roomId: string, action: string) => string;
+    readonly personaControl: (roomId: string, personaId: string, action: string) => string;
   };
   readonly RECONNECT_DELAYS_MS: readonly number[];
   readonly createRequestId: (kind: string, uuid?: string) => string;
@@ -87,6 +89,12 @@ interface BrowserContract {
   };
   readonly reasonLabel: (reason: string) => string;
   readonly openStopConfirmation: (dialog: { returnValue: string; showModal(): void }) => void;
+  readonly createRoomSelectionFence: (options: {
+    readonly requestSelection: (roomId: string, signal: AbortSignal) => Promise<unknown>;
+    readonly readCurrentRoom: (signal: AbortSignal) => Promise<{ readonly sessionId: string }>;
+    readonly commitRoom: (room: { readonly sessionId: string }, signal: AbortSignal) => Promise<void>;
+    readonly onBusyChange?: (busy: boolean) => void;
+  }) => { select(roomId: string): Promise<boolean> };
   readonly renderTranscriptEvent: (
     record: EventRecord,
     participantName: (participantId: string) => string,
@@ -184,6 +192,10 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(page.body, /<script type="module" src="\/app\.js"><\/script>/);
   assert.match(page.body, /<form[^>]+id="message-form"/);
   assert.match(page.body, /<ol[^>]+id="transcript"/);
+  assert.match(page.body, /<aside[^>]+id="room-history"[^>]+aria-label="Room history"/);
+  assert.match(page.body, /<button[^>]+id="new-room"[^>]*>New room/);
+  assert.match(page.body, /<dialog[^>]+id="room-drawer"[^>]+aria-labelledby="room-drawer-title"/);
+  assert.match(page.body, /<button[^>]+id="open-room-drawer"[^>]+aria-controls="room-drawer"/);
   assert.match(page.body, /<button[^>]+id="pause-resume"/);
   assert.match(page.body, /<button[^>]+id="stop-room"/);
   assert.match(page.body, /<dialog[^>]+id="stop-dialog"/);
@@ -193,6 +205,9 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(styles.body, /prefers-reduced-motion/);
   assert.match(styles.body, /overflow-wrap/);
   assert.match(styles.body, /min-width:\s*0/);
+  assert.match(styles.body, /grid-template-columns:\s*minmax\([^;]+\)\s+minmax\([^;]+\)\s+minmax\(0,/);
+  assert.match(styles.body, /@media\s*\(max-width:\s*760px\)[\s\S]*\.room-history-rail\s*\{[^}]*display:\s*none/);
+  assert.match(styles.body, /overflow-x:\s*hidden/);
   assert.doesNotMatch(
     script.body,
     /localStorage|sessionStorage|indexedDB|serviceWorker|WebSocket|XMLHttpRequest|BroadcastChannel|SharedWorker|Worker\s*\(|sendBeacon|eval\s*\(|new Function|https?:\/\//,
@@ -203,23 +218,25 @@ test("first playable UI browser contract keeps every request and EventSource URL
   const contract = await browserContract();
   const paths = [
     contract.API_PATHS.bootstrap,
-    contract.API_PATHS.room,
-    contract.API_PATHS.events(17),
-    contract.API_PATHS.stream(17),
-    contract.API_PATHS.messages,
-    contract.API_PATHS.roomControl("pause"),
-    contract.API_PATHS.roomControl("resume"),
-    contract.API_PATHS.roomControl("stop"),
-    contract.API_PATHS.personaControl("detective", "mute"),
-    contract.API_PATHS.personaControl("optimist", "unmute"),
+    contract.API_PATHS.rooms,
+    contract.API_PATHS.currentRoom,
+    contract.API_PATHS.room(ROOM_ID),
+    contract.API_PATHS.events(ROOM_ID, 17),
+    contract.API_PATHS.stream(ROOM_ID, 17),
+    contract.API_PATHS.messages(ROOM_ID),
+    contract.API_PATHS.roomControl(ROOM_ID, "pause"),
+    contract.API_PATHS.roomControl(ROOM_ID, "resume"),
+    contract.API_PATHS.roomControl(ROOM_ID, "stop"),
+    contract.API_PATHS.personaControl(ROOM_ID, "detective", "mute"),
+    contract.API_PATHS.personaControl(ROOM_ID, "optimist", "unmute"),
   ];
   for (const path of paths) {
     assert.match(path, /^\/(?!\/)[A-Za-z0-9_?=&./-]+$/);
     assert.equal(new URL(path, ORIGIN).origin, ORIGIN);
   }
   assert.deepEqual(contract.RECONNECT_DELAYS_MS, [500, 1_000, 2_000, 4_000, 8_000]);
-  assert.throws(() => contract.API_PATHS.roomControl("reset"));
-  assert.throws(() => contract.API_PATHS.personaControl("../human", "mute"));
+  assert.throws(() => contract.API_PATHS.roomControl(ROOM_ID, "reset"));
+  assert.throws(() => contract.API_PATHS.personaControl(ROOM_ID, "../human", "mute"));
 });
 
 test("first playable UI bounds request IDs and resets irreversible stop confirmation", async () => {
@@ -247,6 +264,54 @@ test("composer Enter shortcut sends without stealing multiline or composed input
   assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", isComposing: true }), false);
   assert.equal(contract.shouldSubmitComposerKey({ key: "Enter", ctrlKey: true }), false);
   assert.equal(contract.shouldSubmitComposerKey({ key: "a" }), false);
+});
+
+test("room selection fence ignores an older out-of-order response and renders authoritative current room", async () => {
+  const contract = await browserContract();
+  const olderResponse = deferred<void>();
+  const newerResponse = deferred<void>();
+  const currentReads: string[] = [];
+  const rendered: string[] = [];
+  let authoritativeRoom = "room-newer";
+  const fence = contract.createRoomSelectionFence({
+    requestSelection: async (roomId) => {
+      await (roomId === "room-older" ? olderResponse.promise : newerResponse.promise);
+    },
+    readCurrentRoom: async () => {
+      currentReads.push(authoritativeRoom);
+      return { sessionId: authoritativeRoom };
+    },
+    commitRoom: async (room) => { rendered.push(room.sessionId); },
+  });
+
+  const older = fence.select("room-older");
+  const newer = fence.select("room-newer");
+  newerResponse.resolve();
+  assert.equal(await newer, true);
+  olderResponse.resolve();
+  assert.equal(await older, false);
+  assert.deepEqual(currentReads, ["room-newer"]);
+  assert.deepEqual(rendered, ["room-newer"]);
+
+  authoritativeRoom = "room-authoritative";
+  const reconciled = fence.select("room-requested");
+  newerResponse.resolve();
+  assert.equal(await reconciled, true);
+  assert.deepEqual(rendered, ["room-newer", "room-authoritative"]);
+});
+
+test("room selection fence reconciles a rejected intent without rebasing it", async () => {
+  const contract = await browserContract();
+  const requests: string[] = [];
+  const rendered: string[] = [];
+  const fence = contract.createRoomSelectionFence({
+    requestSelection: async (roomId) => { requests.push(roomId); return false; },
+    readCurrentRoom: async () => ({ sessionId: "room-authoritative" }),
+    commitRoom: async (room) => { rendered.push(room.sessionId); },
+  });
+  assert.equal(await fence.select("room-stale-intent"), false);
+  assert.deepEqual(requests, ["room-stale-intent"]);
+  assert.deepEqual(rendered, ["room-authoritative"]);
 });
 
 test("first playable UI reconnect catches up before resubscribing and suppresses duplicate events", async () => {
@@ -690,7 +755,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/messages`,
     headers: mutationHeaders,
-    payload: { requestId: "ui-message-1", text: "What does the timetable tell us?" },
+    payload: { requestId: "ui-message-1", selectionRevision: 0, text: "What does the timetable tell us?" },
   });
   assert.equal(message.statusCode, 200, message.body);
   const replay = await app.inject({
@@ -711,7 +776,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/pause`,
     headers: { ...mutationHeaders, "x-csrf-token": "redacted-client-value" },
-    payload: { requestId: "ui-rejected-1" },
+    payload: { requestId: "ui-rejected-1", selectionRevision: 0 },
   });
   assert.equal(rejected.statusCode, 403);
   assert.doesNotMatch(rejected.body, /redacted-client-value|stack|token.:/i);
@@ -727,7 +792,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
       method: "POST",
       url: `/api/rooms/${ROOM_ID}/${path}`,
       headers: mutationHeaders,
-      payload: { requestId },
+      payload: { requestId, selectionRevision: 0 },
     });
     assert.equal(response.statusCode, 200, `${path}: ${response.body}`);
   }

@@ -103,6 +103,7 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Roadmap](ROADMAP.md)
 - [Verified project checkpoint — 2026-09-01](docs/status/2026-09-01-verified-checkpoint.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Local room library authority](docs/ROOM-LIBRARY.md)
 - [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
 - [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)

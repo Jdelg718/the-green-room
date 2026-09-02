@@ -1,7 +1,7 @@
-const ROOM_ID = "first-playable";
 const ROOM_ACTIONS = new Set(["pause", "resume", "stop"]);
 const PERSONA_ACTIONS = new Set(["mute", "unmute"]);
 const PERSONA_ID = /^[a-z][a-z0-9-]{0,63}$/;
+const ROOM_ID = /^(?:first-playable|room-[a-z0-9](?:[a-z0-9-]{0,124}[a-z0-9])?)$/;
 
 function sameOriginPath(path) {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) {
@@ -15,36 +15,53 @@ export const API_PATHS = Object.freeze({
   catalog: "/api/catalog/personas",
   humanProfile: "/api/human-profile",
   humanAvatar: "/api/human-avatar",
-  cast: `/api/rooms/${ROOM_ID}/cast`,
-  room: `/api/rooms/${ROOM_ID}`,
-  events(after) {
+  rooms: "/api/rooms",
+  currentRoom: "/api/rooms/current",
+  cast: "/api/rooms",
+  room(roomId) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
+    return sameOriginPath(`/api/rooms/${roomId}`);
+  },
+  selectRoom(roomId) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
+    return sameOriginPath(`/api/rooms/${roomId}/select`);
+  },
+  events(roomId, after) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     if (!Number.isSafeInteger(after) || after < 0) {
       throw new TypeError("The event cursor must be a non-negative integer");
     }
-    return sameOriginPath(`/api/rooms/${ROOM_ID}/events?after=${after}`);
+    return sameOriginPath(`/api/rooms/${roomId}/events?after=${after}`);
   },
-  stream(after) {
+  stream(roomId, after) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     if (!Number.isSafeInteger(after) || after < 0) {
       throw new TypeError("The event cursor must be a non-negative integer");
     }
-    return sameOriginPath(`/api/rooms/${ROOM_ID}/stream?after=${after}`);
+    return sameOriginPath(`/api/rooms/${roomId}/stream?after=${after}`);
   },
-  messages: `/api/rooms/${ROOM_ID}/messages`,
-  roomControl(action) {
+  messages(roomId) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
+    return sameOriginPath(`/api/rooms/${roomId}/messages`);
+  },
+  roomControl(roomId, action) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     if (!ROOM_ACTIONS.has(action)) throw new TypeError("Unknown room control");
-    return sameOriginPath(`/api/rooms/${ROOM_ID}/${action}`);
+    return sameOriginPath(`/api/rooms/${roomId}/${action}`);
   },
-  personaControl(personaId, action) {
+  personaControl(roomId, personaId, action) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) {
       throw new TypeError("Unknown persona control");
     }
-    return sameOriginPath(`/api/rooms/${ROOM_ID}/personas/${personaId}/${action}`);
+    return sameOriginPath(`/api/rooms/${roomId}/personas/${personaId}/${action}`);
   },
 });
 
 export const EDUCATIONAL_NOTICE = "Educational creative interpretation. This AI persona is an original, source-informed interpretation of a historical person. It is not the person, an authoritative reconstruction, or an endorsed representative. Generated dialogue is not a historical quotation. Consult the cited sources for the record.";
 export const CREATOR_AUTHORIZED_NOTICE = "Creator-authorized pseudonymous interpretation. This AI persona is an original, source-informed interpretation of FF2K. It is not the person, a literal consciousness, an authentic quotation, or a live representative. Generated dialogue is interpretive and is never presented as FF2K's actual words.";
 const CATALOG_SIZE = 13;
+const ROOM_LIBRARY_LIMIT = 100;
 const EXACT_CATALOG_KEYS = Object.freeze(["behavior", "catalogKind", "educationalNotice", "identity", "knowledge", "name", "slug", "summary"]);
 const EXACT_IDENTITY_KEYS = Object.freeze(["ageBand", "setting", "type"]);
 const EXACT_BEHAVIOR_KEYS = Object.freeze(["agreeableness", "emotionalRange", "initiative", "interruption", "maxConsecutiveTurns", "verbosity"]);
@@ -762,18 +779,49 @@ async function getJson(path, signal) {
   }));
 }
 
-async function postJson(path, body, csrfToken) {
+async function postJson(path, body, csrfToken, signal) {
   return readJson(await fetch(sameOriginPath(path), {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify(body),
+    signal,
   }));
 }
 
+export function createRoomSelectionFence({ requestSelection, readCurrentRoom, commitRoom, onBusyChange = () => {} }) {
+  let generation = 0;
+  let activeController = null;
+  return Object.freeze({
+    async select(roomId) {
+      const ownGeneration = ++generation;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      onBusyChange(true);
+      try {
+        const accepted = await requestSelection(roomId, controller.signal);
+        if (ownGeneration !== generation) return false;
+        const authoritativeRoom = await readCurrentRoom(controller.signal);
+        if (ownGeneration !== generation) return false;
+        await commitRoom(authoritativeRoom, controller.signal);
+        return accepted !== false && ownGeneration === generation;
+      } catch (error) {
+        if (ownGeneration !== generation || error?.name === "AbortError") return false;
+        throw error;
+      } finally {
+        if (ownGeneration === generation) {
+          activeController = null;
+          onBusyChange(false);
+        }
+      }
+    },
+  });
+}
+
 export function validateRoomDto(value) {
-  if (!exactKeys(value, ["generation", "id", "participants", "sessionId", "status", "title"]) || value.id !== ROOM_ID ||
-    !boundedText(value.sessionId, 128) || !boundedText(value.title, 256) || !["active", "paused", "stopped"].includes(value.status) ||
+  if (!exactKeys(value, ["generation", "id", "participants", "sessionId", "status", "title"]) || !ROOM_ID.test(value.id) ||
+    value.sessionId !== value.id || !boundedText(value.title, 128) || !["active", "paused", "stopped"].includes(value.status) ||
     !Number.isSafeInteger(value.generation) || value.generation < 0 || !Array.isArray(value.participants) || value.participants.length < 1 || value.participants.length > 4) {
     throw new RequestFailure("invalid_response");
   }
@@ -794,9 +842,57 @@ export function validateRoomDto(value) {
   return value;
 }
 
+export function validateRoomSelectionStateDto(value) {
+  if (!exactKeys(value, ["revision", "room"]) ||
+    !Number.isSafeInteger(value.revision) || value.revision < 0) {
+    throw new RequestFailure("invalid_response");
+  }
+  return Object.freeze({ revision: value.revision, room: validateRoomDto(value.room) });
+}
+
+export function validateRoomSelectionResult(value, requestId) {
+  if (!exactKeys(value, ["kind", "requestId", "revision", "room"]) ||
+    value.kind !== "room_selection" || value.requestId !== requestId ||
+    !Number.isSafeInteger(value.revision) || value.revision < 1) {
+    throw new RequestFailure("invalid_response");
+  }
+  return Object.freeze({
+    kind: value.kind,
+    requestId: value.requestId,
+    revision: value.revision,
+    room: validateRoomDto(value.room),
+  });
+}
+
+export function validateRoomLibraryDto(value) {
+  if (!exactKeys(value, ["rooms"]) || !Array.isArray(value.rooms) ||
+    value.rooms.length < 1 || value.rooms.length > ROOM_LIBRARY_LIMIT) {
+    throw new RequestFailure("invalid_response");
+  }
+  let selected = 0;
+  const ids = new Set();
+  const rooms = value.rooms.map((entry) => {
+    if (!exactKeys(entry, ["cast", "id", "lastActivity", "selected", "status", "title"]) ||
+      !ROOM_ID.test(entry.id) || ids.has(entry.id) || !boundedText(entry.title, 128) ||
+      !["active", "paused", "stopped"].includes(entry.status) || typeof entry.selected !== "boolean" ||
+      typeof entry.lastActivity !== "string" || Number.isNaN(Date.parse(entry.lastActivity)) ||
+      !Array.isArray(entry.cast) || entry.cast.length > 3) throw new RequestFailure("invalid_response");
+    for (const participant of entry.cast) {
+      if (!exactKeys(participant, ["displayName", "id", "kind", "muted", "personaSlug"]) ||
+        participant.kind !== "persona" || !boundedText(participant.id, 128) || !boundedText(participant.displayName, 128) ||
+        !PERSONA_ID.test(participant.personaSlug) || typeof participant.muted !== "boolean") throw new RequestFailure("invalid_response");
+    }
+    ids.add(entry.id); if (entry.selected) selected += 1;
+    return Object.freeze({ ...entry, cast: Object.freeze([...entry.cast]) });
+  });
+  if (selected !== 1) throw new RequestFailure("invalid_response");
+  return Object.freeze({ rooms: Object.freeze(rooms) });
+}
+
 export function validateCastResponse(value, { requestId, personaSlugs, oldSessionId }) {
-  if (!exactKeys(value, ["kind", "requestId", "room", "selectedCast", "sessionId"]) || value.kind !== "cast" ||
+  if (!exactKeys(value, ["kind", "requestId", "room", "selectedCast", "selectionRevision", "sessionId"]) || value.kind !== "cast" ||
     value.requestId !== requestId || !boundedText(value.sessionId, 128) || value.sessionId === oldSessionId ||
+    !Number.isSafeInteger(value.selectionRevision) || value.selectionRevision < 1 ||
     !Array.isArray(value.selectedCast) || value.selectedCast.length !== personaSlugs.length) {
     throw new TypeError("Invalid cast response");
   }
@@ -910,7 +1006,9 @@ export function startBrowserApp() {
     filters: byId("gallery-filters"), form: byId("message-form"), galleryHeading: byId("gallery-heading"),
     galleryResults: byId("gallery-results"), grid: byId("persona-grid"), horizon: byId("horizon-filter"),
     identityRoster: byId("room-identity-roster"), liveView: byId("live-view"), messageText: byId("message-text"), mobileAction: byId("mobile-room-action"),
-    openSetup: byId("open-cast-setup"), pauseResume: byId("pause-resume"), search: byId("persona-search"),
+    openSetup: byId("open-cast-setup"), openRoomDrawer: byId("open-room-drawer"), pauseResume: byId("pause-resume"), search: byId("persona-search"),
+    roomDrawer: byId("room-drawer"), roomDrawerList: byId("room-drawer-list"), roomHistoryList: byId("room-history-list"),
+    closeRoomDrawer: byId("close-room-drawer"), newRoom: byId("new-room"), newRoomDrawer: byId("new-room-drawer"),
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
@@ -918,6 +1016,8 @@ export function startBrowserApp() {
   let csrfToken = "";
   let humanProfile = Object.freeze({ emoji: HUMAN_EMOJIS[0], hasCustomAvatar: false, avatarVersion: null });
   let room = null;
+  let selectionRevision = 0;
+  let roomLibrary = Object.freeze([]);
   let catalog = null;
   let catalogError = "";
   let selection = createSelectionState();
@@ -986,6 +1086,7 @@ export function startBrowserApp() {
   function renderRoom(nextRoom) {
     validateRoomDto(nextRoom);
     room = nextRoom;
+    byId("room-title").textContent = room.title;
     byId("room-status").textContent = STATUS_LABELS[room.status];
     elements.liveView.dataset.roomStatus = room.status;
     elements.castList.replaceChildren();
@@ -1047,6 +1148,36 @@ export function startBrowserApp() {
     renderControls();
   }
 
+  function roomHistoryRow(summary) {
+    const item = node("li");
+    const button = node("button", "room-history-button");
+    button.type = "button"; button.dataset.roomId = summary.id;
+    if (summary.selected) button.setAttribute("aria-current", "page");
+    button.setAttribute("aria-label", `${summary.title}, ${summary.cast.map(({ displayName }) => displayName).join(", ") || "no persona cast"}, last active ${new Date(summary.lastActivity).toLocaleString()}`);
+    button.append(node("strong", "room-history-title", summary.title));
+    const cast = node("span", "room-history-cast");
+    for (const participant of summary.cast.slice(0, 3)) cast.append(renderCharacterPortrait(participant.personaSlug, participant.displayName, { className: "portrait-history", width: 48, height: 48 }));
+    cast.append(node("span", "room-history-cast-copy", summary.cast.map(({ displayName }) => displayName).join(" · ") || "Quiet room"));
+    const time = node("time", "room-history-time", new Date(summary.lastActivity).toLocaleString());
+    time.dateTime = summary.lastActivity;
+    button.append(cast, time); item.append(button); return item;
+  }
+
+  function renderRoomLibrary() {
+    const rows = roomLibrary.map(roomHistoryRow);
+    elements.roomHistoryList.replaceChildren(...rows);
+    elements.roomDrawerList.replaceChildren(...roomLibrary.map(roomHistoryRow));
+    for (const button of document.querySelectorAll("[data-room-id]")) {
+      button.disabled = pending.has("room-selection");
+    }
+    elements.roomHistoryList.setAttribute("aria-busy", "false");
+  }
+
+  async function refreshRoomLibrary(signal) {
+    roomLibrary = validateRoomLibraryDto(await getJson(API_PATHS.rooms, signal)).rooms;
+    renderRoomLibrary();
+  }
+
   function renderEvent(record) {
     elements.transcript.append(renderTranscriptEvent(record, participantName, document, participantIdentity));
     elements.emptyTranscript.hidden = true;
@@ -1060,19 +1191,17 @@ export function startBrowserApp() {
     setActionStatus("");
   }
 
-  async function fetchReplay(after, operation) {
-    const replay = await getJson(API_PATHS.events(after), operation?.signal);
-    if (!plainRecord(replay) || !Array.isArray(replay.events)) throw new RequestFailure("invalid_response");
-    return replay.events;
-  }
-
   function createChannel(sessionId) {
     const commit = createSessionCommit(sessionId, () => room?.sessionId, renderEvent);
     return createRoomEventChannel({
       commit,
-      fetchCatchUp: fetchReplay,
+      async fetchCatchUp(after, operation) {
+        const replay = await getJson(API_PATHS.events(sessionId, after), operation?.signal);
+        if (!plainRecord(replay) || !Array.isArray(replay.events)) throw new RequestFailure("invalid_response");
+        return replay.events;
+      },
       connect(after, handlers) {
-        const eventSource = new EventSource(API_PATHS.stream(after));
+        const eventSource = new EventSource(API_PATHS.stream(sessionId, after));
         eventSource.addEventListener("open", handlers.onOpen);
         eventSource.addEventListener("error", handlers.onError);
         eventSource.addEventListener("room-event", (message) => {
@@ -1094,22 +1223,83 @@ export function startBrowserApp() {
     item.querySelector(".event-reason").textContent = "The cue ended in a deliberate quiet beat.";
   }
 
-  async function refreshRoom() { renderRoom(await getJson(API_PATHS.room)); }
+  async function refreshRoom(roomId = room?.sessionId) {
+    if (!ROOM_ID.test(roomId)) throw new RequestFailure("invalid_response");
+    renderRoom(await getJson(API_PATHS.room(roomId)));
+  }
 
   async function mutate(key, path, body, progressMessage) {
     if (!reserveMutation(pending, key)) return null;
+    const targetRoomId = room?.sessionId;
     renderControls(); renderBuilder(); setActionStatus(progressMessage);
     try {
       const result = await postJson(path, body, csrfToken);
-      await channelHolder.catchUp();
-      await refreshRoom();
-      setActionStatus("");
+      if (room?.sessionId === targetRoomId) {
+        await channelHolder.catchUp();
+        await refreshRoom(targetRoomId);
+        await refreshRoomLibrary();
+        setActionStatus("");
+      }
       return result;
     } catch (error) {
-      try { await refreshRoom(); } catch { /* Keep the last validated room. */ }
-      setActionStatus(userMessage(error), "error");
+      if (room?.sessionId === targetRoomId) {
+        try { await refreshRoom(targetRoomId); } catch { /* Keep the last validated room. */ }
+        setActionStatus(userMessage(error), "error");
+      }
       return null;
     } finally { pending.delete(key); renderControls(); renderBuilder(); }
+  }
+
+  async function readSelectionState(signal) {
+    const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom, signal));
+    selectionRevision = state.revision;
+    return state;
+  }
+
+  const roomSelectionFence = createRoomSelectionFence({
+    async requestSelection(roomId, signal) {
+      const requestId = createRequestId("select-room");
+      try {
+        const result = validateRoomSelectionResult(await postJson(
+          API_PATHS.selectRoom(roomId),
+          { requestId, selectionRevision },
+          csrfToken,
+          signal,
+        ), requestId);
+        selectionRevision = result.revision;
+        return true;
+      } catch (error) {
+        if (!(error instanceof RequestFailure) || error.code !== "request_conflict") throw error;
+        await readSelectionState(signal);
+        return false;
+      }
+    },
+    async readCurrentRoom(signal) {
+      return (await readSelectionState(signal)).room;
+    },
+    async commitRoom(nextRoom, signal) {
+      lifecycle.replace(createChannel(nextRoom.sessionId));
+      clearSession();
+      renderRoom(nextRoom);
+      await refreshRoomLibrary(signal);
+      await lifecycle.startIfActive();
+      if (!signal.aborted) {
+        elements.roomDrawer.close();
+        elements.messageText.focus();
+      }
+    },
+    onBusyChange(busy) {
+      if (busy) pending.add("room-selection"); else pending.delete("room-selection");
+      renderControls();
+      renderRoomLibrary();
+    },
+  });
+
+  async function switchRoom(roomId) {
+    if (!ROOM_ID.test(roomId) || roomId === room?.sessionId) { elements.roomDrawer.close(); return; }
+    try {
+      await roomSelectionFence.select(roomId);
+    } catch (error) { setActionStatus(userMessage(error), "error"); }
   }
 
   function fillSelect(select, values) {
@@ -1282,7 +1472,11 @@ export function startBrowserApp() {
     const requestId = createRequestId("cast"); const personaSlugs = [...selection.slugs]; const oldSessionId = room.sessionId;
     elements.builderError.textContent = "Starting the new room…"; renderBuilder(); renderControls();
     try {
-      const response = await postJson(API_PATHS.cast, { requestId, personaSlugs }, csrfToken);
+      const response = validateCastResponse(
+        await postJson(API_PATHS.cast, { requestId, selectionRevision, personaSlugs }, csrfToken),
+        { requestId, personaSlugs, oldSessionId },
+      );
+      selectionRevision = response.selectionRevision;
       const outcome = reconcileHistoricalRoomAttempt({ response, requestId, personaSlugs, oldSessionId });
       if (outcome.kind !== "committed") throw new RequestFailure("invalid_response");
       await transitionRoomSession({
@@ -1292,11 +1486,16 @@ export function startBrowserApp() {
         createChannel(sessionId) { return createChannel(sessionId); },
       });
       roomStatusUnknown = false;
+      await refreshRoomLibrary();
       if (!lifecycle.isDisposed) elements.builderError.textContent = "";
       if (lifecycle.isActive) { showLive(false); elements.messageText.focus(); }
     } catch (error) {
       let authoritativeRoom;
-      try { authoritativeRoom = await getJson(API_PATHS.room); } catch { /* Status remains unknown. */ }
+      try {
+        const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
+        selectionRevision = state.revision;
+        authoritativeRoom = state.room;
+      } catch { /* Status remains unknown. */ }
       const outcome = reconcileHistoricalRoomAttempt({ authoritativeRoom, requestId, personaSlugs, oldSessionId });
       if (outcome.kind === "committed") {
         try {
@@ -1340,8 +1539,9 @@ export function startBrowserApp() {
   elements.form.addEventListener("submit", async (event) => {
     event.preventDefault(); const text = elements.messageText.value;
     if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
-    const result = await mutate("message", API_PATHS.messages, { requestId: createRequestId("message"), text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
-    if (result !== null) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
+    const submittedRoomId = room.sessionId;
+    const result = await mutate("message", API_PATHS.messages(submittedRoomId), { requestId: createRequestId("message"), selectionRevision, text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
+    if (result !== null && room?.sessionId === submittedRoomId) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
   });
   elements.messageText.addEventListener("keydown", (event) => {
     if (!shouldSubmitComposerKey(event)) return;
@@ -1351,18 +1551,18 @@ export function startBrowserApp() {
   elements.pauseResume.addEventListener("click", async () => {
     if (room === null || room.status === "stopped" || pending.size !== 0) return;
     const action = room.status === "paused" ? "resume" : "pause";
-    await mutate("room", API_PATHS.roomControl(action), { requestId: createRequestId(action) }, action === "pause" ? "Pausing the room…" : "Resuming the room…");
+    await mutate("room", API_PATHS.roomControl(room.sessionId, action), { requestId: createRequestId(action), selectionRevision }, action === "pause" ? "Pausing the room…" : "Resuming the room…");
   });
   elements.stopRoom.addEventListener("click", () => { if (room?.status !== "stopped" && pending.size === 0) openStopConfirmation(elements.stopDialog); });
   elements.stopDialog.addEventListener("close", async () => {
     if (elements.stopDialog.returnValue !== "confirm" || room?.status === "stopped" || pending.size !== 0) return;
-    await mutate("room", API_PATHS.roomControl("stop"), { requestId: createRequestId("stop") }, "Stopping the room…");
+    await mutate("room", API_PATHS.roomControl(room.sessionId, "stop"), { requestId: createRequestId("stop"), selectionRevision }, "Stopping the room…");
   });
   elements.castList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-persona-control]"); if (button === null || button.disabled || room === null || pending.size !== 0) return;
     const personaId = button.dataset.personaControl; const action = button.dataset.action;
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) return;
-    await mutate(`persona:${personaId}`, API_PATHS.personaControl(personaId, action), { requestId: createRequestId(`${action}-${personaId}`) }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
+    await mutate(`persona:${personaId}`, API_PATHS.personaControl(room.sessionId, personaId, action), { requestId: createRequestId(`${action}-${personaId}`), selectionRevision }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
   });
   elements.castList.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-human-emoji]");
@@ -1403,6 +1603,13 @@ export function startBrowserApp() {
     finally { pending.delete("human-avatar"); renderControls(); }
   });
   elements.openSetup.addEventListener("click", () => { if (!elements.openSetup.disabled && pending.size === 0) showSetup(); }); elements.cancelSetup.addEventListener("click", () => showLive());
+  for (const button of [elements.newRoom, elements.newRoomDrawer]) button.addEventListener("click", () => { elements.roomDrawer.close(); showSetup(); });
+  elements.openRoomDrawer.addEventListener("click", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "true"); elements.roomDrawer.showModal(); });
+  elements.closeRoomDrawer.addEventListener("click", () => elements.roomDrawer.close());
+  elements.roomDrawer.addEventListener("cancel", () => elements.openRoomDrawer.setAttribute("aria-expanded", "false"));
+  elements.roomDrawer.addEventListener("close", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "false"); elements.openRoomDrawer.focus(); });
+  const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button && !button.disabled) void switchRoom(button.dataset.roomId); };
+  elements.roomHistoryList.addEventListener("click", chooseRoom); elements.roomDrawerList.addEventListener("click", chooseRoom);
   elements.filters.addEventListener("submit", (event) => event.preventDefault());
   elements.filters.addEventListener("input", renderGallery); elements.filters.addEventListener("change", renderGallery);
   elements.grid.addEventListener("click", (event) => {
@@ -1429,8 +1636,10 @@ export function startBrowserApp() {
           validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
           humanProfile = Object.freeze(validateHumanProfileDto(await getJson(API_PATHS.humanProfile)));
-          const nextRoom = await getJson(API_PATHS.room);
-          renderRoom(nextRoom);
+          const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
+          selectionRevision = state.revision;
+          renderRoom(state.room);
+          await refreshRoomLibrary();
           lifecycle.replace(createChannel(room.sessionId));
           await lifecycle.activate();
           renderGallery(); renderBuilder();
