@@ -167,6 +167,19 @@ export interface HistoricalCatalog {
   resolvePrompt(identifier: string): string;
 }
 
+export interface BundledPersonaDefinition {
+  readonly slug: string;
+  readonly manifestId: string;
+  readonly name: string;
+}
+
+export interface BundledPersonaRootPolicy {
+  readonly expectedPersonas: readonly BundledPersonaDefinition[];
+  readonly identityTypes: ReadonlySet<string>;
+  readonly notice: string;
+  readonly rootLabel: string;
+}
+
 function fail(message: string): never {
   throw new Error(`Invalid bundled historical personas: ${message}`);
 }
@@ -530,7 +543,11 @@ function validateYamlAst(source: string): unknown {
   return document.toJS({ maxAliasCount: 0 });
 }
 
-function parseManifest(bytes: Buffer, expected: (typeof EXPECTED_HISTORICAL_PERSONAS)[number]): Manifest {
+function parseManifest(
+  bytes: Buffer,
+  expected: BundledPersonaDefinition,
+  identityTypes: ReadonlySet<string>,
+): Manifest {
   const source = decodeUtf8(bytes, "persona.yaml");
   const root = plainRecord(validateYamlAst(source), "persona.yaml");
   exactKeys(
@@ -575,8 +592,8 @@ function parseManifest(bytes: Buffer, expected: (typeof EXPECTED_HISTORICAL_PERS
     ageBand: boundedString(identity.age_band, "identity.age_band", 120),
     setting: boundedString(identity.setting, "identity.setting", 500),
   });
-  if (!new Set(["historical", "historical_interpretation"]).has(identityDto.type)) {
-    fail("identity.type is unsupported for a bundled historical persona");
+  if (!identityTypes.has(identityDto.type)) {
+    fail("identity.type is unsupported for this bundled persona root");
   }
 
   const behavior = plainRecord(root.behavior, "behavior");
@@ -661,7 +678,8 @@ function assemblePrompt(files: ReadonlyMap<string, Buffer>): string {
 function loadPersona(
   root: string,
   heldRoot: HeldDirectory,
-  expected: (typeof EXPECTED_HISTORICAL_PERSONAS)[number],
+  expected: BundledPersonaDefinition,
+  policy: BundledPersonaRootPolicy,
 ): RuntimePersona {
   if (!SLUG.test(expected.slug)) {
     fail("configured historical slug is invalid");
@@ -709,7 +727,7 @@ function loadPersona(
     if (manifestBytes === undefined) {
       fail(`missing manifest for ${expected.slug}`);
     }
-    const manifest = parseManifest(manifestBytes, expected);
+    const manifest = parseManifest(manifestBytes, expected, policy.identityTypes);
     const prompt = assemblePrompt(runtime);
     const promptBytes = Buffer.from(prompt, "utf8");
     const dto: HistoricalPersonaDto = Object.freeze({
@@ -720,7 +738,7 @@ function loadPersona(
       identity: manifest.identity,
       behavior: manifest.behavior,
       knowledge: manifest.knowledge,
-      educationalNotice: EDUCATIONAL_NOTICE,
+      educationalNotice: policy.notice,
       promptUtf8Bytes: promptBytes.byteLength,
       promptSha256: createHash("sha256").update(promptBytes).digest("hex"),
     });
@@ -730,21 +748,27 @@ function loadPersona(
   }
 }
 
-export function loadHistoricalCatalog(root: string): HistoricalCatalog {
+export function loadBundledPersonaRoot(
+  root: string,
+  policy: BundledPersonaRootPolicy,
+): HistoricalCatalog {
   if (typeof root !== "string" || root.length === 0 || !isAbsolute(root)) {
-    fail("historical persona root must be an absolute path");
+    fail(`${policy.rootLabel} must be an absolute path`);
   }
-  const heldRoot = openHeldDirectory(root, "historical persona root");
+  if (policy.expectedPersonas.length === 0 || policy.identityTypes.size === 0 || policy.notice.length === 0) {
+    fail("bundled persona root policy must be nonempty");
+  }
+  const heldRoot = openHeldDirectory(root, policy.rootLabel);
   let loaded: readonly RuntimePersona[];
   try {
     exactEntries(
       guardedDirectoryOperation([heldRoot], () => historicalCatalogFs.readdir(root)),
-      EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug),
-      "historical persona root",
+      policy.expectedPersonas.map(({ slug }) => slug),
+      policy.rootLabel,
     );
 
-    loaded = EXPECTED_HISTORICAL_PERSONAS.map((expected) =>
-      guardedDirectoryOperation([heldRoot], () => loadPersona(root, heldRoot, expected)),
+    loaded = policy.expectedPersonas.map((expected) =>
+      guardedDirectoryOperation([heldRoot], () => loadPersona(root, heldRoot, expected, policy)),
     );
   } finally {
     heldRoot.finish();
@@ -758,14 +782,26 @@ export function loadHistoricalCatalog(root: string): HistoricalCatalog {
   return Object.freeze({
     personas,
     resolvePrompt(identifier: string): string {
-      if (typeof identifier !== "string") {
-        throw new TypeError("Unknown historical persona");
-      }
+      if (typeof identifier !== "string") throw new TypeError("Unknown bundled persona");
       const persona = byIdentifier.get(identifier);
-      if (persona === undefined) {
-        throw new TypeError("Unknown historical persona");
-      }
+      if (persona === undefined) throw new TypeError("Unknown bundled persona");
       return persona.prompt;
+    },
+  });
+}
+
+export function loadHistoricalCatalog(root: string): HistoricalCatalog {
+  const catalog = loadBundledPersonaRoot(root, {
+    expectedPersonas: EXPECTED_HISTORICAL_PERSONAS,
+    identityTypes: new Set(["historical", "historical_interpretation"]),
+    notice: EDUCATIONAL_NOTICE,
+    rootLabel: "historical persona root",
+  });
+  return Object.freeze({
+    personas: catalog.personas,
+    resolvePrompt(identifier: string): string {
+      try { return catalog.resolvePrompt(identifier); }
+      catch { throw new TypeError("Unknown historical persona"); }
     },
   });
 }

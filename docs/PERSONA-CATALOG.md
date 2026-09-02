@@ -25,6 +25,14 @@ If the project later proposes a public, project-hosted community catalog, every 
 
 Private local imports remain the importing user's responsibility. They are not community-catalog listings or official releases, and local availability does not establish rights, safety, provenance, endorsement, or catalog approval.
 
+## Narrow creator-authorized pseudonymous-original amendment
+
+A living pseudonymous original may be bundled as a clearly labeled **candidate/draft** only when the subject/account holder directly authorizes the project-specific interpretation and the exact assets granted for use. The runtime prose must be original synthesis; it must preserve the pseudonym, avoid identity correlation or deanonymization, exclude private facts and source/consent metadata, and never present generated dialogue as authentic words or a live representative.
+
+The authorization record must bind exact pack and asset hashes, scope, limits, and a usable takedown/revocation route. Content/privacy and provenance/rights reviews must remain distinct, independently reviewable gates; a completed content/privacy review does not imply provenance, code, or catalog approval. Revocation or a material dispute fails closed to hold/removal while reviewed.
+
+This amendment is not a celebrity, franchise, estate, likeness, or community-hosting back door. Direct authorization is necessary but does not establish asset authorship or satisfy the Official Catalog gate. No candidate may be called official without an approved entry for its exact version and digest in the Official Catalog Manifest.
+
 ## Catalog principles
 
 - **Research the person; author the persona.** Write original behavior guidance. Do not paste biographies, documentary-edition annotations, modern scholarship, scripts, or quotation compilations into a pack.

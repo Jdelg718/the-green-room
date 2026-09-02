@@ -1,5 +1,5 @@
 import { ORIGINAL_CAST } from "../personas/original-cast.js";
-import type { HistoricalCatalog } from "../personas/historical-catalog.js";
+import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.js";
 import type {
   GenerationProvider,
   ProviderInvitation,
@@ -20,7 +20,7 @@ const MAX_RESPONSE_BODY_BYTES = 64 * 1024;
 const MAX_RESPONSE_CONTENT_BYTES = 16_384;
 const ALLOWED_OPTIONS = new Set([
   "fetch",
-  "historicalCatalog",
+  "personaCatalog",
   "model",
   "temperature",
   "maxTokens",
@@ -47,7 +47,7 @@ type Fetch = typeof globalThis.fetch;
 
 export interface LMStudioProviderOptions {
   readonly fetch?: Fetch;
-  readonly historicalCatalog?: HistoricalCatalog;
+  readonly personaCatalog?: Pick<BundledPersonaCatalog, "resolvePrompt">;
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
@@ -295,7 +295,7 @@ function responseText(value: unknown): string {
 
 export class LMStudioProvider implements GenerationProvider {
   readonly #fetch: Fetch;
-  readonly #historicalCatalog: HistoricalCatalog | undefined;
+  readonly #personaCatalog: Pick<BundledPersonaCatalog, "resolvePrompt"> | undefined;
   readonly #model: string;
   readonly #temperature: number;
   readonly #maxTokens: number;
@@ -303,7 +303,7 @@ export class LMStudioProvider implements GenerationProvider {
   constructor(options: LMStudioProviderOptions = {}) {
     assertKnownOptions(options);
     this.#fetch = options.fetch ?? globalThis.fetch;
-    this.#historicalCatalog = options.historicalCatalog;
+    this.#personaCatalog = options.personaCatalog;
     this.#model = validateLMStudioModel(options.model ?? DEFAULT_LM_STUDIO_MODEL);
     this.#temperature = boundedTemperature(options.temperature);
     this.#maxTokens = boundedMaxTokens(options.maxTokens);
@@ -319,11 +319,11 @@ export class LMStudioProvider implements GenerationProvider {
     if (originalPrompt !== undefined) {
       personaPrompt = originalPrompt;
     } else {
-      if (this.#historicalCatalog === undefined) {
+      if (this.#personaCatalog === undefined) {
         throw new TypeError("LM Studio received an unknown persona");
       }
       try {
-        personaPrompt = this.#historicalCatalog.resolvePrompt(invitation.personaId);
+        personaPrompt = this.#personaCatalog.resolvePrompt(invitation.personaId);
       } catch {
         throw new TypeError("LM Studio received an unknown persona");
       }

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
 import { boundedCompleteResponse, LMStudioProvider } from "../../src/providers/lm-studio.js";
 import type { ProviderInvitation } from "../../src/providers/provider.js";
@@ -76,7 +78,7 @@ test("LM Studio sends the selected original persona and prompt in an exact local
 test("LM Studio rejects unknown personas before transport", async () => {
   let called = false;
   const provider = new LMStudioProvider({
-    historicalCatalog: loadHistoricalCatalog(
+    personaCatalog: loadHistoricalCatalog(
       fileURLToPath(new URL("../../personas/historical", import.meta.url)),
     ),
     fetch: async () => {
@@ -95,6 +97,52 @@ test("LM Studio rejects unknown personas before transport", async () => {
   assert.equal(called, false);
 });
 
+test("LM Studio sends the exact validated FF2K runtime prompt once without curator metadata", async () => {
+  const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const catalog = loadBundledPersonaCatalog({
+    historicalRoot: join(repositoryRoot, "personas", "historical"),
+    originalRoot: join(repositoryRoot, "personas", "original"),
+  });
+  const requests: unknown[] = [];
+  const provider = new LMStudioProvider({
+    personaCatalog: catalog,
+    fetch: async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: "Take the smallest useful step." } }] });
+    },
+  });
+
+  await provider.generate(
+    { ...invitation, personaId: "ff2k" },
+    new AbortController().signal,
+  );
+
+  assert.equal(requests.length, 1);
+  const request = requests[0] as {
+    messages: Array<{ role: string; content: string }>;
+  };
+  assert.equal(request.messages.length, 3);
+  assert.equal(request.messages[0]?.role, "system");
+  const prompt = request.messages[0]!.content;
+  assert.equal(Buffer.byteLength(prompt, "utf8"), 13_918);
+  assert.equal(
+    createHash("sha256").update(prompt, "utf8").digest("hex"),
+    "fb89a2994c8dcc71a8d4d217564705c6cb11084b2c9ee11b0b42e84cd9f50e1d",
+  );
+  for (const curatorMetadata of [
+    "PROVENANCE.md",
+    "SOURCES.md",
+    "CONSENT-AND-RIGHTS.md",
+    "https://ff2k.us/start/",
+    "https://creativecommons.org/licenses/by/4.0/legalcode",
+    "Direct authorization establishes the account holder's consent",
+  ]) {
+    assert.equal(prompt.includes(curatorMetadata), false, curatorMetadata);
+  }
+  assert.deepEqual(request.messages[1], { role: "system", content: HOST_RESPONSE_POLICY });
+  assert.deepEqual(request.messages[2], { role: "user", content: invitation.prompt });
+});
+
 test("LM Studio preserves the exact historical persona as the first message and adds final host policy", async () => {
   const historicalRoot = fileURLToPath(
     new URL("../../personas/historical", import.meta.url),
@@ -103,7 +151,7 @@ test("LM Studio preserves the exact historical persona as the first message and 
   const expectedPrompt = catalog.resolvePrompt("ada-lovelace");
   const requests: Array<Array<{ role: string; content: string }>> = [];
   const provider = new LMStudioProvider({
-    historicalCatalog: catalog,
+    personaCatalog: catalog,
     fetch: async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as {
         messages: Array<{ role: string; content: string }>;
@@ -167,7 +215,7 @@ test("LM Studio excludes manifest and metadata sentinels from the complete histo
 
   let serializedRequest = "";
   const provider = new LMStudioProvider({
-    historicalCatalog: loadHistoricalCatalog(historicalRoot),
+    personaCatalog: loadHistoricalCatalog(historicalRoot),
     fetch: async (_input, init) => {
       serializedRequest = String(init?.body);
       return jsonResponse({ choices: [{ message: { content: "No leakage." } }] });

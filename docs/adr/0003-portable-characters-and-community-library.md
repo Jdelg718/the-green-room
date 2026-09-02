@@ -6,7 +6,7 @@
 
 ## Context
 
-The verified local alpha contains twelve source-informed historical character directories and can place one to three of them in a durable room. Product direction now requires three connected experiences:
+The verified local alpha contains twelve source-informed historical character directories plus the creator-authorized pseudonymous FF2K original candidate and can place one to three bundled candidates in a durable room. Product direction now requires three connected experiences:
 
 1. researched historical characters ship prebuilt with the local application;
 2. a guided Character Wizard lets users create original characters without editing YAML or Markdown by hand; and
@@ -41,6 +41,8 @@ The canonical portable character artifact is the bounded, declarative `.greenroo
 The local application ships with twelve repository-controlled historical candidate packs:
 
 Ada Lovelace, Benjamin Franklin, Elizabeth I, Frederick Douglass, Galileo Galilei, George Washington, Isaac Newton, Jane Austen, Leonardo da Vinci, Mary Shelley, Nicolaus Copernicus, and Thomas Jefferson.
+
+It also ships the FF2K creator-authorized pseudonymous original as a separately labeled bundled candidate/draft. Its direct authorization, exact asset grant, content/privacy review, pseudonym-only runtime boundary, and revocation route do not make it an Official Catalog entry or create a precedent for celebrities, franchises, estates, or unreviewed likenesses.
 
 They are source-informed educational interpretations, not literal simulations. The verified alpha may include and run exact repository versions while public release still fails closed on the Official Catalog Manifest gate. Public packaging requires version-and-digest-specific catalog admission, complete provenance, historical/content review, provenance/rights review, and the required educational interpretation label. The 12 approved pinned AI-generated portraits may ship as website and local-app presentation assets with accessible fallbacks and honest labeling, but that use does not admit a pack or asset to the Official Catalog; portrait redistribution inside downloadable packs remains held for its exact asset-manifest and catalog gates.
 

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openGreenRoomDatabase } from "./db/index.js";
-import { loadHistoricalCatalog } from "./personas/historical-catalog.js";
+import { loadBundledPersonaCatalog } from "./personas/bundled-persona-catalog.js";
 import {
   buildPersonaPackInspectionRuntime,
   type PersonaPackInspectionRuntime,
@@ -16,9 +16,10 @@ import {
 } from "./runtime/data-root-lock.js";
 
 const config = loadConfig();
-const historicalCatalog = loadHistoricalCatalog(
-  fileURLToPath(new URL("../personas/historical", import.meta.url)),
-);
+const personaCatalog = loadBundledPersonaCatalog({
+  historicalRoot: fileURLToPath(new URL("../personas/historical", import.meta.url)),
+  originalRoot: fileURLToPath(new URL("../personas/original", import.meta.url)),
+});
 
 let store: ReturnType<typeof openGreenRoomDatabase> | undefined;
 let runtime: PersonaPackInspectionRuntime | undefined;
@@ -94,7 +95,7 @@ try {
   });
   const provider = selectProvider({
     acceptanceFixture: config.acceptanceFixture,
-    historicalCatalog,
+    personaCatalog,
     lmStudioModel: config.lmStudioModel,
     provider: config.provider,
     onAcceptanceLatch(): void {
@@ -106,7 +107,7 @@ try {
   app = buildApp({
     allowedOrigin: config.allowedOrigin,
     database: store.database,
-    historicalCatalog,
+    personaCatalog,
     logger: true,
     provider,
     ...(runtime.service === undefined

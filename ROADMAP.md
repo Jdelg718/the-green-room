@@ -12,7 +12,7 @@ The current executable baseline provides:
 - a bounded deterministic director that selects zero or one speaker;
 - durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
 - a fixed-loopback LM Studio private provider plus deterministic test providers;
-- 12 strictly validated historical candidate packs and a text/monogram cast gallery; and
+- 12 strictly validated historical candidate packs, the FF2K creator-authorized pseudonymous original candidate, and a mixed cast gallery; and
 - the integrated release gate covering the Node and Python suites, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance; exact totals are recorded with release evidence rather than this roadmap.
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
@@ -82,7 +82,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 **Outcome:** ship the researched historical cast prebuilt, let users create portable characters through a local wizard, safely import the same pack format, and admit only reviewed content and assets to public catalogs.
 
 - Retain the integrated strict, non-extracting validator and inspection flow; installation remains a separate, explicit action after successful inspection.
-- Keep the exact twelve historical candidate packs available in the local application; admit public release versions only through the Official Catalog Manifest gate.
+- Keep the exact twelve historical candidate packs plus the FF2K bundled original candidate available in the local application; admit public release versions only through the Official Catalog Manifest gate.
 - Build the local Character Wizard against the same `.greenroom` contract used by validation, import, and community distribution.
 - Persist wizard drafts in the local runtime rather than browser storage or `greenroomai.net`.
 - Maintain portrait asset records binding exact bytes to provenance, generation/source basis, attribution, and review evidence.

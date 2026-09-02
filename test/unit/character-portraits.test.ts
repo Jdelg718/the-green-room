@@ -29,7 +29,7 @@ test("trusted portrait registry maps every canonical built-in ID to an app-owned
   const manifest = JSON.parse(readFileSync(resolve("public/assets/portraits/manifest.json"), "utf8"));
   const expectedIds = [
     ...EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug),
-    "detective", "fixer", "optimist",
+    "detective", "fixer", "optimist", "ff2k",
   ].sort();
   assert.deepEqual(Object.keys(ui.TRUSTED_CHARACTER_PORTRAITS).sort(), expectedIds);
   assert.deepEqual(manifest.assets.map(({ trustedId }: { trustedId: string }) => trustedId).sort(), expectedIds);
@@ -47,7 +47,15 @@ test("trusted portrait registry maps every canonical built-in ID to an app-owned
     assert.equal(bytes.byteLength, entry.bytes);
     assert.deepEqual(webpChunkTypes(bytes), ["VP8 "], `${entry.trustedId} must not carry EXIF, XMP, ICC, or animation metadata`);
     assert.equal(entry.provenance.catalogAdmission, false);
-    assert.match(entry.provenance.creativeInterpretation, /^Original AI-generated (?:historical interpretation|archetype portrait);/);
+    if (entry.trustedId === "ff2k") {
+      assert.equal(entry.bytes, 43_092);
+      assert.equal(entry.sha256, "3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8");
+      assert.equal(entry.provenance.assetStatus, "owner-authorized");
+      assert.match(entry.provenance.sourceReference, /copyright-owner\/account-holder-authorized/i);
+      assert.match(entry.provenance.creativeInterpretation, /confirmed copyright ownership and granted Green Room modification and public redistribution rights/i);
+    } else {
+      assert.match(entry.provenance.creativeInterpretation, /^Original AI-generated (?:historical interpretation|archetype portrait);/);
+    }
   }
 });
 
@@ -82,5 +90,5 @@ test("unknown, custom, and URL-shaped IDs always use a textual monogram fallback
 test("portrait manifest contains no remote URL, source-system path, or private prompt data", () => {
   const source = readFileSync(resolve("public/assets/portraits/manifest.json"), "utf8");
   assert.doesNotMatch(source, /https?:|(?:^|["'])\/\/|handoff_path|sourcePath|generation|prompt/i);
-  assert.equal((source.match(/\.webp/g) ?? []).length, 15);
+  assert.equal((source.match(/\.webp/g) ?? []).length, 16);
 });

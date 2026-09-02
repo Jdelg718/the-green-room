@@ -9,7 +9,7 @@ import { DeterministicMockProvider } from "../../src/providers/mock.js";
 import { selectProvider } from "../../src/providers/select-provider.js";
 
 const base = {
-  historicalCatalog: loadHistoricalCatalog(
+  personaCatalog: loadHistoricalCatalog(
     fileURLToPath(new URL("../../personas/historical", import.meta.url)),
   ),
   lmStudioModel: "qwen/qwen3.6-35b-a3b",
@@ -34,7 +34,7 @@ test("LM Studio selection fails closed without the startup-loaded catalog", () =
         lmStudioModel: base.lmStudioModel,
         provider: "lmstudio",
       }),
-    /historical catalog/i,
+    /bundled persona catalog/i,
   );
   assert.doesNotThrow(() =>
     selectProvider({
