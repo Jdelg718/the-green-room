@@ -5,6 +5,7 @@ import { appendEventInTransaction, canonicalJson } from "./events.js";
 import { withImmediateTransaction } from "./transaction.js";
 
 export const PUBLIC_ROOM_ID = "first-playable";
+export const ROOM_LIBRARY_LIMIT = 100;
 
 export interface CastPersonaInput {
   readonly slug: string;
@@ -28,6 +29,22 @@ export interface CurrentRoomDto {
   readonly participants: readonly RoomParticipantDto[];
 }
 
+export interface RoomSelectionStateDto {
+  readonly revision: number;
+  readonly room: CurrentRoomDto;
+}
+
+export interface RoomSelectionResult extends RoomSelectionStateDto {
+  readonly kind: "room_selection";
+  readonly requestId: string;
+}
+
+export interface SelectRoomCommand {
+  readonly expectedRevision: number;
+  readonly requestId: string;
+  readonly roomId: string;
+}
+
 export interface RoomSummaryDto {
   readonly id: string;
   readonly title: string;
@@ -47,17 +64,19 @@ export interface SelectedCastDto {
 export interface CastReplacementResult {
   readonly kind: "cast";
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly sessionId: string;
   readonly room: CurrentRoomDto;
   readonly selectedCast: readonly SelectedCastDto[];
 }
 
 export interface ReplaceCurrentRoomCastCommand {
+  readonly expectedRevision: number;
   readonly requestId: string;
   readonly personas: readonly CastPersonaInput[];
 }
 
-interface CastCommandRow {
+interface CommandRow {
   readonly request_digest: string;
   readonly result_json: string;
 }
@@ -68,6 +87,13 @@ function canonicalIdentifier(value: string, field: string, maximum: number): str
     value.trim() !== value
   ) {
     throw new TypeError(`${field} must be a canonical bounded identifier`);
+  }
+  return value;
+}
+
+function canonicalRevision(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${field} must be a non-negative safe integer`);
   }
   return value;
 }
@@ -150,6 +176,19 @@ export function readCurrentRoom(database: DatabaseSync): CurrentRoomDto {
   return roomDto(database, currentRoomId(database));
 }
 
+export function readRoomSelection(database: DatabaseSync): RoomSelectionStateDto {
+  const row = database.prepare(
+    "SELECT room_id, selection_revision FROM current_room WHERE singleton = 1",
+  ).get() as { room_id: string; selection_revision: number } | undefined;
+  if (row === undefined || !Number.isSafeInteger(row.selection_revision) || row.selection_revision < 0) {
+    throw new Error("Current room selection state is unavailable");
+  }
+  return Object.freeze({
+    revision: row.selection_revision,
+    room: roomDto(database, row.room_id),
+  });
+}
+
 export function readRoom(database: DatabaseSync, roomId: string): CurrentRoomDto {
   return roomDto(database, canonicalIdentifier(roomId, "roomId", 128));
 }
@@ -159,9 +198,18 @@ export function listRooms(database: DatabaseSync): readonly RoomSummaryDto[] {
   const rows = database.prepare(
     `SELECT id, title, status, created_at,
             COALESCE((SELECT max(created_at) FROM events WHERE room_id = rooms.id), created_at) AS last_activity
-     FROM rooms WHERE archived = 0
+     FROM rooms
+     WHERE archived = 0
+       AND (
+         id = ? OR id IN (
+           SELECT recent.id FROM rooms AS recent
+           WHERE recent.archived = 0 AND recent.id <> ?
+           ORDER BY recent.activity_order DESC, recent.id ASC
+           LIMIT ?
+         )
+       )
      ORDER BY activity_order DESC, id ASC`,
-  ).all() as unknown as Array<{
+  ).all(selectedId, selectedId, ROOM_LIBRARY_LIMIT - 1) as unknown as Array<{
     id: string;
     title: string;
     status: RoomSummaryDto["status"];
@@ -181,15 +229,62 @@ export function listRooms(database: DatabaseSync): readonly RoomSummaryDto[] {
   }));
 }
 
-export function selectRoom(database: DatabaseSync, roomId: string): CurrentRoomDto {
+export function requireRoomSelection(
+  database: DatabaseSync,
+  roomId: string,
+  selectionRevision: number,
+): void {
   const canonicalRoomId = canonicalIdentifier(roomId, "roomId", 128);
+  const canonicalSelectionRevision = canonicalRevision(selectionRevision, "selectionRevision");
+  const row = database.prepare(
+    `SELECT 1 AS selected FROM current_room
+     WHERE singleton = 1 AND room_id = ? AND selection_revision = ?`,
+  ).get(canonicalRoomId, canonicalSelectionRevision);
+  if (row === undefined) throw new Error("Room selection revision conflict");
+}
+
+export function selectRoom(database: DatabaseSync, command: SelectRoomCommand): RoomSelectionResult {
+  const requestId = canonicalIdentifier(command.requestId, "requestId", 256);
+  const canonicalRoomId = canonicalIdentifier(command.roomId, "roomId", 128);
+  const expectedRevision = canonicalRevision(command.expectedRevision, "expectedRevision");
+  const requestDigest = createHash("sha256").update(canonicalJson({
+    kind: "selectRoom",
+    requestId,
+    roomId: canonicalRoomId,
+    expectedRevision,
+  })).digest("hex");
   return withImmediateTransaction(database, () => {
+    const prior = database.prepare(
+      "SELECT request_digest, result_json FROM room_selection_commands WHERE request_id = ?",
+    ).get(requestId) as CommandRow | undefined;
+    if (prior !== undefined) {
+      if (prior.request_digest !== requestDigest) {
+        throw new Error("Request id was already used for a different room selection");
+      }
+      return JSON.parse(prior.result_json) as RoomSelectionResult;
+    }
     const exists = database.prepare(
       "SELECT 1 AS present FROM rooms WHERE id = ? AND archived = 0",
     ).get(canonicalRoomId);
     if (exists === undefined) throw new Error(`Unknown room: ${canonicalRoomId}`);
-    database.prepare("UPDATE current_room SET room_id = ? WHERE singleton = 1").run(canonicalRoomId);
-    return roomDto(database, canonicalRoomId);
+    const update = database.prepare(
+      `UPDATE current_room
+       SET room_id = ?, selection_revision = selection_revision + 1
+       WHERE singleton = 1 AND selection_revision = ?`,
+    ).run(canonicalRoomId, expectedRevision);
+    if (update.changes !== 1) throw new Error("Room selection revision conflict");
+    const state = readRoomSelection(database);
+    const result: RoomSelectionResult = Object.freeze({
+      kind: "room_selection",
+      requestId,
+      revision: state.revision,
+      room: state.room,
+    });
+    database.prepare(
+      `INSERT INTO room_selection_commands(request_id, request_digest, result_json)
+       VALUES (?, ?, ?)`,
+    ).run(requestId, requestDigest, canonicalJson(result));
+    return result;
   });
 }
 
@@ -198,6 +293,7 @@ export function replaceCurrentRoomCast(
   command: ReplaceCurrentRoomCastCommand,
 ): CastReplacementResult {
   const requestId = canonicalIdentifier(command.requestId, "requestId", 256);
+  const expectedRevision = canonicalRevision(command.expectedRevision, "expectedRevision");
   if (!Array.isArray(command.personas) || command.personas.length < 1 || command.personas.length > 3) {
     throw new TypeError("cast must contain one to three personas");
   }
@@ -211,18 +307,28 @@ export function replaceCurrentRoomCast(
   const requestDigest = createHash("sha256").update(canonicalJson({
     kind: "replaceCast",
     requestId,
+    expectedRevision,
     personaSlugs: personas.map(({ slug }) => slug),
   })).digest("hex");
 
   return withImmediateTransaction(database, () => {
     const prior = database.prepare(
       "SELECT request_digest, result_json FROM cast_commands WHERE request_id = ?",
-    ).get(requestId) as CastCommandRow | undefined;
+    ).get(requestId) as CommandRow | undefined;
     if (prior !== undefined) {
       if (prior.request_digest !== requestDigest) {
         throw new Error("Request id was already used for a different cast");
       }
       return JSON.parse(prior.result_json) as CastReplacementResult;
+    }
+    if (readRoomSelection(database).revision !== expectedRevision) {
+      throw new Error("Room selection revision conflict");
+    }
+    const roomCount = database.prepare(
+      "SELECT count(*) AS count FROM rooms WHERE archived = 0",
+    ).get() as { count: number };
+    if (roomCount.count >= ROOM_LIBRARY_LIMIT) {
+      throw new Error("Room library is full");
     }
 
     const sessionId = `room-${randomUUID()}`;
@@ -248,12 +354,16 @@ export function replaceCurrentRoomCast(
       type: "room_started",
       cast: selectedCast.map(({ participantId, slug }) => ({ participantId, personaSlug: slug })),
     });
-    database.prepare(
-      "UPDATE current_room SET room_id = ? WHERE singleton = 1",
-    ).run(sessionId);
+    const currentUpdate = database.prepare(
+      `UPDATE current_room
+       SET room_id = ?, selection_revision = selection_revision + 1
+       WHERE singleton = 1 AND selection_revision = ?`,
+    ).run(sessionId, expectedRevision);
+    if (currentUpdate.changes !== 1) throw new Error("Room selection revision conflict");
     const result: CastReplacementResult = Object.freeze({
       kind: "cast",
       requestId,
+      selectionRevision: expectedRevision + 1,
       sessionId,
       room: roomDto(database, sessionId),
       selectedCast: Object.freeze(selectedCast),

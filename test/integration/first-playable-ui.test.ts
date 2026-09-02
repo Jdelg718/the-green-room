@@ -300,6 +300,20 @@ test("room selection fence ignores an older out-of-order response and renders au
   assert.deepEqual(rendered, ["room-newer", "room-authoritative"]);
 });
 
+test("room selection fence reconciles a rejected intent without rebasing it", async () => {
+  const contract = await browserContract();
+  const requests: string[] = [];
+  const rendered: string[] = [];
+  const fence = contract.createRoomSelectionFence({
+    requestSelection: async (roomId) => { requests.push(roomId); return false; },
+    readCurrentRoom: async () => ({ sessionId: "room-authoritative" }),
+    commitRoom: async (room) => { rendered.push(room.sessionId); },
+  });
+  assert.equal(await fence.select("room-stale-intent"), false);
+  assert.deepEqual(requests, ["room-stale-intent"]);
+  assert.deepEqual(rendered, ["room-authoritative"]);
+});
+
 test("first playable UI reconnect catches up before resubscribing and suppresses duplicate events", async () => {
   const contract = await browserContract();
   const committed: number[] = [];
@@ -741,7 +755,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/messages`,
     headers: mutationHeaders,
-    payload: { requestId: "ui-message-1", text: "What does the timetable tell us?" },
+    payload: { requestId: "ui-message-1", selectionRevision: 0, text: "What does the timetable tell us?" },
   });
   assert.equal(message.statusCode, 200, message.body);
   const replay = await app.inject({
@@ -762,7 +776,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/pause`,
     headers: { ...mutationHeaders, "x-csrf-token": "redacted-client-value" },
-    payload: { requestId: "ui-rejected-1" },
+    payload: { requestId: "ui-rejected-1", selectionRevision: 0 },
   });
   assert.equal(rejected.statusCode, 403);
   assert.doesNotMatch(rejected.body, /redacted-client-value|stack|token.:/i);
@@ -778,7 +792,7 @@ test("first playable UI exercises bootstrap replay and exact mutation endpoints 
       method: "POST",
       url: `/api/rooms/${ROOM_ID}/${path}`,
       headers: mutationHeaders,
-      payload: { requestId },
+      payload: { requestId, selectionRevision: 0 },
     });
     assert.equal(response.statusCode, 200, `${path}: ${response.body}`);
   }

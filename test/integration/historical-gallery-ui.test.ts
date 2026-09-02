@@ -276,7 +276,7 @@ test("cast response validation fails before transition and lifecycle starts a va
   const ui = await contract();
   const selected = ["ada-lovelace"];
   const response = {
-    kind: "cast", requestId: "ui-cast-123", sessionId: "room-123",
+    kind: "cast", requestId: "ui-cast-123", selectionRevision: 1, sessionId: "room-123",
     room: {
       id: "room-123", sessionId: "room-123", title: "The Green Room", status: "active", generation: 0,
       participants: [
@@ -336,7 +336,7 @@ test("historical room reconciliation is authoritative, strict, private, and dete
     ],
   };
   const response = {
-    kind: "cast", requestId, sessionId: "room-new", room,
+    kind: "cast", requestId, selectionRevision: 1, sessionId: "room-new", room,
     selectedCast: [{ participantId: "ada-new", slug: "ada-lovelace", name: "Ada Lovelace", sortOrder: 1 }],
   };
   const input = { requestId, personaSlugs, oldSessionId };
@@ -393,7 +393,7 @@ test("replacement lifecycle follows only the new channel and stale old-session c
   await lifecycle.activate();
 
   const response = {
-    kind: "cast", requestId: "ui-cast-lifecycle", sessionId: "replacement-room",
+    kind: "cast", requestId: "ui-cast-lifecycle", selectionRevision: 1, sessionId: "replacement-room",
     room: {
       id: "room-replacement", sessionId: "room-replacement", title: "The Green Room", status: "active", generation: 0,
       participants: [
@@ -515,7 +515,7 @@ test("real Fastify catalog to cast to unchecked message uses the closed UI contr
   const requestId = "gallery-real-cast";
   const castResponse = await app.inject({
     method: "POST", url: ui.API_PATHS.cast, headers,
-    payload: { requestId, personaSlugs },
+    payload: { requestId, selectionRevision: 0, personaSlugs },
   });
   assert.equal(castResponse.statusCode, 200, castResponse.body);
   const cast = ui.validateCastResponse(castResponse.json(), { requestId, personaSlugs, oldSessionId: "first-playable" });
@@ -523,7 +523,7 @@ test("real Fastify catalog to cast to unchecked message uses the closed UI contr
 
   const messageResponse = await app.inject({
     method: "POST", url: ui.API_PATHS.messages(cast.sessionId), headers,
-    payload: { requestId: "gallery-real-message", text: "Record this line without a reply.", wantsResponse: false },
+    payload: { requestId: "gallery-real-message", selectionRevision: 1, text: "Record this line without a reply.", wantsResponse: false },
   });
   assert.equal(messageResponse.statusCode, 200, messageResponse.body);
   assert.equal(messageResponse.json().outcome, "not_scheduled");

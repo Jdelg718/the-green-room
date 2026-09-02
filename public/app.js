@@ -60,6 +60,7 @@ export const API_PATHS = Object.freeze({
 
 export const EDUCATIONAL_NOTICE = "Educational creative interpretation. This AI persona is an original, source-informed interpretation of a historical person. It is not the person, an authoritative reconstruction, or an endorsed representative. Generated dialogue is not a historical quotation. Consult the cited sources for the record.";
 const CATALOG_SIZE = 12;
+const ROOM_LIBRARY_LIMIT = 100;
 const EXACT_CATALOG_KEYS = Object.freeze(["behavior", "educationalNotice", "identity", "knowledge", "name", "slug", "summary"]);
 const EXACT_IDENTITY_KEYS = Object.freeze(["ageBand", "setting", "type"]);
 const EXACT_BEHAVIOR_KEYS = Object.freeze(["agreeableness", "emotionalRange", "initiative", "interruption", "maxConsecutiveTurns", "verbosity"]);
@@ -793,12 +794,12 @@ export function createRoomSelectionFence({ requestSelection, readCurrentRoom, co
       activeController = controller;
       onBusyChange(true);
       try {
-        await requestSelection(roomId, controller.signal);
+        const accepted = await requestSelection(roomId, controller.signal);
         if (ownGeneration !== generation) return false;
         const authoritativeRoom = await readCurrentRoom(controller.signal);
         if (ownGeneration !== generation) return false;
         await commitRoom(authoritativeRoom, controller.signal);
-        return ownGeneration === generation;
+        return accepted !== false && ownGeneration === generation;
       } catch (error) {
         if (ownGeneration !== generation || error?.name === "AbortError") return false;
         throw error;
@@ -835,8 +836,31 @@ export function validateRoomDto(value) {
   return value;
 }
 
+export function validateRoomSelectionStateDto(value) {
+  if (!exactKeys(value, ["revision", "room"]) ||
+    !Number.isSafeInteger(value.revision) || value.revision < 0) {
+    throw new RequestFailure("invalid_response");
+  }
+  return Object.freeze({ revision: value.revision, room: validateRoomDto(value.room) });
+}
+
+export function validateRoomSelectionResult(value, requestId) {
+  if (!exactKeys(value, ["kind", "requestId", "revision", "room"]) ||
+    value.kind !== "room_selection" || value.requestId !== requestId ||
+    !Number.isSafeInteger(value.revision) || value.revision < 1) {
+    throw new RequestFailure("invalid_response");
+  }
+  return Object.freeze({
+    kind: value.kind,
+    requestId: value.requestId,
+    revision: value.revision,
+    room: validateRoomDto(value.room),
+  });
+}
+
 export function validateRoomLibraryDto(value) {
-  if (!exactKeys(value, ["rooms"]) || !Array.isArray(value.rooms) || value.rooms.length < 1) {
+  if (!exactKeys(value, ["rooms"]) || !Array.isArray(value.rooms) ||
+    value.rooms.length < 1 || value.rooms.length > ROOM_LIBRARY_LIMIT) {
     throw new RequestFailure("invalid_response");
   }
   let selected = 0;
@@ -860,8 +884,9 @@ export function validateRoomLibraryDto(value) {
 }
 
 export function validateCastResponse(value, { requestId, personaSlugs, oldSessionId }) {
-  if (!exactKeys(value, ["kind", "requestId", "room", "selectedCast", "sessionId"]) || value.kind !== "cast" ||
+  if (!exactKeys(value, ["kind", "requestId", "room", "selectedCast", "selectionRevision", "sessionId"]) || value.kind !== "cast" ||
     value.requestId !== requestId || !boundedText(value.sessionId, 128) || value.sessionId === oldSessionId ||
+    !Number.isSafeInteger(value.selectionRevision) || value.selectionRevision < 1 ||
     !Array.isArray(value.selectedCast) || value.selectedCast.length !== personaSlugs.length) {
     throw new TypeError("Invalid cast response");
   }
@@ -979,6 +1004,7 @@ export function startBrowserApp() {
   let csrfToken = "";
   let humanProfile = Object.freeze({ emoji: HUMAN_EMOJIS[0], hasCustomAvatar: false, avatarVersion: null });
   let room = null;
+  let selectionRevision = 0;
   let roomLibrary = Object.freeze([]);
   let catalog = null;
   let catalogError = "";
@@ -1212,17 +1238,32 @@ export function startBrowserApp() {
     } finally { pending.delete(key); renderControls(); renderBuilder(); }
   }
 
+  async function readSelectionState(signal) {
+    const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom, signal));
+    selectionRevision = state.revision;
+    return state;
+  }
+
   const roomSelectionFence = createRoomSelectionFence({
     async requestSelection(roomId, signal) {
-      validateRoomDto(await postJson(
-        API_PATHS.selectRoom(roomId),
-        { requestId: createRequestId("select-room") },
-        csrfToken,
-        signal,
-      ));
+      const requestId = createRequestId("select-room");
+      try {
+        const result = validateRoomSelectionResult(await postJson(
+          API_PATHS.selectRoom(roomId),
+          { requestId, selectionRevision },
+          csrfToken,
+          signal,
+        ), requestId);
+        selectionRevision = result.revision;
+        return true;
+      } catch (error) {
+        if (!(error instanceof RequestFailure) || error.code !== "request_conflict") throw error;
+        await readSelectionState(signal);
+        return false;
+      }
     },
     async readCurrentRoom(signal) {
-      return validateRoomDto(await getJson(API_PATHS.currentRoom, signal));
+      return (await readSelectionState(signal)).room;
     },
     async commitRoom(nextRoom, signal) {
       lifecycle.replace(createChannel(nextRoom.sessionId));
@@ -1418,7 +1459,11 @@ export function startBrowserApp() {
     const requestId = createRequestId("cast"); const personaSlugs = [...selection.slugs]; const oldSessionId = room.sessionId;
     elements.builderError.textContent = "Starting the new room…"; renderBuilder(); renderControls();
     try {
-      const response = await postJson(API_PATHS.cast, { requestId, personaSlugs }, csrfToken);
+      const response = validateCastResponse(
+        await postJson(API_PATHS.cast, { requestId, selectionRevision, personaSlugs }, csrfToken),
+        { requestId, personaSlugs, oldSessionId },
+      );
+      selectionRevision = response.selectionRevision;
       const outcome = reconcileHistoricalRoomAttempt({ response, requestId, personaSlugs, oldSessionId });
       if (outcome.kind !== "committed") throw new RequestFailure("invalid_response");
       await transitionRoomSession({
@@ -1433,7 +1478,11 @@ export function startBrowserApp() {
       if (lifecycle.isActive) { showLive(false); elements.messageText.focus(); }
     } catch (error) {
       let authoritativeRoom;
-      try { authoritativeRoom = await getJson(API_PATHS.currentRoom); } catch { /* Status remains unknown. */ }
+      try {
+        const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
+        selectionRevision = state.revision;
+        authoritativeRoom = state.room;
+      } catch { /* Status remains unknown. */ }
       const outcome = reconcileHistoricalRoomAttempt({ authoritativeRoom, requestId, personaSlugs, oldSessionId });
       if (outcome.kind === "committed") {
         try {
@@ -1478,7 +1527,7 @@ export function startBrowserApp() {
     event.preventDefault(); const text = elements.messageText.value;
     if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
     const submittedRoomId = room.sessionId;
-    const result = await mutate("message", API_PATHS.messages(submittedRoomId), { requestId: createRequestId("message"), text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
+    const result = await mutate("message", API_PATHS.messages(submittedRoomId), { requestId: createRequestId("message"), selectionRevision, text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
     if (result !== null && room?.sessionId === submittedRoomId) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
   });
   elements.messageText.addEventListener("keydown", (event) => {
@@ -1489,18 +1538,18 @@ export function startBrowserApp() {
   elements.pauseResume.addEventListener("click", async () => {
     if (room === null || room.status === "stopped" || pending.size !== 0) return;
     const action = room.status === "paused" ? "resume" : "pause";
-    await mutate("room", API_PATHS.roomControl(room.sessionId, action), { requestId: createRequestId(action) }, action === "pause" ? "Pausing the room…" : "Resuming the room…");
+    await mutate("room", API_PATHS.roomControl(room.sessionId, action), { requestId: createRequestId(action), selectionRevision }, action === "pause" ? "Pausing the room…" : "Resuming the room…");
   });
   elements.stopRoom.addEventListener("click", () => { if (room?.status !== "stopped" && pending.size === 0) openStopConfirmation(elements.stopDialog); });
   elements.stopDialog.addEventListener("close", async () => {
     if (elements.stopDialog.returnValue !== "confirm" || room?.status === "stopped" || pending.size !== 0) return;
-    await mutate("room", API_PATHS.roomControl(room.sessionId, "stop"), { requestId: createRequestId("stop") }, "Stopping the room…");
+    await mutate("room", API_PATHS.roomControl(room.sessionId, "stop"), { requestId: createRequestId("stop"), selectionRevision }, "Stopping the room…");
   });
   elements.castList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-persona-control]"); if (button === null || button.disabled || room === null || pending.size !== 0) return;
     const personaId = button.dataset.personaControl; const action = button.dataset.action;
     if (!PERSONA_ID.test(personaId) || !PERSONA_ACTIONS.has(action)) return;
-    await mutate(`persona:${personaId}`, API_PATHS.personaControl(room.sessionId, personaId, action), { requestId: createRequestId(`${action}-${personaId}`) }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
+    await mutate(`persona:${personaId}`, API_PATHS.personaControl(room.sessionId, personaId, action), { requestId: createRequestId(`${action}-${personaId}`), selectionRevision }, action === "mute" ? "Muting cast member…" : "Returning cast member to the room…");
   });
   elements.castList.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-human-emoji]");
@@ -1544,6 +1593,7 @@ export function startBrowserApp() {
   for (const button of [elements.newRoom, elements.newRoomDrawer]) button.addEventListener("click", () => { elements.roomDrawer.close(); showSetup(); });
   elements.openRoomDrawer.addEventListener("click", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "true"); elements.roomDrawer.showModal(); });
   elements.closeRoomDrawer.addEventListener("click", () => elements.roomDrawer.close());
+  elements.roomDrawer.addEventListener("cancel", () => elements.openRoomDrawer.setAttribute("aria-expanded", "false"));
   elements.roomDrawer.addEventListener("close", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "false"); elements.openRoomDrawer.focus(); });
   const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button && !button.disabled) void switchRoom(button.dataset.roomId); };
   elements.roomHistoryList.addEventListener("click", chooseRoom); elements.roomDrawerList.addEventListener("click", chooseRoom);
@@ -1573,8 +1623,9 @@ export function startBrowserApp() {
           validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
           humanProfile = Object.freeze(validateHumanProfileDto(await getJson(API_PATHS.humanProfile)));
-          const nextRoom = await getJson(API_PATHS.currentRoom);
-          renderRoom(nextRoom);
+          const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
+          selectionRevision = state.revision;
+          renderRoom(state.room);
           await refreshRoomLibrary();
           lifecycle.replace(createChannel(room.sessionId));
           await lifecycle.activate();

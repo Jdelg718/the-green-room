@@ -10,7 +10,10 @@ import {
   listRooms,
   openGreenRoomDatabase,
   readRoom,
+  readRoomSelection,
   replaceCurrentRoomCast,
+  requireRoomSelection,
+  ROOM_LIBRARY_LIMIT,
   selectRoom,
 } from "../../src/db/index.js";
 
@@ -29,6 +32,7 @@ test("0006 preserves the fixed room id, cast, event order, and transcript", (con
   const oldMigrations = join(dataDir, "old-migrations");
   cpSync(migrationsDir, oldMigrations, { recursive: true });
   rmSync(join(oldMigrations, "0006-room-library.sql"));
+  rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   appendEvent(old.database, "first-playable", { type: "legacy-one", text: "First" });
   appendEvent(old.database, "first-playable", { type: "legacy-two", text: "Second" });
@@ -59,6 +63,7 @@ test("0006 deterministically backfills every pre-existing room and advances its 
   const oldMigrations = join(dataDir, "old-migrations");
   cpSync(migrationsDir, oldMigrations, { recursive: true });
   rmSync(join(oldMigrations, "0006-room-library.sql"));
+  rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.exec(`
     UPDATE rooms SET status = 'stopped', created_at = '2026-01-01 09:00:00' WHERE id = 'first-playable';
@@ -107,15 +112,15 @@ test("0006 deterministically backfills every pre-existing room and advances its 
 test("room library isolates rooms, orders recent activity, and restores selection after restart", (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
-  const ada = replaceCurrentRoomCast(store.database, { requestId: "ada-room", personas: [ADA] });
-  const newton = replaceCurrentRoomCast(store.database, { requestId: "newton-room", personas: [NEWTON] });
+  const ada = replaceCurrentRoomCast(store.database, { expectedRevision: 0, requestId: "ada-room", personas: [ADA] });
+  const newton = replaceCurrentRoomCast(store.database, { expectedRevision: 1, requestId: "newton-room", personas: [NEWTON] });
   assert.match(ada.sessionId, /^room-[0-9a-f-]{36}$/);
   assert.match(newton.sessionId, /^room-[0-9a-f-]{36}$/);
 
   appendEvent(store.database, ada.sessionId, { type: "human_message", text: "Ada only" });
   appendEvent(store.database, newton.sessionId, { type: "human_message", text: "Newton only" });
   appendEvent(store.database, ada.sessionId, { type: "human_message", text: "Ada most recent" });
-  selectRoom(store.database, newton.sessionId);
+  selectRoom(store.database, { expectedRevision: 2, requestId: "select-newton", roomId: newton.sessionId });
 
   const rooms = listRooms(store.database);
   assert.deepEqual(rooms.map(({ id }) => id), [ada.sessionId, newton.sessionId, "first-playable"]);
@@ -140,15 +145,104 @@ test("selecting a room does not fence or rewrite pending work in another room", 
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
   context.after(() => store.close());
-  const ada = replaceCurrentRoomCast(store.database, { requestId: "pending-ada", personas: [ADA] });
+  const ada = replaceCurrentRoomCast(store.database, { expectedRevision: 0, requestId: "pending-ada", personas: [ADA] });
   store.database.prepare(
     `INSERT INTO commands(room_id, request_id, request_digest, result_json, claim_owner, claim_expires_at)
      VALUES (?, 'pending-generation', ?, '{"state":"pending","prompt":"stay scoped"}', 'owner', 9999999999999)`,
   ).run(ada.sessionId, "a".repeat(64));
 
-  selectRoom(store.database, "first-playable");
+  selectRoom(store.database, { expectedRevision: 1, requestId: "select-first-playable", roomId: "first-playable" });
   assert.deepEqual({ ...store.database.prepare(
     "SELECT room_id, claim_owner, json_extract(result_json, '$.prompt') AS prompt FROM commands WHERE request_id = 'pending-generation'",
   ).get() }, { room_id: ada.sessionId, claim_owner: "owner", prompt: "stay scoped" });
   assert.equal(currentRoomId(store.database), "first-playable");
+});
+
+test("selection revisions fence late requests and bind idempotency to the exact target", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const ada = replaceCurrentRoomCast(store.database, {
+    expectedRevision: 0,
+    requestId: "selection-ada-room",
+    personas: [ADA],
+  });
+  const newton = replaceCurrentRoomCast(store.database, {
+    expectedRevision: 1,
+    requestId: "selection-newton-room",
+    personas: [NEWTON],
+  });
+  assert.deepEqual(readRoomSelection(store.database), { revision: 2, room: newton.room });
+
+  const selected = selectRoom(store.database, {
+    expectedRevision: 2,
+    requestId: "select-ada-exact",
+    roomId: ada.sessionId,
+  });
+  assert.equal(selected.revision, 3);
+  assert.equal(selected.room.sessionId, ada.sessionId);
+  assert.deepEqual(selectRoom(store.database, {
+    expectedRevision: 2,
+    requestId: "select-ada-exact",
+    roomId: ada.sessionId,
+  }), selected);
+  assert.throws(() => selectRoom(store.database, {
+    expectedRevision: 2,
+    requestId: "select-ada-exact",
+    roomId: newton.sessionId,
+  }), /already used/i);
+  assert.throws(() => selectRoom(store.database, {
+    expectedRevision: 2,
+    requestId: "late-stale-selection",
+    roomId: newton.sessionId,
+  }), /selection revision conflict/i);
+  assert.deepEqual(readRoomSelection(store.database), { revision: 3, room: ada.room });
+  assert.doesNotThrow(() => requireRoomSelection(store.database, ada.sessionId, 3));
+  assert.throws(() => requireRoomSelection(store.database, newton.sessionId, 2), /selection revision conflict/i);
+  assert.throws(() => store.database.prepare(
+    `INSERT INTO room_selection_commands(request_id, request_digest, result_json)
+     VALUES ('hostile-private-result', ?, '{"room":{"prompt":"private"}}')`,
+  ).run("a".repeat(64)), /private catalog metadata/i);
+  assert.throws(() => store.database.prepare(
+    "UPDATE room_selection_commands SET result_json = result_json WHERE request_id = 'select-ada-exact'",
+  ).run(), /immutable/i);
+  assert.throws(() => store.database.prepare(
+    "DELETE FROM room_selection_commands WHERE request_id = 'select-ada-exact'",
+  ).run(), /immutable/i);
+});
+
+test("legacy over-cap libraries always include the selected room", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const insert = store.database.prepare(
+    "INSERT INTO rooms(id, title, status, activity_order) VALUES (?, ?, 'active', ?)",
+  );
+  for (let index = 0; index < ROOM_LIBRARY_LIMIT; index += 1) {
+    insert.run(`legacy-over-cap-${index}`, `Legacy ${index}`, index + 2);
+  }
+  const rooms = listRooms(store.database);
+  assert.equal(rooms.length, ROOM_LIBRARY_LIMIT);
+  assert.equal(rooms.filter(({ selected }) => selected).length, 1);
+  assert.equal(rooms.some(({ id, selected }) => id === "first-playable" && selected), true);
+});
+
+test("room creation and listing are bounded by the local library limit", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  for (let revision = 0; revision < ROOM_LIBRARY_LIMIT - 1; revision += 1) {
+    replaceCurrentRoomCast(store.database, {
+      expectedRevision: revision,
+      requestId: `bounded-room-${revision}`,
+      personas: [ADA],
+    });
+  }
+  assert.equal(listRooms(store.database).length, ROOM_LIBRARY_LIMIT);
+  assert.throws(() => replaceCurrentRoomCast(store.database, {
+    expectedRevision: ROOM_LIBRARY_LIMIT - 1,
+    requestId: "bounded-room-overflow",
+    personas: [NEWTON],
+  }), /room library is full/i);
+  assert.equal(listRooms(store.database).length, ROOM_LIBRARY_LIMIT);
 });

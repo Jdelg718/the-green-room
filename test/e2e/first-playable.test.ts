@@ -412,7 +412,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
         first.origin,
         token,
         `/api/rooms/${ROOM_ID}/messages`,
-        { requestId: `fixture-message-${index + 1}`, text },
+        { requestId: `fixture-message-${index + 1}`, selectionRevision: 0, text },
         bodies,
       ) as MessageResult;
       assert.ok(result.personaEventSequence === null || Number.isInteger(result.personaEventSequence));
@@ -427,14 +427,14 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/personas/detective/mute`,
-      { requestId: "fixture-mute-detective" },
+      { requestId: "fixture-mute-detective", selectionRevision: 0 },
       bodies,
     );
     const mutedResult = await postJson(
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/messages`,
-      { requestId: "fixture-muted-message", text: "Who can act while the detective is muted?" },
+      { requestId: "fixture-muted-message", selectionRevision: 0, text: "Who can act while the detective is muted?" },
       bodies,
     ) as MessageResult;
     assert.notEqual(mutedResult.decision.speaker, "detective");
@@ -443,7 +443,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/pause`,
-      { requestId: "fixture-pause" },
+      { requestId: "fixture-pause", selectionRevision: 0 },
       bodies,
     );
     const beforePausedMessage = await getJson(
@@ -455,7 +455,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/messages`,
-      { requestId: "fixture-paused-message", text: "This must not schedule." },
+      { requestId: "fixture-paused-message", selectionRevision: 0, text: "This must not schedule." },
       bodies,
       409,
     );
@@ -469,7 +469,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/resume`,
-      { requestId: "fixture-resume" },
+      { requestId: "fixture-resume", selectionRevision: 0 },
       bodies,
     );
 
@@ -478,7 +478,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/messages`,
-      { requestId: "fixture-latched-message", text: "LATCH_UNTIL_STOP" },
+      { requestId: "fixture-latched-message", selectionRevision: 0, text: "LATCH_UNTIL_STOP" },
       bodies,
     ) as Promise<MessageResult>;
     await waitForOutput(first, LATCH_MARKER);
@@ -492,7 +492,7 @@ async function runAcceptance(temporaryRoot: string): Promise<AcceptanceSummary> 
       first.origin,
       token,
       `/api/rooms/${ROOM_ID}/stop`,
-      { requestId: "fixture-stop" },
+      { requestId: "fixture-stop", selectionRevision: 0 },
       bodies,
     ) as { status?: unknown };
     assert.equal(stop.status, "stopped");

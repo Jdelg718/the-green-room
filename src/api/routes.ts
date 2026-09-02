@@ -18,7 +18,7 @@ import {
 import {
   listRooms,
   readRoom,
-  readCurrentRoom,
+  readRoomSelection,
   selectRoom,
 } from "../db/index.js";
 import type { HistoricalCatalog } from "../personas/historical-catalog.js";
@@ -70,16 +70,19 @@ interface EventRow {
 
 interface ParsedMessageBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly text: string;
   readonly wantsResponse?: boolean;
 }
 
 interface ParsedControlBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
 }
 
 interface ParsedCastBody {
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly personaSlugs: readonly string[];
 }
 
@@ -197,22 +200,28 @@ function validRoomId(value: unknown): value is string {
   );
 }
 
+function validSelectionRevision(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function parseControlBody(value: unknown): ParsedControlBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId"]) ||
-    !validIdentifier(value.requestId)
+    !hasExactlyKeys(value, ["requestId", "selectionRevision"]) ||
+    !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision)
   ) {
     return undefined;
   }
-  return { requestId: value.requestId };
+  return { requestId: value.requestId, selectionRevision: value.selectionRevision };
 }
 
 function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId", "text"], ["wantsResponse"]) ||
+    !hasExactlyKeys(value, ["requestId", "selectionRevision", "text"], ["wantsResponse"]) ||
     !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision) ||
     typeof value.text !== "string" ||
     value.text.trim().length === 0 ||
     value.text.length > ROOM_SERVICE_LIMITS.MAX_MESSAGE_LENGTH ||
@@ -224,11 +233,12 @@ function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   if (typeof value.wantsResponse === "boolean") {
     return {
       requestId: value.requestId,
+      selectionRevision: value.selectionRevision,
       text: value.text,
       wantsResponse: value.wantsResponse,
     };
   }
-  return { requestId: value.requestId, text: value.text };
+  return { requestId: value.requestId, selectionRevision: value.selectionRevision, text: value.text };
 }
 
 function parseCastBody(
@@ -237,8 +247,9 @@ function parseCastBody(
 ): ParsedCastBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId", "personaSlugs"]) ||
+    !hasExactlyKeys(value, ["requestId", "selectionRevision", "personaSlugs"]) ||
     !validIdentifier(value.requestId) ||
+    !validSelectionRevision(value.selectionRevision) ||
     !Array.isArray(value.personaSlugs) ||
     value.personaSlugs.length < 1 ||
     value.personaSlugs.length > 3 ||
@@ -247,7 +258,11 @@ function parseCastBody(
   ) {
     return undefined;
   }
-  return { requestId: value.requestId, personaSlugs: value.personaSlugs };
+  return {
+    requestId: value.requestId,
+    selectionRevision: value.selectionRevision,
+    personaSlugs: value.personaSlugs,
+  };
 }
 
 function parseHumanProfileBody(value: unknown): ParsedHumanProfileBody | undefined {
@@ -355,7 +370,7 @@ function readEvents(
 
 function sendServiceError(reply: FastifyReply, error: unknown): FastifyReply {
   const message = error instanceof Error ? error.message : "";
-  if (/already used|room is|unknown persona/i.test(message)) {
+  if (/already used|room is|room selection|room library|unknown room|unknown persona/i.test(message)) {
     return reply.code(409).send(ERROR_RESPONSES.conflict);
   }
   return reply.code(503).send(ERROR_RESPONSES.generation);
@@ -669,7 +684,7 @@ export function registerApiRoutes(
       return { rooms: listRooms(database) };
     });
 
-    api.get("/api/rooms/current", async () => readCurrentRoom(database));
+    api.get("/api/rooms/current", async () => readRoomSelection(database));
 
     api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId", async (request, reply) => {
       if (!validRoomId(request.params.roomId)) return invalidRequest(reply);
@@ -687,7 +702,11 @@ export function registerApiRoutes(
         const body = parseControlBody(request.body);
         if (body === undefined || !validRoomId(request.params.roomId)) return invalidRequest(reply);
         try {
-          return selectRoom(database, request.params.roomId);
+          return selectRoom(database, {
+            requestId: body.requestId,
+            expectedRevision: body.selectionRevision,
+            roomId: request.params.roomId,
+          });
         } catch (error) {
           return sendServiceError(reply, error);
         }
@@ -769,7 +788,13 @@ export function registerApiRoutes(
           return invalidRequest(reply);
         }
         try {
-          return await service.sendMessage({ roomId: request.params.roomId, ...body });
+          return await service.sendMessage({
+            roomId: request.params.roomId,
+            requestId: body.requestId,
+            selectionRevision: body.selectionRevision,
+            text: body.text,
+            ...(body.wantsResponse === undefined ? {} : { wantsResponse: body.wantsResponse }),
+          });
         } catch (error) {
           return sendServiceError(reply, error);
         }
@@ -807,7 +832,11 @@ export function registerApiRoutes(
             return invalidRequest(reply);
           }
           try {
-            return await operation({ roomId, ...body });
+            return await operation({
+              roomId,
+              requestId: body.requestId,
+              selectionRevision: body.selectionRevision,
+            });
           } catch (error) {
             return sendServiceError(reply, error);
           }
@@ -834,7 +863,12 @@ export function registerApiRoutes(
             return invalidRequest(reply);
           }
           try {
-            return await operation({ roomId, personaId, ...body });
+            return await operation({
+              roomId,
+              personaId,
+              requestId: body.requestId,
+              selectionRevision: body.selectionRevision,
+            });
           } catch (error) {
             return sendServiceError(reply, error);
           }

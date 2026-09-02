@@ -5,7 +5,11 @@ import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 
-import { openGreenRoomDatabase } from "../../src/db/index.js";
+import {
+  openGreenRoomDatabase,
+  replaceCurrentRoomCast,
+  selectRoom,
+} from "../../src/db/index.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
 import type {
   GenerationProvider,
@@ -202,6 +206,7 @@ test("room service commits scheduling before provider work and one persona resul
   const service = new RoomService({ database: store.database, provider });
 
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "message-1",
     text: "What do you notice?",
@@ -278,6 +283,7 @@ test("room service rolls back the human event when the director decision cannot 
 
   await assert.rejects(
     service.sendMessage({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "atomic-failure",
       text: "Commit all or none.",
@@ -313,6 +319,7 @@ test("idempotency returns the complete result and rejects a digest mismatch with
   });
   const service = new RoomService({ database: store.database, provider });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "same-request",
     text: "Inspect this.",
@@ -377,6 +384,7 @@ test("two room services race one durable request but invoke exactly one provider
     provider: countingLosingProvider,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "two-service-race",
     text: "Claim this once.",
@@ -475,6 +483,7 @@ test("claim turnover cannot commit a provider result generated under an older cl
     wait: secondWait.wait,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "turnover-race",
     text: "Only a result from the current claim may commit.",
@@ -555,6 +564,7 @@ test("active claim renewal keeps one slow provider authoritative past the base l
     wait: secondWait.wait,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "slow-provider-renewal",
     text: "Keep the live provider claim renewed.",
@@ -606,6 +616,7 @@ test("provider failure releases its durable claim for an immediate idempotent re
   };
   const service = new RoomService({ database: store.database, provider });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "provider-retry",
     text: "Retry only the provider work.",
@@ -668,6 +679,7 @@ test("provider timeout releases the claim for an exact retry and observes a late
     wait: controlledWait.wait,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "timed-out-provider",
     text: "Retry the same scheduled work.",
@@ -721,6 +733,7 @@ test("provider output is bounded before it can enter durable events", async (con
 
   await assert.rejects(
     service.sendMessage({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "oversized-provider-output",
       text: "Stay bounded.",
@@ -753,13 +766,16 @@ test("restart state preserves pause mute cooldown budget generation and complete
   });
 
   const firstResult = await firstService.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "restart-message-1",
     text: "First question.",
   });
-  await firstService.pause({ roomId: "first-playable", requestId: "pause-1" });
+  await firstService.pause({
+  selectionRevision: 0, roomId: "first-playable", requestId: "pause-1" });
   await assert.rejects(
     firstService.sendMessage({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "paused-message",
       text: "Must not commit.",
@@ -767,11 +783,13 @@ test("restart state preserves pause mute cooldown budget generation and complete
     /paused/i,
   );
   await firstService.mute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "mute-1",
     personaId: "fixer",
   });
-  await firstService.resume({ roomId: "first-playable", requestId: "resume-1" });
+  await firstService.resume({
+  selectionRevision: 0, roomId: "first-playable", requestId: "resume-1" });
   first.close();
 
   const reopened = openGreenRoomDatabase({ dataDir, migrationsDir });
@@ -785,6 +803,7 @@ test("restart state preserves pause mute cooldown budget generation and complete
   });
   assert.deepEqual(
     await reopenedService.sendMessage({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "restart-message-1",
       text: "First question.",
@@ -792,6 +811,7 @@ test("restart state preserves pause mute cooldown budget generation and complete
     firstResult,
   );
   const second = await reopenedService.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "restart-message-2",
     text: "Second question.",
@@ -800,6 +820,7 @@ test("restart state preserves pause mute cooldown budget generation and complete
   assert.equal(second.personaEventSequence, 6);
 
   const exhausted = await reopenedService.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "restart-message-3",
     text: "Third question.",
@@ -837,6 +858,7 @@ test("restart state preserves pause mute cooldown budget generation and complete
   );
 
   await reopenedService.unmute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "unmute-1",
     personaId: "fixer",
@@ -868,6 +890,7 @@ test("stop fence aborts generation and a stale completion commits zero rows", as
     wait: controlledWait.wait,
   });
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "stopped-message",
     text: "Wait for it.",
@@ -875,6 +898,7 @@ test("stop fence aborts generation and a stale completion commits zero rows", as
   await provider.entered;
 
   const stopped = await service.stop({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "stop-1",
   });
@@ -913,6 +937,7 @@ test("stop promptly settles a command whose provider ignores abort forever", asy
     wait: controlledWait.wait,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "never-settling-provider",
     text: "Stop this provider without its cooperation.",
@@ -920,7 +945,8 @@ test("stop promptly settles a command whose provider ignores abort forever", asy
 
   const pending = service.sendMessage(command);
   await provider.entered;
-  await service.stop({ roomId: "first-playable", requestId: "stop-hang" });
+  await service.stop({
+  selectionRevision: 0, roomId: "first-playable", requestId: "stop-hang" });
 
   const result = await within(pending);
   assert.equal(result.outcome, "stale");
@@ -960,6 +986,7 @@ test("room service close aborts generation and waits, releases claims, rejects c
     wait: controlledWait.wait,
   });
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "close-generation",
     text: "Close this service.",
@@ -990,19 +1017,25 @@ test("room service close aborts generation and waits, releases claims, rejects c
 
   for (const command of [
     service.sendMessage({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "closed-message",
       text: "Do not accept this.",
     }),
-    service.pause({ roomId: "first-playable", requestId: "closed-pause" }),
-    service.resume({ roomId: "first-playable", requestId: "closed-resume" }),
-    service.stop({ roomId: "first-playable", requestId: "closed-stop" }),
+    service.pause({
+    selectionRevision: 0, roomId: "first-playable", requestId: "closed-pause" }),
+    service.resume({
+    selectionRevision: 0, roomId: "first-playable", requestId: "closed-resume" }),
+    service.stop({
+    selectionRevision: 0, roomId: "first-playable", requestId: "closed-stop" }),
     service.mute({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "closed-mute",
       personaId: "detective",
     }),
     service.unmute({
+      selectionRevision: 0,
       roomId: "first-playable",
       requestId: "closed-unmute",
       personaId: "detective",
@@ -1043,6 +1076,7 @@ test("room service close cancels pending claim polling without releasing another
     wait: secondWait.wait,
   });
   const command = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "observed-claim-on-close",
     text: "Only the owner may release this claim.",
@@ -1101,22 +1135,27 @@ test("room service control retries do not abort newer work", async (context) => 
   context.after(() => store.close());
   const provider = new LatchingProvider({ kind: "text", text: "Still current." });
   const service = new RoomService({ database: store.database, provider });
-  const pause = { roomId: "first-playable", requestId: "old-pause" } as const;
+  const pause = {
+  selectionRevision: 0, roomId: "first-playable", requestId: "old-pause" } as const;
 
   await service.pause(pause);
-  await service.resume({ roomId: "first-playable", requestId: "new-resume" });
+  await service.resume({
+  selectionRevision: 0, roomId: "first-playable", requestId: "new-resume" });
   const mute = {
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "old-mute",
     personaId: "fixer",
   } as const;
   await service.mute(mute);
   await service.unmute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "new-unmute",
     personaId: "fixer",
   });
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "newer-message",
     text: "Keep working.",
@@ -1141,6 +1180,7 @@ test("room service mute generation fence survives an immediate unmute", async (c
   });
   const service = new RoomService({ database: store.database, provider });
   const pending = service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "mute-fenced-message",
     text: "Start an answer.",
@@ -1148,11 +1188,13 @@ test("room service mute generation fence survives an immediate unmute", async (c
   await provider.entered;
 
   await service.mute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "mute-selected",
     personaId: "detective",
   });
   await service.unmute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "unmute-selected",
     personaId: "detective",
@@ -1184,11 +1226,13 @@ test("restart state cooldown elapses across an intervening deliberate silence", 
   });
   const service = new RoomService({ database: store.database, provider });
   await service.mute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "mute-fixer",
     personaId: "fixer",
   });
   await service.mute({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "mute-optimist",
     personaId: "optimist",
@@ -1197,6 +1241,7 @@ test("restart state cooldown elapses across an intervening deliberate silence", 
   assert.equal(
     (
       await service.sendMessage({
+        selectionRevision: 0,
         roomId: "first-playable",
         requestId: "cooldown-first",
         text: "Speak once.",
@@ -1207,6 +1252,7 @@ test("restart state cooldown elapses across an intervening deliberate silence", 
   assert.deepEqual(
     (
       await service.sendMessage({
+        selectionRevision: 0,
         roomId: "first-playable",
         requestId: "cooldown-silence",
         text: "Let that sit.",
@@ -1218,6 +1264,7 @@ test("restart state cooldown elapses across an intervening deliberate silence", 
   assert.equal(
     (
       await service.sendMessage({
+        selectionRevision: 0,
         roomId: "first-playable",
         requestId: "cooldown-third",
         text: "Speak again.",
@@ -1240,6 +1287,7 @@ test("restart reclaims an expired provider claim without duplicating scheduling 
     pendingWorkPollMs: 10,
   });
   const interrupted = firstService.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "crash-request",
     text: "Survive restart.",
@@ -1275,6 +1323,7 @@ test("restart reclaims an expired provider claim without duplicating scheduling 
     pendingWorkPollMs: 10,
   });
   const recovered = await service.sendMessage({
+    selectionRevision: 0,
     roomId: "first-playable",
     requestId: "crash-request",
     text: "Survive restart.",
@@ -1297,4 +1346,69 @@ test("restart reclaims an expired provider claim without duplicating scheduling 
 
   crashedProvider.release();
   await assert.rejects(interrupted);
+});
+
+test("selection authority is atomic with mutation identity across database handles", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const first = openGreenRoomDatabase({ dataDir, migrationsDir });
+  const second = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => {
+    second.close();
+    first.close();
+  });
+  const service = new RoomService({
+    database: first.database,
+    provider: new DeterministicMockProvider(),
+  });
+  context.after(() => service.close());
+  const alternate = replaceCurrentRoomCast(second.database, {
+    expectedRevision: 0,
+    requestId: "authority-alternate-room",
+    personas: [{ slug: "detective", name: "The Detective" }],
+  });
+  selectRoom(second.database, {
+    expectedRevision: 1,
+    requestId: "authority-select-first",
+    roomId: "first-playable",
+  });
+
+  const paused = await service.pause({
+    roomId: "first-playable",
+    requestId: "authority-reused-pause",
+    selectionRevision: 2,
+  });
+  assert.equal(paused.status, "paused");
+  selectRoom(second.database, {
+    expectedRevision: 2,
+    requestId: "authority-select-alternate",
+    roomId: alternate.sessionId,
+  });
+  const eventCount = count(first.database, "events");
+  await assert.rejects(service.sendMessage({
+    roomId: "first-playable",
+    requestId: "authority-stale-message",
+    selectionRevision: 2,
+    text: "This stale request must not commit.",
+  }), /selection revision conflict/i);
+  assert.equal(count(first.database, "events"), eventCount);
+
+  selectRoom(second.database, {
+    expectedRevision: 3,
+    requestId: "authority-reselect-first",
+    roomId: "first-playable",
+  });
+  const resumed = await service.resume({
+    roomId: "first-playable",
+    requestId: "authority-resume",
+    selectionRevision: 4,
+  });
+  assert.equal(resumed.status, "active");
+  await assert.rejects(service.pause({
+    roomId: "first-playable",
+    requestId: "authority-reused-pause",
+    selectionRevision: 4,
+  }), /already used/i);
+  assert.equal(first.database.prepare(
+    "SELECT status FROM rooms WHERE id = 'first-playable'",
+  ).get()?.status, "active");
 });

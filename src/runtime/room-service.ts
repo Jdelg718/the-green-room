@@ -5,6 +5,7 @@ import {
   appendEventInTransaction,
   canonicalJson,
   replaceCurrentRoomCast,
+  requireRoomSelection,
   type CastReplacementResult,
   withImmediateTransaction,
 } from "../db/index.js";
@@ -33,6 +34,7 @@ export const ROOM_SERVICE_LIMITS = Object.freeze({
 export interface RoomCommand {
   readonly requestId: string;
   readonly roomId: string;
+  readonly selectionRevision: number;
 }
 
 export interface SendMessageCommand extends RoomCommand {
@@ -53,6 +55,7 @@ export interface UnmuteCommand extends PersonaControlCommand {}
 
 export interface ReplaceCastCommand {
   readonly requestId: string;
+  readonly selectionRevision: number;
   readonly personaSlugs: readonly string[];
 }
 
@@ -227,6 +230,13 @@ function canonicalIdentifier(value: string, field: string): string {
   return value;
 }
 
+function canonicalSelectionRevision(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError("selectionRevision must be a non-negative safe integer");
+  }
+  return value;
+}
+
 function messageText(value: string): string {
   if (
     typeof value !== "string" ||
@@ -356,6 +366,7 @@ export class RoomService {
       kind: "sendMessage" as const,
       roomId: canonicalIdentifier(command.roomId, "roomId"),
       requestId: canonicalIdentifier(command.requestId, "requestId"),
+      selectionRevision: canonicalSelectionRevision(command.selectionRevision),
       text: messageText(command.text),
       wantsResponse: command.wantsResponse ?? true,
     };
@@ -410,6 +421,9 @@ export class RoomService {
     try {
       this.#throwIfClosed();
       const requestId = canonicalIdentifier(command.requestId, "requestId");
+      if (!Number.isSafeInteger(command.selectionRevision) || command.selectionRevision < 0) {
+        throw new TypeError("selectionRevision must be a non-negative safe integer");
+      }
       if (
         !Array.isArray(command.personaSlugs) ||
         command.personaSlugs.length < 1 ||
@@ -428,7 +442,11 @@ export class RoomService {
         }
         return persona;
       });
-      const result = replaceCurrentRoomCast(this.#database, { requestId, personas });
+      const result = replaceCurrentRoomCast(this.#database, {
+        requestId,
+        expectedRevision: command.selectionRevision,
+        personas,
+      });
       return Promise.resolve(result);
     } catch (error) {
       return Promise.reject(error);
@@ -482,6 +500,7 @@ export class RoomService {
     command: {
       readonly roomId: string;
       readonly requestId: string;
+      readonly selectionRevision: number;
       readonly text: string;
       readonly wantsResponse: boolean;
     },
@@ -547,6 +566,7 @@ export class RoomService {
     command: {
       readonly roomId: string;
       readonly requestId: string;
+      readonly selectionRevision: number;
       readonly text: string;
       readonly wantsResponse: boolean;
     },
@@ -554,6 +574,7 @@ export class RoomService {
     claimOwner: string,
   ): PreparedMessage {
     return withImmediateTransaction(this.#database, () => {
+      requireRoomSelection(this.#database, command.roomId, command.selectionRevision);
       const now = this.#currentTime();
       const prior = this.#findCommand(command.roomId, command.requestId);
       if (prior !== undefined) {
@@ -880,8 +901,10 @@ export class RoomService {
       this.#throwIfClosed();
       const roomId = canonicalIdentifier(command.roomId, "roomId");
       const requestId = canonicalIdentifier(command.requestId, "requestId");
-      const requestDigest = digest({ kind, roomId, requestId });
+      const selectionRevision = canonicalSelectionRevision(command.selectionRevision);
+      const requestDigest = digest({ kind, roomId, requestId, selectionRevision });
       const operation = withImmediateTransaction(this.#database, () => {
+        requireRoomSelection(this.#database, roomId, selectionRevision);
         const prior = this.#findCommand(roomId, requestId);
         if (prior !== undefined) {
           assertMatchingDigest(prior, requestDigest);
@@ -947,9 +970,11 @@ export class RoomService {
       this.#throwIfClosed();
       const roomId = canonicalIdentifier(command.roomId, "roomId");
       const requestId = canonicalIdentifier(command.requestId, "requestId");
+      const selectionRevision = canonicalSelectionRevision(command.selectionRevision);
       const personaId = canonicalIdentifier(command.personaId, "personaId");
-      const requestDigest = digest({ kind, roomId, requestId, personaId });
+      const requestDigest = digest({ kind, roomId, requestId, selectionRevision, personaId });
       const operation = withImmediateTransaction(this.#database, () => {
+        requireRoomSelection(this.#database, roomId, selectionRevision);
         const prior = this.#findCommand(roomId, requestId);
         if (prior !== undefined) {
           assertMatchingDigest(prior, requestDigest);

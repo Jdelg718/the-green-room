@@ -8,7 +8,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 
 import { buildApp } from "../../src/app.js";
-import { appendEvent, openGreenRoomDatabase } from "../../src/db/index.js";
+import {
+  appendEvent,
+  currentRoomId,
+  openGreenRoomDatabase,
+  replaceCurrentRoomCast,
+} from "../../src/db/index.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
 import type {
   GenerationProvider,
@@ -323,7 +328,7 @@ test("api accepts canonical configured origins and rejects noncanonical request 
         "content-type": "application/json",
         "x-csrf-token": token,
       },
-      payload: { requestId: `canonical-${index}` },
+      payload: { requestId: `canonical-${index}`, selectionRevision: 0 },
     });
     assert.equal(accepted.statusCode, 200, accepted.body);
   }
@@ -401,11 +406,23 @@ test("room api exposes the room library and routes room-scoped mutations through
     ],
   });
 
+  const current = await app.inject({
+    method: "GET",
+    url: "/api/rooms/current",
+    headers: { host: HOST },
+  });
+  assert.equal(current.statusCode, 200);
+  assert.equal(current.headers["cache-control"], "no-store");
+  assert.deepEqual(current.json<{ revision: number; room: { sessionId: string } }>(), {
+    revision: 0,
+    room: room.json(),
+  });
+
   const message = await app.inject({
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/messages`,
     headers: mutationHeaders(token),
-    payload: { requestId: "message-1", text: "What do you notice?" },
+    payload: { requestId: "message-1", selectionRevision: 0, text: "What do you notice?" },
   });
   assert.equal(message.statusCode, 200, message.body);
   assert.deepEqual(message.json(), {
@@ -427,7 +444,7 @@ test("room api exposes the room library and routes room-scoped mutations through
       method: "POST",
       url: `/api/rooms/${ROOM_ID}/${path}`,
       headers: mutationHeaders(token),
-      payload: { requestId },
+      payload: { requestId, selectionRevision: 0 },
     });
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json<{ kind: string }>().kind, kind);
@@ -441,7 +458,7 @@ test("room api exposes the room library and routes room-scoped mutations through
       method: "POST",
       url: `/api/rooms/${ROOM_ID}/personas/fixer/${path}`,
       headers: mutationHeaders(token),
-      payload: { requestId },
+      payload: { requestId, selectionRevision: 0 },
     });
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json<{ muted: boolean }>().muted, muted);
@@ -451,7 +468,7 @@ test("room api exposes the room library and routes room-scoped mutations through
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/stop`,
     headers: mutationHeaders(token),
-    payload: { requestId: "stop-1" },
+    payload: { requestId: "stop-1", selectionRevision: 0 },
   });
   assert.equal(stop.statusCode, 200, stop.body);
   assert.equal(stop.json<{ status: string }>().status, "stopped");
@@ -472,6 +489,57 @@ test("room api exposes the room library and routes room-scoped mutations through
   }
   const invalidRoom = await app.inject({ method: "GET", url: "/api/rooms/other", headers: { host: HOST } });
   assert.equal(invalidRoom.statusCode, 400);
+});
+
+test("room selection API is revision-fenced and exactly idempotent", async (context) => {
+  const store = temporaryStore(context);
+  const second = replaceCurrentRoomCast(store.database, {
+    expectedRevision: 0,
+    requestId: "api-selection-second-room",
+    personas: [{ slug: "detective", name: "The Detective" }],
+  });
+  const app = apiApp({
+    allowedOrigin: ORIGIN,
+    database: store.database,
+    provider: new DeterministicMockProvider(),
+  });
+  context.after(() => app.close());
+  const token = await csrf(app);
+  const selection = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${ROOM_ID}/select`,
+    headers: mutationHeaders(token),
+    payload: { requestId: "api-select-first", selectionRevision: 1 },
+  });
+  assert.equal(selection.statusCode, 200, selection.body);
+  assert.deepEqual(selection.json<{ revision: number; room: { sessionId: string } }>(), {
+    kind: "room_selection",
+    requestId: "api-select-first",
+    revision: 2,
+    room: await app.inject({ method: "GET", url: `/api/rooms/${ROOM_ID}`, headers: { host: HOST } }).then((response) => response.json()),
+  });
+  const replay = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${ROOM_ID}/select`,
+    headers: mutationHeaders(token),
+    payload: { requestId: "api-select-first", selectionRevision: 1 },
+  });
+  assert.deepEqual(replay.json(), selection.json());
+  const reusedForAnotherTarget = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${second.sessionId}/select`,
+    headers: mutationHeaders(token),
+    payload: { requestId: "api-select-first", selectionRevision: 1 },
+  });
+  assert.equal(reusedForAnotherTarget.statusCode, 409);
+  const stale = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${second.sessionId}/select`,
+    headers: mutationHeaders(token),
+    payload: { requestId: "api-select-stale", selectionRevision: 1 },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(currentRoomId(store.database), ROOM_ID);
 });
 
 test("event replay validates its cursor and returns committed events in exact sequence", async (context) => {
@@ -720,7 +788,7 @@ test("app close aborts API generation, releases its claim, and settles repeatedl
     method: "POST",
     url: `/api/rooms/${ROOM_ID}/messages`,
     headers: mutationHeaders(token),
-    payload: { requestId: "shutdown-generation", text: "Never finish this." },
+    payload: { requestId: "shutdown-generation", selectionRevision: 0, text: "Never finish this." },
   });
   await provider.entered;
 
