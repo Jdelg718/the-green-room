@@ -167,13 +167,14 @@ class ControlledWait {
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
     if (predicate()) {
       return;
     }
-    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+    await new Promise<void>((resolveTurn) => setTimeout(resolveTurn, 5));
   }
-  assert.fail("Condition did not become true");
+  assert.fail("Condition did not become true within 2 seconds");
 }
 
 async function within<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
