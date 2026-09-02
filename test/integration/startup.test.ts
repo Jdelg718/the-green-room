@@ -170,7 +170,10 @@ async function spawnPackagedServer(
     const finish = (): void => resolve(Buffer.concat(chunks, count));
     readiness.once("end", finish);
     readiness.once("close", finish);
-    readiness.once("error", reject);
+    readiness.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ECONNRESET") finish();
+      else reject(error);
+    });
   });
   for (const byte of options.challenge ?? challengeFrame(token)) readiness.write(Buffer.from([byte]));
   if (options.closeEarly) readiness.destroy();
