@@ -99,7 +99,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 
 **Outcome:** maintain the live `greenroomai.net` static public project, documentation, download, and contribution surface while the application continues to run locally.
 
-**Current truth:** the static domain is live and independently verified with 18 cards and profiles, pinned portrait bytes, restrictive local-only resource policy, contribution/governance paths, and no key/transcript/room ingestion. Protected `main` now contains the approved Backstage Electric 1200 × 630 Open Graph/Twitter card with exact-byte and metadata validation. Production still serves the preceding static version until an authenticated Cloudflare deployment succeeds and is read back from `greenroomai.net`. The site has no downloadable application artifact yet.
+**Current truth:** the static domain is live and independently verified with 18 cards and profiles, pinned portrait bytes, restrictive local-only resource policy, contribution/governance paths, and no key/transcript/room ingestion. Protected `main` contains the approved Backstage Electric 1200 × 630 Open Graph/Twitter card with exact-byte and metadata validation. Cloudflare Workers Builds now tracks `main` for production, excludes `main` from previews, filters builds to `site/**` and `wrangler.jsonc`, and uses repository-pinned Wrangler tooling under strict lifecycle-script enforcement. Exact protected-main SHA `f35e326f06272c3d778b76230afe59d6654517a7` deployed successfully as Worker version `4fe177ec-d4b5-4b30-9008-0e4238d5c398` at 100% traffic and was read back byte-for-byte from `greenroomai.net`. The site has no downloadable application artifact yet.
 
 - Keep static project information, setup docs, contribution paths, and security/contact guidance current; publish downloads only after separate artifact and operator approval.
 - After adopting a reviewed community policy, publish a GitHub-backed static character catalog with immutable versions, digests, provenance, trust tiers, review evidence, and tombstones.
@@ -113,13 +113,12 @@ The portable-character and community boundary is specified in [ADR 0003](docs/ad
 
 ## Current execution order
 
-1. Repair the authenticated Cloudflare build/deploy configuration, deploy exact protected `main`, and verify live HTML, security headers, routes, portraits, and the approved social-card bytes without publishing a download.
-2. Re-review PR #106 at its exact latest head, require the room-ordering, mobile-containment, and concurrent-selection fixes plus a successful protected release gate, then merge only if all three are closed.
-3. Reconfirm PR #110 at its exact head and merge the FF2K bundled-original candidate only after its protected gate and privacy/content approval remain current; it must never be automatically seated or represented as Official Catalog admission.
-4. Start issue #98 on a fresh focused branch: explicit immutable package-mode assets first, then one native macOS arm64 frozen-validator candidate, then source/frozen semantic equivalence across the hostile corpus.
-5. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
-6. Continue the minimal supervised macOS launcher and lifecycle matrix only after issue #98 closes; signing, notarization, download publication, updater work, and demo video remain separate human gates.
-7. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
+1. Re-review PR #106 at its exact latest head, require the room-ordering, mobile-containment, and concurrent-selection fixes plus a successful protected release gate, then merge only if all three are closed.
+2. Reconfirm PR #110 at its exact head and merge the FF2K bundled-original candidate only after its protected gate and privacy/content approval remain current; it must never be automatically seated or represented as Official Catalog admission.
+3. Start issue #98 on a fresh focused branch: explicit immutable package-mode assets first, then one native macOS arm64 frozen-validator candidate, then source/frozen semantic equivalence across the hostile corpus.
+4. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
+5. Continue the minimal supervised macOS launcher and lifecycle matrix only after issue #98 closes; signing, notarization, download publication, updater work, and demo video remain separate human gates.
+6. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
 
 ## Future launch milestone — community demo video
 
