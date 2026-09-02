@@ -18,7 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build --silent && node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm run build && npm test",
-    "check:python": "uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
+    "check:python": "uv run python -m unittest discover -s site/scripts -p 'test_*.py' -q && uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
     "check:all": "npm run check && npm run check:python",
     "check:release": "npm run check:all && npm run acceptance",
     "preflight:source": "node scripts/source-clean-host.mjs",

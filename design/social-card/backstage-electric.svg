@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">The Green Room — Backstage Electric social card</title>
+  <desc id="desc">A hard-edged call-sheet style social card identifying The Green Room as an early-development open-source ensemble conversation project with a downloadable release forthcoming.</desc>
+  <defs>
+    <style>
+      .display{font-family:Impact,"Arial Black",Haettenschweiler,sans-serif;font-weight:700;text-transform:uppercase}
+      .sans{font-family:Arial,Helvetica,sans-serif;font-weight:700}
+      .mono{font-family:"Courier New",Courier,monospace;font-weight:700}
+    </style>
+    <pattern id="grid" width="21" height="21" patternUnits="userSpaceOnUse"><path d="M21 0H0V21" fill="none" stroke="#121411" stroke-opacity=".045" stroke-width="1"/></pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="#f3efdf"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <path d="M0 0h1200v22H0zM0 608h1200v22H0z" fill="#121411"/>
+  <path d="M0 22h1200v10H0zM0 598h1200v10H0z" fill="#b9ff29"/>
+
+  <!-- Existing approved GR// mark, preserved from the site identity. -->
+  <g transform="translate(70 68) rotate(-2 62 62)">
+    <rect width="124" height="124" fill="#121411"/>
+    <text x="16" y="76" fill="#b9ff29" class="mono" font-size="36">GR//</text>
+    <circle cx="128" cy="-4" r="10" fill="#b9ff29" stroke="#121411" stroke-width="4"/>
+  </g>
+  <text x="224" y="109" fill="#121411" class="display" font-size="45">THE GREEN ROOM</text>
+  <text x="226" y="141" fill="#655f51" class="mono" font-size="15" letter-spacing="2">OPEN-SOURCE ENSEMBLE CONVERSATION</text>
+
+  <!-- Heavy uppercase display treatment from site.css. -->
+  <text x="70" y="285" fill="#121411" class="display" font-size="78" letter-spacing="-2">CHOOSE VOICES</text>
+  <text x="70" y="354" fill="#f3efdf" stroke="#121411" stroke-width="2" paint-order="stroke" class="display" font-size="78" letter-spacing="-2">WITH SOMETHING</text>
+  <text x="70" y="423" fill="#121411" class="display" font-size="78" letter-spacing="-2">AT STAKE.</text>
+  <path d="M70 455h585" stroke="#ed4f37" stroke-width="10"/>
+  <text x="90" y="499" fill="#121411" class="sans" font-size="21">THE ROOM—NOT A SINGLE CHATBOT—IS THE PRODUCT.</text>
+
+  <!-- Existing hard-edged posted/call-sheet visual language. -->
+  <g transform="translate(770 96) rotate(1.3 175 204)">
+    <rect x="10" y="10" width="350" height="408" fill="#121411"/>
+    <rect width="350" height="408" fill="#e7e0cb" stroke="#121411" stroke-width="5"/>
+    <rect x="224" y="-17" width="100" height="32" fill="#ed4f37" stroke="#121411" stroke-width="3" transform="rotate(-3 274 -1)"/>
+    <text x="245" y="6" fill="#fffdf4" class="mono" font-size="15">POSTED</text>
+    <text x="24" y="54" fill="#121411" class="display" font-size="39">PROJECT CALL SHEET</text>
+    <path d="M24 72h302" stroke="#121411" stroke-width="3"/>
+    <text x="24" y="108" fill="#655f51" class="mono" font-size="15">STATUS</text>
+    <text x="128" y="108" fill="#121411" class="mono" font-size="15">EARLY DEVELOPMENT</text>
+    <path d="M128 118h198" stroke="#655f51" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="24" y="158" fill="#655f51" class="mono" font-size="15">RELEASE</text>
+    <text x="128" y="158" fill="#121411" class="mono" font-size="15">DOWNLOADABLE</text>
+    <text x="128" y="181" fill="#121411" class="mono" font-size="15">RELEASE FORTHCOMING</text>
+    <path d="M128 191h198" stroke="#655f51" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="24" y="232" fill="#655f51" class="mono" font-size="15">FORMAT</text>
+    <text x="128" y="232" fill="#121411" class="mono" font-size="15">SHARED ROOM</text>
+    <path d="M128 242h198" stroke="#655f51" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="24" y="283" fill="#655f51" class="mono" font-size="15">CAST</text>
+    <text x="128" y="283" fill="#121411" class="mono" font-size="15">HUMAN + AI VOICES</text>
+    <path d="M128 293h198" stroke="#655f51" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <rect x="24" y="326" width="302" height="53" fill="#b9ff29" stroke="#121411" stroke-width="4"/>
+    <text x="42" y="359" fill="#121411" class="mono" font-size="17">KEEP THE ROOM INTERESTING.</text>
+  </g>
+
+  <rect x="70" y="538" width="575" height="44" fill="#b9ff29" stroke="#121411" stroke-width="4"/>
+  <text x="88" y="567" fill="#121411" class="mono" font-size="18">EARLY DEVELOPMENT · RELEASE FORTHCOMING</text>
+  <path d="M685 538h42v44h-42z" fill="#3d5afe" stroke="#121411" stroke-width="4"/>
+  <path d="M695 548l22 24m0-24l-22 24" stroke="#fffdf4" stroke-width="4"/>
+</svg>
