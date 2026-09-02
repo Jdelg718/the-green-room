@@ -222,7 +222,7 @@ test("packaged mode requires every executable and runtime asset path explicitly"
       "/Applications/The Green Room.app/Contents/Resources/validator/greenroom-persona/greenroom-persona",
   } as const;
 
-  const config = loadConfig(environment);
+  const config = loadConfig(environment, "/ignored", "darwin");
   assert.deepEqual(config.runtimeAssets, {
     payloadRoot: environment.GREENROOM_PACKAGE_PAYLOAD_ROOT,
     publicDir: environment.GREENROOM_PUBLIC_DIR,
@@ -244,7 +244,7 @@ test("packaged mode requires every executable and runtime asset path explicitly"
     "GREENROOM_PERSONA_VALIDATOR_EXECUTABLE",
   ] as const) {
     assert.throws(
-      () => loadConfig({ ...environment, [missing]: undefined }),
+      () => loadConfig({ ...environment, [missing]: undefined }, "/ignored", "darwin"),
       new RegExp(missing),
       missing,
     );
@@ -264,7 +264,7 @@ test("packaged path controls reject relative values and cannot be supplied in so
     GREENROOM_PERSONA_VALIDATOR_EXECUTABLE: "/payload/validator",
   };
   assert.throws(
-    () => loadConfig({ ...packaged, GREENROOM_PUBLIC_DIR: "public" }),
+    () => loadConfig({ ...packaged, GREENROOM_PUBLIC_DIR: "public" }, "/ignored", "darwin"),
     /GREENROOM_PUBLIC_DIR.*absolute/,
   );
   assert.throws(

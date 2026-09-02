@@ -238,10 +238,11 @@ function allowedOrigin(value: string | undefined, fallback: string): string {
 export function loadConfig(
   environment: Environment = process.env,
   cwd: string = process.cwd(),
+  platform: NodeJS.Platform = process.platform,
 ): AppConfig {
   const host = loopbackHost(environment.GREENROOM_HOST);
   const port = listenPort(environment.GREENROOM_PORT);
-  const { dataDir, runtimeMode } = resolveDataRoot({ cwd, environment });
+  const { dataDir, runtimeMode } = resolveDataRoot({ cwd, environment, platform });
   const assets = runtimeAssets(environment, runtimeMode);
   const personaInspectionRoot = join(dataDir, "runtime", "persona-inspection");
   return Object.freeze({
