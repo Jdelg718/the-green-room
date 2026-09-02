@@ -139,13 +139,26 @@ function sidecarEnvironment(executablePath: string): NodeJS.ProcessEnv {
   return env;
 }
 
-function terminateBestAvailable(child: ChildProcess): NodeJS.Timeout | undefined {
+export function validatorDetachedProcessGroup(
+  processGroup: "private" | "inherit",
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform !== "win32" && processGroup === "private";
+}
+
+export function validatorProcessGroupForRuntime(
+  runtimeMode: string | undefined = process.env.GREENROOM_RUNTIME_MODE,
+): "private" | "inherit" {
+  return runtimeMode === "packaged-macos" ? "inherit" : "private";
+}
+
+function terminateBestAvailable(child: ChildProcess, privateGroup: boolean): NodeJS.Timeout | undefined {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
     return undefined;
   }
 
   const signal = (value: NodeJS.Signals) => {
-    if (process.platform !== "win32" && child.pid !== undefined) {
+    if (privateGroup && child.pid !== undefined) {
       try {
         process.kill(-child.pid, value);
         return;
@@ -164,8 +177,8 @@ function terminateBestAvailable(child: ChildProcess): NodeJS.Timeout | undefined
   return setTimeout(() => signal("SIGKILL"), FORCE_KILL_DELAY_MS);
 }
 
-function forceTerminateBestAvailable(child: ChildProcess): void {
-  if (process.platform !== "win32" && child.pid !== undefined) {
+function forceTerminateBestAvailable(child: ChildProcess, privateGroup: boolean): void {
+  if (privateGroup && child.pid !== undefined) {
     try {
       process.kill(-child.pid, "SIGKILL");
       return;
@@ -264,8 +277,10 @@ function parseReport(stdout: Buffer, exitCode: number | null): ValidatorReport {
 /**
  * Executes the packaged validator as a bounded, short-lived local process.
  *
- * Unix children start in a private process group, so timeout/cancellation signals
- * the process tree. Node has no shell-free Windows Job Object API; on Windows the
+ * Source-mode Unix children start in a private process group, so request timeout
+ * signals their subtree. Packaged children inherit the launcher's supervised group;
+ * request timeout signals only the trusted direct frozen validator, while app shutdown
+ * owns whole-group cleanup. Node has no shell-free Windows Job Object API; on Windows the
  * direct child is terminated. A native launcher is required before claiming
  * robust descendant cleanup for a packaged validator that spawns on Windows.
  */
@@ -274,6 +289,7 @@ export class ValidatorSidecar {
   readonly #safeCwd: string;
   readonly #timeoutMs: number;
   readonly #concurrency: number;
+  readonly #privateGroup: boolean;
   #active = 0;
   readonly #queue: QueueEntry[] = [];
 
@@ -296,6 +312,7 @@ export class ValidatorSidecar {
     this.#safeCwd = options.safeCwd;
     this.#timeoutMs = timeoutMs;
     this.#concurrency = concurrency;
+    this.#privateGroup = validatorDetachedProcessGroup(validatorProcessGroupForRuntime());
   }
 
   async validate(archivePath: string, options: ValidateOptions = {}): Promise<ValidatorReport> {
@@ -354,7 +371,7 @@ export class ValidatorSidecar {
             cwd: this.#safeCwd,
             env: sidecarEnvironment(this.#executablePath),
             shell: false,
-            detached: process.platform !== "win32",
+            detached: this.#privateGroup,
             stdio: ["ignore", "pipe", "pipe"],
             windowsHide: true,
           },
@@ -373,7 +390,7 @@ export class ValidatorSidecar {
 
       const stop = (code: ValidatorSidecarErrorCode) => {
         if (!terminalError) terminalError = failure(code);
-        forceKillTimer ??= terminateBestAvailable(child);
+        forceKillTimer ??= terminateBestAvailable(child, this.#privateGroup);
       };
       const timeout = setTimeout(() => stop("validator_timeout"), this.#timeoutMs);
       const abortListener = () => stop("validator_aborted");
@@ -400,7 +417,7 @@ export class ValidatorSidecar {
         clearTimeout(timeout);
         if (forceKillTimer) {
           clearTimeout(forceKillTimer);
-          if (terminalError) forceTerminateBestAvailable(child);
+          if (terminalError) forceTerminateBestAvailable(child, this.#privateGroup);
         }
         signal?.removeEventListener("abort", abortListener);
 

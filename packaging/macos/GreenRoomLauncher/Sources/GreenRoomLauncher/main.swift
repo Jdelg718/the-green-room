@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 struct ReleaseManifest: Equatable {
@@ -277,10 +278,410 @@ struct LauncherPreflight {
     }
 }
 
+struct BoundedStream: Sendable {
+    let retained: Data
+    let discardedBytes: Int
+
+    fileprivate struct Accumulator {
+        let limit: Int
+        var bytes = Data()
+        var discarded = 0
+
+        mutating func append(_ data: Data) {
+            guard !data.isEmpty else { return }
+            if data.count >= limit {
+                discarded += bytes.count + data.count - limit
+                bytes = data.suffix(limit)
+                return
+            }
+            let overflow = max(0, bytes.count + data.count - limit)
+            if overflow > 0 {
+                bytes.removeFirst(overflow)
+                discarded += overflow
+            }
+            bytes.append(data)
+        }
+
+        var result: BoundedStream { .init(retained: bytes, discardedBytes: discarded) }
+    }
+}
+
+struct SupervisedProcessResult: Sendable {
+    let pid: pid_t
+    let stdout: BoundedStream
+    let stderr: BoundedStream
+    let termSent: Bool
+    let killSent: Bool
+    let reaped: Bool
+    let status: Int32
+}
+
+enum SpawnError: Error, CustomStringConvertible {
+    case system(String, Int32)
+
+    var description: String {
+        switch self { case .system(let operation, let code): return "\(operation):\(code)" }
+    }
+}
+
+private func checked(_ code: Int32, _ operation: String) throws {
+    if code != 0 { throw SpawnError.system(operation, code) }
+}
+
+private func withMutableCStringArray<R>(_ strings: [String], _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> R) rethrows -> R {
+    let pointers = strings.map { strdup($0) }
+    defer { pointers.forEach { free($0) } }
+    var terminated = pointers + [nil]
+    return try terminated.withUnsafeMutableBufferPointer { buffer in try body(buffer.baseAddress!) }
+}
+
+/// Owns one trusted packaged runtime process group. A descendant which deliberately
+/// calls setsid(2) can escape this group; shipped Node and the frozen validator are
+/// trusted executables and must never do that.
+enum SupervisedProcess {
+    static func runForTest(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        cwd: String,
+        grace: Duration,
+        shutdownAfter: Duration? = nil,
+        outputLimit: Int = 64 * 1024,
+        lifetimeFD: Int32? = nil
+    ) throws -> SupervisedProcessResult {
+        try run(executable: executable, arguments: arguments, environment: environment, cwd: cwd,
+                graceNanoseconds: nanoseconds(grace), shutdownAfterNanoseconds: shutdownAfter.map(nanoseconds),
+                outputLimit: outputLimit, lifetimeFD: lifetimeFD, armedFD: nil)
+    }
+
+    static func run(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        cwd: String,
+        graceNanoseconds: UInt64 = 5_000_000_000,
+        shutdownAfterNanoseconds: UInt64? = nil,
+        outputLimit: Int = 64 * 1024,
+        lifetimeFD: Int32?,
+        armedFD: Int32?,
+        shutdownRequested: () -> Bool = { false }
+    ) throws -> SupervisedProcessResult {
+        guard executable.hasPrefix("/"), cwd.hasPrefix("/"), outputLimit > 0 else {
+            throw SpawnError.system("invalid_spawn_configuration", EINVAL)
+        }
+        var stdoutPipe = [Int32](repeating: -1, count: 2)
+        var stderrPipe = [Int32](repeating: -1, count: 2)
+        guard pipe(&stdoutPipe) == 0 else { throw SpawnError.system("pipe_stdout", errno) }
+        guard pipe(&stderrPipe) == 0 else {
+            close(stdoutPipe[0]); close(stdoutPipe[1]); throw SpawnError.system("pipe_stderr", errno)
+        }
+        var owned = Set(stdoutPipe + stderrPipe)
+        defer { for fd in owned { close(fd) } }
+
+        var actions: posix_spawn_file_actions_t? = nil
+        try checked(posix_spawn_file_actions_init(&actions), "file_actions_init")
+        defer { if actions != nil { posix_spawn_file_actions_destroy(&actions) } }
+        try checked(posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0), "addopen_stdin")
+        try checked(posix_spawn_file_actions_adddup2(&actions, stdoutPipe[1], STDOUT_FILENO), "dup_stdout")
+        try checked(posix_spawn_file_actions_adddup2(&actions, stderrPipe[1], STDERR_FILENO), "dup_stderr")
+        try checked(posix_spawn_file_actions_addclose(&actions, stdoutPipe[1]), "close_stdout_source")
+        try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[1]), "close_stderr_source")
+        try checked(posix_spawn_file_actions_addclose(&actions, stdoutPipe[0]), "close_stdout_read")
+        try checked(posix_spawn_file_actions_addclose(&actions, stderrPipe[0]), "close_stderr_read")
+        try checked(posix_spawn_file_actions_addchdir_np(&actions, cwd), "addchdir")
+
+        var attributes: posix_spawnattr_t? = nil
+        try checked(posix_spawnattr_init(&attributes), "spawnattr_init")
+        defer { if attributes != nil { posix_spawnattr_destroy(&attributes) } }
+        try checked(posix_spawnattr_setpgroup(&attributes, 0), "setpgroup")
+        var emptyMask = sigset_t(); try checked(sigemptyset(&emptyMask), "sigemptyset_mask")
+        try checked(posix_spawnattr_setsigmask(&attributes, &emptyMask), "setsigmask")
+        var defaults = sigset_t(); try checked(sigemptyset(&defaults), "sigemptyset_defaults")
+        for signalNumber in [SIGTERM, SIGINT, SIGHUP, SIGPIPE] {
+            try checked(sigaddset(&defaults, signalNumber), "sigaddset_default")
+        }
+        try checked(posix_spawnattr_setsigdefault(&attributes, &defaults), "setsigdefault")
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
+        try checked(posix_spawnattr_setflags(&attributes, flags), "setflags")
+
+        var pid: pid_t = 0
+        let argv = [executable] + arguments
+        let env = environment.keys.sorted().map { "\($0)=\(environment[$0]!)" }
+        let spawnCode = withMutableCStringArray(argv) { argvPointer in
+            withMutableCStringArray(env) { envPointer in
+                posix_spawn(&pid, executable, &actions, &attributes, argvPointer, envPointer)
+            }
+        }
+        try checked(spawnCode, "posix_spawn")
+        close(stdoutPipe[1]); owned.remove(stdoutPipe[1])
+        close(stderrPipe[1]); owned.remove(stderrPipe[1])
+        for fd in [stdoutPipe[0], stderrPipe[0]] {
+            let current = fcntl(fd, F_GETFL)
+            if current < 0 || fcntl(fd, F_SETFL, current | O_NONBLOCK) < 0 {
+                let code = errno
+                _ = killpg(pid, SIGKILL)
+                var cleanupStatus: Int32 = 0
+                while waitpid(pid, &cleanupStatus, 0) < 0 && errno == EINTR {}
+                throw SpawnError.system("nonblocking_pipe", code)
+            }
+        }
+        if let armedFD {
+            var byte: UInt8 = 1
+            guard write(armedFD, &byte, 1) == 1 else {
+                let code = errno
+                _ = killpg(pid, SIGKILL)
+                var cleanupStatus: Int32 = 0
+                while waitpid(pid, &cleanupStatus, 0) < 0 && errno == EINTR {}
+                throw SpawnError.system("armed_write", code)
+            }
+        }
+
+        var out = BoundedStream.Accumulator(limit: outputLimit)
+        var err = BoundedStream.Accumulator(limit: outputLimit)
+        var status: Int32 = 0
+        var reaped = false
+        var termSent = false
+        var killSent = false
+        var termAt: UInt64?
+        let started = DispatchTime.now().uptimeNanoseconds
+        var lifetimeClosed = false
+        if let lifetimeFD {
+            let current = fcntl(lifetimeFD, F_GETFL)
+            if current >= 0 { _ = fcntl(lifetimeFD, F_SETFL, current | O_NONBLOCK) }
+        }
+
+        func groupExists() -> Bool {
+            if killpg(pid, 0) == 0 { return true }
+            return errno == EPERM
+        }
+        func requestShutdown(_ now: UInt64) {
+            guard !termSent else { return }
+            termSent = true; termAt = now
+            if killpg(pid, SIGTERM) != 0 && errno != ESRCH { /* retry/escalate below */ }
+        }
+        func drain(_ fd: Int32, into accumulator: inout BoundedStream.Accumulator) -> Bool {
+            var buffer = [UInt8](repeating: 0, count: 32 * 1024)
+            while true {
+                let count = read(fd, &buffer, buffer.count)
+                if count > 0 { accumulator.append(Data(buffer[0..<count])); continue }
+                if count == 0 { return true }
+                if errno == EINTR { continue }
+                return errno != EAGAIN && errno != EWOULDBLOCK
+            }
+        }
+
+        var stdoutEOF = false, stderrEOF = false
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            if !reaped {
+                let waited = waitpid(pid, &status, WNOHANG)
+                if waited == pid { reaped = true; requestShutdown(now) }
+                else if waited < 0 && errno != EINTR { throw SpawnError.system("waitpid", errno) }
+            }
+            if let deadline = shutdownAfterNanoseconds, now - started >= deadline { requestShutdown(now) }
+            if shutdownRequested() { requestShutdown(now) }
+            if let lifetimeFD, !lifetimeClosed {
+                var byte: UInt8 = 0
+                let count = read(lifetimeFD, &byte, 1)
+                if count == 0 { lifetimeClosed = true; requestShutdown(now) }
+                else if count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR {
+                    lifetimeClosed = true; requestShutdown(now)
+                }
+            }
+            if !stdoutEOF { stdoutEOF = drain(stdoutPipe[0], into: &out) }
+            if !stderrEOF { stderrEOF = drain(stderrPipe[0], into: &err) }
+            if termSent, groupExists(), let sent = termAt, now - sent >= graceNanoseconds, !killSent {
+                killSent = true
+                if killpg(pid, SIGKILL) != 0 && errno != ESRCH { throw SpawnError.system("killpg_kill", errno) }
+            }
+            let gone = !groupExists()
+            if gone && !reaped {
+                let waited = waitpid(pid, &status, 0)
+                if waited == pid { reaped = true }
+                else if waited < 0 && errno != EINTR { throw SpawnError.system("waitpid_reap", errno) }
+            }
+            if gone && reaped && stdoutEOF && stderrEOF { break }
+            usleep(2_000)
+        }
+        return .init(pid: pid, stdout: out.result, stderr: err.result, termSent: termSent,
+                     killSent: killSent, reaped: reaped, status: status)
+    }
+
+    private static func nanoseconds(_ duration: Duration) -> UInt64 {
+        let components = duration.components
+        return UInt64(max(0, components.seconds)) * 1_000_000_000 + UInt64(max(0, components.attoseconds / 1_000_000_000))
+    }
+}
+
+private struct PackagedRuntime {
+    let node: String
+    let server: String
+    let cwd: String
+    let environment: [String: String]
+
+    static func resolve(bundleRoot: URL, manifest: ReleaseManifest) throws -> PackagedRuntime {
+        let required = [
+            "Contents/Resources/runtime/node/bin/node",
+            "Contents/Resources/app/dist/src/server.js",
+            "Contents/Resources/validator/greenroom-persona",
+        ]
+        let records = Set(manifest.files.map(\.path))
+        guard required.allSatisfy(records.contains) else { throw LauncherError.payloadInvalid("runtime_files_missing") }
+        func canonical(_ relative: String) throws -> String {
+            let url = bundleRoot.appendingPathComponent(relative).standardizedFileURL
+            let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+            let root = bundleRoot.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+            guard resolved.path.hasPrefix(root), resolved.path == url.resolvingSymlinksInPath().path else {
+                throw LauncherError.payloadInvalid("runtime_path_invalid")
+            }
+            return resolved.path
+        }
+        let node = try canonical(required[0])
+        let server = try canonical(required[1])
+        let validator = try canonical(required[2])
+        guard FileManager.default.isExecutableFile(atPath: node), FileManager.default.isExecutableFile(atPath: validator) else {
+            throw LauncherError.payloadInvalid("runtime_not_executable")
+        }
+        let resources = bundleRoot.appendingPathComponent("Contents/Resources").resolvingSymlinksInPath().path
+        let app = resources + "/app"
+        let appURL = URL(fileURLWithPath: app, isDirectory: true)
+        let appValues = try appURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard appValues.isDirectory == true, appValues.isSymbolicLink != true,
+              appURL.standardizedFileURL.path == appURL.resolvingSymlinksInPath().standardizedFileURL.path
+        else { throw LauncherError.payloadInvalid("runtime_cwd_invalid") }
+        let data = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/net.greenroomai.GreenRoom", isDirectory: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let canonicalData = data.resolvingSymlinksInPath().standardizedFileURL.path
+        let environment = [
+            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8",
+            "GREENROOM_RUNTIME_MODE": "packaged-macos",
+            "GREENROOM_PACKAGE_PAYLOAD_ROOT": bundleRoot.appendingPathComponent("Contents").resolvingSymlinksInPath().path,
+            "GREENROOM_PUBLIC_DIR": app + "/dist/public",
+            "GREENROOM_MIGRATIONS_DIR": app + "/dist/migrations",
+            "GREENROOM_HISTORICAL_CATALOG_DIR": app + "/dist/personas/historical",
+            "GREENROOM_ORIGINAL_CATALOG_DIR": app + "/dist/personas/original",
+            "GREENROOM_PERSONA_PREFLIGHT_FIXTURE": app + "/dist/runtime-assets/persona-validator/valid-minimal.greenroom",
+            "GREENROOM_PERSONA_VALIDATOR_EXECUTABLE": validator,
+            "GREENROOM_PERSONA_INSPECTION": "required",
+            "GREENROOM_HOST": "127.0.0.1", "GREENROOM_PORT": "8787",
+            "GREENROOM_DATA_DIR": canonicalData,
+        ]
+        return .init(node: node, server: server, cwd: app, environment: environment)
+    }
+}
+
+private final class SignalLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private var sources: [DispatchSourceSignal] = []
+
+    init() {
+        for number in [SIGTERM, SIGINT, SIGHUP] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global(qos: .userInitiated))
+            source.setEventHandler { [weak self] in
+                self?.lock.lock(); self?.fired = true; self?.lock.unlock()
+            }
+            source.resume()
+            sources.append(source)
+        }
+    }
+
+    var requested: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return fired
+    }
+}
+
+private enum SupervisorMode {
+    static let lifetimeFD: Int32 = 3
+    static let armedFD: Int32 = 4
+
+    static func runInternal(executable: URL) throws {
+        guard CommandLine.arguments == [executable.path, "--internal-supervisor"],
+              fcntl(lifetimeFD, F_GETFD) >= 0, fcntl(armedFD, F_GETFD) >= 0
+        else { throw LauncherError.unsafeInvocation("internal_protocol") }
+        #if !arch(arm64)
+        throw LauncherError.unsupportedArchitecture
+        #endif
+        let bundle = try LauncherPreflight.bundleRoot(forExecutable: executable)
+        let manifest = try LauncherPreflight.validate(bundleRoot: bundle)
+        let runtime = try PackagedRuntime.resolve(bundleRoot: bundle, manifest: manifest)
+        let signals = SignalLatch()
+        _ = try SupervisedProcess.run(
+            executable: runtime.node, arguments: [runtime.server], environment: runtime.environment,
+            cwd: runtime.cwd, lifetimeFD: lifetimeFD, armedFD: armedFD,
+            shutdownRequested: { signals.requested }
+        )
+    }
+
+    static func launchOuter(executable: URL, bundleRoot: URL) throws {
+        var lifetime = [Int32](repeating: -1, count: 2)
+        var armed = [Int32](repeating: -1, count: 2)
+        guard pipe(&lifetime) == 0 else { throw SpawnError.system("lifetime_pipe", errno) }
+        guard pipe(&armed) == 0 else {
+            close(lifetime[0]); close(lifetime[1]); throw SpawnError.system("armed_pipe", errno)
+        }
+        defer { lifetime.forEach { if $0 >= 0 { close($0) } }; armed.forEach { if $0 >= 0 { close($0) } } }
+        let inheritedLifetime = fcntl(lifetime[0], F_DUPFD_CLOEXEC, 10)
+        let inheritedArmed = fcntl(armed[1], F_DUPFD_CLOEXEC, 10)
+        guard inheritedLifetime >= 0, inheritedArmed >= 0 else { throw SpawnError.system("control_dup", errno) }
+        defer { close(inheritedLifetime); close(inheritedArmed) }
+
+        var actions: posix_spawn_file_actions_t? = nil
+        try checked(posix_spawn_file_actions_init(&actions), "supervisor_actions_init")
+        defer { if actions != nil { posix_spawn_file_actions_destroy(&actions) } }
+        try checked(posix_spawn_file_actions_adddup2(&actions, inheritedLifetime, lifetimeFD), "supervisor_lifetime_dup")
+        try checked(posix_spawn_file_actions_adddup2(&actions, inheritedArmed, armedFD), "supervisor_armed_dup")
+        try checked(posix_spawn_file_actions_addclose(&actions, inheritedLifetime), "supervisor_lifetime_source_close")
+        try checked(posix_spawn_file_actions_addclose(&actions, inheritedArmed), "supervisor_armed_source_close")
+        try checked(posix_spawn_file_actions_addchdir_np(&actions, bundleRoot.appendingPathComponent("Contents/Resources").path), "supervisor_chdir")
+        var attributes: posix_spawnattr_t? = nil
+        try checked(posix_spawnattr_init(&attributes), "supervisor_attr_init")
+        defer { if attributes != nil { posix_spawnattr_destroy(&attributes) } }
+        var empty = sigset_t(); try checked(sigemptyset(&empty), "supervisor_sigemptyset")
+        try checked(posix_spawnattr_setsigmask(&attributes, &empty), "supervisor_sigmask")
+        var defaults = sigset_t(); try checked(sigemptyset(&defaults), "supervisor_defaults_empty")
+        for number in [SIGTERM, SIGINT, SIGHUP] {
+            try checked(sigaddset(&defaults, number), "supervisor_default_signal")
+        }
+        try checked(posix_spawnattr_setsigdefault(&attributes, &defaults), "supervisor_sigdefault")
+        try checked(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)), "supervisor_flags")
+        var pid: pid_t = 0
+        let code = withMutableCStringArray([executable.path, "--internal-supervisor"]) { argv in
+            withMutableCStringArray(["LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8"]) { env in
+                posix_spawn(&pid, executable.path, &actions, &attributes, argv, env)
+            }
+        }
+        try checked(code, "spawn_supervisor")
+        close(lifetime[0]); lifetime[0] = -1
+        close(armed[1]); armed[1] = -1
+        var pollDescriptor = pollfd(fd: armed[0], events: Int16(POLLIN | POLLHUP), revents: 0)
+        let pollCode = poll(&pollDescriptor, 1, 10_000)
+        var byte: UInt8 = 0
+        guard pollCode > 0, read(armed[0], &byte, 1) == 1, byte == 1 else {
+            close(lifetime[1]); lifetime[1] = -1
+            _ = kill(pid, SIGTERM)
+            var status: Int32 = 0; while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
+            throw SpawnError.system("supervisor_arm_timeout", ETIMEDOUT)
+        }
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) < 0 {
+            if errno != EINTR { throw SpawnError.system("wait_supervisor", errno) }
+        }
+    }
+}
+
 @main
 struct GreenRoomLauncherMain {
     static func main() {
         do {
+            let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+            if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--internal-supervisor" {
+                try SupervisorMode.runInternal(executable: executable)
+                return
+            }
             try LauncherInvocation.validate(
                 arguments: CommandLine.arguments,
                 environment: ProcessInfo.processInfo.environment
@@ -288,11 +689,9 @@ struct GreenRoomLauncherMain {
             #if !arch(arm64)
             throw LauncherError.unsupportedArchitecture
             #endif
-            let executable = URL(fileURLWithPath: CommandLine.arguments[0])
             let bundleRoot = try LauncherPreflight.bundleRoot(forExecutable: executable)
-            let manifest = try LauncherPreflight.validate(bundleRoot: bundleRoot)
-            let output = "{\"code\":\"launcher_preflight_valid\",\"files\":\(manifest.files.count),\"state\":\"ready_for_spawn\"}\n"
-            FileHandle.standardOutput.write(Data(output.utf8))
+            _ = try LauncherPreflight.validate(bundleRoot: bundleRoot)
+            try SupervisorMode.launchOuter(executable: executable, bundleRoot: bundleRoot)
         } catch {
             let message = error as? LauncherError
             let output = "{\"code\":\"launcher_preflight_failed\",\"reason\":\"\(jsonEscape(message?.description ?? "internal_error"))\"}\n"

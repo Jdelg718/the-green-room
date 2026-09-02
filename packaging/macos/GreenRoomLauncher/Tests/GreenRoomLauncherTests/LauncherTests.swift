@@ -99,6 +99,116 @@ final class LauncherTests: XCTestCase {
         )
     }
 
+    func testDarwinSpawnUsesPrivateGroupLiteralArgumentsMinimalEnvironmentAndSafeCWD() throws {
+        let cwd = try makeDirectory(named: "safe cwd ;$()")
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(),
+            arguments: ["report", "space ;$(touch nope)", "雪"],
+            environment: ["LANG": "C.UTF-8", "GREENROOM_RUNTIME_MODE": "packaged-macos"],
+            cwd: cwd.path,
+            grace: .milliseconds(200)
+        )
+        let output = String(decoding: result.stdout.retained, as: UTF8.self)
+        XCTAssertTrue(output.contains("pgid=\(result.pid)"), output)
+        XCTAssertTrue(output.contains("cwd=\(try canonicalPath(cwd.path))"), output)
+        XCTAssertTrue(output.contains("space ;$(touch nope)|雪"), output)
+        XCTAssertTrue(output.contains("env=GREENROOM_RUNTIME_MODE,LANG"), output)
+        for forbidden in ["PATH", "NODE_OPTIONS", "NODE_PATH", "DYLD_", "npm_", "PYTHON", "PEX_", "SECRET_SENTINEL"] {
+            XCTAssertFalse(output.contains(forbidden), "leaked \(forbidden): \(output)")
+        }
+        XCTAssertTrue(output.contains("fds=0,1,2"), output)
+        XCTAssertEqual(result.stdout.discardedBytes, 0)
+    }
+
+    func testConcurrentBoundedDrainsContinueThroughBinaryFlood() throws {
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["flood"], environment: [:],
+            cwd: try makeDirectory(named: "flood").path, grace: .milliseconds(200), outputLimit: 8_192
+        )
+        XCTAssertLessThanOrEqual(result.stdout.retained.count, 8_192)
+        XCTAssertLessThanOrEqual(result.stderr.retained.count, 8_192)
+        XCTAssertGreaterThan(result.stdout.discardedBytes, 1_000_000)
+        XCTAssertGreaterThan(result.stderr.discardedBytes, 1_000_000)
+    }
+
+    func testTERMThenKILLRemovesStubbornGroupAndReapsLeader() throws {
+        let started = ContinuousClock.now
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["stubborn"], environment: [:],
+            cwd: try makeDirectory(named: "stubborn").path, grace: .milliseconds(150), shutdownAfter: .milliseconds(30)
+        )
+        XCTAssertTrue(result.termSent)
+        XCTAssertTrue(result.killSent)
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - started, .milliseconds(150))
+        XCTAssertEqual(killpg(result.pid, 0), -1)
+        XCTAssertEqual(errno, ESRCH)
+    }
+
+    func testLauncherLifetimeEOFTriggersCooperativeGroupShutdown() throws {
+        var lifetime = [Int32](repeating: -1, count: 2)
+        XCTAssertEqual(pipe(&lifetime), 0)
+        let writer = lifetime[1]
+        DispatchQueue.global().async {
+            usleep(40_000)
+            close(writer)
+        }
+        defer { close(lifetime[0]) }
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["descendant"], environment: [:],
+            cwd: try makeDirectory(named: "lifetime").path, grace: .milliseconds(200), lifetimeFD: lifetime[0]
+        )
+        XCTAssertTrue(result.termSent)
+        XCTAssertFalse(result.killSent)
+        XCTAssertEqual(killpg(result.pid, 0), -1)
+        XCTAssertEqual(errno, ESRCH)
+    }
+
+    func testLeaderExitTriggersCleanupOfStubbornDescendant() throws {
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["stubborn-descendant"], environment: [:],
+            cwd: try makeDirectory(named: "descendant").path, grace: .milliseconds(150)
+        )
+        XCTAssertTrue(result.termSent)
+        XCTAssertTrue(result.killSent)
+        XCTAssertEqual(killpg(result.pid, 0), -1)
+        XCTAssertEqual(errno, ESRCH)
+    }
+
+    func testFastExitIsReapedAndDoesNotLeakGroup() throws {
+        let result = try SupervisedProcess.runForTest(
+            executable: try fixtureExecutable(), arguments: ["fast-exit"], environment: [:],
+            cwd: try makeDirectory(named: "fast").path, grace: .milliseconds(100)
+        )
+        XCTAssertTrue(result.reaped)
+        XCTAssertEqual(killpg(result.pid, 0), -1)
+        XCTAssertEqual(errno, ESRCH)
+    }
+
+    private func fixtureExecutable() throws -> String {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let candidate = packageRoot.appendingPathComponent(".build/debug/ProcessFixture").resolvingSymlinksInPath().path
+        guard FileManager.default.isExecutableFile(atPath: candidate) else {
+            XCTFail("fixture executable unavailable at \(candidate)")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return candidate
+    }
+
+    private func makeDirectory(named name: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("GreenRoomSupervisor-\(UUID().uuidString)")
+        let directory = root.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        temporaryDirectories.append(root)
+        return directory
+    }
+
+    private func canonicalPath(_ path: String) throws -> String {
+        guard let pointer = realpath(path, nil) else { throw CocoaError(.fileReadUnknown) }
+        defer { free(pointer) }
+        return String(cString: pointer)
+    }
+
     private func makeBundle() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("Green Room Launcher Tests-\(UUID().uuidString)", isDirectory: true)

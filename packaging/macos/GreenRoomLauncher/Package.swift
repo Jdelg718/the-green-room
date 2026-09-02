@@ -6,12 +6,14 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "GreenRoomLauncher", targets: ["GreenRoomLauncher"]),
+        .executable(name: "ProcessFixture", targets: ["ProcessFixture"]),
     ],
     targets: [
         .executableTarget(name: "GreenRoomLauncher"),
+        .executableTarget(name: "ProcessFixture"),
         .testTarget(
             name: "GreenRoomLauncherTests",
-            dependencies: ["GreenRoomLauncher"]
+            dependencies: ["GreenRoomLauncher", "ProcessFixture"]
         ),
     ]
 )
