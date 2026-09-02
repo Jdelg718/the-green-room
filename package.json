@@ -18,9 +18,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build --silent && node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm run build && npm test",
-    "check:python": "uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
+    "check:python": "uv run python -m unittest discover -s site/scripts -p 'test_*.py' -q && uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
     "check:all": "npm run check && npm run check:python",
     "check:release": "npm run check:all && npm run acceptance",
+    "deploy:site": "wrangler deploy",
     "preflight:source": "node scripts/source-clean-host.mjs",
     "start": "node dist/src/server.js",
     "start:local": "node scripts/start-local.mjs",
@@ -36,9 +37,13 @@
     "@types/fs-ext": "2.0.3",
     "@types/node": "24.10.1",
     "ajv": "8.20.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wrangler": "4.128.0"
   },
   "allowScripts": {
-    "fs-ext@2.1.1": true
+    "esbuild@0.28.1": true,
+    "fs-ext@2.1.1": true,
+    "fsevents@2.3.3": true,
+    "workerd@1.20260831.1": true
   }
 }

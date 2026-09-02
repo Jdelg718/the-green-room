@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
+import { constants as moduleConstants, enableCompileCache, getCompileCacheDir } from "node:module";
 import {
   access,
   lstat,
@@ -490,6 +491,11 @@ async function runEvidence(options) {
   const syntheticHome = join(workRoot, "home");
   assertProtectedDispatch(process.env.SOURCE_REF_PROTECTED);
   assert.equal(process.env.SOURCE_REF, "refs/heads/main", "source ref must be protected main");
+  assert.equal(process.env.NODE_DISABLE_COMPILE_CACHE, "1", "Node compile cache must be disabled");
+  assert.equal(process.env.NODE_COMPILE_CACHE, undefined, "positive Node compile-cache path is forbidden");
+  assert.equal(getCompileCacheDir(), undefined, "Node compile cache was already enabled");
+  assert.equal(enableCompileCache().status, moduleConstants.compileCacheStatus.DISABLED, "Node compile cache disable was ineffective");
+  assert.equal(getCompileCacheDir(), undefined, "Node compile cache became enabled");
 
   await mkdir(evidenceRoot, { recursive: true, mode: 0o700 });
   const logsRoot = join(evidenceRoot, "logs");
@@ -581,6 +587,7 @@ async function runEvidence(options) {
 
     const env = {
       ...process.env,
+      NODE_DISABLE_COMPILE_CACHE: "1",
       HOME: syntheticHome,
       TMPDIR: join(workRoot, "tmp"),
       npm_config_cache: join(workRoot, "cache", "npm"),
@@ -588,6 +595,7 @@ async function runEvidence(options) {
       XDG_CACHE_HOME: join(workRoot, "cache", "xdg"),
       NO_COLOR: "1",
     };
+    delete env.NODE_COMPILE_CACHE;
     await mkdir(env.HOME, { recursive: true, mode: 0o700 });
     await mkdir(env.TMPDIR, { recursive: true, mode: 0o700 });
     await mkdir(env.npm_config_cache, { recursive: true, mode: 0o700 });

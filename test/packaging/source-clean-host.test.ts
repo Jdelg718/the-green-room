@@ -51,6 +51,34 @@ test("clean-host preflight reports exact locked Node/uv inputs without preparing
   }
 });
 
+test("preflight tool probes preserve the compile-cache disable and reject a positive cache path", async (context) => {
+  const root = checkout(context);
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const npm = join(bin, "npm");
+  writeFileSync(npm, "#!/bin/sh\ntest \"$NODE_DISABLE_COMPILE_CACHE\" = 1\ntest -z \"${NODE_COMPILE_CACHE+x}\"\nprintf '11.19.0\\n'\n");
+  chmodSync(npm, 0o755);
+  const oldPath = process.env.PATH;
+  const oldDisable = process.env.NODE_DISABLE_COMPILE_CACHE;
+  const oldPositive = process.env.NODE_COMPILE_CACHE;
+  process.env.PATH = bin;
+  process.env.NODE_DISABLE_COMPILE_CACHE = "unexpected-parent-value";
+  process.env.NODE_COMPILE_CACHE = join(root, "forbidden-cache");
+  context.after(() => {
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    if (oldDisable === undefined) delete process.env.NODE_DISABLE_COMPILE_CACHE; else process.env.NODE_DISABLE_COMPILE_CACHE = oldDisable;
+    if (oldPositive === undefined) delete process.env.NODE_COMPILE_CACHE; else process.env.NODE_COMPILE_CACHE = oldPositive;
+  });
+  const result = await runSourceCleanHostPreflight({
+    repoRoot: root,
+    dataRoot: join(root, "operator-data"),
+    nodeVersion: "v24.20.0",
+    uvVersion: "uv 0.12.8",
+  });
+  assert.equal(result.npmVersion, "11.19.0");
+  assert.equal(existsSync(join(root, "forbidden-cache")), false);
+});
+
 test("clean-host preflight requires exact Node 24, npm 11.19.0, and parseable uv", async (context) => {
   const root = checkout(context);
   await rejectsCode(

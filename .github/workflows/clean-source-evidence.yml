@@ -295,7 +295,7 @@ jobs:
             FOUNDATION_HOME_RAW="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
               /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /usr/bin/swift -e '\''import Foundation; print(NSHomeDirectory())'\''')"
             FOUNDATION_HOME="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" \
-              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /usr/bin/realpath "$1"' _ "$FOUNDATION_HOME_RAW")"
+              /bin/bash --noprofile --norc -c 'cd "$HOME" && exec /bin/realpath "$1"' _ "$FOUNDATION_HOME_RAW")"
             printf 'foundation_home_raw=%s\nfoundation_home_canonical=%s\n' "$FOUNDATION_HOME_RAW" "$FOUNDATION_HOME"
             test "$FOUNDATION_HOME" = "$EVIDENCE_SOURCE_HOME"
             if sudo dseditgroup -o checkmember -m "$EVIDENCE_USER" admin | grep -q yes; then exit 1; fi
@@ -308,7 +308,7 @@ jobs:
               /bin/bash --noprofile --norc -c 'cd "$HOME" && exec "$@"' _ "$@"
           }
           EFFECTIVE_HOME_RAW="$(evidence_run /usr/local/bin/node -p 'require("node:os").userInfo().homedir')"
-          EFFECTIVE_HOME="$(evidence_run /usr/bin/realpath "$EFFECTIVE_HOME_RAW")"
+          EFFECTIVE_HOME="$(evidence_run /bin/realpath "$EFFECTIVE_HOME_RAW")"
           EXPORTED_HOME="$(evidence_run /usr/bin/printenv HOME)"
           printf 'effective_home_raw=%s\neffective_home_canonical=%s\n' "$EFFECTIVE_HOME_RAW" "$EFFECTIVE_HOME"
           test "$EXPORTED_HOME" = "$EVIDENCE_SOURCE_HOME"
@@ -340,12 +340,41 @@ jobs:
           else
             roots=(/ /home /tmp /var/tmp /opt /usr/local /run)
           fi
+          warm_env=(NODE_DISABLE_COMPILE_CACHE=1)
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            clt_root=/Library/Developer/CommandLineTools
+            clt_sdk="$clt_root/SDKs/MacOSX.sdk"
+            clt_cc="$clt_root/usr/bin/clang"
+            clt_cxx="$clt_root/usr/bin/clang++"
+            clt_ar="$clt_root/usr/bin/ar"
+            test -d "$clt_root"
+            test -d "$clt_sdk"
+            test -x "$clt_cc"
+            test -x "$clt_cxx"
+            test -x "$clt_ar"
+            /usr/sbin/pkgutil --pkg-info com.apple.pkg.CLTools_Executables >/dev/null
+            sudo install -d -m 0700 -o "$EVIDENCE_USER" -g "$(id -g "$EVIDENCE_USER")" "$EVIDENCE_ROOT/cache" "$EVIDENCE_ROOT/cache/node-gyp"
+            redirected_xcrun_db="$EVIDENCE_ROOT/cache/xcrun_db"
+            warm_env+=(
+              DEVELOPER_DIR="$clt_root"
+              SDKROOT="$clt_sdk"
+              CC="$clt_cc"
+              CXX="$clt_cxx"
+              AR="$clt_ar"
+              xcrun_db="$redirected_xcrun_db"
+              npm_package_config_node_gyp_devdir="$EVIDENCE_ROOT/cache/node-gyp"
+            )
+            xcrun_sdk="$(sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" "${warm_env[@]}" \
+              /usr/bin/xcrun --sdk "" --show-sdk-path)"
+            test "$(/bin/realpath "$xcrun_sdk")" = "$(/bin/realpath "$clt_sdk")"
+            sudo -u "$EVIDENCE_USER" test -s "$redirected_xcrun_db"
+          fi
           warm_log="$CONTROL_ROOT/warm-commands.tsv"
           sudo touch "$warm_log"; sudo chmod 0600 "$warm_log"
           warm() {
             local command="$1" status
             set +e
-            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" \
+            sudo -u "$EVIDENCE_USER" env HOME="$EVIDENCE_SOURCE_HOME" TMPDIR="$EVIDENCE_SOURCE_TMP" PATH="$EVIDENCE_TOOL_PATH" "${warm_env[@]}" \
               /bin/bash --noprofile --norc -c 'cd "$HOME" && /bin/bash --noprofile --norc -c "$1"' _ "$command"
             status=$?
             set -e
@@ -356,11 +385,10 @@ jobs:
           warm 'npm --version'
           warm 'uv --version'
           if [[ "$RUNNER_OS" = macOS ]]; then
-            warm '/usr/bin/defaults read NSGlobalDomain >/dev/null'
+            warm '/usr/bin/defaults domains >/dev/null'
             warm '/usr/bin/security list-keychains -d user >/dev/null'
-            warm '/usr/bin/xcrun --find clang >/dev/null'
-            warm '/usr/bin/xcodebuild -version >/dev/null'
-            warm 'mkdir -p "$HOME/.greenroom-warm" && /usr/bin/xcrun clang -x c -c /dev/null -o "$HOME/.greenroom-warm/empty.o" && rm -rf "$HOME/.greenroom-warm"'
+            warm 'mkdir -p "$HOME/.greenroom-warm" && "$CC" -x c -c /dev/null -o "$HOME/.greenroom-warm/empty.o" && rm -rf "$HOME/.greenroom-warm"'
+            warm 'mkdir -p "$HOME/.greenroom-trust-warm" && "$CC" -isysroot "$SDKROOT" -dynamiclib -x c /dev/null -o "$HOME/.greenroom-trust-warm/empty.dylib" && /usr/bin/file "$HOME/.greenroom-trust-warm/empty.dylib" | /usr/bin/grep -q "Mach-O 64-bit dynamically linked shared library arm64" && /usr/bin/codesign -dv --verbose=4 "$HOME/.greenroom-trust-warm/empty.dylib" 2>&1 | /usr/bin/grep -q "Signature=adhoc" && /usr/bin/python3 -c '\''import ctypes,sys; ctypes.CDLL(sys.argv[1])'\'' "$HOME/.greenroom-trust-warm/empty.dylib" && rm -rf "$HOME/.greenroom-trust-warm"'
           fi
           warm 'git ls-remote https://github.com/git/git.git HEAD >/dev/null'
           previous=""; accepted=false; attempts=0
@@ -399,7 +427,20 @@ jobs:
           checkout="$EVIDENCE_ROOT/checkout"
           evidence="$EVIDENCE_ROOT/evidence"
           data_root="$EVIDENCE_ROOT/disposable-data"
-          sudo -u "$EVIDENCE_USER" env \
+          source_env=(NODE_DISABLE_COMPILE_CACHE=1)
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            clt_root=/Library/Developer/CommandLineTools
+            source_env+=(
+              DEVELOPER_DIR="$clt_root"
+              SDKROOT="$clt_root/SDKs/MacOSX.sdk"
+              CC="$clt_root/usr/bin/clang"
+              CXX="$clt_root/usr/bin/clang++"
+              AR="$clt_root/usr/bin/ar"
+              xcrun_db="$EVIDENCE_ROOT/cache/xcrun_db"
+              npm_package_config_node_gyp_devdir="$EVIDENCE_ROOT/cache/node-gyp"
+            )
+          fi
+          sudo -u "$EVIDENCE_USER" env -u NODE_COMPILE_CACHE \
             HOME="$EVIDENCE_SOURCE_HOME" \
             TMPDIR="$EVIDENCE_SOURCE_TMP" \
             PATH="$EVIDENCE_TOOL_PATH" \
@@ -413,6 +454,7 @@ jobs:
             EVIDENCE="$evidence" \
             DATA_ROOT="$data_root" \
             WORK_ROOT="$EVIDENCE_ROOT" \
+            "${source_env[@]}" \
             /bin/bash -c '
               set -euo pipefail
               test ! -e "$CHECKOUT"

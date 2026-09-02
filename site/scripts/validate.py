@@ -145,6 +145,21 @@ PROFILE_SOURCE_SHA256 = {
     "timothy-c-may": "be8ba6dfc40540feeb9f3552ce71063d4e64dd311845165cd5da38685e3db9e0",
 }
 PROFILE_STYLESHEET_SHA256 = "e3dadfd5cc5907fbb36f48a0b926fba5e387bf289eb2dcdfadcdf66764ce4560"
+SOCIAL_CARD_SHA256 = "ab01167634803a5478c3c76d5b1d925e03ea3857b8143041d7edf422c1b8dc87"
+SOCIAL_CARD_DIMENSIONS = (1200, 630)
+SOCIAL_CARD_ALT = (
+    "Backstage Electric Green Room project card with the GR slash mark, "
+    "early-development status, and release-forthcoming call sheet."
+)
+SOCIAL_CARD_PAGES = frozenset(
+    {
+        "index.html",
+        "characters/index.html",
+        "docs/index.html",
+        "download/index.html",
+        "contribute/index.html",
+    }
+)
 PAGES = {
     "index.html": "Project",
     "characters/index.html": "Characters",
@@ -496,7 +511,10 @@ def validate_html_policy(
             if attribute in URL_BEARING_HTML_ATTRS:
                 validate_html_url(label, tag, attrs, attribute, value.strip(), errors, site, page)
 
-        if tag == "meta" and attrs.get("property", "").lower() in {"og:url", "og:image"}:
+        if tag == "meta" and (
+            attrs.get("property", "").lower() in {"og:url", "og:image"}
+            or attrs.get("name", "").lower() == "twitter:image"
+        ):
             validate_same_site_url(label, attrs.get("content", ""), errors, site, page)
         if tag == "meta" and "http-equiv" in attrs:
             if attrs["http-equiv"].strip().lower() != "content-security-policy":
@@ -853,6 +871,19 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
     for prop in ("og:title", "og:description", "og:image", "og:type"):
         if not any(meta.get("property") == prop and meta.get("content") for meta in metas):
             fail(errors, f"{relative}: missing {prop} metadata")
+    if relative in SOCIAL_CARD_PAGES:
+        social_card_url = f"{SITE_ORIGIN}/assets/social-card.png"
+        required_social_metadata = (
+            ("property", "og:image", social_card_url),
+            ("property", "og:image:alt", SOCIAL_CARD_ALT),
+            ("name", "twitter:card", "summary_large_image"),
+            ("name", "twitter:image", social_card_url),
+            ("name", "twitter:image:alt", SOCIAL_CARD_ALT),
+        )
+        for key, name, content in required_social_metadata:
+            matches = [meta for meta in metas if meta.get(key) == name]
+            if len(matches) != 1 or matches[0].get("content") != content:
+                fail(errors, f"{relative}: missing unique exact {name} social-card metadata")
     if not any(link.get("rel") == "canonical" and link.get("href") for link in links):
         fail(errors, f"{relative}: missing canonical link")
 
@@ -1004,6 +1035,20 @@ def validate_svg_source(
                 validate_svg_reference(label, reference, ids, errors)
 
 
+def png_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Read dimensions from a bounded PNG header without image dependencies."""
+    if (
+        len(data) < 24
+        or data[:8] != b"\x89PNG\r\n\x1a\n"
+        or data[12:16] != b"IHDR"
+    ):
+        return None
+    return (
+        int.from_bytes(data[16:20], "big"),
+        int.from_bytes(data[20:24], "big"),
+    )
+
+
 def webp_dimensions(data: bytes) -> tuple[int, int] | None:
     """Read canvas dimensions from a bounded RIFF WebP without image dependencies."""
     if len(data) < 20 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
@@ -1094,16 +1139,25 @@ def collect_errors(site: Path = SITE) -> list[str]:
                 errors,
                 f"assets/portraits/{slug}.webp: dimensions differ from the reviewed asset record",
             )
+    social_card = site / "assets/social-card.png"
+    reviewed_raster_assets = expected_portraits | {social_card}
     raster_assets = {
         path for path in site.rglob("*")
         if path.is_file() and path.suffix.lower() in {".webp", ".png", ".jpg", ".jpeg"}
     }
-    for unexpected in sorted(raster_assets - expected_portraits):
-        fail(errors, f"unexpected raster web asset outside portrait allowlist: {display_path(unexpected, site)}")
+    for unexpected in sorted(raster_assets - reviewed_raster_assets):
+        fail(errors, f"unexpected raster web asset outside reviewed allowlist: {display_path(unexpected, site)}")
+    if not social_card.is_file():
+        fail(errors, "missing reviewed social card: assets/social-card.png")
+    else:
+        social_card_bytes = social_card.read_bytes()
+        if hashlib.sha256(social_card_bytes).hexdigest() != SOCIAL_CARD_SHA256:
+            fail(errors, "assets/social-card.png: bytes differ from the reviewed asset digest")
+        if png_dimensions(social_card_bytes) != SOCIAL_CARD_DIMENSIONS:
+            fail(errors, "assets/social-card.png: dimensions differ from the reviewed 1200x630 asset")
 
     for required_svg, message in (
         ("assets/favicon.svg", "missing local favicon"),
-        ("assets/social-card-placeholder.svg", "missing text-only social metadata placeholder"),
     ):
         if not (site / required_svg).is_file():
             fail(errors, message)
