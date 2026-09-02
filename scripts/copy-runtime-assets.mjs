@@ -31,6 +31,8 @@ cpSync(resolve(repositoryRoot, "scripts/source-clean-host.mjs"), scriptDestinati
 
 for (const relativePath of [
   "scripts/package/verify-release-manifest.mjs",
+  "scripts/package/macos-binary.mjs",
+  "scripts/package/atomic_directory.py",
   "packaging/release-manifest.schema.json",
   "packaging/macos/assemble-app.mjs",
 ]) {

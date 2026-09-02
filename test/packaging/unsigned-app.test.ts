@@ -49,7 +49,16 @@ function fixture(root: string) {
   file(join(inputs, "node_modules/fastify/LICENSE"), "MIT\n");
   file(join(inputs, "validator/greenroom-persona"), "validator-arm64", 0o755);
   file(join(inputs, "project-license"), "Apache-2.0\n");
-  file(join(inputs, "Info.plist"), "<plist><dict><string>net.greenroomai.GreenRoom</string><string>0.1.0</string><string>120</string><string>arm64</string><string>13.0</string></dict></plist>\n");
+  file(join(inputs, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>net.greenroomai.GreenRoom</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>120</string>
+<key>LSArchitecturePriority</key><array><string>arm64</string></array>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+</dict></plist>
+`);
   file(join(inputs, "GreenRoom.entitlements"), "<plist><dict></dict></plist>\n");
   return {
     outputParent: join(root, "output"),
@@ -76,7 +85,7 @@ function fixture(root: string) {
         sourceUrl: "https://nodejs.org/dist/v24.20.0/node-v24.20.0-darwin-arm64.tar.gz",
         executableSha256: digest("node-v24.20.0-arm64"),
       },
-      pythonVersion: "3.11.15",
+      pythonVersion: "3.13.13",
       validatorVersion: "0.1.0",
     },
   };
@@ -146,6 +155,13 @@ test("assembler rejects nonempty roots, traversal/symlink inputs, hardlinks, and
   assert.throws(() => assembleUnsignedApp(options), /input_symlink/);
 }));
 
+test("macOS /tmp alias fails closed with canonical-path guidance", { skip: process.platform !== "darwin" }, () => withFixture((options) => {
+  assert.throws(
+    () => assembleUnsignedApp({ ...options, outputParent: `/tmp/greenroom-alias-${process.pid}` }),
+    /path_component_symlink: \/tmp \(use canonical \/private\/tmp on macOS\)/,
+  );
+}));
+
 test("assembler rejects writable/special/undeclared payload changes and forbidden entitlements", () => withFixture((options) => {
   mkdirSync(options.outputParent);
   const result = assembleUnsignedApp(options);
@@ -174,6 +190,70 @@ test("no-clobber destination race preserves competitor bytes and failed staging 
   assert.deepEqual(readdirSync(options.outputParent), ["The Green Room.app"]);
 }));
 
+test("plist identity is parsed structurally and must exactly match requested versions", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  const plist = readFileSync(options.inputs.infoPlist, "utf8").replace(
+    "<key>CFBundleShortVersionString</key><string>0.1.0</string>",
+    "<key>Unrelated</key><string>0.1.0</string><key>CFBundleShortVersionString</key><string>9.9.9</string>",
+  );
+  writeFileSync(options.inputs.infoPlist, plist);
+  assert.throws(() => assembleUnsignedApp(options), /info_plist_identity_invalid.*CFBundleShortVersionString/);
+  assert.deepEqual(readdirSync(options.outputParent), []);
+}));
+
+test("stage substitution before source preflight preserves competitor and publishes nothing", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  const ownedAside = join(options.outputParent, ".owned-before-preflight");
+  let rebound = "";
+  assert.throws(() => assembleUnsignedApp({
+    ...options,
+    hooks: { beforeSourcePreflight: ({ stage }: { stage: string }) => {
+      rebound = stage;
+      renameSync(stage, ownedAside);
+      mkdirSync(stage);
+      file(join(stage, "operator.txt"), "before-preflight");
+    } },
+  }), /staging_identity_changed/);
+  assert.equal(readFileSync(join(rebound, "operator.txt"), "utf8"), "before-preflight");
+  assert.equal(readdirSync(options.outputParent).includes("The Green Room.app"), false);
+  assert.ok(lstatSync(ownedAside).isDirectory());
+}));
+
+test("stage substitution after preflight is caught by the immediate second check", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  const ownedAside = join(options.outputParent, ".owned-after-preflight");
+  let rebound = "";
+  assert.throws(() => assembleUnsignedApp({
+    ...options,
+    hooks: { afterSourcePreflight: ({ stage }: { stage: string }) => {
+      rebound = stage;
+      renameSync(stage, ownedAside);
+      mkdirSync(stage);
+      file(join(stage, "operator.txt"), "after-preflight");
+    } },
+  }), /staging_identity_changed/);
+  assert.equal(readFileSync(join(rebound, "operator.txt"), "utf8"), "after-preflight");
+  assert.equal(readdirSync(options.outputParent).includes("The Green Room.app"), false);
+}));
+
+test("destination substitution after rename is removed from public name and competitor survives", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  const ownedAside = join(options.outputParent, ".owned-after-rename");
+  let restoredStage = "";
+  assert.throws(() => assembleUnsignedApp({
+    ...options,
+    hooks: { afterRenameBeforeVerify: ({ destination, stage }: { destination: string; stage: string }) => {
+      restoredStage = stage;
+      renameSync(destination, ownedAside);
+      mkdirSync(destination);
+      file(join(destination, "operator.txt"), "after-rename");
+    } },
+  }), /published_identity_mismatch/);
+  assert.equal(readdirSync(options.outputParent).includes("The Green Room.app"), false);
+  assert.equal(readFileSync(join(restoredStage, "operator.txt"), "utf8"), "after-rename");
+  assert.ok(lstatSync(ownedAside).isDirectory());
+}));
+
 test("partial materialization failure publishes nothing and cleans only owned staging", () => withFixture((options) => {
   mkdirSync(options.outputParent);
   assert.throws(() => assembleUnsignedApp({
@@ -181,6 +261,26 @@ test("partial materialization failure publishes nothing and cleans only owned st
     hooks: { afterCopies: 3, throwAfterCopy: new Error("injected") },
   }), /injected/);
   assert.deepEqual(readdirSync(options.outputParent), []);
+}));
+
+test("cleanup failure retains one exact private quarantine and never publishes it", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  assert.throws(() => assembleUnsignedApp({
+    ...options,
+    hooks: {
+      afterCopies: 2,
+      throwAfterCopy: new Error("injected"),
+      beforeCleanup: ({ stage }: { stage: string }) => {
+        const fifo = spawnSync("/usr/bin/mkfifo", [join(stage, "operator.fifo")]);
+        assert.equal(fifo.status, 0);
+      },
+    },
+  }), /staging_cleanup_failed.*retained quarantine/);
+  const entries = readdirSync(options.outputParent);
+  assert.equal(entries.includes("The Green Room.app"), false);
+  assert.equal(entries.length, 1);
+  assert.match(entries[0]!, /^\.greenroom-quarantine-/);
+  assert.ok(!lstatSync(join(options.outputParent, entries[0]!, "operator.fifo")).isFile());
 }));
 
 test("inventory helper rejects symlinks and returns sorted exact records", () => withFixture((options, root) => {
@@ -228,6 +328,21 @@ test("parent namespace swap fails closed, preserves operator bytes, and cleans t
   assert.deepEqual(readdirSync(parked), []);
 }));
 
+test("parent namespace swap after rename cleans retained publication and writes nowhere else", () => withFixture((options, root) => {
+  mkdirSync(options.outputParent);
+  const parked = join(root, "parked-after-rename");
+  assert.throws(() => assembleUnsignedApp({
+    ...options,
+    hooks: { afterRenameBeforeVerify: () => {
+      renameSync(options.outputParent, parked);
+      mkdirSync(options.outputParent);
+      file(join(options.outputParent, "operator.txt"), "operator");
+    } },
+  }), /output_parent_changed/);
+  assert.equal(readFileSync(join(options.outputParent, "operator.txt"), "utf8"), "operator");
+  assert.deepEqual(readdirSync(parked), []);
+}));
+
 test("cleanup quarantines and preserves a rebound competitor instead of recursively deleting it", () => withFixture((options, root) => {
   mkdirSync(options.outputParent);
   const ownedAside = join(root, "owned-stage-aside");
@@ -243,8 +358,8 @@ test("cleanup quarantines and preserves a rebound competitor instead of recursiv
       },
     },
   }), /staging_identity_changed/);
-  const quarantine = readdirSync(options.outputParent).find((name) => name.startsWith(".greenroom-cleanup-"));
-  assert.ok(quarantine);
-  assert.equal(readFileSync(join(options.outputParent, quarantine, "operator.txt"), "utf8"), "competitor");
+  const restored = readdirSync(options.outputParent).find((name) => name.startsWith(".greenroom-stage-"));
+  assert.ok(restored);
+  assert.equal(readFileSync(join(options.outputParent, restored, "operator.txt"), "utf8"), "competitor");
   assert.ok(lstatSync(ownedAside).isDirectory());
 }));

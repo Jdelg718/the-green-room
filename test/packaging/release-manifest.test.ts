@@ -31,7 +31,7 @@ function manifest(): Record<string, unknown> {
     targetTriple: "arm64-apple-darwin",
     runtimes: {
       nodeVersion: "24.20.0",
-      pythonVersion: "3.11.15",
+      pythonVersion: "3.13.13",
       validatorVersion: "0.1.0",
     },
     databaseSchema: { minimum: 1, maximum: 3 },

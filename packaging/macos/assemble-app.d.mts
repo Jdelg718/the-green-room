@@ -15,7 +15,10 @@ export interface AssembleOptions {
   hooks?: {
     afterCopies?: number;
     throwAfterCopy?: Error;
-    beforePublish?: (paths: { destination: string; stage: string }) => void;
+    beforePublish?: (paths: { destination: string; stage: string; stageName: string }) => void;
+    beforeSourcePreflight?: (paths: { destination: string; stage: string; stageName: string }) => void;
+    afterSourcePreflight?: (paths: { destination: string; stage: string; stageName: string }) => void;
+    afterRenameBeforeVerify?: (paths: { destination: string; stage: string; stageName: string }) => void;
     beforeCleanup?: (paths: { stage: string; stageName: string; outputParent: string }) => void;
   };
 }

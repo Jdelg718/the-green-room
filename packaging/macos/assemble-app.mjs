@@ -23,6 +23,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { validateReleaseManifest } from "../../scripts/package/verify-release-manifest.mjs";
+import { isThinArm64Macho, normalizeAndAdhocSignMacho, verifyAdhocMacho } from "../../scripts/package/macos-binary.mjs";
 
 export const FIXED_TIMESTAMP_MS = 946684800000; // 2000-01-01T00:00:00Z
 const APP_NAME = "The Green Room.app";
@@ -67,7 +68,10 @@ function assertNoSymlinkComponents(path, allowMissingLeaf = false) {
       fail("path_component_missing", current);
     }
     const details = lstatSync(current);
-    if (details.isSymbolicLink()) fail("path_component_symlink", current);
+    if (details.isSymbolicLink()) {
+      const guidance = current === "/tmp" ? " (use canonical /private/tmp on macOS)" : "";
+      fail("path_component_symlink", `${current}${guidance}`);
+    }
     if (index < parts.length - 1 && !details.isDirectory()) fail("path_component_not_directory", current);
   }
 }
@@ -141,16 +145,26 @@ function collectTree(sourceRoot, destinationRoot, options = {}) {
 }
 
 function validatePlistAndEntitlements(inputs, identity) {
-  const plist = readFileSync(inputs.infoPlist, "utf8");
-  for (const exact of [
-    "<string>net.greenroomai.GreenRoom</string>",
-    `<string>${identity.appVersion}</string>`,
-    `<string>${identity.buildVersion}</string>`,
-    "<string>arm64</string>",
-    "<string>13.0</string>",
-  ]) if (!plist.includes(exact)) fail("info_plist_identity_invalid", exact);
+  const plistResult = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "--", inputs.infoPlist], {
+    encoding: "utf8", stdio: "pipe", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+  });
+  if (plistResult.error || plistResult.status !== 0) fail("info_plist_parse_invalid", (plistResult.stderr ?? "invalid plist").trim());
+  let plist;
+  try { plist = JSON.parse(plistResult.stdout); } catch { fail("info_plist_parse_invalid", inputs.infoPlist); }
+  const required = {
+    CFBundleIdentifier: "net.greenroomai.GreenRoom",
+    CFBundleShortVersionString: identity.appVersion,
+    CFBundleVersion: identity.buildVersion,
+    LSMinimumSystemVersion: "13.0",
+  };
+  for (const [key, expected] of Object.entries(required)) {
+    if (plist?.[key] !== expected) fail("info_plist_identity_invalid", `${key}: expected ${expected}`);
+  }
+  if (!Array.isArray(plist.LSArchitecturePriority) || plist.LSArchitecturePriority.length !== 1 || plist.LSArchitecturePriority[0] !== "arm64") {
+    fail("info_plist_identity_invalid", "LSArchitecturePriority: expected arm64 only");
+  }
   for (const forbidden of ["LSBackgroundOnly", "LSUIElement", "CFBundleDocumentTypes", "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSAppleEventsUsageDescription"]) {
-    if (plist.includes(forbidden)) fail("info_plist_permission_invalid", forbidden);
+    if (Object.hasOwn(plist, forbidden)) fail("info_plist_permission_invalid", forbidden);
   }
   const entitlements = readFileSync(inputs.entitlements, "utf8");
   if (!/<dict>\s*<\/dict>/s.test(entitlements)) fail("entitlements_not_empty", "entitlements must contain an empty dictionary");
@@ -180,7 +194,11 @@ function buildCopyPlan(inputs) {
     ...collectTree(inputs.productionNodeModules, "Contents/Resources/app/node_modules", { productionModules: true }),
     ...collectTree(inputs.validatorRoot, "Contents/Resources/validator", { validator: true }),
   ];
-  const plan = [...single, ...trees].sort((a, b) => compareNames(a.destination, b.destination));
+  const plan = [...single, ...trees].sort((a, b) => {
+    if (a.destination === "Contents/MacOS/GreenRoomLauncher") return -1;
+    if (b.destination === "Contents/MacOS/GreenRoomLauncher") return 1;
+    return compareNames(a.destination, b.destination);
+  });
   const seen = new Set();
   for (const item of plan) {
     if (item.destination.includes("..") || item.destination.startsWith("/") || seen.has(item.destination)) fail("copy_plan_invalid", item.destination);
@@ -292,27 +310,58 @@ function appDigest(inventory) {
   return sha256Bytes(inventory.map((entry) => `${entry.path}\0${entry.mode.toString(8)}\0${entry.bytes}\0${entry.mtimeMs}\0${entry.sha256}\n`).join(""));
 }
 
+function atomicDirectoryOperation(parentFd, args) {
+  const helper = join(repositoryRoot, "scripts/package/atomic_directory.py");
+  const result = spawnSync("/usr/bin/python3", [helper, ...args], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe", parentFd],
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", PYTHONHASHSEED: "0" },
+  });
+  if (result.error || result.status !== 0) fail("atomic_helper_failed", (result.stderr ?? "").trim());
+  try { return JSON.parse(result.stdout); } catch { fail("atomic_helper_failed", "invalid structured result"); }
+}
+
+function bindingIdentity(parentFd, name) {
+  const result = atomicDirectoryOperation(parentFd, ["stat", name]);
+  if (result.status === "ok") return result;
+  if (result.status === "absent") return null;
+  fail("atomic_binding_failed", `${name}: errno ${result.errno}`);
+}
+
+function assertBindingIdentity(parentFd, name, identity, code) {
+  const current = bindingIdentity(parentFd, name);
+  if (current === null || current.dev !== identity.dev || current.ino !== identity.ino) fail(code, name);
+  return current;
+}
+
 function renameNoReplace(parentFd, sourceName, destinationName) {
-  const program = `import ctypes,errno,os,sys\nlib=ctypes.CDLL(None,use_errno=True)\nfn=lib.renameatx_np\nfn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]\nrc=fn(3,sys.argv[1].encode(),3,sys.argv[2].encode(),4)\nif rc: e=ctypes.get_errno(); print(e,file=sys.stderr); sys.exit(17 if e==errno.EEXIST else 18)\n`;
-  const result = spawnSync("/usr/bin/python3", ["-c", program, sourceName, destinationName], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", parentFd] });
-  if (result.status === 17) fail("destination_exists", destinationName);
-  if (result.status !== 0) fail("atomic_publication_failed", (result.stderr ?? "").trim());
+  const result = atomicDirectoryOperation(parentFd, ["rename", sourceName, destinationName]);
+  if (result.status === "ok") return;
+  if (result.errno === 17) fail("destination_exists", destinationName);
+  fail("atomic_publication_failed", `${sourceName} -> ${destinationName}: errno ${result.errno}`);
+}
+
+function quarantineBinding(parentFd, name, restoreName, identity, cleanupExpected) {
+  const quarantine = `.greenroom-quarantine-${randomBytes(12).toString("hex")}`;
+  return atomicDirectoryOperation(parentFd, [
+    "quarantine", name, quarantine, restoreName,
+    String(identity.dev), String(identity.ino), cleanupExpected ? "cleanup" : "retain",
+  ]);
 }
 
 function cleanupOwnedStage(parentFd, stageName, identity) {
-  const quarantine = `.greenroom-cleanup-${randomBytes(12).toString("hex")}`;
-  try {
-    renameNoReplace(parentFd, stageName, quarantine);
-  } catch (error) {
-    if (error?.code === "atomic_publication_failed" && /\b2\b/.test(error.message)) return;
-    throw error;
-  }
-  const program = `import errno,os,stat,sys\nname=sys.argv[1]\nexpected=(int(sys.argv[2]),int(sys.argv[3]))\ndef remove_tree(parent_fd,child):\n fd=os.open(child,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent_fd)\n try:\n  os.fchmod(fd,0o700)\n  for entry in os.listdir(fd):\n   details=os.stat(entry,dir_fd=fd,follow_symlinks=False)\n   if stat.S_ISDIR(details.st_mode): remove_tree(fd,entry)\n   else: os.unlink(entry,dir_fd=fd)\n finally: os.close(fd)\n os.rmdir(child,dir_fd=parent_fd)\ndetails=os.stat(name,dir_fd=3,follow_symlinks=False)\nif (details.st_dev,details.st_ino)!=expected:\n print(name,file=sys.stderr);sys.exit(19)\nremove_tree(3,name)\n`;
-  const result = spawnSync("/usr/bin/python3", ["-c", program, quarantine, String(identity.dev), String(identity.ino)], {
-    encoding: "utf8", stdio: ["ignore", "pipe", "pipe", parentFd],
-  });
-  if (result.status === 19) fail("staging_identity_changed", `retained quarantine in original output parent: ${quarantine}`);
-  if (result.status !== 0) fail("staging_cleanup_failed", (result.stderr ?? "").trim());
+  const result = quarantineBinding(parentFd, stageName, stageName, identity, true);
+  if (result.status === "absent" || result.status === "owned_cleaned") return;
+  if (result.status === "competitor_restored") fail("staging_identity_changed", `competitor preserved at ${stageName}`);
+  if (result.status === "retained") fail("staging_cleanup_failed", `retained quarantine in original output parent: ${result.quarantine} (${result.reason})`);
+  fail("staging_cleanup_failed", `errno ${result.errno}`);
+}
+
+function recoverPublishedBinding(parentFd, stageName, identity) {
+  const result = quarantineBinding(parentFd, APP_NAME, stageName, identity, true);
+  if (result.status === "absent" || result.status === "owned_cleaned") return result;
+  if (result.status === "competitor_restored") return result;
+  if (result.status === "retained") return result;
+  fail("publication_recovery_failed", `errno ${result.errno}`);
 }
 
 function chmodTreeForCleanup(path) {
@@ -351,9 +400,11 @@ export function assembleUnsignedApp(options) {
   const stageName = `.greenroom-stage-${randomBytes(12).toString("hex")}.app`;
   const stage = join(outputParent, stageName);
   mkdirSync(stage, { mode: 0o700 });
-  const stageIdentity = lstatSync(stage);
   const parentFd = openSync(outputParent, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  const stageIdentity = bindingIdentity(parentFd, stageName);
+  if (stageIdentity === null) fail("staging_identity_changed", stageName);
   let published = false;
+  let stageOwned = true;
   try {
     let copied = 0;
     for (const item of plan) {
@@ -361,7 +412,13 @@ export function assembleUnsignedApp(options) {
       if (!within(stage, destination)) fail("copy_plan_escape", item.destination);
       mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
       copyFileSync(item.source, destination, constants.COPYFILE_EXCL);
-      if (item.destination === "Contents/MacOS/GreenRoomLauncher") sanitizeLauncherRpaths(destination);
+      if (item.destination === "Contents/MacOS/GreenRoomLauncher") {
+        const forbidden = machoRpaths(destination).find((rpath) => isAbsolute(rpath) && rpath !== "/usr/lib/swift");
+        if (forbidden !== undefined) fail("launcher_host_rpath", forbidden);
+        if (isThinArm64Macho(destination)) verifyAdhocMacho(destination);
+      } else if (item.destination.endsWith(".node")) {
+        normalizeAndAdhocSignMacho(destination, item.destination, { strip: true });
+      }
       normalizeFile(destination, item.executable);
       copied += 1;
       if (hooks.afterCopies === copied && hooks.throwAfterCopy) throw hooks.throwAfterCopy;
@@ -387,21 +444,45 @@ export function assembleUnsignedApp(options) {
     writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     normalizeFile(manifestFile, false);
     normalizeDirectories(stage);
-    verifyUnsignedApp(stage);
-    hooks.beforePublish?.({ destination: output.destination, stage });
+    const verifiedStage = verifyUnsignedApp(stage);
+    inventory = verifiedStage.inventory;
+    hooks.beforePublish?.({ destination: output.destination, stage, stageName });
+    hooks.beforeSourcePreflight?.({ destination: output.destination, stage, stageName });
+    try {
+      assertBindingIdentity(parentFd, stageName, stageIdentity, "staging_identity_changed");
+    } catch (error) {
+      stageOwned = false;
+      throw error;
+    }
+    hooks.afterSourcePreflight?.({ destination: output.destination, stage, stageName });
     const currentParent = lstatSync(outputParent);
     if (currentParent.dev !== output.details.dev || currentParent.ino !== output.details.ino) fail("output_parent_changed", outputParent);
+    try {
+      assertBindingIdentity(parentFd, stageName, stageIdentity, "staging_identity_changed");
+    } catch (error) {
+      stageOwned = false;
+      throw error;
+    }
     renameNoReplace(parentFd, stageName, APP_NAME);
-    published = true;
-    const finalDetails = lstatSync(output.destination);
-    if (finalDetails.dev !== stageIdentity.dev || finalDetails.ino !== stageIdentity.ino) fail("published_identity_mismatch", output.destination);
+    stageOwned = false;
+    hooks.afterRenameBeforeVerify?.({ destination: output.destination, stage, stageName });
+    const parentAfterRename = lstatSync(outputParent);
+    const finalDetails = bindingIdentity(parentFd, APP_NAME);
+    if (parentAfterRename.dev !== output.details.dev || parentAfterRename.ino !== output.details.ino ||
+        finalDetails === null || finalDetails.dev !== stageIdentity.dev || finalDetails.ino !== stageIdentity.ino) {
+      const recovery = recoverPublishedBinding(parentFd, stageName, stageIdentity);
+      const retained = recovery.quarantine === undefined ? recovery.status : `${recovery.status}:${recovery.quarantine}`;
+      if (parentAfterRename.dev !== output.details.dev || parentAfterRename.ino !== output.details.ino) {
+        fail("output_parent_changed", `${outputParent}; publication recovery=${retained}`);
+      }
+      fail("published_identity_mismatch", `${output.destination}; competitor preservation=${retained}`);
+    }
     fsyncSync(parentFd);
-    const verified = verifyUnsignedApp(output.destination);
-    inventory = verified.inventory;
-    return { appPath: output.destination, inventory, appDigest: verified.appDigest, manifest };
+    published = true;
+    return { appPath: output.destination, inventory, appDigest: verifiedStage.appDigest, manifest };
   } finally {
     try {
-      if (!published) {
+      if (!published && stageOwned) {
         hooks.beforeCleanup?.({ stage, stageName, outputParent });
         cleanupOwnedStage(parentFd, stageName, stageIdentity);
       }
@@ -428,48 +509,17 @@ function run(executable, args, cwd, environment = {}) {
   if (result.status !== 0) fail("command_failed", `${executable}: ${result.stderr}`);
 }
 
-function normalizeMachoUUID(path) {
-  const bytes = readFileSync(path);
-  if (bytes.length < 32 || bytes.readUInt32LE(0) !== 0xfeedfacf) fail("native_module_format_invalid", path);
-  const commandCount = bytes.readUInt32LE(16);
-  let offset = 32;
-  let uuidOffset = null;
-  for (let index = 0; index < commandCount; index += 1) {
-    if (offset + 8 > bytes.length) fail("native_module_format_invalid", path);
-    const command = bytes.readUInt32LE(offset);
-    const size = bytes.readUInt32LE(offset + 4);
-    if (size < 8 || offset + size > bytes.length) fail("native_module_format_invalid", path);
-    if (command === 0x1b && size === 24) uuidOffset = offset + 8;
-    offset += size;
-  }
-  if (uuidOffset === null) fail("native_module_uuid_missing", path);
-  bytes.fill(0, uuidOffset, uuidOffset + 16);
-  const stableUUID = createHash("sha256").update(bytes).digest().subarray(0, 16);
-  stableUUID.copy(bytes, uuidOffset);
-  writeFileSync(path, bytes, { flag: "r+" });
-}
-
-function stripNativeModules(root) {
-  const modules = [];
-  function visit(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && entry.name.endsWith(".node")) modules.push(path);
-    }
-  }
-  visit(root);
-  for (const module of modules.sort(compareNames)) {
-    run("/usr/bin/strip", ["-S", "-x", module], repositoryRoot);
-    normalizeMachoUUID(module);
-  }
-}
-
 function realCli(argv) {
   if (process.platform !== "darwin" || process.arch !== "arm64" || !/^v24\./.test(process.version)) fail("host_unsupported", "native macOS arm64 Node 24 is required");
   const args = parseArguments(argv);
   const metadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
+  const clangVersion = spawnSync("/usr/bin/xcrun", ["clang", "--version"], { encoding: "utf8" });
+  const xcodeVersion = spawnSync("/usr/bin/xcodebuild", ["-version"], { encoding: "utf8" });
+  if (clangVersion.status !== 0 || xcodeVersion.status !== 0 ||
+      !clangVersion.stdout.includes(metadata.greenroomPackageIdentity.macosToolchain.clang) ||
+      !xcodeVersion.stdout.includes(metadata.greenroomPackageIdentity.macosToolchain.xcodeBuild)) {
+    fail("macos_toolchain_mismatch", "native packaging requires the locked Xcode/clang toolchain");
+  }
   const validatorEvidence = JSON.parse(readFileSync(join(repositoryRoot, "build/packaging/validator-build.evidence.json"), "utf8"));
   const validatorInventory = JSON.parse(readFileSync(join(repositoryRoot, "build/packaging/validator-payload.inventory.json"), "utf8"));
   if (validatorEvidence.pythonVersion !== metadata.greenroomPackageIdentity.pythonVersion || validatorEvidence.targetTriple !== "arm64-apple-darwin" ||
@@ -483,29 +533,38 @@ function realCli(argv) {
   assertNoSymlinkComponents(sibling);
   const preparation = mkdtempSync(join(sibling, ".greenroom-prepare-"));
   try {
+    const preparedLauncher = join(preparation, "GreenRoomLauncher");
+    copyFileSync(args.launcher, preparedLauncher, constants.COPYFILE_EXCL);
+    sanitizeLauncherRpaths(preparedLauncher);
+    normalizeAndAdhocSignMacho(preparedLauncher, "Contents/MacOS/GreenRoomLauncher", { strip: true });
     run("/usr/bin/tar", ["-xzf", args["node-archive"], "-C", preparation], repositoryRoot);
     const runtimeRoot = join(preparation, `node-v${nodeConfig.version}-darwin-arm64`);
     const nodeExecutable = join(runtimeRoot, "bin/node");
     const npmCli = join(runtimeRoot, "lib/node_modules/npm/bin/npm-cli.js");
     assertSafeSource(nodeExecutable, "file"); assertSafeSource(npmCli, "file");
     const npmStage = join(preparation, "production-app"); mkdirSync(npmStage);
+    const isolatedHome = join(preparation, "home"); mkdirSync(isolatedHome);
+    const isolatedTmp = join(preparation, "tmp"); mkdirSync(isolatedTmp);
     copyFileSync(join(repositoryRoot, "package.json"), join(npmStage, "package.json"));
     copyFileSync(join(repositoryRoot, "package-lock.json"), join(npmStage, "package-lock.json"));
     run(nodeExecutable, [npmCli, "ci", "--omit=dev", "--strict-allow-scripts=true", "--foreground-scripts", "--cache", join(preparation, "npm-cache")], npmStage, {
       PATH: `${join(runtimeRoot, "bin")}:/usr/bin:/bin:/usr/sbin:/sbin`,
+      HOME: isolatedHome,
+      TMPDIR: isolatedTmp,
       npm_config_nodedir: runtimeRoot,
+      npm_config_build_from_source: "true",
       SOURCE_DATE_EPOCH: String(FIXED_TIMESTAMP_MS / 1000),
       ZERO_AR_DATE: "1",
-      CFLAGS: `-fdebug-prefix-map=${preparation}=. -ffile-prefix-map=${preparation}=.`,
-      CXXFLAGS: `-fdebug-prefix-map=${preparation}=. -ffile-prefix-map=${preparation}=.`,
+      CFLAGS: `-O2 -g0 -fdebug-prefix-map=${preparation}=. -ffile-prefix-map=${preparation}=. -fmacro-prefix-map=${preparation}=.`,
+      CXXFLAGS: `-O2 -g0 -fdebug-prefix-map=${preparation}=. -ffile-prefix-map=${preparation}=. -fmacro-prefix-map=${preparation}=.`,
+      LDFLAGS: "-Wl,-no_adhoc_codesign",
     });
-    stripNativeModules(join(npmStage, "node_modules"));
     const sourceCommit = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).stdout.trim();
     const buildEpoch = Number(spawnSync("/usr/bin/git", ["show", "-s", "--format=%ct", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).stdout.trim());
     const result = assembleUnsignedApp({
       outputParent: args["output-parent"],
       inputs: {
-        launcher: args.launcher,
+        launcher: preparedLauncher,
         nodeExecutable,
         nodeLicense: join(runtimeRoot, "LICENSE"),
         appDist: join(repositoryRoot, "dist"),
