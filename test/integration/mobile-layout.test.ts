@@ -178,14 +178,15 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
 
   const port = await unusedPort();
   const launchedBrowser = spawn(chromium, [
-    "--headless", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${port}`,
+    "--headless", "--disable-gpu", "--disable-dev-shm-usage", "--disable-background-networking",
+    "--no-first-run", "--no-default-browser-check", "--no-sandbox", `--remote-debugging-port=${port}`,
     `--user-data-dir=${join(directory, "chromium-profile")}`, "about:blank",
   ], { stdio: "ignore" });
   browser = launchedBrowser;
   launchedBrowser.once("error", (error) => { browserError = error; });
 
   let target: { type: string; url: string; webSocketDebuggerUrl: string } | undefined;
-  const discoveryDeadline = Date.now() + 15_000;
+  const discoveryDeadline = Date.now() + 60_000;
   while (target === undefined && Date.now() < discoveryDeadline) {
     try {
       const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, {
