@@ -1,18 +1,24 @@
 import { cpSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const configuredDistRoot = process.env.GREENROOM_DIST_ROOT;
+if (configuredDistRoot !== undefined && (!isAbsolute(configuredDistRoot) || resolve(configuredDistRoot) !== configuredDistRoot)) {
+  throw new Error("GREENROOM_DIST_ROOT must be an absolute normalized path");
+}
+const distRoot = configuredDistRoot ?? resolve(repositoryRoot, "dist");
 
 for (const directory of ["migrations", "public", "personas/historical", "personas/original"]) {
-  const destination = resolve(repositoryRoot, "dist", directory);
+  const destination = resolve(distRoot, directory);
   rmSync(destination, { force: true, recursive: true });
   cpSync(resolve(repositoryRoot, directory), destination, { recursive: true });
 }
 
 const fixtureDirectory = resolve(
   repositoryRoot,
-  "dist/runtime-assets/persona-validator",
+  distRoot,
+  "runtime-assets/persona-validator",
 );
 rmSync(fixtureDirectory, { force: true, recursive: true });
 const fixtureDestination = resolve(
@@ -25,15 +31,18 @@ cpSync(
   fixtureDestination,
 );
 
-const scriptDestination = resolve(repositoryRoot, "dist/scripts/source-clean-host.mjs");
+const scriptDestination = resolve(distRoot, "scripts/source-clean-host.mjs");
 mkdirSync(dirname(scriptDestination), { recursive: true });
 cpSync(resolve(repositoryRoot, "scripts/source-clean-host.mjs"), scriptDestination);
 
 for (const relativePath of [
   "scripts/package/verify-release-manifest.mjs",
+  "scripts/package/macos-binary.mjs",
+  "scripts/package/atomic_directory.py",
   "packaging/release-manifest.schema.json",
+  "packaging/macos/assemble-app.mjs",
 ]) {
-  const destination = resolve(repositoryRoot, "dist", relativePath);
+  const destination = resolve(distRoot, relativePath);
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(resolve(repositoryRoot, relativePath), destination);
 }

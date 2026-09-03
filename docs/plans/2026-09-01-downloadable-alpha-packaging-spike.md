@@ -287,11 +287,13 @@ Exact names may change only through an ADR/plan patch before implementation; do 
 - Modify: `package.json`
 
 **Steps:**
-1. Add `package:macos:unsigned` that starts from an empty external output directory.
+1. Add `package:launcher:macos`, `package:validator:macos`, and `package:macos:unsigned`; start publication from an empty canonical external output directory (use `/private/tmp`, not the `/tmp` symlink alias).
 2. Copy only launcher, pinned Node runtime, built app, production npm tree, frozen validator, notices and release manifest.
-3. Normalize safe file modes and timestamps for unsigned comparison; reject symlinks, world-writable files, absolute links and undeclared files.
-4. Keep entitlements empty except unavoidable app identity metadata; fail if debug/JIT/library-validation exceptions appear.
-5. Run payload verifier and commit: `build: assemble unsigned macOS app spike`.
+3. Normalize ZIP metadata and all safe Mach-O mutations before applying a deterministic, credential-free ad-hoc signature to each mutated component; verify it strictly and smoke-load native modules. This ad-hoc metadata is only for macOS loadability. It is **not** Developer ID signing, notarization, release authorization, or Task 22 protected signing, so the app remains unsigned in the release sense.
+4. Normalize safe file modes and timestamps for unsigned comparison; reject symlinks, world-writable files, absolute links and undeclared files. Require delayed independent complete builds to match in paths, bytes, modes, mtimes, hardlinks, manifest, and root digest.
+5. Publish with retained-parent, source-inode, destination-inode, no-clobber, and competitor-preserving quarantine checks across every race interval.
+6. Parse `Info.plist` strictly and require its bundle/app/build identities to equal the requested package identity; derive the candidate Python version from `package.json` (`3.13.13`).
+7. Run payload verifier and commit: `build: assemble unsigned macOS app spike`.
 
 ### Task 13: Exercise exact unsigned payload
 
@@ -556,6 +558,8 @@ npm ci --strict-allow-scripts=true
 uv sync --locked
 npm run check:release
 npm run test:packaging
+npm run package:launcher:macos
+npm run package:validator:macos
 npm run package:macos:unsigned
 npm run verify:payload -- --artifact "$ARTIFACT"
 npm run verify:lifecycle -- --artifact "$ARTIFACT" --data-root "$DISPOSABLE_ROOT"

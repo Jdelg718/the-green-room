@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -16,12 +17,26 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inventoryValidatorPayload } from "./verify-payload.mjs";
+import { isThinArm64Macho, normalizeAndAdhocSignMacho } from "./macos-binary.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const packagingRoot = join(repositoryRoot, "build/packaging");
+const configuredPackagingRoot = process.env.GREENROOM_PACKAGING_ROOT;
+if (configuredPackagingRoot !== undefined && (!isAbsolute(configuredPackagingRoot) || resolve(configuredPackagingRoot) !== configuredPackagingRoot || realpathSync(configuredPackagingRoot) !== configuredPackagingRoot)) {
+  throw new Error("GREENROOM_PACKAGING_ROOT must be an existing canonical directory");
+}
+const packagingRoot = configuredPackagingRoot ?? join(repositoryRoot, "build/packaging");
 const finalRoot = join(packagingRoot, "validator/greenroom-persona");
 const inventoryPath = join(packagingRoot, "validator-payload.inventory.json");
 const evidencePath = join(packagingRoot, "validator-build.evidence.json");
+const packageMetadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
+const lockedPythonVersion = packageMetadata.greenroomPackageIdentity.pythonVersion;
+const pythonVersionFile = readFileSync(join(repositoryRoot, ".python-version"), "utf8").trim();
+const fixedBuildEnvironment = Object.freeze({
+  ...process.env,
+  SOURCE_DATE_EPOCH: "946684800",
+  PYTHONHASHSEED: "0",
+  ZERO_AR_DATE: "1",
+});
 
 function fail(code, message) {
   const error = new Error(message);
@@ -77,6 +92,29 @@ function makeImmutable(path) {
   } else chmodSync(path, (details.mode & 0o111) === 0 ? 0o444 : 0o555);
 }
 
+function normalizeFrozenPayload(root, python) {
+  const files = [];
+  function visit(path, relative = "") {
+    for (const name of readdirSync(path).sort()) {
+      const child = join(path, name);
+      const childRelative = relative === "" ? name : `${relative}/${name}`;
+      const details = lstatSync(child);
+      if (details.isDirectory()) visit(child, childRelative);
+      else if (details.isFile()) files.push({ path: child, relative: childRelative });
+      else fail("validator_build_payload_type", childRelative);
+    }
+  }
+  visit(root);
+  for (const file of files) {
+    if (file.path.endsWith(".zip")) {
+      run(python, [join(repositoryRoot, "scripts/package/normalize_zip.py"), file.path], { env: fixedBuildEnvironment });
+    }
+  }
+  for (const file of files) {
+    if (isThinArm64Macho(file.path)) normalizeAndAdhocSignMacho(file.path, `validator/${file.relative}`);
+  }
+}
+
 function removeExact(path) {
   if (!existsSync(path)) return;
   if (path !== packagingRoot && !path.startsWith(`${packagingRoot}/`)) {
@@ -93,14 +131,22 @@ try {
   if (!/^v24\./.test(process.version)) {
     fail("validator_build_node_version", `expected Node 24.x, received ${process.version}`);
   }
+  if (pythonVersionFile !== lockedPythonVersion) {
+    fail("validator_build_python_identity", `package=${lockedPythonVersion} .python-version=${pythonVersionFile}`);
+  }
   const uv = executableOnPath("uv");
   const uvVersion = run(uv, ["--version"]);
+  const pythonVersionOutput = run(uv, ["run", "--locked", "python", "--version"]);
+  const pythonVersion = pythonVersionOutput.replace(/^Python\s+/, "");
+  if (pythonVersion !== lockedPythonVersion) {
+    fail("validator_build_python_version", `expected Python ${lockedPythonVersion}, received ${pythonVersion}`);
+  }
   run(uv, ["lock", "--check"]);
 
   mkdirSync(packagingRoot, { recursive: true });
-  removeExact(join(packagingRoot, "validator"));
-  rmSync(inventoryPath, { force: true });
-  rmSync(evidencePath, { force: true });
+  for (const candidate of [join(packagingRoot, "validator"), inventoryPath, evidencePath]) {
+    if (existsSync(candidate)) fail("validator_build_output_exists", "refusing to replace operator files");
+  }
   const stagingRoot = mkdtempSync(join(packagingRoot, "validator-staging-"));
   const distPath = join(stagingRoot, "dist");
   const workPath = join(stagingRoot, "work");
@@ -119,10 +165,12 @@ try {
         workPath,
         "packaging/macos/validator.spec",
       ],
-      { capture: false },
+      { capture: false, env: fixedBuildEnvironment },
     );
     const emitted = join(distPath, "greenroom-persona");
     if (!existsSync(emitted)) fail("validator_build_output_missing", "PyInstaller output is missing");
+    const python = run(uv, ["run", "--locked", "python", "-c", "import sys;print(sys.executable)"], { env: fixedBuildEnvironment });
+    normalizeFrozenPayload(emitted, python);
     mkdirSync(dirname(finalRoot), { recursive: true });
     renameSync(emitted, finalRoot);
     makeImmutable(finalRoot);
@@ -141,6 +189,7 @@ try {
     schemaVersion: 1,
     targetTriple: inventory.targetTriple,
     nodeVersion: process.version,
+    pythonVersion,
     uvVersion,
     pyinstallerVersion: "6.16.0",
     outputRoot: finalRoot,
