@@ -16,7 +16,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       class: "approved-provider",
       definitionId: "openai",
     },
-    credentialRef: "credential:connection.primary",
+    credentialRef: "credential:connection.primary:3",
   });
 
   assert.deepEqual(profile, {
@@ -26,7 +26,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       class: "approved-provider",
       definitionId: "openai",
     },
-    credentialRef: "credential:connection.primary",
+    credentialRef: "credential:connection.primary:3",
   });
   assert.equal(Object.isFrozen(profile), true);
   assert.equal(Object.isFrozen(profile.target), true);
@@ -40,7 +40,7 @@ test("model profiles bind exact connection revisions and bounded generation defa
     id: "model.primary",
     revision: 5,
     connection: { profileId: "connection.primary", revision: 3 },
-    modelId: "openai/gpt-5.2",
+    modelId: "openai/gpt-5.2:preview",
     requiredCapabilities: ["chat", "system-messages"],
     generation: { temperature: 0.7, maxOutputTokens: 2048 },
   });
@@ -49,7 +49,7 @@ test("model profiles bind exact connection revisions and bounded generation defa
     id: "model.primary",
     revision: 5,
     connection: { profileId: "connection.primary", revision: 3 },
-    modelId: "openai/gpt-5.2",
+    modelId: "openai/gpt-5.2:preview",
     requiredCapabilities: ["chat", "system-messages"],
     generation: { temperature: 0.7, maxOutputTokens: 2048 },
   });
@@ -98,7 +98,7 @@ test("decision snapshots freeze exact non-secret profile revisions and capabilit
       id: "model.primary",
       revision: 5,
       connection: { profileId: "connection.primary", revision: 3 },
-      modelId: "openai/gpt-5.2",
+      modelId: "openai/gpt-5.2:preview",
       requiredCapabilities: ["chat", "system-messages"],
       generation: { temperature: 0.7, maxOutputTokens: 2048 },
     },
@@ -362,7 +362,7 @@ function validDecisionInput(): Record<string, unknown> {
       id: "model.primary",
       revision: 5,
       connection: { profileId: "connection.primary", revision: 3 },
-      modelId: "openai/gpt-5.2",
+      modelId: "openai/gpt-5.2:preview",
       requiredCapabilities: ["chat", "system-messages"],
       generation: { temperature: 0.7, maxOutputTokens: 2048 },
     },
@@ -411,6 +411,22 @@ test("decision snapshots reject credentials, stale revision links, and noncanoni
   }
 });
 
+test("all approved cloud connection targets map only to openai-compatible evidence", () => {
+  for (const definitionId of ["openrouter", "openai", "xai", "groq", "together"] as const) {
+    const input = validDecisionInput();
+    (input.connection as Record<string, unknown>).target = {
+      class: "approved-provider",
+      definitionId,
+    };
+    assert.equal(parseDecisionSnapshot(input).adapter.id, "openai-compatible");
+  }
+  assert.throws(() => parseConnectionProfile({
+    id: "connection.anthropic",
+    revision: 1,
+    target: { class: "approved-provider", definitionId: "anthropic" },
+  }), /not approved/);
+});
+
 test("decision snapshot adapter evidence must match every closed connection target", () => {
   const mismatches = [
     {
@@ -420,6 +436,7 @@ test("decision snapshot adapter evidence must match every closed connection targ
     {
       target: { class: "approved-provider", definitionId: "anthropic" },
       adapterId: "openai-compatible",
+      expected: /approved/i,
     },
     {
       target: { class: "local-endpoint", adapter: "ollama" },
@@ -431,10 +448,10 @@ test("decision snapshot adapter evidence must match every closed connection targ
     },
   ];
 
-  for (const { target, adapterId } of mismatches) {
+  for (const { target, adapterId, expected = /adapter/i } of mismatches) {
     const input = validDecisionInput();
     (input.connection as Record<string, unknown>).target = target;
     (input.adapter as Record<string, unknown>).id = adapterId;
-    assert.throws(() => parseDecisionSnapshot(input), /adapter/i);
+    assert.throws(() => parseDecisionSnapshot(input), expected);
   }
 });
