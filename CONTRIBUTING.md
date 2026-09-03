@@ -35,7 +35,9 @@ Python, or acceptance failure is returned immediately rather than hidden by a
 later command.
 
 GitHub runs the same clean-install sequence for pull requests to `main` and
-pushes to `main`. Branch protection requires the `release-gate` status check.
+pushes to `main`. The required job also runs Bandit against the Python source
+and audits the locked Python environment for known dependency vulnerabilities.
+Branch protection requires the `release-gate` status check.
 
 ## Local-first and provider rules
 

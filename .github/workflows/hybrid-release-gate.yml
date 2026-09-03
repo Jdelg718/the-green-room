@@ -50,5 +50,10 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked
 
+      - name: Audit Python source and locked dependencies
+        run: |
+          uv run bandit -q -r src
+          uv run pip-audit
+
       - name: Run hybrid release gate
         run: npm run check:release
