@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -106,8 +106,11 @@ function realPackagedFixture(root: string, mutate?: (fixture: {
   const payloadRoot = join(root, "The Green Room.app", "Contents");
   const appDist = join(payloadRoot, "Resources/app/dist");
   const validator = join(payloadRoot, "Resources/validator/greenroom-persona");
+  const helper = join(payloadRoot, "Resources/helpers/GreenRoomCredentialHelper");
+  const manifest = join(payloadRoot, "Resources/release-manifest.json");
   mkdirSync(appDist, { recursive: true });
   mkdirSync(validator, { recursive: true });
+  mkdirSync(join(payloadRoot, "Resources/helpers"), { recursive: true });
   const repositoryDist = fileURLToPath(new URL("../../", import.meta.url));
   for (const name of ["public", "migrations", "personas", "runtime-assets"] as const) {
     cpSync(join(repositoryDist, name), join(appDist, name), { recursive: true });
@@ -115,6 +118,12 @@ function realPackagedFixture(root: string, mutate?: (fixture: {
   const validatorExecutable = join(validator, "greenroom-persona");
   copyFileSync(fileURLToPath(new URL("../../../.venv/bin/greenroom-persona", import.meta.url)), validatorExecutable);
   chmodSync(validatorExecutable, 0o555);
+  const helperBytes = Buffer.from("#!/bin/sh\nexit 20\n");
+  writeFileSync(helper, helperBytes, { mode: 0o555 });
+  writeFileSync(manifest, `${JSON.stringify({ files: [{
+    path: "Contents/Resources/helpers/GreenRoomCredentialHelper",
+    sha256: createHash("sha256").update(helperBytes).digest("hex"),
+  }] })}\n`, { mode: 0o444 });
   const fixture = { payloadRoot, appDist, validatorExecutable };
   mutate?.(fixture);
   makePayloadReadOnly(payloadRoot);
@@ -382,7 +391,7 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   const database = new DatabaseSync(databasePath, { readOnly: true });
   assert.equal(
     database.prepare("SELECT count(*) AS count FROM schema_migrations").get()?.count,
-    7,
+    8,
   );
   database.close();
 
@@ -402,6 +411,11 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/catalog/personas`);
   assert.equal(catalogResponse.status, 200);
   assert.equal((await catalogResponse.json() as Array<{ slug: string }>)[12]?.slug, "ff2k");
+  const bootstrap = await fetch(`http://127.0.0.1:${port}/api/bootstrap`);
+  assert.deepEqual((await bootstrap.json() as {
+    capabilities: { providerSetup: { cloud: boolean; lmStudio: boolean } };
+  }).capabilities.providerSetup, { cloud: false, lmStudio: false });
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/providers/connections`)).status, 404);
   const portraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/ff2k.webp`);
   assert.equal(portraitResponse.status, 200);
   assert.equal((await portraitResponse.arrayBuffer()).byteLength, 43_092);
@@ -575,6 +589,8 @@ function packagedAssetFixture(root: string) {
   const payloadRoot = join(root, "The Green Room.app", "Contents");
   const runtimeAssets = {
     payloadRoot,
+    credentialHelperExecutable: join(payloadRoot, "Resources/helpers/GreenRoomCredentialHelper"),
+    releaseManifestPath: join(payloadRoot, "Resources/release-manifest.json"),
     publicDir: join(payloadRoot, "Resources/app/dist/public"),
     migrationsDir: join(payloadRoot, "Resources/app/dist/migrations"),
     historicalCatalogDir: join(payloadRoot, "Resources/app/dist/personas/historical"),
@@ -591,6 +607,7 @@ function packagedAssetFixture(root: string) {
     runtimeAssets.originalCatalogDir,
     join(payloadRoot, "Resources/validator/greenroom-persona"),
     join(payloadRoot, "Resources/app/dist/runtime-assets/persona-validator"),
+    join(payloadRoot, "Resources/helpers"),
   ]) mkdirSync(directory, { recursive: true });
   for (const path of [
     join(runtimeAssets.publicDir, "index.html"),
@@ -604,6 +621,8 @@ function packagedAssetFixture(root: string) {
     "Resources/validator/greenroom-persona/greenroom-persona",
   );
   writeFileSync(personaInspectionExecutable, "#!/bin/sh\nexit 0\n", { mode: 0o555 });
+  writeFileSync(runtimeAssets.credentialHelperExecutable, "#!/bin/sh\nexit 0\n", { mode: 0o555 });
+  writeFileSync(runtimeAssets.releaseManifestPath, "{}\n", { mode: 0o444 });
   return {
     runtimeMode: "packaged-macos" as const,
     runtimeAssets,
@@ -615,7 +634,7 @@ function makePayloadReadOnly(path: string): void {
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     const child = join(path, entry.name);
     if (entry.isDirectory()) makePayloadReadOnly(child);
-    else chmodSync(child, entry.name === "greenroom-persona" ? 0o555 : 0o444);
+    else chmodSync(child, entry.name === "greenroom-persona" || entry.name === "GreenRoomCredentialHelper" ? 0o555 : 0o444);
   }
   chmodSync(path, 0o555);
 }

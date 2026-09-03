@@ -3,12 +3,58 @@ import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.
 import { AcceptanceFixtureProvider } from "./acceptance-fixture.js";
 import { LMStudioProvider } from "./lm-studio.js";
 import { DeterministicMockProvider } from "./mock.js";
-import type { GenerationProvider } from "./provider.js";
+import type { GenerationProvider, ProviderInvitation } from "./provider.js";
+import { canonicalCredentialReference, type CredentialStore } from "./credential-store.js";
+import { OpenAICompatibleCloudAdapter, type CloudTransport } from "./openai-compatible-cloud.js";
+import { parseDecisionSnapshot, type DecisionSnapshot } from "./profile-contracts.js";
 
 export interface SelectProviderOptions
   extends Pick<AppConfig, "acceptanceFixture" | "lmStudioModel" | "provider"> {
   readonly personaCatalog?: Pick<BundledPersonaCatalog, "resolvePrompt">;
   readonly onAcceptanceLatch?: () => void;
+}
+
+export class BoundProviderError extends Error {
+  constructor(readonly code: "credential_missing" | "credential_unavailable" | "decision_unsupported") {
+    super(code);
+    this.name = "BoundProviderError";
+  }
+}
+
+export function createBoundProviderResolver(options: {
+  readonly credentialStore: CredentialStore;
+  readonly cloudTransport: CloudTransport;
+}): (decision: DecisionSnapshot) => GenerationProvider {
+  return (rawDecision) => {
+    const decision = parseDecisionSnapshot(rawDecision);
+    if (decision.connection.target.class !== "approved-provider" || decision.adapter.id !== "openai-compatible") {
+      throw new BoundProviderError("decision_unsupported");
+    }
+    const reference = canonicalCredentialReference(decision.connection.id, decision.connection.revision);
+    const adapter = new OpenAICompatibleCloudAdapter({
+      definitionId: decision.connection.target.definitionId,
+      transport: options.cloudTransport,
+    });
+    return Object.freeze({
+      async generate(invitation: ProviderInvitation, signal: AbortSignal) {
+        let keyBytes: Buffer | null;
+        try { keyBytes = await options.credentialStore.get(reference, signal); }
+        catch { throw new BoundProviderError("credential_unavailable"); }
+        if (keyBytes === null) throw new BoundProviderError("credential_missing");
+        try {
+          return await adapter.generate({
+            credential: keyBytes.toString("utf8"),
+            model: decision.model.modelId,
+            messages: [{ role: "user", content: invitation.prompt }],
+            temperature: decision.effectiveGeneration.temperature,
+            maxOutputTokens: decision.effectiveGeneration.maxOutputTokens,
+          }, signal);
+        } finally {
+          keyBytes.fill(0);
+        }
+      },
+    });
+  };
 }
 
 export function selectProvider(

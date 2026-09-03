@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 export function withImmediateTransaction<T>(database: DatabaseSync, action: () => T): T {
+  if (database.isTransaction) return action();
   database.exec("BEGIN IMMEDIATE");
   try {
     const result = action();

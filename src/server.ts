@@ -7,7 +7,12 @@ import {
   type PersonaPackInspectionRuntime,
 } from "./personas/persona-pack-inspection-runtime.js";
 import { selectProvider } from "./providers/select-provider.js";
+import { LMStudioProvider } from "./providers/lm-studio.js";
 import { verifyPackagedRuntimeAssets } from "./platform/runtime-assets.js";
+import { credentialHelperTrust } from "./platform/runtime-assets.js";
+import { KeychainCredentialStore } from "./providers/credential-store.js";
+import { KeychainHelperClient } from "./providers/keychain-helper-client.js";
+import { createSecureHttpTransport } from "./providers/secure-http-transport.js";
 import {
   acquireDataRootWriterLock,
   DataRootInUseError,
@@ -120,12 +125,25 @@ try {
       );
     },
   });
+  const providerRuntime = config.runtimeMode === "packaged-macos"
+    ? {
+        providerCredentials: new KeychainCredentialStore(
+          new KeychainHelperClient(await credentialHelperTrust(runtimeAssets)),
+        ),
+        cloudTransport: createSecureHttpTransport(),
+      }
+    : undefined;
   app = buildApp({
     allowedOrigin: config.allowedOrigin,
     database: store.database,
     personaCatalog,
     logger: true,
     provider,
+    ...(provider instanceof LMStudioProvider ? {
+      lmStudioModel: config.lmStudioModel,
+      lmStudioProbe: provider.probe.bind(provider),
+    } : {}),
+    ...(providerRuntime ?? {}),
     ...(runtime.service === undefined
       ? {}
       : { personaPackInspectionService: runtime.service }),

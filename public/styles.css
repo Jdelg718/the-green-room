@@ -17,6 +17,29 @@
   font: 16px/1.4 var(--sans);
 }
 
+.provider-setup-panel { width: min(92vw, 760px); max-width: 760px; max-height: min(90vh, 920px); overflow: auto; padding: clamp(1rem, 3vw, 2rem); background: var(--paper, #f4efe4); color: var(--ink, #17231d); }
+.provider-setup-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.provider-setup-heading h2 { margin: 0; }
+.provider-setup-panel fieldset { min-width: 0; border: 1px solid currentColor; padding: 1rem; }
+.provider-paths { display: grid; gap: .75rem; margin-bottom: 1rem; }
+.provider-choice { display: flex; align-items: start; gap: .75rem; padding: .75rem; border: 1px solid rgba(23, 35, 29, .3); cursor: pointer; }
+.provider-choice span, .provider-choice small { display: block; min-width: 0; }
+.provider-choice small { margin-top: .25rem; }
+.provider-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.provider-field-grid label, #cloud-provider-fields > label { display: grid; gap: .35rem; min-width: 0; }
+.provider-setup-panel input, .provider-setup-panel select { width: 100%; min-width: 0; padding: .7rem; font: inherit; }
+.provider-disclosure { margin: 1rem 0; padding: 1rem; border-left: .35rem solid var(--signal, #b65f27); background: rgba(255, 255, 255, .55); overflow-wrap: anywhere; }
+.provider-ack { display: flex; align-items: start; gap: .6rem; margin-top: .75rem; }
+.provider-ack input { width: auto; margin-top: .2rem; }
+.provider-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+
+@media (max-width: 760px) {
+  .provider-setup-panel { width: calc(100vw - 1rem); max-height: calc(100vh - 1rem); padding: 1rem; }
+  .provider-field-grid { grid-template-columns: minmax(0, 1fr); }
+  .provider-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .provider-actions .button { width: 100%; }
+}
+
 * { box-sizing: border-box; }
 html, body { min-width: 0; min-height: 100%; margin: 0; background: var(--paper); color: var(--ink); }
 body { overflow-x: hidden; }

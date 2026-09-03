@@ -17,6 +17,7 @@ if (configuredPackagingRoot !== undefined && (!isAbsolute(configuredPackagingRoo
 const packagingRoot = configuredPackagingRoot ?? join(root, "build/packaging");
 const outputRoot = join(packagingRoot, "launcher");
 const output = join(outputRoot, "GreenRoomLauncher");
+const helperOutput = join(outputRoot, "GreenRoomCredentialHelper");
 
 function run(executable, args, { capture = true } = {}) {
   const result = spawnSync(executable, args, {
@@ -55,7 +56,23 @@ try {
   const built = join(scratch, "release/GreenRoomLauncher");
   copyFileSync(built, output);
   const signature = normalizeAndAdhocSignMacho(output, "Contents/MacOS/GreenRoomLauncher", { strip: true });
-  const evidence = { code: "launcher_build_ok", output, signature: signature.signature, uuid: signature.uuid, toolchain: expected };
+  run("/usr/bin/swift", [
+    "build", "--package-path", packageRoot, "--scratch-path", scratch,
+    "--configuration", "release", "--product", "GreenRoomCredentialHelper",
+    "--disable-sandbox",
+    "-Xswiftc", "-debug-prefix-map", "-Xswiftc", `${root}=.`,
+    "-Xcc", `-fdebug-prefix-map=${root}=.`,
+    "-Xcc", `-ffile-prefix-map=${root}=.`,
+    "-Xlinker", "-no_adhoc_codesign",
+  ], { capture: false });
+  copyFileSync(join(scratch, "release/GreenRoomCredentialHelper"), helperOutput);
+  const helperLoadCommands = run("/usr/bin/otool", ["-l", helperOutput]);
+  const helperRpaths = [...helperLoadCommands.matchAll(/\bcmd LC_RPATH\n\s+cmdsize \d+\n\s+path ([^\s]+) \(offset \d+\)/g)].map((match) => match[1]);
+  for (const rpath of helperRpaths) {
+    if (isAbsolute(rpath) && rpath !== "/usr/lib/swift") run("/usr/bin/install_name_tool", ["-delete_rpath", rpath, helperOutput]);
+  }
+  const helperSignature = normalizeAndAdhocSignMacho(helperOutput, "net.greenroomai.GreenRoom.credential-helper", { strip: true, identifier: "net.greenroomai.GreenRoom.credential-helper" });
+  const evidence = { code: "launcher_build_ok", output, helperOutput, signature: signature.signature, helperSignature: helperSignature.signature, uuid: signature.uuid, helperUuid: helperSignature.uuid, toolchain: expected };
   writeFileSync(join(outputRoot, "launcher-build.evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`, { flag: "wx" });
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } finally {

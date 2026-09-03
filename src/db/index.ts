@@ -11,6 +11,47 @@ export {
 } from "./open.js";
 export { withImmediateTransaction } from "./transaction.js";
 export {
+  createConnectionProfile,
+  createModelProfile,
+  deleteConnectionProfile,
+  deleteModelProfile,
+  disableConnectionProfile,
+  disableModelProfile,
+  observeConnection,
+  readConnectionObservation,
+  readConnectionProfile,
+  readCurrentConnectionProfile,
+  readCurrentModelProfile,
+  readLatestConnectionObservation,
+  readModelProfile,
+  reviseConnectionProfile,
+  reviseModelProfile,
+  type ConnectionProfileRevision,
+  type ModelProfileRevision,
+  type ProviderHealth,
+  type ProviderObservation,
+  type ProviderProfileState,
+} from "./provider-profiles.js";
+export {
+  bindRoom,
+  isResolvedRoomProviderDecisionCurrent,
+  readEffectiveRoomBinding,
+  readRoomBinding,
+  rebindRoom,
+  resolveRoomProviderDecision,
+  type ResolvedRoomProviderDecision,
+} from "./provider-bindings.js";
+export {
+  SINGLE_ATTEMPT_ROUTING_POLICY,
+  commitDecisionSnapshotInTransaction,
+  readDecisionSnapshot,
+  readDecisionSnapshotForRequest,
+  type CommitDecisionSnapshotInput,
+  type DecisionSnapshotRecord,
+  type ProviderDefinitionEvidence,
+  type SafeRoutingPolicy,
+} from "./provider-snapshots.js";
+export {
   PUBLIC_ROOM_ID,
   ROOM_LIBRARY_LIMIT,
   currentRoomId,

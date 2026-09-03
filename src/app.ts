@@ -87,6 +87,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? {}
       : { personaCatalog: options.personaCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(options.providerCredentials === undefined
+      ? {}
+      : { providerCredentials: options.providerCredentials }),
+    ...(options.cloudTransport === undefined
+      ? {}
+      : { cloudTransport: options.cloudTransport }),
+    ...(options.lmStudioModel === undefined
+      ? {}
+      : { lmStudioModel: options.lmStudioModel }),
+    ...(options.lmStudioProbe === undefined
+      ? {}
+      : { lmStudioProbe: options.lmStudioProbe }),
     ...(options.personaPackInspectionService === undefined
       ? {}
       : { personaPackInspectionService: options.personaPackInspectionService }),

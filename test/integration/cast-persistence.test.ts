@@ -70,6 +70,7 @@ test("0003 upgrades the fixed room without rewriting its history", (context) => 
   rmSync(join(oldMigrations, "0005-human-avatar.sql"));
   rmSync(join(oldMigrations, "0006-room-library.sql"));
   rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
+  rmSync(join(oldMigrations, "0008-provider-profiles.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.prepare(
     `INSERT INTO events(room_id, sequence, event_json)
@@ -270,6 +271,7 @@ test("a failed 0003 upgrade rolls back its ALTER, indexes, triggers, and migrati
   rmSync(join(oldMigrations, "0005-human-avatar.sql"));
   rmSync(join(oldMigrations, "0006-room-library.sql"));
   rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
+  rmSync(join(oldMigrations, "0008-provider-profiles.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.prepare(
     "INSERT INTO rooms(id, title, status) VALUES ('legacy-second-active', 'Legacy', 'active')",

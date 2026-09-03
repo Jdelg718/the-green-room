@@ -75,6 +75,80 @@ test("LM Studio sends the selected original persona and prompt in an exact local
   assert.equal(call?.init?.signal instanceof AbortSignal, true);
 });
 
+test("LM Studio probe tests the exact fixed endpoint and configured model with bounded output", async () => {
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const provider = new LMStudioProvider({
+    model: "owner/exact-local-model",
+    fetch: async (input, init) => {
+      calls.push({ input, ...(init === undefined ? {} : { init }) });
+      return jsonResponse({ choices: [{ finish_reason: "stop", message: { content: "Ready." } }] });
+    },
+  });
+  await provider.probe(new AbortController().signal);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.input, "http://127.0.0.1:1235/v1/chat/completions");
+  assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
+    model: "owner/exact-local-model",
+    messages: [{ role: "user", content: "Reply briefly to confirm this local model connection." }],
+    temperature: 0,
+    max_tokens: 32,
+  });
+  assert.equal(calls[0]?.init?.signal instanceof AbortSignal, true);
+});
+
+test("LM Studio probe settles on caller cancellation even if an injected fetch ignores abort", async () => {
+  const provider = new LMStudioProvider({ fetch: async () => new Promise<Response>(() => {}) });
+  const controller = new AbortController();
+  const reason = new Error("cancelled probe");
+  const pending = provider.probe(controller.signal);
+  controller.abort(reason);
+  await assert.rejects(Promise.race([
+    pending,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("probe did not settle")), 100)),
+  ]), (error: unknown) => error === reason);
+});
+
+test("LM Studio probe ignores late fetch settlement after cancellation", async () => {
+  for (const outcome of ["resolve", "reject"] as const) {
+    let resolveFetch!: (response: Response) => void;
+    let rejectFetch!: (error: unknown) => void;
+    const provider = new LMStudioProvider({
+      fetch: async () => new Promise<Response>((resolve, reject) => {
+        resolveFetch = resolve;
+        rejectFetch = reject;
+      }),
+    });
+    const controller = new AbortController();
+    const reason = new Error(`cancelled before late ${outcome}`);
+    const pending = provider.probe(controller.signal);
+    controller.abort(reason);
+    await assert.rejects(pending, (error: unknown) => error === reason);
+
+    if (outcome === "resolve") {
+      resolveFetch(jsonResponse({ choices: [{ message: { content: "Too late." } }] }));
+    } else {
+      rejectFetch(new Error("private late transport detail"));
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await assert.rejects(pending, (error: unknown) => error === reason);
+  }
+});
+
+test("LM Studio probe does not start transport for an already-cancelled request", async () => {
+  let called = false;
+  const provider = new LMStudioProvider({
+    fetch: async () => {
+      called = true;
+      return jsonResponse({ choices: [{ message: { content: "Unexpected." } }] });
+    },
+  });
+  const controller = new AbortController();
+  const reason = new Error("already cancelled");
+  controller.abort(reason);
+  await assert.rejects(provider.probe(controller.signal), (error: unknown) => error === reason);
+  assert.equal(called, false);
+});
+
 test("LM Studio rejects unknown personas before transport", async () => {
   let called = false;
   const provider = new LMStudioProvider({

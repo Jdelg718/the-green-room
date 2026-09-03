@@ -23,6 +23,8 @@ test("config uses private loopback defaults", () => {
     provider: "mock",
     runtimeAssets: {
       payloadRoot: null,
+      credentialHelperExecutable: null,
+      releaseManifestPath: null,
       publicDir: fileURLToPath(new URL("../../public", import.meta.url)),
       migrationsDir: fileURLToPath(new URL("../../migrations", import.meta.url)),
       historicalCatalogDir: fileURLToPath(new URL("../../personas/historical", import.meta.url)),
@@ -223,8 +225,11 @@ test("packaged mode requires every executable and runtime asset path explicitly"
   } as const;
 
   const config = loadConfig(environment, "/ignored", "darwin");
+  assert.equal(config.provider, "lmstudio");
   assert.deepEqual(config.runtimeAssets, {
     payloadRoot: environment.GREENROOM_PACKAGE_PAYLOAD_ROOT,
+    credentialHelperExecutable: "/Applications/The Green Room.app/Contents/Resources/helpers/GreenRoomCredentialHelper",
+    releaseManifestPath: "/Applications/The Green Room.app/Contents/Resources/release-manifest.json",
     publicDir: environment.GREENROOM_PUBLIC_DIR,
     migrationsDir: environment.GREENROOM_MIGRATIONS_DIR,
     historicalCatalogDir: environment.GREENROOM_HISTORICAL_CATALOG_DIR,

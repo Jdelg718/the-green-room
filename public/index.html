@@ -20,6 +20,7 @@
         <span class="cue-lamp" aria-hidden="true"></span>
         <span id="connection-status" role="status" aria-live="polite">Opening the local room…</span>
       </div>
+      <button class="button" id="open-provider-setup" type="button" aria-controls="provider-setup" aria-expanded="false">Model setup</button>
       <button class="button room-drawer-trigger" id="open-room-drawer" type="button" aria-controls="room-drawer" aria-expanded="false">Rooms</button>
     </header>
 
@@ -117,6 +118,52 @@
 
     <dialog id="stop-dialog" aria-labelledby="stop-dialog-title" aria-describedby="stop-dialog-copy">
       <form method="dialog" class="stop-confirmation"><p class="kicker">Final curtain</p><h2 id="stop-dialog-title">Stop this room?</h2><p id="stop-dialog-copy">This immediately ends generation and cannot be resumed. The transcript remains visible.</p><div class="dialog-actions"><button class="button button-secondary" value="cancel">Keep room open</button><button class="button button-danger" id="confirm-stop" value="confirm">Stop permanently</button></div></form>
+    </dialog>
+
+    <dialog id="provider-setup" aria-labelledby="provider-setup-title">
+      <section class="provider-setup-panel">
+        <header class="provider-setup-heading"><div><p class="kicker">Local model setup</p><h2 id="provider-setup-title">Choose how the room replies</h2></div><button class="button button-secondary" id="close-provider-setup" type="button">Close</button></header>
+        <form id="provider-setup-form">
+          <fieldset class="provider-paths">
+            <legend>Choose where replies run</legend>
+            <label class="provider-choice"><input type="radio" name="provider-path" value="lmstudio"><span><strong>LM Studio — No cloud</strong><small>Replies stay between Green Room and a model server on this device. No provider key is needed.</small></span></label>
+            <label class="provider-choice"><input type="radio" name="provider-path" value="cloud" checked><span><strong>Approved cloud provider</strong><small>Your local runtime contacts only the approved provider definition you select.</small></span></label>
+          </fieldset>
+
+          <div id="cloud-provider-fields">
+            <p class="provider-disclosure provider-credit-copy">A ChatGPT subscription does not include OpenAI API credits. Green Room needs an API account/key from OpenRouter or another listed API provider; that provider may bill usage separately.</p>
+            <div class="provider-field-grid">
+              <label>Provider<select id="provider-definition"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option><option value="xai">xAI</option><option value="groq">Groq</option><option value="together">Together</option></select></label>
+              <label>Connection name<input id="provider-connection-id" value="openrouter-main" maxlength="128" pattern="[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*" required></label>
+            </div>
+            <label for="provider-key">Provider API key</label>
+            <input id="provider-key" type="password" autocomplete="off" spellcheck="false" maxlength="8192" aria-describedby="provider-key-note">
+            <p id="provider-key-note" class="form-note">The key is sent once to this local runtime and stored in macOS Keychain. It is never shown again.</p>
+            <div class="provider-actions">
+              <button class="button button-primary" id="save-provider-connection" type="button">Save connection</button>
+              <button class="button button-secondary" id="replace-provider-credential" type="button" disabled>Replace key</button>
+              <button class="button button-secondary" id="load-provider-models" type="button" disabled>Load models</button>
+            </div>
+            <label for="provider-model">Concrete model</label>
+            <select id="provider-model" required disabled><option value="">Load models, then choose one</option></select>
+            <div class="provider-field-grid">
+              <label>Temperature<input id="provider-temperature" type="number" min="0" max="2" step="0.1" value="0.4"></label>
+              <label>Maximum reply tokens<input id="provider-max-tokens" type="number" min="1" max="32768" step="1" value="256"></label>
+            </div>
+            <button class="button button-secondary" id="test-provider-model" type="button" disabled>Test selected model</button>
+            <div class="provider-disclosure cloud-context-copy">
+              <p>Using this cloud provider sends bounded persona instructions and conversation context from this device to the selected provider (and, for OpenRouter, potentially its upstream inference provider). Green Room’s project website does not receive it.</p>
+              <label class="provider-ack"><input id="provider-disclosure-ack" type="checkbox" required disabled><span>I acknowledge this disclosure for connection revision <strong id="provider-ack-revision">—</strong>.</span></label>
+            </div>
+            <div class="provider-actions">
+              <button class="button button-primary" id="bind-provider-model" type="button" disabled>Bind to this room</button>
+              <button class="button button-secondary" id="disable-provider-connection" type="button" disabled>Disable</button>
+              <button class="button button-danger" id="delete-provider-connection" type="button" disabled>Delete</button>
+            </div>
+          </div>
+          <p id="provider-revision-status" class="action-status" role="status" aria-live="polite">No cloud connection loaded.</p>
+        </form>
+      </section>
     </dialog>
   </body>
 </html>

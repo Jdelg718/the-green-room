@@ -38,6 +38,7 @@ function file(path: string, bytes: string, mode = 0o644): void {
 function fixture(root: string) {
   const inputs = join(root, "inputs");
   file(join(inputs, "launcher"), "launcher-arm64", 0o755);
+  file(join(inputs, "GreenRoomCredentialHelper"), "helper-arm64", 0o755);
   file(join(inputs, "node"), "node-v24.20.0-arm64", 0o755);
   file(join(inputs, "node-license"), "Node license\n");
   file(join(inputs, "dist/src/server.js"), "server\n");
@@ -65,6 +66,7 @@ function fixture(root: string) {
     outputParent: join(root, "output"),
     inputs: {
       launcher: join(inputs, "launcher"),
+      credentialHelper: join(inputs, "GreenRoomCredentialHelper"),
       nodeExecutable: join(inputs, "node"),
       nodeLicense: join(inputs, "node-license"),
       appDist: join(inputs, "dist"),
@@ -88,6 +90,7 @@ function fixture(root: string) {
       },
       pythonVersion: "3.13.13",
       validatorVersion: "0.1.0",
+      allowSyntheticCredentialHelperForTests: true,
     },
   };
 }
@@ -120,10 +123,11 @@ test("assembler publishes an exact deterministic immutable app and strict manife
   mkdirSync(options.outputParent);
   const result = assembleUnsignedApp(options);
   assert.equal(result.appPath, join(options.outputParent, "The Green Room.app"));
-  const verified = verifyUnsignedApp(result.appPath);
+  const verified = verifyUnsignedApp(result.appPath, { allowSyntheticCredentialHelper: true });
   assert.deepEqual(verified.inventory, result.inventory);
   assert.equal(verified.undeclaredFiles.length, 0);
   assert.ok(result.inventory.some((entry) => entry.path === "Contents/MacOS/GreenRoomLauncher" && entry.mode === 0o555));
+  assert.equal(result.inventory.filter((entry) => entry.path === "Contents/Resources/helpers/GreenRoomCredentialHelper" && entry.mode === 0o555).length, 1);
   assert.ok(result.inventory.some((entry) => entry.path === "Contents/Resources/runtime/node/bin/node" && entry.mode === 0o555));
   assert.ok(result.inventory.some((entry) => entry.path === "Contents/Resources/validator/greenroom-persona" && entry.mode === 0o555));
   assert.ok(result.inventory.filter((entry) => entry.path.endsWith("package.json")).every((entry) => entry.mode === 0o444));
@@ -174,7 +178,7 @@ test("assembler rejects writable/special/undeclared payload changes and forbidde
   mkdirSync(options.outputParent);
   const result = assembleUnsignedApp(options);
   chmodSync(join(result.appPath, "Contents/Resources/app/dist/src/server.js"), 0o644);
-  assert.throws(() => verifyUnsignedApp(result.appPath), /payload_mode_invalid/);
+  assert.throws(() => verifyUnsignedApp(result.appPath, { allowSyntheticCredentialHelper: true }), /payload_mode_invalid/);
   chmodSync(join(result.appPath, "Contents/Resources/app/dist/src/server.js"), 0o444);
   const distRoot = join(result.appPath, "Contents/Resources/app/dist");
   chmodSync(distRoot, 0o755);
@@ -182,7 +186,7 @@ test("assembler rejects writable/special/undeclared payload changes and forbidde
   chmodSync(distRoot, 0o555);
   utimesSync(distRoot, FIXED_TIMESTAMP_MS / 1000, FIXED_TIMESTAMP_MS / 1000);
   utimesSync(join(distRoot, "surprise.js"), FIXED_TIMESTAMP_MS / 1000, FIXED_TIMESTAMP_MS / 1000);
-  assert.throws(() => verifyUnsignedApp(result.appPath), /payload_undeclared_file/);
+  assert.throws(() => verifyUnsignedApp(result.appPath, { allowSyntheticCredentialHelper: true }), /payload_undeclared_file/);
 }));
 
 test("no-clobber destination race preserves competitor bytes and failed staging is scoped", () => withFixture((options) => {
@@ -317,6 +321,16 @@ test("assembler rejects symlink roots and components, hardlinked inputs, and spe
   const result = spawnSync("/usr/bin/mkfifo", [fifo]);
   assert.equal(result.status, 0);
   assert.throws(() => assembleUnsignedApp(options), /input_special_file/);
+}));
+
+test("assembler rejects a Mach-O credential helper with the wrong architecture", () => withFixture((options) => {
+  mkdirSync(options.outputParent);
+  const wrong = Buffer.alloc(32);
+  wrong.writeUInt32LE(0xfeedfacf, 0);
+  wrong.writeUInt32LE(0x01000007, 4);
+  writeFileSync(options.inputs.credentialHelper, wrong);
+  assert.throws(() => assembleUnsignedApp(options), /credential_helper_arch_invalid/);
+  assert.deepEqual(readdirSync(options.outputParent), []);
 }));
 
 test("parent namespace swap fails closed, preserves operator bytes, and cleans through retained parent", () => withFixture((options, root) => {

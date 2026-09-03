@@ -18,6 +18,24 @@ export const API_PATHS = Object.freeze({
   rooms: "/api/rooms",
   currentRoom: "/api/rooms/current",
   cast: "/api/rooms",
+  providerConnections: "/api/providers/connections",
+  providerModels: "/api/providers/model-profiles",
+  reviseProviderModel(modelProfileId) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(modelProfileId)) throw new TypeError("Invalid model profile");
+    return sameOriginPath(`/api/providers/model-profiles/${modelProfileId}/revise`);
+  },
+  providerConnection(connectionId, action) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(connectionId) || !["replace", "disable", "models", "test"].includes(action)) throw new TypeError("Invalid provider action");
+    return sameOriginPath(`/api/providers/connections/${connectionId}/${action}`);
+  },
+  deleteProviderConnection(connectionId) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(connectionId)) throw new TypeError("Invalid provider connection");
+    return sameOriginPath(`/api/providers/connections/${connectionId}`);
+  },
+  providerBinding(roomId) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
+    return sameOriginPath(`/api/rooms/${roomId}/provider-binding`);
+  },
   room(roomId) {
     if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     return sameOriginPath(`/api/rooms/${roomId}`);
@@ -72,6 +90,17 @@ const ORIGINAL_PERSONA_PRESENTATION = Object.freeze({
   optimist: Object.freeze({ role: "Original persona · optimist", temperament: "Organized, community-minded, and resolute" }),
 });
 export const HUMAN_EMOJIS = Object.freeze(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
+
+export function providerBindDisabled({ acknowledged, binding, connection, ready, selectedModel, testedModel }) {
+  if (!ready || testedModel !== selectedModel || !acknowledged) return true;
+  const boundModel = binding?.modelProfile?.profile;
+  return binding?.execution === "cloud" &&
+    binding?.binding?.model?.profileId === boundModel?.id &&
+    binding?.binding?.model?.revision === boundModel?.revision &&
+    boundModel?.modelId === selectedModel &&
+    boundModel?.connection?.profileId === connection?.id &&
+    boundModel?.connection?.revision === connection?.revision;
+}
 
 // Portrait paths are application-owned and bound only to built-in canonical IDs.
 // Catalog/persona data cannot provide or override image URLs.
@@ -187,8 +216,11 @@ export function validateCatalogDto(value) {
 export function validateBootstrapDto(value) {
   if (!exactKeys(value, ["capabilities", "csrfToken"]) ||
     !boundedText(value.csrfToken, 512) ||
-    !exactKeys(value.capabilities, ["personaPackInspection"]) ||
-    typeof value.capabilities.personaPackInspection !== "boolean") {
+    !exactKeys(value.capabilities, ["personaPackInspection", "providerSetup"]) ||
+    typeof value.capabilities.personaPackInspection !== "boolean" ||
+    !exactKeys(value.capabilities.providerSetup, ["cloud", "lmStudio"]) ||
+    typeof value.capabilities.providerSetup.cloud !== "boolean" ||
+    typeof value.capabilities.providerSetup.lmStudio !== "boolean") {
     throw new RequestFailure("invalid_response");
   }
   return value;
@@ -789,6 +821,16 @@ async function postJson(path, body, csrfToken, signal) {
   }));
 }
 
+async function deleteJson(path, body, csrfToken, signal) {
+  return readJson(await fetch(sameOriginPath(path), {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(body),
+    signal,
+  }));
+}
+
 export function createRoomSelectionFence({ requestSelection, readCurrentRoom, commitRoom, onBusyChange = () => {} }) {
   let generation = 0;
   let activeController = null;
@@ -994,6 +1036,13 @@ export function safeDetailsContent(persona) {
   });
 }
 
+export function providerDisclosureProposal({ cloud, connection, connectionId, definitionId, credentialPresent }) {
+  if (!cloud) return null;
+  const current = connection?.state === "enabled" && connection.id === connectionId && connection.definitionId === definitionId;
+  const revision = current ? connection.revision + (credentialPresent ? 1 : 0) : 1;
+  return Object.freeze({ revision, token: `${connectionId}\u0000${definitionId}\u0000${revision}` });
+}
+
 export function startBrowserApp() {
   const byId = (id) => document.getElementById(id);
   const elements = {
@@ -1012,6 +1061,13 @@ export function startBrowserApp() {
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
+    providerDialog: byId("provider-setup"), openProvider: byId("open-provider-setup"), closeProvider: byId("close-provider-setup"),
+    providerForm: byId("provider-setup-form"), providerCloudFields: byId("cloud-provider-fields"), providerDefinition: byId("provider-definition"),
+    providerConnectionId: byId("provider-connection-id"), providerKey: byId("provider-key"), providerModel: byId("provider-model"),
+    providerTemperature: byId("provider-temperature"), providerMaxTokens: byId("provider-max-tokens"), providerAck: byId("provider-disclosure-ack"),
+    providerAckRevision: byId("provider-ack-revision"), providerStatus: byId("provider-revision-status"),
+    saveProvider: byId("save-provider-connection"), replaceProvider: byId("replace-provider-credential"), loadProviderModels: byId("load-provider-models"),
+    testProvider: byId("test-provider-model"), bindProvider: byId("bind-provider-model"), disableProvider: byId("disable-provider-connection"), deleteProvider: byId("delete-provider-connection"),
   };
   let csrfToken = "";
   let humanProfile = Object.freeze({ emoji: HUMAN_EMOJIS[0], hasCustomAvatar: false, avatarVersion: null });
@@ -1027,6 +1083,206 @@ export function startBrowserApp() {
   let detailsSlug = null;
   let detailsTrigger = null;
   const pending = new Set();
+  let providerConnection = null;
+  let providerTestedModel = null;
+  let providerBinding = null;
+  let providerAcknowledgedProposal = null;
+  let providerCredentialMutationId = null;
+  let providerCapabilities = Object.freeze({ cloud: false, lmStudio: false });
+
+  function selectedProviderPath() {
+    return elements.providerForm.elements.namedItem("provider-path")?.value ?? "cloud";
+  }
+
+  function setProviderStatus(message, tone = "") {
+    elements.providerStatus.textContent = message;
+    elements.providerStatus.dataset.tone = tone;
+  }
+
+  function currentProviderProposal() {
+    return providerDisclosureProposal({
+      cloud: selectedProviderPath() === "cloud",
+      connection: providerConnection,
+      connectionId: elements.providerConnectionId.value,
+      definitionId: elements.providerDefinition.value,
+      credentialPresent: elements.providerKey.value !== "",
+    });
+  }
+
+  function hasCurrentProviderAcknowledgement() {
+    const proposal = currentProviderProposal();
+    return proposal !== null && elements.providerAck.checked && providerAcknowledgedProposal === proposal.token;
+  }
+
+  function renderProviderSetup() {
+    const cloud = selectedProviderPath() === "cloud";
+    for (const input of elements.providerForm.querySelectorAll('[name="provider-path"]')) {
+      input.disabled = pending.has("provider") ||
+        (input.value === "cloud" ? !providerCapabilities.cloud : !providerCapabilities.lmStudio);
+    }
+    elements.providerCloudFields.hidden = !cloud;
+    const proposal = currentProviderProposal();
+    const ready = cloud && providerCapabilities.cloud && providerConnection?.state === "enabled" &&
+      providerConnection.id === elements.providerConnectionId.value &&
+      providerConnection.definitionId === elements.providerDefinition.value;
+    const replacing = ready && elements.providerKey.value !== "";
+    const acknowledged = proposal !== null && elements.providerAck.checked && providerAcknowledgedProposal === proposal.token;
+    if (!acknowledged) elements.providerAck.checked = false;
+    elements.providerAckRevision.textContent = proposal === null ? "—" : String(proposal.revision);
+    elements.providerAck.disabled = !cloud;
+    elements.saveProvider.disabled = !cloud || !providerCapabilities.cloud || ready || !acknowledged;
+    elements.replaceProvider.disabled = !ready || !replacing || !acknowledged;
+    elements.loadProviderModels.disabled = !ready;
+    elements.disableProvider.disabled = !ready;
+    elements.deleteProvider.disabled = !providerCapabilities.cloud || providerConnection === null;
+    elements.testProvider.disabled = !ready || elements.providerModel.value === "";
+    elements.bindProvider.disabled = providerBindDisabled({
+      acknowledged, binding: providerBinding, connection: providerConnection, ready,
+      selectedModel: elements.providerModel.value, testedModel: providerTestedModel,
+    });
+  }
+
+  function acceptConnection(connection) {
+    providerConnection = Object.freeze(connection);
+    providerTestedModel = null;
+    providerAcknowledgedProposal = null;
+    providerCredentialMutationId = null;
+    elements.providerAck.checked = false;
+    elements.providerModel.replaceChildren(new Option("Load models, then choose one", ""));
+    elements.providerModel.disabled = true;
+    setProviderStatus(`${connection.definitionId} connection ${connection.id} · revision ${connection.revision} · credential ${connection.credentialStatus}.`);
+    renderProviderSetup();
+  }
+
+  async function loadCurrentProviderConnection() {
+    if (!providerCapabilities.cloud) {
+      providerConnection = null;
+      setProviderStatus(providerCapabilities.lmStudio
+        ? "Cloud setup is unavailable here. Choose LM Studio to bind this room to the active local model."
+        : "Model setup is unavailable in source mode. Start with GREENROOM_PROVIDER=lmstudio for local replies, or use the packaged macOS app for Keychain-backed cloud setup.");
+      renderProviderSetup();
+      return;
+    }
+    const value = await getJson(API_PATHS.providerConnections);
+    const connections = Array.isArray(value?.connections) ? value.connections : [];
+    const requestedId = elements.providerConnectionId.value;
+    const current = connections.find((connection) => connection?.id === requestedId) ?? connections.find((connection) => connection?.state === "enabled") ?? null;
+    if (current !== null) {
+      elements.providerConnectionId.value = current.id;
+      elements.providerDefinition.value = current.definitionId;
+      acceptConnection(current);
+    } else {
+      providerConnection = null;
+      setProviderStatus("No cloud connection loaded.");
+      renderProviderSetup();
+    }
+  }
+
+  async function providerAction(action) {
+    if (pending.has("provider")) {
+      if (action === "local") {
+        elements.providerForm.elements.namedItem("provider-path").value = providerBinding?.execution === "lmstudio" ? "lmstudio" : "cloud";
+        setProviderStatus("Wait for the current model setup action to finish.", "error");
+        renderProviderSetup();
+      }
+      return;
+    }
+    pending.add("provider");
+    renderProviderSetup(); renderControls();
+    try {
+      if (action === "save" || action === "replace") {
+        const submittedKey = elements.providerKey.value;
+        if (submittedKey === "") throw new TypeError("Enter a provider API key.");
+        if (!hasCurrentProviderAcknowledgement()) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        try {
+          const value = action === "save"
+            ? await postJson(API_PATHS.providerConnections, {
+                id: elements.providerConnectionId.value,
+                definitionId: elements.providerDefinition.value,
+                credential: submittedKey,
+                acknowledgedConnectionRevision: 1,
+              }, csrfToken)
+            : await postJson(API_PATHS.providerConnection(providerConnection.id, "replace"), {
+                expectedRevision: providerConnection.revision,
+                credential: submittedKey,
+                acknowledgedConnectionRevision: providerConnection.revision + 1,
+                mutationId: providerCredentialMutationId ??= crypto.randomUUID(),
+              }, csrfToken);
+          acceptConnection(value.connection);
+        } finally {
+          elements.providerKey.value = "";
+        }
+      } else if (action === "models") {
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "models"), {
+          connectionRevision: providerConnection.revision,
+        }, csrfToken);
+        elements.providerModel.replaceChildren(new Option("Choose a concrete model", ""));
+        for (const modelId of value.models ?? []) elements.providerModel.append(new Option(modelId, modelId));
+        elements.providerModel.disabled = false;
+        setProviderStatus(`${value.models?.length ?? 0} models loaded for revision ${providerConnection.revision}. Choose one explicitly.`);
+      } else if (action === "test") {
+        const modelId = elements.providerModel.value;
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "test"), {
+          connectionRevision: providerConnection.revision, modelId,
+        }, csrfToken);
+        providerTestedModel = value.modelId;
+        setProviderStatus(`${value.modelId} tested successfully on connection revision ${value.connectionRevision}.`);
+      } else if (action === "bind") {
+        if (!hasCurrentProviderAcknowledgement()) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        const currentModel = providerBinding?.execution === "cloud" ? providerBinding.modelProfile : null;
+        const nextBindingRevision = (providerBinding?.binding?.revision ?? 0) + 1;
+        const profileId = currentModel?.profile?.id ??
+          `${providerConnection.id.slice(0, 108)}-model-${nextBindingRevision}`;
+        const profilePayload = {
+          connectionId: providerConnection.id, connectionRevision: providerConnection.revision,
+          modelId: elements.providerModel.value, temperature: Number(elements.providerTemperature.value),
+          maxOutputTokens: Number(elements.providerMaxTokens.value), acknowledgedConnectionRevision: providerConnection.revision,
+        };
+        const profile = currentModel === null
+          ? await postJson(API_PATHS.providerModels, { id: profileId, ...profilePayload }, csrfToken)
+          : await postJson(API_PATHS.reviseProviderModel(profileId), {
+              expectedRevision: currentModel.profile.revision, ...profilePayload,
+            }, csrfToken);
+        const currentBinding = providerBinding?.binding ?? null;
+        const value = await postJson(API_PATHS.providerBinding(room.sessionId), {
+          id: currentBinding?.id ?? `${room.sessionId}-provider`, expectedRevision: currentBinding?.revision ?? 0,
+          modelProfileId: profile.modelProfile.profile.id, modelProfileRevision: profile.modelProfile.profile.revision,
+          acknowledgedConnectionRevision: providerConnection.revision,
+        }, csrfToken);
+        providerBinding = Object.freeze({
+          binding: value.binding,
+          execution: value.execution,
+          connectionRevision: providerConnection.revision,
+          modelProfile: profile.modelProfile,
+        });
+        setProviderStatus(`${elements.providerModel.value} is bound to this room at binding revision ${value.binding.revision}.`);
+      } else if (action === "local") {
+        if (!providerCapabilities.lmStudio || room === null) throw new TypeError("LM Studio is not active in this runtime.");
+        const currentBinding = providerBinding?.binding ?? null;
+        const value = await postJson(API_PATHS.providerBinding(room.sessionId), {
+          id: currentBinding?.id ?? `${room.sessionId}-provider`,
+          expectedRevision: currentBinding?.revision ?? 0,
+          provider: "lmstudio",
+        }, csrfToken);
+        providerBinding = Object.freeze({ binding: value.binding, execution: value.execution, modelProfile: value.modelProfile });
+        setProviderStatus(`LM Studio is bound to this room at binding revision ${value.binding.revision}. No cloud provider will be used.`);
+      } else if (action === "disable") {
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "disable"), { expectedRevision: providerConnection.revision }, csrfToken);
+        acceptConnection(value.connection);
+      } else if (action === "delete") {
+        const value = await deleteJson(API_PATHS.deleteProviderConnection(providerConnection.id), { expectedRevision: providerConnection.revision }, csrfToken);
+        acceptConnection(value.connection);
+      }
+    } catch (error) {
+      if (action === "local" && providerBinding?.execution !== "lmstudio") {
+        elements.providerForm.elements.namedItem("provider-path").value = "cloud";
+      }
+      setProviderStatus(error instanceof TypeError ? error.message : userMessage(error), "error");
+    } finally {
+      pending.delete("provider");
+      renderProviderSetup(); renderControls();
+    }
+  }
 
   function node(tag, className, text) {
     const item = document.createElement(tag);
@@ -1536,6 +1792,81 @@ export function startBrowserApp() {
     }
   }
 
+  elements.openProvider.addEventListener("click", async () => {
+    elements.openProvider.setAttribute("aria-expanded", "true");
+    elements.providerDialog.showModal();
+    renderProviderSetup();
+    try {
+      await loadCurrentProviderConnection();
+      if (room !== null && (providerCapabilities.cloud || providerCapabilities.lmStudio)) {
+        try {
+          const value = await getJson(API_PATHS.providerBinding(room.sessionId));
+          providerBinding = Object.freeze({
+            binding: value.binding,
+            execution: value.execution,
+            connectionRevision: value.modelProfile?.profile?.connection?.revision,
+            modelProfile: value.modelProfile,
+          });
+          elements.providerForm.elements.namedItem("provider-path").value = value.execution;
+        } catch {
+          providerBinding = null;
+        }
+      }
+    } catch (error) {
+      setProviderStatus(userMessage(error), "error");
+    }
+    renderProviderSetup();
+  });
+  elements.closeProvider.addEventListener("click", () => elements.providerDialog.close());
+  elements.providerDialog.addEventListener("close", () => {
+    elements.providerKey.value = "";
+    elements.openProvider.setAttribute("aria-expanded", "false");
+    elements.openProvider.focus();
+  });
+  elements.providerForm.addEventListener("submit", (event) => event.preventDefault());
+  const clearProviderAcknowledgement = () => {
+    providerAcknowledgedProposal = null;
+    elements.providerAck.checked = false;
+    renderProviderSetup();
+  };
+  elements.providerKey.addEventListener("input", clearProviderAcknowledgement);
+  elements.providerConnectionId.addEventListener("input", () => {
+    providerCredentialMutationId = null;
+    clearProviderAcknowledgement();
+  });
+  elements.providerForm.addEventListener("change", (event) => {
+    if (event.target.matches('[name="provider-path"]')) {
+      if (event.target.value === "lmstudio") {
+        if (!providerCapabilities.lmStudio) {
+          event.target.checked = false;
+          elements.providerForm.elements.namedItem("provider-path").value = "cloud";
+          setProviderStatus("LM Studio is not active in this runtime.", "error");
+        } else {
+          void providerAction("local");
+        }
+      }
+      renderProviderSetup();
+      return;
+    }
+    if (event.target === elements.providerModel) providerTestedModel = null;
+    if (event.target === elements.providerDefinition) {
+      providerCredentialMutationId = null;
+      clearProviderAcknowledgement();
+    }
+    if (event.target === elements.providerAck) {
+      const proposal = currentProviderProposal();
+      providerAcknowledgedProposal = event.target.checked && proposal !== null ? proposal.token : null;
+    }
+    renderProviderSetup();
+  });
+  elements.saveProvider.addEventListener("click", () => void providerAction("save"));
+  elements.replaceProvider.addEventListener("click", () => void providerAction("replace"));
+  elements.loadProviderModels.addEventListener("click", () => void providerAction("models"));
+  elements.testProvider.addEventListener("click", () => void providerAction("test"));
+  elements.bindProvider.addEventListener("click", () => void providerAction("bind"));
+  elements.disableProvider.addEventListener("click", () => void providerAction("disable"));
+  elements.deleteProvider.addEventListener("click", () => void providerAction("delete"));
+
   elements.form.addEventListener("submit", async (event) => {
     event.preventDefault(); const text = elements.messageText.value;
     if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
@@ -1635,6 +1966,7 @@ export function startBrowserApp() {
           const bootstrap = await getJson(API_PATHS.bootstrap);
           validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
+          providerCapabilities = Object.freeze({ ...bootstrap.capabilities.providerSetup });
           humanProfile = Object.freeze(validateHumanProfileDto(await getJson(API_PATHS.humanProfile)));
           const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
           selectionRevision = state.revision;

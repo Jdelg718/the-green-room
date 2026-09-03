@@ -89,6 +89,17 @@ final class LauncherTests: XCTestCase {
         }
     }
 
+    func testManifestRequiresShippedDatabaseMigrationEight() throws {
+        let bundle = try makeBundle()
+        let payload = bundle.appendingPathComponent("Contents/Resources/runtime/node")
+        try write(Data("payload".utf8), to: payload)
+        let files = [["path": "Contents/Resources/runtime/node", "sha256": sha256(Data("payload".utf8))]]
+        try writeManifest(to: bundle, files: files, databaseMaximum: 3)
+        XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle))
+        try writeManifest(to: bundle, files: files, databaseMaximum: 8)
+        XCTAssertNoThrow(try LauncherPreflight.validate(bundleRoot: bundle))
+    }
+
     func testManifestRejectsUnknownFieldsMalformedPathsAndSymlinks() throws {
         let bundle = try makeBundle()
         let payload = bundle.appendingPathComponent("Contents/Resources/runtime/node")
@@ -287,7 +298,7 @@ final class LauncherTests: XCTestCase {
         return bundle
     }
 
-    private func writeManifest(to bundle: URL, files: [[String: Any]]) throws {
+    private func writeManifest(to bundle: URL, files: [[String: Any]], databaseMaximum: Int = 8) throws {
         let manifest: [String: Any] = [
             "schemaVersion": 1,
             "bundleIdentifier": "net.greenroomai.GreenRoom",
@@ -300,7 +311,7 @@ final class LauncherTests: XCTestCase {
                 "pythonVersion": "3.13.13",
                 "validatorVersion": "0.1.0",
             ],
-            "databaseSchema": ["minimum": 1, "maximum": 3],
+            "databaseSchema": ["minimum": 1, "maximum": databaseMaximum],
             "files": files,
         ]
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])

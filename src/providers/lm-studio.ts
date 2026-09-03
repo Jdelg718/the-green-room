@@ -12,6 +12,25 @@ import {
   readBoundedJsonResponse,
 } from "./response-policy.js";
 
+function awaitAbortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(signal.reason));
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
+
 export function boundedCompleteResponse(content: string): string {
   try {
     return sharedBoundedCompleteResponse(content);
@@ -28,6 +47,7 @@ const DEFAULT_MAX_TOKENS = 512;
 const MAX_MODEL_ID_LENGTH = 128;
 const MAX_TEMPERATURE = 2;
 const MAX_TOKENS = 512;
+const PROBE_TIMEOUT_MS = 5_000;
 const ALLOWED_OPTIONS = new Set([
   "fetch",
   "personaCatalog",
@@ -43,6 +63,10 @@ export interface LMStudioProviderOptions {
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
+}
+
+export interface LMStudioProbe {
+  probe(signal: AbortSignal): Promise<void>;
 }
 
 export function validateLMStudioModel(model: string): string {
@@ -121,6 +145,14 @@ export class LMStudioProvider implements GenerationProvider {
     this.#maxTokens = boundedMaxTokens(options.maxTokens);
   }
 
+  async probe(signal: AbortSignal): Promise<void> {
+    const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(PROBE_TIMEOUT_MS)]);
+    probeSignal.throwIfAborted();
+    await awaitAbortable(this.#complete([
+      { role: "user", content: "Reply briefly to confirm this local model connection." },
+    ], 0, 32, probeSignal), probeSignal);
+  }
+
   async generate(
     invitation: ProviderInvitation,
     signal: AbortSignal,
@@ -140,6 +172,22 @@ export class LMStudioProvider implements GenerationProvider {
         throw new TypeError("LM Studio received an unknown persona");
       }
     }
+    return {
+      kind: "text",
+      text: await this.#complete([
+        { role: "system", content: personaPrompt },
+        { role: "system", content: HOST_RESPONSE_POLICY },
+        { role: "user", content: invitation.prompt },
+      ], this.#temperature, this.#maxTokens, signal),
+    };
+  }
+
+  async #complete(
+    messages: readonly { readonly role: "system" | "user"; readonly content: string }[],
+    temperature: number,
+    maxTokens: number,
+    signal: AbortSignal,
+  ): Promise<string> {
     let response: Response;
     try {
       response = await this.#fetch(ENDPOINT, {
@@ -148,13 +196,9 @@ export class LMStudioProvider implements GenerationProvider {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: this.#model,
-          messages: [
-            { role: "system", content: personaPrompt },
-            { role: "system", content: HOST_RESPONSE_POLICY },
-            { role: "user", content: invitation.prompt },
-          ],
-          temperature: this.#temperature,
-          max_tokens: this.#maxTokens,
+          messages,
+          temperature,
+          max_tokens: maxTokens,
         }),
         signal,
       });
@@ -177,9 +221,6 @@ export class LMStudioProvider implements GenerationProvider {
     }
 
     const body = await readBoundedJsonResponse(response, "LM Studio response was invalid");
-    return {
-      kind: "text",
-      text: extractOpenAICompatibleText(body, "LM Studio response was invalid"),
-    };
+    return extractOpenAICompatibleText(body, "LM Studio response was invalid");
   }
 }

@@ -26,6 +26,8 @@ export interface AppConfig {
 
 export interface RuntimeAssets {
   readonly payloadRoot: string | null;
+  readonly credentialHelperExecutable: string | null;
+  readonly releaseManifestPath: string | null;
   readonly publicDir: string;
   readonly migrationsDir: string;
   readonly historicalCatalogDir: string;
@@ -70,8 +72,11 @@ function personaInspectionExecutable(
   return value;
 }
 
-function generationProvider(value: string | undefined): "mock" | "lmstudio" {
-  if (value === undefined || value === "mock") {
+function generationProvider(value: string | undefined, runtimeMode: RuntimeMode): "mock" | "lmstudio" {
+  if (value === undefined) {
+    return runtimeMode === "packaged-macos" ? "lmstudio" : "mock";
+  }
+  if (value === "mock") {
     return "mock";
   }
   if (value === "lmstudio") {
@@ -142,6 +147,8 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
     }
     return Object.freeze({
       payloadRoot: null,
+      credentialHelperExecutable: null,
+      releaseManifestPath: null,
       publicDir: fileURLToPath(new URL("../public", import.meta.url)),
       migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
       historicalCatalogDir: fileURLToPath(new URL("../personas/historical", import.meta.url)),
@@ -155,6 +162,8 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
   const payloadRoot = absolutePackagePath(environment, "GREENROOM_PACKAGE_PAYLOAD_ROOT");
   const result: RuntimeAssets = {
     payloadRoot,
+    credentialHelperExecutable: join(payloadRoot, "Resources/helpers/GreenRoomCredentialHelper"),
+    releaseManifestPath: join(payloadRoot, "Resources/release-manifest.json"),
     publicDir: absolutePackagePath(environment, "GREENROOM_PUBLIC_DIR"),
     migrationsDir: absolutePackagePath(environment, "GREENROOM_MIGRATIONS_DIR"),
     historicalCatalogDir: absolutePackagePath(environment, "GREENROOM_HISTORICAL_CATALOG_DIR"),
@@ -165,7 +174,7 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
     ),
   };
   for (const [name, path] of Object.entries(result)) {
-    if (name === "payloadRoot") continue;
+    if (name === "payloadRoot" || path === null) continue;
     const child = relative(payloadRoot, path);
     if (child === "" || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
       throw new Error(`${name} must be a strict child of GREENROOM_PACKAGE_PAYLOAD_ROOT`);
@@ -267,7 +276,7 @@ export function loadConfig(
     personaInspectionSafeCwd: join(personaInspectionRoot, "validator-cwd"),
     personaInspectionTempParent: join(personaInspectionRoot, "tmp"),
     port,
-    provider: generationProvider(environment.GREENROOM_PROVIDER),
+    provider: generationProvider(environment.GREENROOM_PROVIDER, runtimeMode),
     runtimeAssets: assets,
     runtimeMode,
   });
