@@ -1,3 +1,7 @@
+import { types } from "node:util";
+
+import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
+
 export const APPROVED_CLOUD_PROVIDER_IDS = Object.freeze([
   "openrouter", "openai", "xai", "groq", "together",
 ] as const);
@@ -42,21 +46,41 @@ export function getProviderDefinition(id: ApprovedCloudProviderId): CloudProvide
 }
 
 function opaqueModelId(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 256 || new TextEncoder().encode(value).byteLength > 256 ||
-      /[\u0000-\u0020\u007f]/u.test(value) || /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/iu.test(value) || value.includes("\\") || value.split("/").some((part) => part === "." || part === "..")) {
+  if (!isBoundedOpaqueModelId(value)) {
     throw new Error("Provider model list was invalid");
   }
   return value;
 }
+
+function ownDataProperty(value: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+    throw new Error("Provider model list was invalid");
+  }
+  return descriptor.value;
+}
+
+function plainObject(value: unknown): object {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    types.isProxy(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    throw new Error("Provider model list was invalid");
+  }
+  return value;
+}
+
 export function parseProviderModels(id: ApprovedCloudProviderId, body: unknown): readonly string[] {
   const definition = getProviderDefinition(id);
   const list = definition.modelParser === "data-id"
-    ? (typeof body === "object" && body !== null && !Array.isArray(body) ? Reflect.get(body, "data") : undefined)
+    ? ownDataProperty(plainObject(body), "data")
     : body;
-  if (!Array.isArray(list) || list.length === 0 || list.length > 1_024) throw new Error("Provider model list was invalid");
+  if (types.isProxy(list) || !Array.isArray(list) || Object.getPrototypeOf(list) !== Array.prototype || list.length === 0 || list.length > 1_024) throw new Error("Provider model list was invalid");
   const models = list.map((entry) => {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new Error("Provider model list was invalid");
-    return opaqueModelId(Reflect.get(entry, "id"));
+    return opaqueModelId(ownDataProperty(plainObject(entry), "id"));
   });
   if (new Set(models).size !== models.length) throw new Error("Provider model list was invalid");
   return Object.freeze(models);

@@ -15,8 +15,8 @@ import {
 export function boundedCompleteResponse(content: string): string {
   try {
     return sharedBoundedCompleteResponse(content);
-  } catch (error) {
-    throw new Error("LM Studio response was invalid", { cause: error });
+  } catch {
+    throw new Error("LM Studio response was invalid");
   }
 }
 

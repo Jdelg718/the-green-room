@@ -1,4 +1,5 @@
 import { types } from "node:util";
+import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
 import type { ProviderResult } from "./provider.js";
 import { decodeBoundedJson, extractOpenAICompatibleText } from "./response-policy.js";
 import { getProviderDefinition, parseProviderModels, type ApprovedCloudProviderId } from "./provider-definitions.js";
@@ -22,6 +23,19 @@ export class CloudProviderError extends Error {
   constructor(code: CloudProviderFailureCode) { super(`Cloud provider ${code}`); this.name = "CloudProviderError"; this.code = code; }
 }
 const MAX_MODEL_LIST_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_TRANSPORT_HEADER_COUNT = 128;
+const MAX_TRANSPORT_HEADER_BYTES = 64 * 1024;
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+const typedArrayByteLength = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "byteLength",
+)?.get;
+
+function intrinsicByteLength(value: object): number {
+  const getter = typedArrayByteLength;
+  if (getter === undefined) throw new Error();
+  return Reflect.apply(getter, value, []) as number;
+}
 
 type Message = Readonly<{ role: "system" | "user" | "assistant"; content: string }>;
 
@@ -40,7 +54,7 @@ function credential(value: unknown): string {
   return value;
 }
 function modelId(value: unknown, openrouter: boolean): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 256 || new TextEncoder().encode(value).byteLength > 256 || /[\u0000-\u0020\u007f]/u.test(value) || value.includes("\\") || /^(?:[a-z][a-z0-9+.-]*:|\/)/iu.test(value)) throw new CloudProviderError("invalid_request");
+  if (!isBoundedOpaqueModelId(value)) throw new CloudProviderError("invalid_request");
   if (openrouter && (
     !/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value) ||
     value.startsWith("openrouter/") ||
@@ -72,6 +86,77 @@ function mappedTransportFailure(error: unknown, signal: AbortSignal): CloudProvi
   return new CloudProviderError("provider_failure");
 }
 
+function responseFields(value: unknown): ReadonlyMap<string, unknown> {
+  if (
+    typeof value !== "object" || value === null || Array.isArray(value) ||
+    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype
+  ) throw new Error();
+  const expected = new Set(["status", "headers", "body"]);
+  const result = new Map<string, unknown>();
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      typeof key !== "string" || !expected.has(key) || descriptor === undefined ||
+      !("value" in descriptor) || !descriptor.enumerable
+    ) throw new Error();
+    result.set(key, descriptor.value);
+  }
+  if (result.size !== expected.size) throw new Error();
+  return result;
+}
+
+function copyResponseHeaders(value: unknown): Readonly<Record<string, string>> {
+  if (
+    typeof value !== "object" || value === null || Array.isArray(value) ||
+    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype
+  ) throw new Error();
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > MAX_TRANSPORT_HEADER_COUNT) throw new Error();
+  let totalBytes = 0;
+  const copied: Record<string, string> = {};
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      typeof key !== "string" || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/u.test(key) ||
+      descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable ||
+      typeof descriptor.value !== "string" ||
+      /[\u0000-\u001f\u007f-\u009f]/u.test(descriptor.value)
+    ) throw new Error();
+    totalBytes += new TextEncoder().encode(key).byteLength;
+    totalBytes += new TextEncoder().encode(descriptor.value).byteLength;
+    if (totalBytes > MAX_TRANSPORT_HEADER_BYTES) throw new Error();
+    Object.defineProperty(copied, key, {
+      value: descriptor.value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Object.freeze(copied);
+}
+
+function copyTransportResponse(value: unknown): CloudTransportResponse {
+  const parsed = responseFields(value);
+  const status = parsed.get("status");
+  if (!Number.isInteger(status) || (status as number) < 100 || (status as number) > 599) {
+    throw new Error();
+  }
+  const body = parsed.get("body");
+  if (
+    typeof body !== "object" || body === null || types.isProxy(body) ||
+    Object.getPrototypeOf(body) !== Uint8Array.prototype
+  ) throw new Error();
+  const bodyByteLength = intrinsicByteLength(body);
+  if (bodyByteLength > MAX_MODEL_LIST_BODY_BYTES) throw new Error();
+  const copiedBody = new Uint8Array(bodyByteLength);
+  Uint8Array.prototype.set.call(copiedBody, body as Uint8Array);
+  return Object.freeze({
+    status: status as number,
+    headers: copyResponseHeaders(parsed.get("headers")),
+    body: copiedBody,
+  });
+}
+
 export class OpenAICompatibleCloudAdapter {
   readonly #definitionId: ApprovedCloudProviderId;
   readonly #transport: CloudTransport;
@@ -83,8 +168,17 @@ export class OpenAICompatibleCloudAdapter {
   }
   async #request(request: CloudTransportRequest, signal: AbortSignal): Promise<CloudTransportResponse> {
     if (signal.aborted) throw new CloudProviderError("canceled");
-    try { return await this.#transport.request(request, signal); }
+    let pending: unknown;
+    try { pending = this.#transport.request(request, signal); }
     catch (error) { throw mappedTransportFailure(error, signal); }
+    if (types.isProxy(pending) || !types.isPromise(pending)) {
+      throw new CloudProviderError("invalid_response");
+    }
+    let resolved: unknown;
+    try { resolved = await pending; }
+    catch (error) { throw mappedTransportFailure(error, signal); }
+    try { return copyTransportResponse(resolved); }
+    catch { throw new CloudProviderError("invalid_response"); }
   }
   async listModels(input: { readonly credential: string }, signal: AbortSignal): Promise<readonly string[]> {
     const parsed = fields(input, ["credential"]); if (parsed.size !== 1) throw new CloudProviderError("invalid_request");

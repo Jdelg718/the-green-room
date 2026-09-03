@@ -58,8 +58,33 @@ test("definition-owned model parsers reject variance and return frozen opaque ID
   for (const body of [
     { data: [] },
     { data: Array.from({ length: 1_025 }, (_, index) => ({ id: `owner/model-${index}` })) },
-    { data: [{ id: "https://example.test/model" }] },
     { data: [{ id: "x".repeat(257) }] },
     { data: [{ id: "owner/model\nsecret" }] },
   ]) assert.throws(() => parseProviderModels("openrouter", body), /invalid/i);
+});
+
+test("definition-owned model parsers preserve bounded model IDs as truly opaque values", () => {
+  const modelIds = [
+    "https://opaque.example/model",
+    "owner//opaque",
+    "owner/../opaque",
+    "owner\\opaque",
+    "/leading/slash",
+    "provider:model:variant",
+  ];
+  assert.deepEqual(
+    parseProviderModels("openai", { data: modelIds.map((id) => ({ id })) }),
+    modelIds,
+  );
+  for (const id of [
+    " owner/model",
+    "owner/model ",
+    "owner model",
+    "owner/model\u0085secret",
+    "owner/model\u00a0secret",
+    "owner/model\u2028secret",
+    "owner/e\u0301",
+  ]) {
+    assert.throws(() => parseProviderModels("openai", { data: [{ id }] }), /invalid/i);
+  }
 });

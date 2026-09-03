@@ -4,6 +4,7 @@ import {
   isApprovedCloudProviderId,
   type ApprovedCloudProviderId,
 } from "./provider-definitions.js";
+import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
 
 const MAX_ID_LENGTH = 128;
 const MAX_REVISION = 2_147_483_647;
@@ -219,17 +220,7 @@ function profileRevisionRef(value: unknown, label: string): ProfileRevisionRef {
 }
 
 function modelId(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > 256 ||
-    new TextEncoder().encode(value).byteLength > 256 ||
-    /[\u0000-\u0020\u007f]/u.test(value) ||
-    /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/iu.test(value) ||
-    value.includes("\\") ||
-    value.includes("//") ||
-    value.split("/").some((segment) => segment === "." || segment === "..")
-  ) {
+  if (!isBoundedOpaqueModelId(value)) {
     throw new TypeError("model profile modelId must be a bounded opaque provider ID");
   }
   return value;

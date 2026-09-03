@@ -318,7 +318,28 @@ test("profile identifiers, revisions, capabilities, and numeric generation optio
     requiredCapabilities: ["chat"],
     generation: { temperature: 1, maxOutputTokens: 512 },
   };
-  for (const modelId of ["", "../model", "owner//model", "https://example.test/model"]){
+  for (const modelId of [
+    "https://opaque.example/model",
+    "owner//opaque",
+    "owner/../opaque",
+    "owner\\opaque",
+    "/leading/slash",
+    "provider:model:variant",
+  ]) {
+    assert.equal(parseModelProfile({ ...modelBase, modelId }).modelId, modelId);
+  }
+  for (const modelId of [
+    "",
+    " owner/model",
+    "owner/model ",
+    "owner model",
+    "owner/model\nsecret",
+    "owner/model\u0085secret",
+    "owner/model\u00a0secret",
+    "owner/model\u2028secret",
+    "owner/e\u0301",
+    "é".repeat(129),
+  ]) {
     assert.throws(() => parseModelProfile({ ...modelBase, modelId }), /modelId/);
   }
   for (const generation of [

@@ -67,12 +67,41 @@ test("OpenRouter rejects missing/automatic/fallback model choices and unknown fi
     { ...base, model: "" }, { ...base, model: "openrouter/auto" }, { ...base, model: "openrouter/auto-beta" },
     { ...base, model: "auto" }, { ...base, model: "~anthropic/claude-sonnet-latest" },
     { ...base, model: "./model" }, { ...base, model: "author/.." },
+    { ...base, model: "https://opaque.example/model" }, { ...base, model: "owner//opaque" },
+    { ...base, model: "owner/../opaque" }, { ...base, model: "owner\\opaque" },
+    { ...base, model: "/leading/slash" }, { ...base, model: "provider:model:variant" },
     { ...base, model: "author/model:nitro" }, { ...base, model: "author/model:floor" },
     { ...base, model: "author/model:online" }, { ...base, model: "author/model:exacto" },
     { ...base, models: ["author/model", "other/model"] }, { ...base, fallback: "other/model" },
     { ...base, url: "https://evil.test" }, { ...base, headers: { authorization: "other" } },
   ]) await assert.rejects(adapter.generate(input as never, new AbortController().signal), /invalid_request/);
   assert.equal(mock.calls.length, 0);
+});
+
+test("non-OpenRouter generation treats model IDs as opaque without changing fixed transport paths", async () => {
+  const opaqueModels = [
+    "https://opaque.example/model",
+    "owner//opaque",
+    "owner/../opaque",
+    "owner\\opaque",
+    "/leading/slash",
+    "provider:model:variant",
+  ];
+  for (const model of opaqueModels) {
+    const mock = mockTransport([
+      response({ model, choices: [{ message: { content: "A complete answer." } }] }),
+    ]);
+    const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openai", transport: mock.transport });
+    assert.deepEqual(await adapter.generate({
+      credential: secret,
+      model,
+      messages: [{ role: "user", content: "Answer." }],
+      temperature: 1,
+      maxOutputTokens: 64,
+    }, new AbortController().signal), { kind: "text", text: "A complete answer." });
+    assert.equal(mock.calls[0]?.hostname, "api.openai.com");
+    assert.equal(mock.calls[0]?.path, "/v1/chat/completions");
+  }
 });
 
 test("OpenRouter model discovery accepts a bounded metadata-rich catalog above the chat body cap", async () => {
@@ -120,6 +149,100 @@ test("hostile transport rejections cannot execute traps or escape sanitization",
     (error: unknown) => error instanceof CloudProviderError && error.code === "provider_failure" && !inspect(error).includes("SENTINEL"),
   );
   assert.equal(traps, 0);
+});
+
+test("malformed resolved transport values become sanitized invalid_response failures", async () => {
+  const sentinel = "SENTINEL_RAW_RESOLVED_RESPONSE";
+  const throwingProperty = (property: "status" | "headers" | "body"): unknown => {
+    const value: Record<string, unknown> = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: encoder.encode("{}"),
+    };
+    Object.defineProperty(value, property, {
+      enumerable: true,
+      get() { throw new Error(`${sentinel}:${property}`); },
+    });
+    return value;
+  };
+  let proxyTraps = 0;
+  let coercions = 0;
+  const coercionTrap = Object.freeze({
+    valueOf() { coercions += 1; throw new Error(`${sentinel}:valueOf`); },
+    toString() { coercions += 1; throw new Error(`${sentinel}:toString`); },
+    toJSON() { coercions += 1; throw new Error(`${sentinel}:toJSON`); },
+    [inspect.custom]() { coercions += 1; throw new Error(`${sentinel}:inspect`); },
+  });
+  const hostileHeaders: Record<string, unknown> = {};
+  Object.defineProperty(hostileHeaders, "content-type", {
+    enumerable: true,
+    get() { throw new Error(`${sentinel}:content-type`); },
+  });
+  const inherited = Object.create({ status: 200, headers: { "content-type": "application/json" }, body: encoder.encode("{}") });
+  const malformed: unknown[] = [
+    undefined,
+    null,
+    [],
+    () => undefined,
+    new Proxy({}, {
+      getPrototypeOf() { proxyTraps += 1; throw new Error(`${sentinel}:proxy-prototype`); },
+      ownKeys() { proxyTraps += 1; throw new Error(`${sentinel}:proxy-keys`); },
+    }),
+    throwingProperty("status"),
+    throwingProperty("headers"),
+    throwingProperty("body"),
+    inherited,
+    { status: coercionTrap, headers: { "content-type": "application/json" }, body: encoder.encode("{}") },
+    { status: 200, headers: hostileHeaders, body: encoder.encode("{}") },
+    { status: 200, headers: { "content-type": coercionTrap }, body: encoder.encode("{}") },
+    { status: 200, headers: undefined, body: encoder.encode("{}") },
+    { status: 200, headers: { "content-type": undefined }, body: encoder.encode("{}") },
+    { status: 200, headers: { "content-type": "x".repeat(70_000) }, body: encoder.encode("{}") },
+    { status: 200, headers: { "content-type": "application/json" }, body: undefined },
+    { status: 200, headers: { "content-type": "application/json" }, body: "{}" },
+    { status: 200, headers: { "content-type": "application/json" }, body: new Uint8Array(2 * 1024 * 1024 + 1) },
+    { status: 200, headers: { "content-type": "application/json" }, body: encoder.encode("{}"), toJSON: coercionTrap.toJSON },
+    { status: 999, headers: { "content-type": "application/json" }, body: encoder.encode("{}") },
+  ];
+  for (const method of ["generate", "listModels"] as const) {
+    for (const reply of malformed) {
+      const adapter = new OpenAICompatibleCloudAdapter({
+        definitionId: "openai",
+        transport: { request: async () => reply as CloudTransportResponse },
+      });
+      const operation = method === "generate"
+        ? adapter.generate({ credential: secret, model: "opaque:model", messages: [{ role: "user", content: "Answer." }], temperature: 1, maxOutputTokens: 64 }, new AbortController().signal)
+        : adapter.listModels({ credential: secret }, new AbortController().signal);
+      await assert.rejects(operation, (error: unknown) => {
+        assert.equal(error instanceof CloudProviderError, true);
+        assert.equal((error as CloudProviderError).code, "invalid_response");
+        assert.equal(Object.hasOwn(error as object, "cause"), false);
+        assert.equal(inspect(error).includes(sentinel), false);
+        return true;
+      });
+    }
+  }
+  assert.equal(proxyTraps, 0);
+  assert.equal(coercions, 0);
+});
+
+test("non-Promise transport return values are rejected without invoking promise-like tricks", async () => {
+  let thenExecutions = 0;
+  const thenable = Object.freeze({
+    then() {
+      thenExecutions += 1;
+      throw new Error("SENTINEL_THENABLE_EXECUTED");
+    },
+  });
+  const adapter = new OpenAICompatibleCloudAdapter({
+    definitionId: "openai",
+    transport: { request: (() => thenable) as never },
+  });
+  await assert.rejects(
+    adapter.listModels({ credential: secret }, new AbortController().signal),
+    (error: unknown) => error instanceof CloudProviderError && error.code === "invalid_response" && !inspect(error).includes("SENTINEL"),
+  );
+  assert.equal(thenExecutions, 0);
 });
 
 test("transport cancellation, timeout, and provider failures become sanitized typed failures", async () => {
