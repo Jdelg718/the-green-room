@@ -26,6 +26,8 @@ export interface AppConfig {
 
 export interface RuntimeAssets {
   readonly payloadRoot: string | null;
+  readonly credentialHelperExecutable: string | null;
+  readonly releaseManifestPath: string | null;
   readonly publicDir: string;
   readonly migrationsDir: string;
   readonly historicalCatalogDir: string;
@@ -142,6 +144,8 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
     }
     return Object.freeze({
       payloadRoot: null,
+      credentialHelperExecutable: null,
+      releaseManifestPath: null,
       publicDir: fileURLToPath(new URL("../public", import.meta.url)),
       migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
       historicalCatalogDir: fileURLToPath(new URL("../personas/historical", import.meta.url)),
@@ -155,6 +159,8 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
   const payloadRoot = absolutePackagePath(environment, "GREENROOM_PACKAGE_PAYLOAD_ROOT");
   const result: RuntimeAssets = {
     payloadRoot,
+    credentialHelperExecutable: join(payloadRoot, "Resources/helpers/GreenRoomCredentialHelper"),
+    releaseManifestPath: join(payloadRoot, "Resources/release-manifest.json"),
     publicDir: absolutePackagePath(environment, "GREENROOM_PUBLIC_DIR"),
     migrationsDir: absolutePackagePath(environment, "GREENROOM_MIGRATIONS_DIR"),
     historicalCatalogDir: absolutePackagePath(environment, "GREENROOM_HISTORICAL_CATALOG_DIR"),
@@ -165,7 +171,7 @@ function runtimeAssets(environment: Environment, mode: RuntimeMode): RuntimeAsse
     ),
   };
   for (const [name, path] of Object.entries(result)) {
-    if (name === "payloadRoot") continue;
+    if (name === "payloadRoot" || path === null) continue;
     const child = relative(payloadRoot, path);
     if (child === "" || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
       throw new Error(`${name} must be a strict child of GREENROOM_PACKAGE_PAYLOAD_ROOT`);

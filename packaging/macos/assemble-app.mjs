@@ -30,6 +30,7 @@ const APP_NAME = "The Green Room.app";
 const MANIFEST_PATH = "Contents/Resources/release-manifest.json";
 const EXECUTABLE_PATHS = new Set([
   "Contents/MacOS/GreenRoomLauncher",
+  "Contents/Resources/helpers/GreenRoomCredentialHelper",
   "Contents/Resources/runtime/node/bin/node",
 ]);
 const FORBIDDEN_ENTITLEMENTS = [
@@ -186,6 +187,7 @@ function validatePlistAndEntitlements(inputs, identity) {
 function buildCopyPlan(inputs) {
   const single = [
     [inputs.launcher, "Contents/MacOS/GreenRoomLauncher", true],
+    [inputs.credentialHelper, "Contents/Resources/helpers/GreenRoomCredentialHelper", true],
     [inputs.nodeExecutable, "Contents/Resources/runtime/node/bin/node", true],
     [inputs.nodeLicense, "Contents/Resources/licenses/Node-LICENSE.txt", false],
     [inputs.projectLicense, "Contents/Resources/licenses/GreenRoom-LICENSE.txt", false],
@@ -269,6 +271,21 @@ function sanitizeLauncherRpaths(path) {
   }
   const forbidden = machoRpaths(path).find((rpath) => isAbsolute(rpath) && rpath !== "/usr/lib/swift");
   if (forbidden !== undefined) fail("launcher_host_rpath", forbidden);
+}
+
+function verifyCredentialHelperMacho(path, allowSynthetic = false) {
+  const bytes = readFileSync(path);
+  const macho = bytes.length >= 4 && [0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(bytes.readUInt32LE(0));
+  if (!macho) {
+    if (allowSynthetic && process.env.NODE_TEST_CONTEXT !== undefined) return;
+    fail("credential_helper_arch_invalid", path);
+  }
+  if (!isThinArm64Macho(path)) fail("credential_helper_arch_invalid", path);
+  if (machoRpaths(path).some((rpath) => isAbsolute(rpath) && rpath !== "/usr/lib/swift")) fail("credential_helper_host_rpath", path);
+  verifyAdhocMacho(path);
+  const details = spawnSync("/usr/bin/codesign", ["-dvv", "--", path], { encoding: "utf8", stdio: "pipe", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" } });
+  const output = `${details.stdout ?? ""}\n${details.stderr ?? ""}`;
+  if (details.status !== 0 || !output.includes("Identifier=net.greenroomai.GreenRoom.credential-helper")) fail("credential_helper_requirement_invalid", path);
 }
 
 function normalizeDirectories(root) {
@@ -382,11 +399,14 @@ function chmodTreeForCleanup(path) {
   if (details.isDirectory()) for (const name of readdirSync(path)) chmodTreeForCleanup(join(path, name));
 }
 
-export function verifyUnsignedApp(appPath) {
+export function verifyUnsignedApp(appPath, { allowSyntheticCredentialHelper = false } = {}) {
   const inventory = inventoryApp(appPath);
   const manifestPath = join(appPath, MANIFEST_PATH);
   const manifest = validateReleaseManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
   const actual = inventory.filter((entry) => entry.path !== MANIFEST_PATH);
+  const helpers = actual.filter((entry) => entry.path === "Contents/Resources/helpers/GreenRoomCredentialHelper");
+  if (helpers.length !== 1 || helpers[0].mode !== 0o555) fail("credential_helper_inventory_invalid", "expected exactly one immutable helper");
+  verifyCredentialHelperMacho(join(appPath, helpers[0].path), allowSyntheticCredentialHelper);
   const declared = new Map(manifest.files.map((entry) => [entry.path, entry.sha256]));
   for (const entry of actual) {
     if (!declared.has(entry.path)) fail("payload_undeclared_file", entry.path);
@@ -427,6 +447,8 @@ export function assembleUnsignedApp(options) {
         const forbidden = machoRpaths(destination).find((rpath) => isAbsolute(rpath) && rpath !== "/usr/lib/swift");
         if (forbidden !== undefined) fail("launcher_host_rpath", forbidden);
         if (isThinArm64Macho(destination)) verifyAdhocMacho(destination);
+      } else if (item.destination === "Contents/Resources/helpers/GreenRoomCredentialHelper") {
+        verifyCredentialHelperMacho(destination, identity.allowSyntheticCredentialHelperForTests === true);
       } else if (item.destination.endsWith(".node")) {
         normalizeAndAdhocSignMacho(destination, item.destination, { strip: true });
       }
@@ -455,7 +477,7 @@ export function assembleUnsignedApp(options) {
     writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     normalizeFile(manifestFile, false);
     normalizeDirectories(stage);
-    const verifiedStage = verifyUnsignedApp(stage);
+    const verifiedStage = verifyUnsignedApp(stage, { allowSyntheticCredentialHelper: identity.allowSyntheticCredentialHelperForTests === true });
     inventory = verifiedStage.inventory;
     hooks.beforePublish?.({ destination: output.destination, stage, stageName });
     hooks.beforeSourcePreflight?.({ destination: output.destination, stage, stageName });
@@ -580,6 +602,7 @@ function realCli(argv) {
       outputParent: args["output-parent"],
       inputs: {
         launcher: preparedLauncher,
+        credentialHelper: join(dirname(args.launcher), "GreenRoomCredentialHelper"),
         nodeExecutable,
         nodeLicense: join(runtimeRoot, "LICENSE"),
         appDist,

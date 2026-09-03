@@ -68,7 +68,7 @@ export function verifyAdhocMacho(path) {
  * metadata. This is not Developer ID signing, notarization, release
  * authorization, or the protected release-signing task.
  */
-export function normalizeAndAdhocSignMacho(path, componentName, { strip = false } = {}) {
+export function normalizeAndAdhocSignMacho(path, componentName, { strip = false, identifier = signatureIdentifier(componentName) } = {}) {
   if (!isThinArm64Macho(path)) fail("macho_format_invalid", path);
   chmodSync(path, 0o755);
   run("/usr/bin/codesign", ["--remove-signature", path]);
@@ -76,9 +76,9 @@ export function normalizeAndAdhocSignMacho(path, componentName, { strip = false 
   const uuid = normalizeMachoUUID(path);
   run("/usr/bin/codesign", [
     "--force", "--sign", "-", "--timestamp=none",
-    "--identifier", signatureIdentifier(componentName),
+    "--identifier", identifier,
     path,
   ]);
   verifyAdhocMacho(path);
-  return { uuid, signature: "adhoc", identifier: signatureIdentifier(componentName) };
+  return { uuid, signature: "adhoc", identifier };
 }
