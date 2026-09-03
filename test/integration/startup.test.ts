@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -118,8 +118,12 @@ function realPackagedFixture(root: string, mutate?: (fixture: {
   const validatorExecutable = join(validator, "greenroom-persona");
   copyFileSync(fileURLToPath(new URL("../../../.venv/bin/greenroom-persona", import.meta.url)), validatorExecutable);
   chmodSync(validatorExecutable, 0o555);
-  writeFileSync(helper, "#!/bin/sh\nexit 20\n", { mode: 0o555 });
-  writeFileSync(manifest, "{}\n", { mode: 0o444 });
+  const helperBytes = Buffer.from("#!/bin/sh\nexit 20\n");
+  writeFileSync(helper, helperBytes, { mode: 0o555 });
+  writeFileSync(manifest, `${JSON.stringify({ files: [{
+    path: "Contents/Resources/helpers/GreenRoomCredentialHelper",
+    sha256: createHash("sha256").update(helperBytes).digest("hex"),
+  }] })}\n`, { mode: 0o444 });
   const fixture = { payloadRoot, appDist, validatorExecutable };
   mutate?.(fixture);
   makePayloadReadOnly(payloadRoot);

@@ -87,6 +87,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? {}
       : { personaCatalog: options.personaCatalog }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(options.providerCredentials === undefined
+      ? {}
+      : { providerCredentials: options.providerCredentials }),
+    ...(options.cloudTransport === undefined
+      ? {}
+      : { cloudTransport: options.cloudTransport }),
     ...(options.personaPackInspectionService === undefined
       ? {}
       : { personaPackInspectionService: options.personaPackInspectionService }),

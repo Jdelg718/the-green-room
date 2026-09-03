@@ -9,6 +9,9 @@ import type {
 } from "fastify";
 
 import type { GenerationProvider } from "../providers/provider.js";
+import type { CredentialStore } from "../providers/credential-store.js";
+import type { CloudTransport } from "../providers/openai-compatible-cloud.js";
+import { createBoundProviderResolver } from "../providers/select-provider.js";
 import {
   InspectionHttpError,
   registerPersonaPackInspectionRoute,
@@ -26,6 +29,7 @@ import {
   ROOM_SERVICE_LIMITS,
   RoomService,
 } from "../runtime/room-service.js";
+import { registerProviderRoutes } from "./provider-routes.js";
 
 const JSON_BODY_LIMIT = 64 * 1024;
 const EVENT_REPLAY_LIMIT = 100;
@@ -107,6 +111,8 @@ export interface ApiRoutesOptions {
   readonly onSseQueueSizeChange?: (size: number) => void;
   readonly onSseResponse?: (response: ServerResponse) => void;
   readonly provider?: GenerationProvider;
+  readonly providerCredentials?: CredentialStore;
+  readonly cloudTransport?: CloudTransport;
   readonly personaPackInspectionService?: PersonaPackInspectionHttpService;
   readonly inspectionDeadlineMs?: number;
   readonly sseHeartbeatMs?: number;
@@ -638,10 +644,28 @@ export function registerApiRoutes(
       return;
     }
     const database = options.database;
+    if ((options.providerCredentials === undefined) !== (options.cloudTransport === undefined)) {
+      throw new TypeError("provider credentials and cloud transport must be configured together");
+    }
+    if (options.providerCredentials !== undefined && options.cloudTransport !== undefined) {
+      registerProviderRoutes(api, {
+        allowedOrigin: options.allowedOrigin,
+        database,
+        credentialStore: options.providerCredentials,
+        cloudTransport: options.cloudTransport,
+      });
+    }
     const service = new RoomService({
       database,
       provider: options.provider,
       personaCatalog: options.personaCatalog?.personas ?? [],
+      ...(options.providerCredentials !== undefined && options.cloudTransport !== undefined ? {
+        providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
+        providerResolver: createBoundProviderResolver({
+          credentialStore: options.providerCredentials,
+          cloudTransport: options.cloudTransport,
+        }),
+      } : {}),
     });
     const streams = new SseClients({
       database,

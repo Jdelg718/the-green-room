@@ -18,6 +18,24 @@ export const API_PATHS = Object.freeze({
   rooms: "/api/rooms",
   currentRoom: "/api/rooms/current",
   cast: "/api/rooms",
+  providerConnections: "/api/providers/connections",
+  providerModels: "/api/providers/model-profiles",
+  reviseProviderModel(modelProfileId) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(modelProfileId)) throw new TypeError("Invalid model profile");
+    return sameOriginPath(`/api/providers/model-profiles/${modelProfileId}/revise`);
+  },
+  providerConnection(connectionId, action) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(connectionId) || !["replace", "disable", "models", "test"].includes(action)) throw new TypeError("Invalid provider action");
+    return sameOriginPath(`/api/providers/connections/${connectionId}/${action}`);
+  },
+  deleteProviderConnection(connectionId) {
+    if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(connectionId)) throw new TypeError("Invalid provider connection");
+    return sameOriginPath(`/api/providers/connections/${connectionId}`);
+  },
+  providerBinding(roomId) {
+    if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
+    return sameOriginPath(`/api/rooms/${roomId}/provider-binding`);
+  },
   room(roomId) {
     if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid room id");
     return sameOriginPath(`/api/rooms/${roomId}`);
@@ -789,6 +807,16 @@ async function postJson(path, body, csrfToken, signal) {
   }));
 }
 
+async function deleteJson(path, body, csrfToken, signal) {
+  return readJson(await fetch(sameOriginPath(path), {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(body),
+    signal,
+  }));
+}
+
 export function createRoomSelectionFence({ requestSelection, readCurrentRoom, commitRoom, onBusyChange = () => {} }) {
   let generation = 0;
   let activeController = null;
@@ -1012,6 +1040,13 @@ export function startBrowserApp() {
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
+    providerDialog: byId("provider-setup"), openProvider: byId("open-provider-setup"), closeProvider: byId("close-provider-setup"),
+    providerForm: byId("provider-setup-form"), providerCloudFields: byId("cloud-provider-fields"), providerDefinition: byId("provider-definition"),
+    providerConnectionId: byId("provider-connection-id"), providerKey: byId("provider-key"), providerModel: byId("provider-model"),
+    providerTemperature: byId("provider-temperature"), providerMaxTokens: byId("provider-max-tokens"), providerAck: byId("provider-disclosure-ack"),
+    providerAckRevision: byId("provider-ack-revision"), providerStatus: byId("provider-revision-status"),
+    saveProvider: byId("save-provider-connection"), replaceProvider: byId("replace-provider-credential"), loadProviderModels: byId("load-provider-models"),
+    testProvider: byId("test-provider-model"), bindProvider: byId("bind-provider-model"), disableProvider: byId("disable-provider-connection"), deleteProvider: byId("delete-provider-connection"),
   };
   let csrfToken = "";
   let humanProfile = Object.freeze({ emoji: HUMAN_EMOJIS[0], hasCustomAvatar: false, avatarVersion: null });
@@ -1027,6 +1062,144 @@ export function startBrowserApp() {
   let detailsSlug = null;
   let detailsTrigger = null;
   const pending = new Set();
+  let providerConnection = null;
+  let providerTestedModel = null;
+  let providerBinding = null;
+
+  function selectedProviderPath() {
+    return elements.providerForm.elements.namedItem("provider-path")?.value ?? "cloud";
+  }
+
+  function setProviderStatus(message, tone = "") {
+    elements.providerStatus.textContent = message;
+    elements.providerStatus.dataset.tone = tone;
+  }
+
+  function renderProviderSetup() {
+    const cloud = selectedProviderPath() === "cloud";
+    elements.providerCloudFields.hidden = !cloud;
+    const ready = cloud && providerConnection?.state === "enabled";
+    const replacing = ready && elements.providerKey.value !== "";
+    const revision = ready ? providerConnection.revision + (replacing ? 1 : 0) : 1;
+    elements.providerAckRevision.textContent = cloud ? String(revision) : "—";
+    elements.providerAck.disabled = !cloud;
+    elements.saveProvider.disabled = !cloud || ready || !elements.providerAck.checked;
+    elements.replaceProvider.disabled = !ready || !replacing || !elements.providerAck.checked;
+    elements.loadProviderModels.disabled = !ready;
+    elements.disableProvider.disabled = !ready;
+    elements.deleteProvider.disabled = providerConnection === null;
+    elements.testProvider.disabled = !ready || elements.providerModel.value === "";
+    elements.bindProvider.disabled = !ready || providerTestedModel !== elements.providerModel.value ||
+      !elements.providerAck.checked || providerBinding?.connectionRevision === revision;
+  }
+
+  function acceptConnection(connection) {
+    providerConnection = Object.freeze(connection);
+    providerTestedModel = null;
+    elements.providerAck.checked = false;
+    elements.providerModel.replaceChildren(new Option("Load models, then choose one", ""));
+    elements.providerModel.disabled = true;
+    setProviderStatus(`${connection.definitionId} connection ${connection.id} · revision ${connection.revision} · credential ${connection.credentialStatus}.`);
+    renderProviderSetup();
+  }
+
+  async function loadCurrentProviderConnection() {
+    const value = await getJson(API_PATHS.providerConnections);
+    const connections = Array.isArray(value?.connections) ? value.connections : [];
+    const requestedId = elements.providerConnectionId.value;
+    const current = connections.find((connection) => connection?.id === requestedId) ?? connections.find((connection) => connection?.state === "enabled") ?? null;
+    if (current !== null) {
+      elements.providerConnectionId.value = current.id;
+      elements.providerDefinition.value = current.definitionId;
+      acceptConnection(current);
+    } else {
+      providerConnection = null;
+      setProviderStatus("No cloud connection loaded.");
+      renderProviderSetup();
+    }
+  }
+
+  async function providerAction(action) {
+    if (pending.has("provider")) return;
+    pending.add("provider");
+    renderProviderSetup();
+    try {
+      if (action === "save" || action === "replace") {
+        const submittedKey = elements.providerKey.value;
+        if (submittedKey === "") throw new TypeError("Enter a provider API key.");
+        if (!elements.providerAck.checked) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        try {
+          const value = action === "save"
+            ? await postJson(API_PATHS.providerConnections, {
+                id: elements.providerConnectionId.value,
+                definitionId: elements.providerDefinition.value,
+                credential: submittedKey,
+                acknowledgedConnectionRevision: 1,
+              }, csrfToken)
+            : await postJson(API_PATHS.providerConnection(providerConnection.id, "replace"), {
+                expectedRevision: providerConnection.revision,
+                credential: submittedKey,
+                acknowledgedConnectionRevision: providerConnection.revision + 1,
+              }, csrfToken);
+          acceptConnection(value.connection);
+        } finally {
+          elements.providerKey.value = "";
+        }
+      } else if (action === "models") {
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "models"), {
+          connectionRevision: providerConnection.revision,
+        }, csrfToken);
+        elements.providerModel.replaceChildren(new Option("Choose a concrete model", ""));
+        for (const modelId of value.models ?? []) elements.providerModel.append(new Option(modelId, modelId));
+        elements.providerModel.disabled = false;
+        setProviderStatus(`${value.models?.length ?? 0} models loaded for revision ${providerConnection.revision}. Choose one explicitly.`);
+      } else if (action === "test") {
+        const modelId = elements.providerModel.value;
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "test"), {
+          connectionRevision: providerConnection.revision, modelId,
+        }, csrfToken);
+        providerTestedModel = value.modelId;
+        setProviderStatus(`${value.modelId} tested successfully on connection revision ${value.connectionRevision}.`);
+      } else if (action === "bind") {
+        if (!elements.providerAck.checked) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        const currentModel = providerBinding?.modelProfile ?? null;
+        const profileId = currentModel?.profile?.id ?? `${providerConnection.id}-model`;
+        const profilePayload = {
+          connectionId: providerConnection.id, connectionRevision: providerConnection.revision,
+          modelId: elements.providerModel.value, temperature: Number(elements.providerTemperature.value),
+          maxOutputTokens: Number(elements.providerMaxTokens.value), acknowledgedConnectionRevision: providerConnection.revision,
+        };
+        const profile = currentModel === null
+          ? await postJson(API_PATHS.providerModels, { id: profileId, ...profilePayload }, csrfToken)
+          : await postJson(API_PATHS.reviseProviderModel(profileId), {
+              expectedRevision: currentModel.profile.revision, ...profilePayload,
+            }, csrfToken);
+        const currentBinding = providerBinding?.binding ?? null;
+        const value = await postJson(API_PATHS.providerBinding(room.sessionId), {
+          id: currentBinding?.id ?? `${room.sessionId}-provider`, expectedRevision: currentBinding?.revision ?? 0,
+          modelProfileId: profile.modelProfile.profile.id, modelProfileRevision: profile.modelProfile.profile.revision,
+          acknowledgedConnectionRevision: providerConnection.revision,
+        }, csrfToken);
+        providerBinding = Object.freeze({
+          binding: value.binding,
+          connectionRevision: providerConnection.revision,
+          modelProfile: profile.modelProfile,
+        });
+        setProviderStatus(`${elements.providerModel.value} is bound to this room at binding revision ${value.binding.revision}.`);
+      } else if (action === "disable") {
+        const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "disable"), { expectedRevision: providerConnection.revision }, csrfToken);
+        acceptConnection(value.connection);
+      } else if (action === "delete") {
+        const value = await deleteJson(API_PATHS.deleteProviderConnection(providerConnection.id), { expectedRevision: providerConnection.revision }, csrfToken);
+        acceptConnection(value.connection);
+      }
+    } catch (error) {
+      setProviderStatus(error instanceof TypeError ? error.message : userMessage(error), "error");
+    } finally {
+      pending.delete("provider");
+      renderProviderSetup();
+    }
+  }
 
   function node(tag, className, text) {
     const item = document.createElement(tag);
@@ -1535,6 +1708,60 @@ export function startBrowserApp() {
       if (!lifecycle.isDisposed) { renderBuilder(); renderControls(); }
     }
   }
+
+  elements.openProvider.addEventListener("click", async () => {
+    elements.openProvider.setAttribute("aria-expanded", "true");
+    elements.providerDialog.showModal();
+    renderProviderSetup();
+    try {
+      await loadCurrentProviderConnection();
+      if (room !== null) {
+        try {
+          const value = await getJson(API_PATHS.providerBinding(room.sessionId));
+          providerBinding = Object.freeze({
+            binding: value.binding,
+            connectionRevision: value.modelProfile?.profile?.connection?.revision,
+            modelProfile: value.modelProfile,
+          });
+        } catch {
+          providerBinding = null;
+        }
+      }
+    } catch (error) {
+      setProviderStatus(userMessage(error), "error");
+    }
+    renderProviderSetup();
+  });
+  elements.closeProvider.addEventListener("click", () => elements.providerDialog.close());
+  elements.providerDialog.addEventListener("close", () => {
+    elements.providerKey.value = "";
+    elements.openProvider.setAttribute("aria-expanded", "false");
+    elements.openProvider.focus();
+  });
+  elements.providerForm.addEventListener("submit", (event) => event.preventDefault());
+  elements.providerKey.addEventListener("input", () => {
+    elements.providerAck.checked = false;
+    renderProviderSetup();
+  });
+  elements.providerForm.addEventListener("change", (event) => {
+    if (event.target.matches('[name="provider-path"]')) {
+      renderProviderSetup();
+      return;
+    }
+    if (event.target === elements.providerModel) providerTestedModel = null;
+    if (event.target === elements.providerAck &&
+        elements.providerAckRevision.textContent !== String(providerConnection?.revision ?? "")) {
+      elements.providerAck.checked = false;
+    }
+    renderProviderSetup();
+  });
+  elements.saveProvider.addEventListener("click", () => void providerAction("save"));
+  elements.replaceProvider.addEventListener("click", () => void providerAction("replace"));
+  elements.loadProviderModels.addEventListener("click", () => void providerAction("models"));
+  elements.testProvider.addEventListener("click", () => void providerAction("test"));
+  elements.bindProvider.addEventListener("click", () => void providerAction("bind"));
+  elements.disableProvider.addEventListener("click", () => void providerAction("disable"));
+  elements.deleteProvider.addEventListener("click", () => void providerAction("delete"));
 
   elements.form.addEventListener("submit", async (event) => {
     event.preventDefault(); const text = elements.messageText.value;
