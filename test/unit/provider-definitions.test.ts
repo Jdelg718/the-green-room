@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import vm from "node:vm";
 
 import {
   APPROVED_CLOUD_PROVIDER_IDS,
@@ -87,4 +88,89 @@ test("definition-owned model parsers preserve bounded model IDs as truly opaque 
   ]) {
     assert.throws(() => parseProviderModels("openai", { data: [{ id }] }), /invalid/i);
   }
+});
+
+test("model parsers reject hostile list descriptors without executing traps or getters", () => {
+  const sentinel = "SENTINEL_HOSTILE_MODEL_LIST";
+  let executions = 0;
+  const valid = { id: "owner/model" };
+  const proxyArray = new Proxy([valid], {
+    getPrototypeOf() { executions += 1; throw new Error(`${sentinel}:prototype`); },
+    ownKeys() { executions += 1; throw new Error(`${sentinel}:keys`); },
+    get() { executions += 1; throw new Error(`${sentinel}:get`); },
+  });
+  const indexedGetter = [valid];
+  Object.defineProperty(indexedGetter, "0", {
+    enumerable: true,
+    get() { executions += 1; throw new Error(`${sentinel}:index`); },
+  });
+  const entryGetter: Record<string, unknown> = {};
+  Object.defineProperty(entryGetter, "id", {
+    enumerable: true,
+    get() { executions += 1; throw new Error(`${sentinel}:id`); },
+  });
+  const entryProxy = new Proxy(valid, {
+    getPrototypeOf() { executions += 1; throw new Error(`${sentinel}:entry-prototype`); },
+    ownKeys() { executions += 1; throw new Error(`${sentinel}:entry-keys`); },
+  });
+  const sparse = new Array(1);
+  const extraString = [valid];
+  Object.defineProperty(extraString, "extra", { value: sentinel });
+  const extraSymbol = [valid];
+  Object.defineProperty(extraSymbol, Symbol(sentinel), { value: sentinel });
+  const inheritedIndex = new Array(1);
+  Object.setPrototypeOf(inheritedIndex, Object.create(Array.prototype, { 0: { value: valid } }));
+
+  for (const [provider, wrap] of [
+    ["together", (list: unknown) => list],
+    ["openrouter", (list: unknown) => ({ data: list })],
+  ] as const) {
+    for (const list of [proxyArray, indexedGetter, [entryGetter], [entryProxy], sparse, extraString, extraSymbol, inheritedIndex]) {
+      assert.throws(
+        () => parseProviderModels(provider, wrap(list)),
+        (error: unknown) => error instanceof Error && error.message === "Provider model list was invalid" && !String(error).includes(sentinel),
+      );
+    }
+  }
+  const accessorWrapper: Record<string, unknown> = {};
+  Object.defineProperty(accessorWrapper, "data", {
+    enumerable: true,
+    get() { executions += 1; throw new Error(`${sentinel}:wrapper-data`); },
+  });
+  const decoratedWrapper: Record<PropertyKey, unknown> = { data: [valid] };
+  decoratedWrapper[Symbol(sentinel)] = sentinel;
+  for (const body of [accessorWrapper, decoratedWrapper]) {
+    assert.throws(
+      () => parseProviderModels("openrouter", body),
+      (error: unknown) => error instanceof Error && error.message === "Provider model list was invalid",
+    );
+  }
+  assert.equal(executions, 0);
+});
+
+test("model parsers accept frozen cross-realm plain catalogs and reject hostile cross-realm values", () => {
+  const validNested = vm.runInNewContext("Object.freeze({ data: Object.freeze([Object.freeze({ id: 'owner/model', metadata: Object.freeze({ ok: true }) })]) })") as unknown;
+  const validTopLevel = vm.runInNewContext("Object.freeze([Object.freeze({ id: 'owner/model' })])") as unknown;
+  assert.deepEqual(parseProviderModels("openai", validNested), ["owner/model"]);
+  assert.deepEqual(parseProviderModels("together", validTopLevel), ["owner/model"]);
+
+  const tracker = { executions: 0 };
+  const hostile = vm.runInNewContext(`(() => {
+    const accessor = [];
+    Object.defineProperty(accessor, "0", { enumerable: true, get() { tracker.executions += 1; throw new Error("getter"); } });
+    Object.defineProperty(accessor, "length", { value: 1 });
+    const proxied = new Proxy([{ id: "owner/model" }], {
+      getPrototypeOf() { tracker.executions += 1; throw new Error("prototype"); },
+      ownKeys() { tracker.executions += 1; throw new Error("keys"); }
+    });
+    class Catalog extends Array {}
+    return [accessor, proxied, new Catalog({ id: "owner/model" })];
+  })()`, { tracker }) as unknown[];
+  for (const value of hostile) {
+    assert.throws(
+      () => parseProviderModels("together", value),
+      (error: unknown) => error instanceof Error && error.message === "Provider model list was invalid",
+    );
+  }
+  assert.equal(tracker.executions, 0);
 });

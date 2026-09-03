@@ -3,6 +3,7 @@ import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
 import type { ProviderResult } from "./provider.js";
 import { decodeBoundedJson, extractOpenAICompatibleText } from "./response-policy.js";
 import { getProviderDefinition, parseProviderModels, type ApprovedCloudProviderId } from "./provider-definitions.js";
+import { isOrdinaryDataArray, isOrdinaryDataObject } from "./plain-data.js";
 
 export interface CloudTransportRequest {
   readonly definitionId: ApprovedCloudProviderId;
@@ -46,7 +47,7 @@ function intrinsicByteLength(value: object): number {
 type Message = Readonly<{ role: "system" | "user" | "assistant"; content: string }>;
 
 function fields(value: unknown, allowed: readonly string[]): Map<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value) || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new CloudProviderError("invalid_request");
+  if (!isOrdinaryDataObject(value)) throw new CloudProviderError("invalid_request");
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const result = new Map<string, unknown>();
   for (const key of Reflect.ownKeys(descriptors)) {
@@ -70,7 +71,7 @@ function modelId(value: unknown, openrouter: boolean): string {
   return value;
 }
 function messages(value: unknown): readonly Message[] {
-  if (typeof value !== "object" || value === null || types.isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new CloudProviderError("invalid_request");
+  if (!isOrdinaryDataArray(value)) throw new CloudProviderError("invalid_request");
   const descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
   const lengthDescriptor = descriptors.length;
   const length = lengthDescriptor !== undefined && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
@@ -137,10 +138,7 @@ function mappedTransportFailure(error: unknown, signal: AbortSignal): CloudProvi
 }
 
 function responseFields(value: unknown): ReadonlyMap<string, unknown> {
-  if (
-    typeof value !== "object" || value === null || Array.isArray(value) ||
-    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype
-  ) throw new Error();
+  if (!isOrdinaryDataObject(value)) throw new Error();
   const expected = new Set(["status", "headers", "body"]);
   const result = new Map<string, unknown>();
   for (const key of Reflect.ownKeys(value)) {
@@ -156,10 +154,7 @@ function responseFields(value: unknown): ReadonlyMap<string, unknown> {
 }
 
 function copyResponseHeaders(value: unknown): Readonly<Record<string, string>> {
-  if (
-    typeof value !== "object" || value === null || Array.isArray(value) ||
-    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype
-  ) throw new Error();
+  if (!isOrdinaryDataObject(value)) throw new Error();
   const keys = Reflect.ownKeys(value);
   if (keys.length > MAX_TRANSPORT_HEADER_COUNT) throw new Error();
   let totalBytes = 0;

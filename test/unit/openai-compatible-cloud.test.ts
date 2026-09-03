@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import { test } from "node:test";
+import vm from "node:vm";
 
 import {
   CLOUD_TRANSPORT_TIMEOUT,
@@ -102,6 +103,52 @@ test("non-OpenRouter generation treats model IDs as opaque without changing fixe
     assert.equal(mock.calls[0]?.hostname, "api.openai.com");
     assert.equal(mock.calls[0]?.path, "/v1/chat/completions");
   }
+});
+
+test("deeply frozen cross-realm plain generate input produces the exact fixed request", async () => {
+  const mock = mockTransport([
+    response({ model: "opaque:model", choices: [{ message: { content: "A complete answer." } }] }),
+  ]);
+  const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openai", transport: mock.transport });
+  const input = vm.runInNewContext(`Object.freeze({
+    credential: "${secret}",
+    model: "opaque:model",
+    messages: Object.freeze([Object.freeze({ role: "user", content: "Answer." })]),
+    temperature: 1,
+    maxOutputTokens: 64
+  })`) as unknown;
+  assert.deepEqual(await adapter.generate(input, new AbortController().signal), { kind: "text", text: "A complete answer." });
+  const call = mock.calls[0];
+  assert.deepEqual({ ...call, body: JSON.parse(new TextDecoder().decode(call?.body)) }, {
+    definitionId: "openai", scheme: "https", hostname: "api.openai.com", port: 443,
+    method: "POST", path: "/v1/chat/completions",
+    headers: { accept: "application/json", authorization: `${"Be" + "arer"} ${secret}`, "content-type": "application/json" },
+    body: { model: "opaque:model", messages: [{ role: "user", content: "Answer." }], temperature: 1, max_completion_tokens: 64, stream: false },
+  });
+});
+
+test("hostile cross-realm generate inputs are rejected without executing hooks", async () => {
+  const tracker = { executions: 0 };
+  const hostile = vm.runInNewContext(`(() => {
+    const base = { credential: "${secret}", model: "opaque:model", messages: [{ role: "user", content: "Answer." }], temperature: 1, maxOutputTokens: 64 };
+    const accessor = { ...base };
+    Object.defineProperty(accessor, "model", { enumerable: true, get() { tracker.executions += 1; throw new Error("getter"); } });
+    const proxied = new Proxy(base, {
+      getPrototypeOf() { tracker.executions += 1; throw new Error("prototype"); },
+      ownKeys() { tracker.executions += 1; throw new Error("keys"); }
+    });
+    class GenerateInput { constructor() { Object.assign(this, base); } }
+    return [accessor, proxied, new GenerateInput()];
+  })()`, { tracker }) as unknown[];
+  const mock = mockTransport([]);
+  const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openai", transport: mock.transport });
+  for (const input of hostile) {
+    await assert.rejects(adapter.generate(input, new AbortController().signal), (error: unknown) => (
+      error instanceof CloudProviderError && error.code === "invalid_request"
+    ));
+  }
+  assert.equal(tracker.executions, 0);
+  assert.equal(mock.calls.length, 0);
 });
 
 test("OpenRouter model discovery accepts a bounded metadata-rich catalog above the chat body cap", async () => {

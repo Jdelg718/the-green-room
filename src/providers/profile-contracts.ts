@@ -1,10 +1,9 @@
-import { types } from "node:util";
-
 import {
   isApprovedCloudProviderId,
   type ApprovedCloudProviderId,
 } from "./provider-definitions.js";
 import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
+import { isOrdinaryDataArray, isOrdinaryDataObject } from "./plain-data.js";
 
 const MAX_ID_LENGTH = 128;
 const MAX_REVISION = 2_147_483_647;
@@ -87,13 +86,7 @@ export interface DecisionSnapshot {
 }
 
 function plainObject(value: unknown, label: string): object {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    types.isProxy(value) ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
+  if (!isOrdinaryDataObject(value)) {
     throw new TypeError(`${label} must be a plain object`);
   }
   return value;
@@ -227,13 +220,7 @@ function modelId(value: unknown): string {
 }
 
 function requiredCapabilities(value: unknown): readonly ModelCapability[] {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    types.isProxy(value) ||
-    !Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Array.prototype
-  ) {
+  if (!isOrdinaryDataArray(value)) {
     throw new TypeError("model profile requiredCapabilities must be a plain array");
   }
   const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import vm from "node:vm";
 
 import {
   parseConnectionProfile,
@@ -57,6 +58,25 @@ test("model profiles bind exact connection revisions and bounded generation defa
   assert.equal(Object.isFrozen(profile.connection), true);
   assert.equal(Object.isFrozen(profile.requiredCapabilities), true);
   assert.equal(Object.isFrozen(profile.generation), true);
+});
+
+test("model profiles accept deeply frozen cross-realm plain data", () => {
+  const input = vm.runInNewContext(`Object.freeze({
+    id: "model.cross-realm",
+    revision: 1,
+    connection: Object.freeze({ profileId: "connection.primary", revision: 1 }),
+    modelId: "owner/model",
+    requiredCapabilities: Object.freeze(["chat"]),
+    generation: Object.freeze({ temperature: 1, maxOutputTokens: 512 })
+  })`) as unknown;
+  assert.deepEqual(parseModelProfile(input), {
+    id: "model.cross-realm",
+    revision: 1,
+    connection: { profileId: "connection.primary", revision: 1 },
+    modelId: "owner/model",
+    requiredCapabilities: ["chat"],
+    generation: { temperature: 1, maxOutputTokens: 512 },
+  });
 });
 
 test("room bindings revision one room purpose to one exact model revision", () => {
