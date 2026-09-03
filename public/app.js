@@ -1025,6 +1025,13 @@ export function safeDetailsContent(persona) {
   });
 }
 
+export function providerDisclosureProposal({ cloud, connection, connectionId, definitionId, credentialPresent }) {
+  if (!cloud) return null;
+  const current = connection?.state === "enabled" && connection.id === connectionId && connection.definitionId === definitionId;
+  const revision = current ? connection.revision + (credentialPresent ? 1 : 0) : 1;
+  return Object.freeze({ revision, token: `${connectionId}\u0000${definitionId}\u0000${revision}` });
+}
+
 export function startBrowserApp() {
   const byId = (id) => document.getElementById(id);
   const elements = {
@@ -1068,6 +1075,8 @@ export function startBrowserApp() {
   let providerConnection = null;
   let providerTestedModel = null;
   let providerBinding = null;
+  let providerAcknowledgedProposal = null;
+  let providerCredentialMutationId = null;
   let providerCapabilities = Object.freeze({ cloud: false, lmStudio: false });
 
   function selectedProviderPath() {
@@ -1079,6 +1088,21 @@ export function startBrowserApp() {
     elements.providerStatus.dataset.tone = tone;
   }
 
+  function currentProviderProposal() {
+    return providerDisclosureProposal({
+      cloud: selectedProviderPath() === "cloud",
+      connection: providerConnection,
+      connectionId: elements.providerConnectionId.value,
+      definitionId: elements.providerDefinition.value,
+      credentialPresent: elements.providerKey.value !== "",
+    });
+  }
+
+  function hasCurrentProviderAcknowledgement() {
+    const proposal = currentProviderProposal();
+    return proposal !== null && elements.providerAck.checked && providerAcknowledgedProposal === proposal.token;
+  }
+
   function renderProviderSetup() {
     const cloud = selectedProviderPath() === "cloud";
     for (const input of elements.providerForm.querySelectorAll('[name="provider-path"]')) {
@@ -1086,25 +1110,31 @@ export function startBrowserApp() {
         (input.value === "cloud" ? !providerCapabilities.cloud : !providerCapabilities.lmStudio);
     }
     elements.providerCloudFields.hidden = !cloud;
-    const ready = cloud && providerCapabilities.cloud && providerConnection?.state === "enabled";
+    const proposal = currentProviderProposal();
+    const ready = cloud && providerCapabilities.cloud && providerConnection?.state === "enabled" &&
+      providerConnection.id === elements.providerConnectionId.value &&
+      providerConnection.definitionId === elements.providerDefinition.value;
     const replacing = ready && elements.providerKey.value !== "";
-    const revision = ready ? providerConnection.revision + (replacing ? 1 : 0) : 1;
-    elements.providerAckRevision.textContent = cloud ? String(revision) : "—";
+    const acknowledged = proposal !== null && elements.providerAck.checked && providerAcknowledgedProposal === proposal.token;
+    if (!acknowledged) elements.providerAck.checked = false;
+    elements.providerAckRevision.textContent = proposal === null ? "—" : String(proposal.revision);
     elements.providerAck.disabled = !cloud;
-    elements.saveProvider.disabled = !cloud || !providerCapabilities.cloud || ready || !elements.providerAck.checked;
-    elements.replaceProvider.disabled = !ready || !replacing || !elements.providerAck.checked;
+    elements.saveProvider.disabled = !cloud || !providerCapabilities.cloud || ready || !acknowledged;
+    elements.replaceProvider.disabled = !ready || !replacing || !acknowledged;
     elements.loadProviderModels.disabled = !ready;
     elements.disableProvider.disabled = !ready;
     elements.deleteProvider.disabled = !providerCapabilities.cloud || providerConnection === null;
     elements.testProvider.disabled = !ready || elements.providerModel.value === "";
     elements.bindProvider.disabled = !ready || providerTestedModel !== elements.providerModel.value ||
-      !elements.providerAck.checked || (providerBinding?.execution === "cloud" &&
-        providerBinding?.connectionRevision === revision);
+      !acknowledged || (providerBinding?.execution === "cloud" &&
+        providerBinding?.connectionRevision === proposal.revision);
   }
 
   function acceptConnection(connection) {
     providerConnection = Object.freeze(connection);
     providerTestedModel = null;
+    providerAcknowledgedProposal = null;
+    providerCredentialMutationId = null;
     elements.providerAck.checked = false;
     elements.providerModel.replaceChildren(new Option("Load models, then choose one", ""));
     elements.providerModel.disabled = true;
@@ -1151,7 +1181,7 @@ export function startBrowserApp() {
       if (action === "save" || action === "replace") {
         const submittedKey = elements.providerKey.value;
         if (submittedKey === "") throw new TypeError("Enter a provider API key.");
-        if (!elements.providerAck.checked) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        if (!hasCurrentProviderAcknowledgement()) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
         try {
           const value = action === "save"
             ? await postJson(API_PATHS.providerConnections, {
@@ -1164,6 +1194,7 @@ export function startBrowserApp() {
                 expectedRevision: providerConnection.revision,
                 credential: submittedKey,
                 acknowledgedConnectionRevision: providerConnection.revision + 1,
+                mutationId: providerCredentialMutationId ??= crypto.randomUUID(),
               }, csrfToken);
           acceptConnection(value.connection);
         } finally {
@@ -1185,7 +1216,7 @@ export function startBrowserApp() {
         providerTestedModel = value.modelId;
         setProviderStatus(`${value.modelId} tested successfully on connection revision ${value.connectionRevision}.`);
       } else if (action === "bind") {
-        if (!elements.providerAck.checked) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
+        if (!hasCurrentProviderAcknowledgement()) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
         const currentModel = providerBinding?.execution === "cloud" ? providerBinding.modelProfile : null;
         const nextBindingRevision = (providerBinding?.binding?.revision ?? 0) + 1;
         const profileId = currentModel?.profile?.id ??
@@ -1781,9 +1812,15 @@ export function startBrowserApp() {
     elements.openProvider.focus();
   });
   elements.providerForm.addEventListener("submit", (event) => event.preventDefault());
-  elements.providerKey.addEventListener("input", () => {
+  const clearProviderAcknowledgement = () => {
+    providerAcknowledgedProposal = null;
     elements.providerAck.checked = false;
     renderProviderSetup();
+  };
+  elements.providerKey.addEventListener("input", clearProviderAcknowledgement);
+  elements.providerConnectionId.addEventListener("input", () => {
+    providerCredentialMutationId = null;
+    clearProviderAcknowledgement();
   });
   elements.providerForm.addEventListener("change", (event) => {
     if (event.target.matches('[name="provider-path"]')) {
@@ -1800,9 +1837,13 @@ export function startBrowserApp() {
       return;
     }
     if (event.target === elements.providerModel) providerTestedModel = null;
-    if (event.target === elements.providerAck &&
-        elements.providerAckRevision.textContent !== String(providerConnection?.revision ?? "")) {
-      elements.providerAck.checked = false;
+    if (event.target === elements.providerDefinition) {
+      providerCredentialMutationId = null;
+      clearProviderAcknowledgement();
+    }
+    if (event.target === elements.providerAck) {
+      const proposal = currentProviderProposal();
+      providerAcknowledgedProposal = event.target.checked && proposal !== null ? proposal.token : null;
     }
     renderProviderSetup();
   });

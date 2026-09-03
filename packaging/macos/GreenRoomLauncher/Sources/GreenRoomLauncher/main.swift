@@ -220,7 +220,7 @@ struct LauncherPreflight {
 
         let database = try dictionary(root["databaseSchema"], keys: databaseKeys, code: "database_schema_shape")
         try requireInteger(database["minimum"], equalTo: 1, code: "database_minimum")
-        try requireInteger(database["maximum"], equalTo: 3, code: "database_maximum")
+        try requireInteger(database["maximum"], equalTo: 8, code: "database_maximum")
 
         guard let rawFiles = root["files"] as? [Any], !rawFiles.isEmpty else {
             throw LauncherError.manifestInvalid("files_shape")

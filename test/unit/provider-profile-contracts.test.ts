@@ -18,6 +18,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       definitionId: "openai",
     },
     credentialRef: "credential:connection.primary:3",
+    mutationId: "credential-replacement-3",
   });
 
   assert.deepEqual(profile, {
@@ -28,6 +29,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       definitionId: "openai",
     },
     credentialRef: "credential:connection.primary:3",
+    mutationId: "credential-replacement-3",
   });
   assert.equal(Object.isFrozen(profile), true);
   assert.equal(Object.isFrozen(profile.target), true);
@@ -327,6 +329,17 @@ test("profile identifiers, revisions, capabilities, and numeric generation optio
           target: { class: "approved-provider", definitionId: "openai" },
         }),
       /revision/,
+    );
+  }
+  for (const mutationId of ["", "UPPER", "with_underscore", "x".repeat(129)]) {
+    assert.throws(
+      () => parseConnectionProfile({
+        id: "connection.invalid",
+        revision: 1,
+        target: { class: "approved-provider", definitionId: "openai" },
+        mutationId,
+      }),
+      /mutationId/,
     );
   }
 

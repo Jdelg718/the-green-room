@@ -22,6 +22,7 @@ import {
 } from "../db/index.js";
 import { canonicalCredentialReference, type CredentialStore } from "../providers/credential-store.js";
 import { OpenAICompatibleCloudAdapter, type CloudTransport } from "../providers/openai-compatible-cloud.js";
+import type { LMStudioProbe } from "../providers/lm-studio.js";
 import { isBoundedOpaqueModelId } from "../providers/opaque-model-id.js";
 import { isApprovedCloudProviderId, type ApprovedCloudProviderId } from "../providers/provider-definitions.js";
 import type { ConnectionProfile } from "../providers/profile-contracts.js";
@@ -42,12 +43,14 @@ export interface ProviderRoutesOptions {
   readonly credentialStore: CredentialStore;
   readonly database: DatabaseSync;
   readonly lmStudioModel?: string;
+  readonly lmStudioProbe?: LMStudioProbe["probe"];
 }
 
 export interface ProviderBindingRoutesOptions {
   readonly cloudEnabled: boolean;
   readonly database: DatabaseSync;
   readonly lmStudioModel?: string;
+  readonly lmStudioProbe?: LMStudioProbe["probe"];
 }
 
 function ordinary(value: unknown): value is Record<string, unknown> {
@@ -82,6 +85,13 @@ function credential(value: unknown): Buffer {
     throw new ProviderHttpError(400, "invalid_request", "Request body is invalid");
   }
   return Buffer.from(value, "utf8");
+}
+
+function mutationId(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/u.test(value)) {
+    throw new ProviderHttpError(400, "invalid_request", "Request body is invalid");
+  }
+  return value;
 }
 
 function concreteModel(value: unknown, provider: ApprovedCloudProviderId): string {
@@ -165,9 +175,16 @@ async function readCredential(store: CredentialStore, reference: string): Promis
   catch { throw credentialUnavailable(); }
 }
 
-async function restoreCredential(store: CredentialStore, reference: string, value: Buffer): Promise<void> {
-  try { await store.put(reference, Buffer.from(value)); }
-  catch { throw credentialUnavailable(); }
+async function writeCredential(store: CredentialStore, reference: string, value: Buffer): Promise<void> {
+  const existing = await readCredential(store, reference);
+  try {
+    if (existing === null) await store.put(reference, value);
+    else await store.replace(reference, value);
+  } catch {
+    throw credentialUnavailable();
+  } finally {
+    existing?.fill(0);
+  }
 }
 
 function sendError(reply: FastifyReply, error: unknown): FastifyReply {
@@ -214,28 +231,30 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const id = canonicalId(body.id);
       if (!isApprovedCloudProviderId(body.definitionId)) throw new ProviderHttpError(400, "invalid_request", "Request body is invalid");
       if (revision(body.acknowledgedConnectionRevision) !== 1) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
-      if (readCurrentConnectionProfile(options.database, id) !== undefined) {
-        throw new ProviderHttpError(409, "revision_conflict", "Connection already exists");
-      }
       secret = credential(body.credential);
       reference = canonicalCredentialReference(id, 1);
+      const existing = readCurrentConnectionProfile(options.database, id);
+      if (existing !== undefined) {
+        if (existing.profile.revision !== 1 || existing.state !== "enabled" ||
+            existing.profile.target.class !== "approved-provider" ||
+            existing.profile.target.definitionId !== body.definitionId || existing.profile.credentialRef !== reference) {
+          throw new ProviderHttpError(409, "revision_conflict", "Connection already exists");
+        }
+        const stored = await readCredential(options.credentialStore, reference);
+        if (stored !== null) {
+          stored.fill(0);
+          throw new ProviderHttpError(409, "revision_conflict", "Connection already exists");
+        }
+        await writeCredential(options.credentialStore, reference, secret);
+        secret = undefined;
+        return { connection: connectionDto(existing) };
+      }
+      await writeCredential(options.credentialStore, reference, secret);
+      secret = undefined;
       const created = createConnectionProfile(options.database, {
         id, revision: 1, target: { class: "approved-provider", definitionId: body.definitionId }, credentialRef: reference,
       });
-      try {
-        await options.credentialStore.put(reference, secret);
-        secret = undefined;
-        return reply.code(201).send({ connection: connectionDto(created) });
-      } catch {
-        try {
-          await deleteCredential(options.credentialStore, reference);
-          disableConnectionProfile(options.database, id, 1);
-        } catch {
-          // Keep revision 1 current and its credentialRef reachable so a later
-          // disable/delete retry can complete cleanup after storage recovers.
-        }
-        throw credentialUnavailable();
-      }
+      return reply.code(201).send({ connection: connectionDto(created) });
     } catch (error) {
       secret?.fill(0);
       return sendError(reply, error);
@@ -244,72 +263,48 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
 
   api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/replace", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
     let secret: Buffer | undefined;
-    let previousSecret: Buffer | null = null;
-    let stagedSecret: Buffer | null = null;
     try {
       requireLoopback();
       const id = canonicalId(request.params.connectionId);
-      const body = exact(request.body, ["expectedRevision", "credential", "acknowledgedConnectionRevision"]);
+      const body = exact(request.body, ["expectedRevision", "credential", "acknowledgedConnectionRevision", "mutationId"]);
       const expected = revision(body.expectedRevision);
+      const nextRevision = expected + 1;
+      const replacementMutationId = mutationId(body.mutationId);
+      if (revision(body.acknowledgedConnectionRevision) !== nextRevision) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
       const current = readCurrentConnectionProfile(options.database, id);
-      if (current === undefined || current.profile.revision !== expected || current.state === "deleted" || current.profile.target.class !== "approved-provider") {
+      if (current === undefined || current.state === "deleted" || current.profile.target.class !== "approved-provider") {
         throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
       }
-      const nextRevision = expected + 1;
-      if (revision(body.acknowledgedConnectionRevision) !== nextRevision) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
       const nextReference = canonicalCredentialReference(id, nextRevision);
-      const previousReference = current.profile.credentialRef;
-      if (previousReference === undefined) throw new ProviderHttpError(409, "credential_missing", "The connection credential is missing");
-      stagedSecret = await readCredential(options.credentialStore, nextReference);
-      previousSecret = await readCredential(options.credentialStore, previousReference);
-      if (previousSecret === null) {
-        if (stagedSecret === null) throw new ProviderHttpError(409, "credential_missing", "The connection credential is missing");
-        // A process may have stopped after deleting the old key but before the
-        // durable revision advanced. Promote the only surviving, deterministic
-        // next credential rather than deleting it and making recovery impossible.
-        const recovered = reviseConnectionProfile(options.database, {
-          id, revision: nextRevision, target: current.profile.target, credentialRef: nextReference,
-        }, expected);
-        return { connection: connectionDto(recovered) };
-      }
-      if (stagedSecret !== null) await deleteCredential(options.credentialStore, nextReference);
+      const previousReference = canonicalCredentialReference(id, expected);
       secret = credential(body.credential);
-      try { await options.credentialStore.put(nextReference, secret); }
-      catch {
-        try { await deleteCredential(options.credentialStore, nextReference); }
-        catch { /* The next retry derives and cleans the same durable next ref. */ }
-        throw credentialUnavailable();
-      }
-      secret = undefined;
-      try {
+      if (current.profile.revision === nextRevision && current.state === "enabled" && current.profile.credentialRef === nextReference) {
+        if (current.profile.mutationId !== replacementMutationId) {
+          throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
+        }
+        await writeCredential(options.credentialStore, nextReference, secret);
+        secret = undefined;
         await deleteCredential(options.credentialStore, previousReference);
-      } catch {
-        let compensationFailed = false;
-        try { await options.credentialStore.replace(previousReference, Buffer.from(previousSecret)); }
-        catch { compensationFailed = true; }
-        try { await deleteCredential(options.credentialStore, nextReference); }
-        catch { compensationFailed = true; }
-        if (compensationFailed) throw credentialUnavailable();
-        throw credentialUnavailable();
+        return { connection: connectionDto(current) };
       }
-      try {
-        const revised = reviseConnectionProfile(options.database, {
-          id, revision: nextRevision, target: current.profile.target, credentialRef: nextReference,
-        }, expected);
-        return { connection: connectionDto(revised) };
-      } catch (error) {
-        let compensationFailed = false;
-        try { await restoreCredential(options.credentialStore, previousReference, previousSecret); }
-        catch { compensationFailed = true; }
-        try { await deleteCredential(options.credentialStore, nextReference); }
-        catch { compensationFailed = true; }
-        if (compensationFailed) throw credentialUnavailable();
-        throw error;
+      if (current.profile.revision !== expected) {
+        throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
       }
+      if (expected > 1) {
+        await deleteCredential(options.credentialStore, canonicalCredentialReference(id, expected - 1));
+      }
+      await writeCredential(options.credentialStore, nextReference, secret);
+      secret = undefined;
+      const revised = reviseConnectionProfile(options.database, {
+        id, revision: nextRevision, target: current.profile.target, credentialRef: nextReference,
+        mutationId: replacementMutationId,
+      }, expected);
+      await deleteCredential(options.credentialStore, previousReference);
+      return { connection: connectionDto(revised) };
     } catch (error) {
       secret?.fill(0);
       return sendError(reply, error);
-    } finally { previousSecret?.fill(0); stagedSecret?.fill(0); }
+    }
   }));
 
   api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/disable", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
@@ -319,17 +314,21 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const body = exact(request.body, ["expectedRevision"]);
       const expected = revision(body.expectedRevision);
       const current = readCurrentConnectionProfile(options.database, id);
-      if (current === undefined || current.profile.revision !== expected) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
-      const reference = current.profile.credentialRef;
-      const previousSecret = reference === undefined ? null : await readCredential(options.credentialStore, reference);
-      try {
-        if (reference !== undefined) await deleteCredential(options.credentialStore, reference);
-        try { return { connection: connectionDto(disableConnectionProfile(options.database, id, expected)) }; }
-        catch (error) {
-          if (reference !== undefined && previousSecret !== null) await restoreCredential(options.credentialStore, reference, previousSecret);
-          throw error;
-        }
-      } finally { previousSecret?.fill(0); }
+      if (current === undefined) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
+      const reference = canonicalCredentialReference(id, expected);
+      if (current.state === "disabled" && current.profile.revision === expected + 1) {
+        await deleteCredential(options.credentialStore, reference);
+        return { connection: connectionDto(current) };
+      }
+      if (current.profile.revision !== expected || current.state !== "enabled") {
+        throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
+      }
+      if (expected > 1) {
+        await deleteCredential(options.credentialStore, canonicalCredentialReference(id, expected - 1));
+      }
+      const disabled = disableConnectionProfile(options.database, id, expected);
+      await deleteCredential(options.credentialStore, reference);
+      return { connection: connectionDto(disabled) };
     } catch (error) { return sendError(reply, error); }
   }));
 
@@ -341,18 +340,19 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const expected = revision(body.expectedRevision);
       const current = readCurrentConnectionProfile(options.database, id);
       if (current === undefined) throw new ProviderHttpError(409, "revision_conflict", "Connection does not exist");
-      if (current.state === "deleted") return { connection: connectionDto(current) };
+      const reference = canonicalCredentialReference(id, expected);
+      if (current.state === "deleted") {
+        if (current.profile.revision === expected + 1) await deleteCredential(options.credentialStore, reference);
+        else if (current.profile.revision !== expected) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
+        return { connection: connectionDto(current) };
+      }
       if (current.profile.revision !== expected) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
-      const reference = current.profile.credentialRef;
-      const previousSecret = reference === undefined ? null : await readCredential(options.credentialStore, reference);
-      try {
-        if (reference !== undefined) await deleteCredential(options.credentialStore, reference);
-        try { return { connection: connectionDto(deleteConnectionProfile(options.database, id, expected)) }; }
-        catch (error) {
-          if (reference !== undefined && previousSecret !== null) await restoreCredential(options.credentialStore, reference, previousSecret);
-          throw error;
-        }
-      } finally { previousSecret?.fill(0); }
+      if (expected > 1) {
+        await deleteCredential(options.credentialStore, canonicalCredentialReference(id, expected - 1));
+      }
+      const deleted = deleteConnectionProfile(options.database, id, expected);
+      await deleteCredential(options.credentialStore, reference);
+      return { connection: connectionDto(deleted) };
     } catch (error) { return sendError(reply, error); }
   }));
 
@@ -422,6 +422,7 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
     cloudEnabled: true,
     database: options.database,
     ...(options.lmStudioModel === undefined ? {} : { lmStudioModel: options.lmStudioModel }),
+    ...(options.lmStudioProbe === undefined ? {} : { lmStudioProbe: options.lmStudioProbe }),
   });
 }
 
@@ -445,7 +446,7 @@ export function registerProviderBindingRoutes(api: FastifyInstance, options: Pro
     try {
       if (ordinary(request.body) && Object.hasOwn(request.body, "provider")) {
         const body = exact(request.body, ["id", "expectedRevision", "provider"]);
-        if (body.provider !== "lmstudio" || options.lmStudioModel === undefined) {
+        if (body.provider !== "lmstudio" || options.lmStudioModel === undefined || options.lmStudioProbe === undefined) {
           throw new ProviderHttpError(409, "provider_unavailable", "LM Studio is not active in this runtime");
         }
         const expected = revision(body.expectedRevision, true);
@@ -455,6 +456,7 @@ export function registerProviderBindingRoutes(api: FastifyInstance, options: Pro
             (currentBinding !== undefined && (currentBinding.revision !== expected || currentBinding.id !== body.id))) {
           throw new ProviderHttpError(409, "revision_conflict", "Room binding revision is stale");
         }
+        await options.lmStudioProbe(request.signal);
         const suffix = createHash("sha256").update(roomId).digest("hex").slice(0, 16);
         const connectionId = `lmstudio-${suffix}`;
         const modelId = `lmstudio-model-${suffix}`;

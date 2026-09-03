@@ -72,8 +72,11 @@ function personaInspectionExecutable(
   return value;
 }
 
-function generationProvider(value: string | undefined): "mock" | "lmstudio" {
-  if (value === undefined || value === "mock") {
+function generationProvider(value: string | undefined, runtimeMode: RuntimeMode): "mock" | "lmstudio" {
+  if (value === undefined) {
+    return runtimeMode === "packaged-macos" ? "lmstudio" : "mock";
+  }
+  if (value === "mock") {
     return "mock";
   }
   if (value === "lmstudio") {
@@ -273,7 +276,7 @@ export function loadConfig(
     personaInspectionSafeCwd: join(personaInspectionRoot, "validator-cwd"),
     personaInspectionTempParent: join(personaInspectionRoot, "tmp"),
     port,
-    provider: generationProvider(environment.GREENROOM_PROVIDER),
+    provider: generationProvider(environment.GREENROOM_PROVIDER, runtimeMode),
     runtimeAssets: assets,
     runtimeMode,
   });

@@ -61,6 +61,7 @@ async function fixture(context: { after(callback: () => void | Promise<void>): v
     providerCredentials: credentials,
     cloudTransport: transport,
     lmStudioModel: "local-model",
+    lmStudioProbe: async () => {},
   });
   await app.ready();
   context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
@@ -98,11 +99,11 @@ test("replace rollback, stale revisions, bounded models, test/profile/bind, and 
   const f = await fixture(context);
   assert.equal((await f.mutate("POST", "/api/providers/connections", { id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1 })).statusCode, 201);
   f.credentials.failPut = true;
-  const failed = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", { expectedRevision: 1, credential: "replacement-secret", acknowledgedConnectionRevision: 2 });
+  const failed = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", { expectedRevision: 1, mutationId: "replace-request", credential: "replacement-secret", acknowledgedConnectionRevision: 2 });
   assert.equal(failed.statusCode, 503);
   assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
   f.credentials.failPut = false;
-  const stale = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", { expectedRevision: 9, credential: "replacement-secret", acknowledgedConnectionRevision: 10 });
+  const stale = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", { expectedRevision: 9, mutationId: "stale-request", credential: "replacement-secret", acknowledgedConnectionRevision: 10 });
   assert.equal(stale.statusCode, 409);
   assert.equal(f.credentials.values.has("credential:openrouter-main:10"), false);
 
@@ -179,16 +180,15 @@ test("successful replacement creates a new revision, removes the superseded key,
     id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
   })).statusCode, 201);
   const unacknowledged = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "replacement-secret", acknowledgedConnectionRevision: 1,
+    expectedRevision: 1, mutationId: "replace-request", credential: "replacement-secret", acknowledgedConnectionRevision: 1,
   });
   assert.equal(unacknowledged.statusCode, 400);
   assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
   const replaced = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "replacement-secret", acknowledgedConnectionRevision: 2,
+    expectedRevision: 1, mutationId: "replace-request", credential: "replacement-secret", acknowledgedConnectionRevision: 2,
   });
   assert.equal(replaced.statusCode, 200, replaced.body);
   assert.equal(replaced.json().connection.revision, 2);
-  assert.ok(f.credentials.lastRead?.every((byte) => byte === 0));
   assert.equal(f.credentials.values.has("credential:openrouter-main:1"), false);
   assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "replacement-secret");
   const disabled = await f.mutate("POST", "/api/providers/connections/openrouter-main/disable", { expectedRevision: 2 });
@@ -196,6 +196,29 @@ test("successful replacement creates a new revision, removes the superseded key,
   assert.equal(disabled.json().connection.state, "disabled");
   assert.equal(disabled.json().connection.revision, 3);
   assert.equal(f.credentials.values.has("credential:openrouter-main:2"), false);
+});
+
+test("competing replacements from one revision allow exactly one mutation identity", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  const attempts = [
+    { mutationId: "replacement-alpha", credential: "alpha-secret" },
+    { mutationId: "replacement-beta", credential: "beta-secret" },
+  ] as const;
+  const responses = await Promise.all(attempts.map(({ mutationId, credential }) =>
+    f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+      expectedRevision: 1, mutationId, credential, acknowledgedConnectionRevision: 2,
+    })));
+  assert.deepEqual(responses.map(({ statusCode }) => statusCode).sort(), [200, 409]);
+  const winner = responses.findIndex(({ statusCode }) => statusCode === 200);
+  assert.notEqual(winner, -1);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), attempts[winner]!.credential);
+  const current = f.database.prepare(
+    "SELECT profile_json FROM connection_profile_revisions WHERE profile_id = ? ORDER BY revision DESC LIMIT 1",
+  ).get("openrouter-main") as { profile_json: string };
+  assert.equal(JSON.parse(current.profile_json).mutationId, attempts[winner]!.mutationId);
 });
 
 test("a possibly-written replacement remains deterministically recoverable after cleanup failure", async (context) => {
@@ -207,7 +230,7 @@ test("a possibly-written replacement remains deterministically recoverable after
   f.credentials.putThenFail = true;
   f.credentials.failDeleteFor.add(nextReference);
   const failed = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "possibly-written-replacement", acknowledgedConnectionRevision: 2,
+    expectedRevision: 1, mutationId: "replace-request", credential: "possibly-written-replacement", acknowledgedConnectionRevision: 2,
   });
   assert.equal(failed.statusCode, 503);
   assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
@@ -215,14 +238,14 @@ test("a possibly-written replacement remains deterministically recoverable after
   f.credentials.putThenFail = false;
   f.credentials.failDeleteFor.delete(nextReference);
   const retried = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "final-replacement", acknowledgedConnectionRevision: 2,
+    expectedRevision: 1, mutationId: "replace-request", credential: "final-replacement", acknowledgedConnectionRevision: 2,
   });
   assert.equal(retried.statusCode, 200, retried.body);
   assert.equal(f.credentials.values.has("credential:openrouter-main:1"), false);
   assert.equal(f.credentials.values.get(nextReference)?.toString(), "final-replacement");
 });
 
-test("replacement retry promotes the only surviving deterministic next ref after process loss", async (context) => {
+test("replacement retry overwrites the deterministic next ref with the newly submitted secret", async (context) => {
   const f = await fixture(context);
   assert.equal((await f.mutate("POST", "/api/providers/connections", {
     id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
@@ -230,14 +253,14 @@ test("replacement retry promotes the only surviving deterministic next ref after
   f.credentials.values.delete("credential:openrouter-main:1");
   f.credentials.values.set("credential:openrouter-main:2", Buffer.from("interrupted-replacement"));
   const recovered = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "retry", acknowledgedConnectionRevision: 2,
+    expectedRevision: 1, mutationId: "replace-request", credential: "retry", acknowledgedConnectionRevision: 2,
   });
   assert.equal(recovered.statusCode, 200, recovered.body);
   assert.equal(recovered.json().connection.revision, 2);
-  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "interrupted-replacement");
+  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "retry");
 });
 
-test("credential deletion failures fail closed and preserve the current usable revision", async (context) => {
+test("replacement cleanup failure leaves the new reachable revision recoverable by the same request", async (context) => {
   const f = await fixture(context);
   assert.equal((await f.mutate("POST", "/api/providers/connections", {
     id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
@@ -246,23 +269,20 @@ test("credential deletion failures fail closed and preserve the current usable r
   f.credentials.failDeleteFor.add(reference);
 
   const replaced = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
-    expectedRevision: 1, credential: "replacement-secret", acknowledgedConnectionRevision: 2,
+    expectedRevision: 1, mutationId: "replace-request", credential: "replacement-secret", acknowledgedConnectionRevision: 2,
   });
   assert.equal(replaced.statusCode, 503);
   assert.equal(f.credentials.values.get(reference)?.toString(), SECRET);
-  assert.equal(f.credentials.values.has("credential:openrouter-main:2"), false);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "replacement-secret");
   const listedAfterReplace = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
-  assert.equal(listedAfterReplace.json().connections[0].revision, 1);
-
-  for (const [method, suffix] of [["POST", "/disable"], ["DELETE", ""]] as const) {
-    const response = await f.mutate(method, `/api/providers/connections/openrouter-main${suffix}`, { expectedRevision: 1 });
-    assert.equal(response.statusCode, 503);
-    const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
-    assert.deepEqual(listed.json().connections[0], {
-      id: "openrouter-main", revision: 1, definitionId: "openrouter", state: "enabled", credentialStatus: "stored",
-    });
-    assert.equal(f.credentials.values.get(reference)?.toString(), SECRET);
-  }
+  assert.equal(listedAfterReplace.json().connections[0].revision, 2);
+  f.credentials.failDeleteFor.delete(reference);
+  const recovered = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+    expectedRevision: 1, mutationId: "replace-request", credential: "retry-secret", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(recovered.statusCode, 200, recovered.body);
+  assert.equal(f.credentials.values.has(reference), false);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "retry-secret");
 });
 
 test("concurrent destructive mutations cannot restore a superseded credential", async (context) => {
@@ -294,7 +314,7 @@ test("create detects conflicts before storing a credential, so failed compensati
   assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
 });
 
-test("failed create compensation keeps a possibly-written credential durably reachable for retry", async (context) => {
+test("possibly-written create credential stays staged without a false durable profile and is recoverable", async (context) => {
   const f = await fixture(context);
   const reference = "credential:recoverable:1";
   f.credentials.putThenFail = true;
@@ -305,14 +325,125 @@ test("failed create compensation keeps a possibly-written credential durably rea
   assert.equal(failed.statusCode, 503);
   assert.equal(f.credentials.values.get(reference)?.toString(), "possibly-written");
   const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
-  assert.deepEqual(listed.json().connections.find(({ id }: { id: string }) => id === "recoverable"), {
-    id: "recoverable", revision: 1, definitionId: "openrouter", state: "enabled", credentialStatus: "stored",
-  });
+  assert.equal(listed.json().connections.find(({ id }: { id: string }) => id === "recoverable"), undefined);
   f.credentials.putThenFail = false;
   f.credentials.failDeleteFor.delete(reference);
-  const cleaned = await f.mutate("DELETE", "/api/providers/connections/recoverable", { expectedRevision: 1 });
-  assert.equal(cleaned.statusCode, 200);
-  assert.equal(f.credentials.values.has(reference), false);
+  const recovered = await f.mutate("POST", "/api/providers/connections", {
+    id: "recoverable", definitionId: "openrouter", credential: "retry-secret", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(recovered.statusCode, 201, recovered.body);
+  assert.equal(f.credentials.values.get(reference)?.toString(), "retry-secret");
+});
+
+test("a new create request repairs a matching credentialless revision with its submitted secret", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "recoverable-create", definitionId: "openrouter", credential: "first-secret", acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  f.credentials.values.delete("credential:recoverable-create:1");
+  const recovered = await f.mutate("POST", "/api/providers/connections", {
+    id: "recoverable-create", definitionId: "openrouter", credential: "submitted-recovery", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(recovered.statusCode, 200, recovered.body);
+  assert.equal(recovered.json().connection.revision, 1);
+  assert.equal(f.credentials.values.get("credential:recoverable-create:1")?.toString(), "submitted-recovery");
+});
+
+test("create and replace retries recover from database failure using deterministic staged references", async (context) => {
+  const f = await fixture(context);
+  f.database.exec(`CREATE TRIGGER fail_create BEFORE INSERT ON connection_profile_revisions
+    WHEN NEW.profile_id = 'recover-create' BEGIN SELECT RAISE(ABORT, 'injected create failure'); END`);
+  const failedCreate = await f.mutate("POST", "/api/providers/connections", {
+    id: "recover-create", definitionId: "openrouter", credential: "staged-create", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(failedCreate.statusCode, 503);
+  assert.equal(f.credentials.values.get("credential:recover-create:1")?.toString(), "staged-create");
+  f.database.exec("DROP TRIGGER fail_create");
+  const recoveredCreate = await f.mutate("POST", "/api/providers/connections", {
+    id: "recover-create", definitionId: "openrouter", credential: "final-create", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(recoveredCreate.statusCode, 201, recoveredCreate.body);
+  assert.equal(f.credentials.values.get("credential:recover-create:1")?.toString(), "final-create");
+
+  f.database.exec(`CREATE TRIGGER fail_replace BEFORE INSERT ON connection_profile_revisions
+    WHEN NEW.profile_id = 'recover-create' AND NEW.revision = 2 BEGIN SELECT RAISE(ABORT, 'injected replace failure'); END`);
+  const failedReplace = await f.mutate("POST", "/api/providers/connections/recover-create/replace", {
+    expectedRevision: 1, mutationId: "replace-request", credential: "staged-replace", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(failedReplace.statusCode, 503);
+  assert.equal(f.credentials.values.get("credential:recover-create:1")?.toString(), "final-create");
+  assert.equal(f.credentials.values.get("credential:recover-create:2")?.toString(), "staged-replace");
+  f.database.exec("DROP TRIGGER fail_replace");
+  const recoveredReplace = await f.mutate("POST", "/api/providers/connections/recover-create/replace", {
+    expectedRevision: 1, mutationId: "replace-request", credential: "final-replace", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(recoveredReplace.statusCode, 200, recoveredReplace.body);
+  assert.equal(f.credentials.values.has("credential:recover-create:1"), false);
+  assert.equal(f.credentials.values.get("credential:recover-create:2")?.toString(), "final-replace");
+});
+
+test("replace recovers from absent old and staged references using the newly submitted secret", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "recover-replace", definitionId: "openrouter", credential: "old", acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  f.credentials.values.clear();
+  const recovered = await f.mutate("POST", "/api/providers/connections/recover-replace/replace", {
+    expectedRevision: 1, mutationId: "replace-request", credential: "newly-submitted", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(recovered.statusCode, 200, recovered.body);
+  assert.equal(recovered.json().connection.revision, 2);
+  assert.equal(f.credentials.values.get("credential:recover-replace:2")?.toString(), "newly-submitted");
+});
+
+test("disable and delete retries finish cleanup after the durable credentialless transition", async (context) => {
+  for (const [id, method, suffix, state] of [
+    ["disable-recovery", "POST", "/disable", "disabled"],
+    ["delete-recovery", "DELETE", "", "deleted"],
+  ] as const) {
+    const f = await fixture(context);
+    assert.equal((await f.mutate("POST", "/api/providers/connections", {
+      id, definitionId: "openrouter", credential: `${id}-secret`, acknowledgedConnectionRevision: 1,
+    })).statusCode, 201);
+    const reference = `credential:${id}:1`;
+    f.credentials.failDeleteFor.add(reference);
+    const failed = await f.mutate(method, `/api/providers/connections/${id}${suffix}`, { expectedRevision: 1 });
+    assert.equal(failed.statusCode, 503);
+    const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
+    const transitioned = listed.json().connections.find((value: { id: string }) => value.id === id);
+    assert.equal(transitioned.state, state);
+    assert.equal(transitioned.revision, 2);
+    assert.equal(transitioned.credentialStatus, "not_stored");
+    f.credentials.failDeleteFor.delete(reference);
+    const retried = await f.mutate(method, `/api/providers/connections/${id}${suffix}`, { expectedRevision: 1 });
+    assert.equal(retried.statusCode, 200, retried.body);
+    assert.equal(f.credentials.values.has(reference), false);
+  }
+});
+
+test("LM Studio probe failure creates no ready observation, profile, model, or binding", async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), "green-room-local-probe-failure-"));
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
+  const app = buildApp({
+    allowedOrigin: ORIGIN,
+    database: store.database,
+    provider: new DeterministicMockProvider(),
+    lmStudioModel: "local-model",
+    lmStudioProbe: async () => { throw new Error("private local detail"); },
+  });
+  await app.ready();
+  context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+  const failed = await app.inject({
+    method: "POST", url: "/api/rooms/first-playable/provider-binding",
+    headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": bootstrap.json().csrfToken },
+    payload: { id: "first-playable-provider", expectedRevision: 0, provider: "lmstudio" },
+  });
+  assert.equal(failed.statusCode, 503);
+  assert.equal(failed.body.includes("private local detail"), false);
+  for (const table of ["connection_profile_revisions", "provider_observations", "model_profile_revisions", "room_binding_revisions"]) {
+    assert.equal((store.database.prepare(`SELECT count(*) count FROM ${table}`).get() as { count: number }).count, 0, table);
+  }
 });
 
 test("LM Studio selection creates an append-only local binding before generation can use it", async (context) => {
@@ -323,6 +454,7 @@ test("LM Studio selection creates an append-only local binding before generation
     database: store.database,
     provider: new DeterministicMockProvider(),
     lmStudioModel: "local-model",
+    lmStudioProbe: async () => {},
   });
   await app.ready();
   context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
@@ -365,7 +497,7 @@ test("LM Studio binding revises its persisted model when source configuration ch
   });
   let expectedRevision = 0;
   for (const modelId of ["local-model-a", "local-model-b"]) {
-    const app = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: modelId });
+    const app = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: modelId, lmStudioProbe: async () => {} });
     apps.push(app);
     await app.ready();
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
@@ -384,7 +516,7 @@ test("LM Studio binding revises its persisted model when source configuration ch
 test("stale persisted LM Studio model fails before the changed runtime provider is called", async (context) => {
   const dataDir = mkdtempSync(join(tmpdir(), "green-room-local-model-stale-"));
   const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
-  const first = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: "local-model-a" });
+  const first = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: "local-model-a", lmStudioProbe: async () => {} });
   await first.ready();
   const firstBootstrap = await first.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
   const bound = await first.inject({
@@ -399,7 +531,7 @@ test("stale persisted LM Studio model fails before the changed runtime provider 
   const changedProvider = {
     async generate() { calls += 1; return { kind: "text" as const, text: "must not run" }; },
   };
-  const second = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: changedProvider, lmStudioModel: "local-model-b" });
+  const second = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: changedProvider, lmStudioModel: "local-model-b", lmStudioProbe: async () => {} });
   await second.ready();
   context.after(async () => { await second.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
   const bootstrap = await second.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });

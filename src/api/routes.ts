@@ -11,6 +11,7 @@ import type {
 import type { GenerationProvider } from "../providers/provider.js";
 import type { CredentialStore } from "../providers/credential-store.js";
 import type { CloudTransport } from "../providers/openai-compatible-cloud.js";
+import type { LMStudioProbe } from "../providers/lm-studio.js";
 import { createBoundProviderResolver } from "../providers/select-provider.js";
 import {
   InspectionHttpError,
@@ -114,6 +115,7 @@ export interface ApiRoutesOptions {
   readonly providerCredentials?: CredentialStore;
   readonly cloudTransport?: CloudTransport;
   readonly lmStudioModel?: string;
+  readonly lmStudioProbe?: LMStudioProbe["probe"];
   readonly personaPackInspectionService?: PersonaPackInspectionHttpService;
   readonly inspectionDeadlineMs?: number;
   readonly sseHeartbeatMs?: number;
@@ -621,7 +623,7 @@ export function registerApiRoutes(
             options.personaPackInspectionService !== undefined,
           providerSetup: {
             cloud: options.providerCredentials !== undefined && options.cloudTransport !== undefined,
-            lmStudio: options.lmStudioModel !== undefined,
+            lmStudio: options.lmStudioModel !== undefined && options.lmStudioProbe !== undefined,
           },
         },
       };
@@ -652,6 +654,9 @@ export function registerApiRoutes(
     if ((options.providerCredentials === undefined) !== (options.cloudTransport === undefined)) {
       throw new TypeError("provider credentials and cloud transport must be configured together");
     }
+    if ((options.lmStudioModel === undefined) !== (options.lmStudioProbe === undefined)) {
+      throw new TypeError("LM Studio model and probe must be configured together");
+    }
     if (options.providerCredentials !== undefined && options.cloudTransport !== undefined) {
       registerProviderRoutes(api, {
         allowedOrigin: options.allowedOrigin,
@@ -659,10 +664,11 @@ export function registerApiRoutes(
         credentialStore: options.providerCredentials,
         cloudTransport: options.cloudTransport,
         ...(options.lmStudioModel === undefined ? {} : { lmStudioModel: options.lmStudioModel }),
+        ...(options.lmStudioProbe === undefined ? {} : { lmStudioProbe: options.lmStudioProbe }),
       });
-    } else if (options.lmStudioModel !== undefined) {
+    } else if (options.lmStudioModel !== undefined && options.lmStudioProbe !== undefined) {
       registerProviderBindingRoutes(api, {
-        cloudEnabled: false, database, lmStudioModel: options.lmStudioModel,
+        cloudEnabled: false, database, lmStudioModel: options.lmStudioModel, lmStudioProbe: options.lmStudioProbe,
       });
     }
     const service = new RoomService({

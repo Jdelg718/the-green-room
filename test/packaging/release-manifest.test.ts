@@ -34,7 +34,7 @@ function manifest(): Record<string, unknown> {
       pythonVersion: "3.13.13",
       validatorVersion: "0.1.0",
     },
-    databaseSchema: { minimum: 1, maximum: 3 },
+    databaseSchema: { minimum: 1, maximum: 8 },
     files: [
       { path: "Contents/MacOS/GreenRoomLauncher", sha256: "b".repeat(64) },
       { path: "Contents/Resources/runtime/node/bin/node", sha256: "c".repeat(64) },
@@ -54,6 +54,10 @@ test("release manifest freezes package identity, runtime versions, schema range,
   candidate.bundleIdentifier = packageMetadata.greenroomPackageIdentity.bundleIdentifier;
   candidate.schemaVersion = packageMetadata.greenroomPackageIdentity.releaseManifestSchemaVersion;
   assert.equal(validate(candidate), true, JSON.stringify(validate.errors));
+});
+
+test("release manifest rejects the stale pre-provider migration ceiling", () => {
+  rejects((candidate) => { candidate.databaseSchema = { minimum: 1, maximum: 3 }; });
 });
 
 test("release manifest rejects unknown or missing fields", () => {

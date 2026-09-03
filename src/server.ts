@@ -7,6 +7,7 @@ import {
   type PersonaPackInspectionRuntime,
 } from "./personas/persona-pack-inspection-runtime.js";
 import { selectProvider } from "./providers/select-provider.js";
+import { LMStudioProvider } from "./providers/lm-studio.js";
 import { verifyPackagedRuntimeAssets } from "./platform/runtime-assets.js";
 import { credentialHelperTrust } from "./platform/runtime-assets.js";
 import { KeychainCredentialStore } from "./providers/credential-store.js";
@@ -138,7 +139,10 @@ try {
     personaCatalog,
     logger: true,
     provider,
-    ...(config.provider === "lmstudio" ? { lmStudioModel: config.lmStudioModel } : {}),
+    ...(provider instanceof LMStudioProvider ? {
+      lmStudioModel: config.lmStudioModel,
+      lmStudioProbe: provider.probe.bind(provider),
+    } : {}),
     ...(providerRuntime ?? {}),
     ...(runtime.service === undefined
       ? {}

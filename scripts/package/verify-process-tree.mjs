@@ -103,7 +103,7 @@ function makeSyntheticBundle(root, binaries, scenario) {
       pythonVersion: "3.13.13",
       validatorVersion: "0.1.0",
     },
-    databaseSchema: { minimum: 1, maximum: 3 },
+    databaseSchema: { minimum: 1, maximum: 8 },
     files,
   };
   writeFileSync(join(bundle, "Contents/Resources/release-manifest.json"), `${JSON.stringify(manifest)}\n`, {

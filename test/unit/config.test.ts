@@ -225,6 +225,7 @@ test("packaged mode requires every executable and runtime asset path explicitly"
   } as const;
 
   const config = loadConfig(environment, "/ignored", "darwin");
+  assert.equal(config.provider, "lmstudio");
   assert.deepEqual(config.runtimeAssets, {
     payloadRoot: environment.GREENROOM_PACKAGE_PAYLOAD_ROOT,
     credentialHelperExecutable: "/Applications/The Green Room.app/Contents/Resources/helpers/GreenRoomCredentialHelper",

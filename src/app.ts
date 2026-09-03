@@ -96,6 +96,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ...(options.lmStudioModel === undefined
       ? {}
       : { lmStudioModel: options.lmStudioModel }),
+    ...(options.lmStudioProbe === undefined
+      ? {}
+      : { lmStudioProbe: options.lmStudioProbe }),
     ...(options.personaPackInspectionService === undefined
       ? {}
       : { personaPackInspectionService: options.personaPackInspectionService }),

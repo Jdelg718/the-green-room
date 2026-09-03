@@ -36,5 +36,38 @@ test("provider UI uses same-origin JSON only and has no browser persistence or k
   assert.match(script, /providerBinding\?\.execution\s*===\s*"cloud"/);
   assert.match(script, /room\s*!==\s*null\s*&&\s*\(providerCapabilities\.cloud\s*\|\|\s*providerCapabilities\.lmStudio\)/);
   assert.match(script, /Model setup is unavailable in source mode/);
+  assert.match(script, /providerConnectionId\.addEventListener\("input", \(\) =>/);
+  assert.match(script, /mutationId:\s*providerCredentialMutationId \?\?= crypto\.randomUUID\(\)/);
+  assert.match(script, /providerKey\.addEventListener\("input", clearProviderAcknowledgement\)/);
   assert.doesNotMatch(html, /value="sk-|https?:\/\/openrouter\.ai/);
+});
+
+test("cloud acknowledgement identity follows the exact live connection proposal", async () => {
+  const contract = await import(`data:text/javascript;base64,${Buffer.from(script).toString("base64")}`) as {
+    providerDisclosureProposal(value: {
+      cloud: boolean;
+      connection: null | { id: string; revision: number; state: string; definitionId: string };
+      connectionId: string;
+      definitionId: string;
+      credentialPresent: boolean;
+    }): null | { revision: number; token: string };
+  };
+  const creation = contract.providerDisclosureProposal({
+    cloud: true, connection: null, connectionId: "openrouter-main", definitionId: "openrouter", credentialPresent: false,
+  })!;
+  assert.equal(creation.revision, 1);
+  assert.equal(creation.token, "openrouter-main\u0000openrouter\u00001");
+  const replacement = contract.providerDisclosureProposal({
+    cloud: true,
+    connection: { id: "openrouter-main", revision: 1, state: "enabled", definitionId: "openrouter" },
+    connectionId: "openrouter-main", definitionId: "openrouter", credentialPresent: true,
+  })!;
+  assert.equal(replacement.revision, 2);
+  assert.notEqual(replacement.token, creation.token);
+  assert.notEqual(contract.providerDisclosureProposal({
+    cloud: true, connection: null, connectionId: "other", definitionId: "openrouter", credentialPresent: false,
+  })!.token, creation.token);
+  assert.equal(contract.providerDisclosureProposal({
+    cloud: false, connection: null, connectionId: "openrouter-main", definitionId: "openrouter", credentialPresent: false,
+  }), null);
 });

@@ -27,6 +27,7 @@ export interface ConnectionProfile {
   readonly revision: number;
   readonly target: ConnectionTarget;
   readonly credentialRef?: string;
+  readonly mutationId?: string;
 }
 
 export type ModelCapability =
@@ -176,7 +177,7 @@ export function parseConnectionProfile(value: unknown): ConnectionProfile {
   const profile = dataFields(
     value,
     ["id", "revision", "target"],
-    ["credentialRef"],
+    ["credentialRef", "mutationId"],
     "connection profile",
   );
   const id = canonicalId(profile.get("id"), "connection profile id");
@@ -186,6 +187,7 @@ export function parseConnectionProfile(value: unknown): ConnectionProfile {
     revision: number;
     target: ConnectionTarget;
     credentialRef?: string;
+    mutationId?: string;
   } = {
     id,
     revision: revision(profile.get("revision"), "connection profile revision"),
@@ -200,6 +202,13 @@ export function parseConnectionProfile(value: unknown): ConnectionProfile {
       throw new TypeError("connection profile credentialRef must be its opaque local reference");
     }
     parsed.credentialRef = credentialRef;
+  }
+  const mutationId = profile.get("mutationId");
+  if (mutationId !== undefined) {
+    if (typeof mutationId !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/u.test(mutationId)) {
+      throw new TypeError("connection profile mutationId must be a canonical non-secret ID");
+    }
+    parsed.mutationId = mutationId;
   }
   return Object.freeze(parsed);
 }

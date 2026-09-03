@@ -470,7 +470,7 @@ export function assembleUnsignedApp(options) {
       buildEpoch: identity.buildEpoch,
       targetTriple: "arm64-apple-darwin",
       runtimes: { nodeVersion: identity.node.version, pythonVersion: identity.pythonVersion, validatorVersion: identity.validatorVersion },
-      databaseSchema: { minimum: 1, maximum: 3 },
+      databaseSchema: { minimum: 1, maximum: 8 },
       files,
     });
     const manifestFile = join(stage, MANIFEST_PATH);

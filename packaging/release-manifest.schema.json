@@ -41,7 +41,7 @@
       "required": ["minimum", "maximum"],
       "properties": {
         "minimum": { "const": 1 },
-        "maximum": { "const": 3 }
+        "maximum": { "const": 8 }
       }
     },
     "files": {
