@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { createServer, request as realHttpsRequest, type RequestOptions } from "node:https";
 import { tmpdir } from "node:os";
@@ -10,7 +10,11 @@ import { Readable } from "node:stream";
 import { connect as realTlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
 import { test } from "node:test";
 
-import { CLOUD_TRANSPORT_TIMEOUT, type CloudTransportRequest } from "../../src/providers/openai-compatible-cloud.js";
+import {
+  CLOUD_TRANSPORT_TIMEOUT,
+  OpenAICompatibleCloudAdapter,
+  type CloudTransportRequest,
+} from "../../src/providers/openai-compatible-cloud.js";
 import {
   __unsafeCreateSecureHttpTransportForTests,
   __unsafeSecureHttpTransportInternalsForTests as internals,
@@ -379,6 +383,98 @@ test("ephemeral local CA proves real TLS certificate validation, SNI, HTTP/1.1, 
     const wrongName = makeTransport(true);
     await assert.rejects(wrongName.request(modelRequest(), new AbortController().signal), code("connection_rejected"));
     assert.equal(requests, 1); assert.deepEqual(wrongName.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("real local TLS transport response headers compose with the OpenRouter adapter", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "greenroom-provider-adapter-tls-"));
+  const tlsRoot = join(directory, "tls");
+  mkdirSync(tlsRoot, { mode: 0o700 });
+  const configPath = join(tlsRoot, "openssl.cnf");
+  const caKeyPath = join(tlsRoot, "ca-key.pem");
+  const caCertificatePath = join(tlsRoot, "ca-cert.pem");
+  const keyPath = join(tlsRoot, "server-key.pem");
+  const requestPath = join(tlsRoot, "server.csr");
+  const certificatePath = join(tlsRoot, "server-cert.pem");
+  writeFileSync(configPath, [
+    "[req]", "distinguished_name=dn", "req_extensions=v3", "prompt=no", "[dn]", "CN=openrouter.ai",
+    "[v3]", "subjectAltName=DNS:openrouter.ai", "keyUsage=digitalSignature,keyEncipherment", "extendedKeyUsage=serverAuth", "",
+  ].join("\n"), { mode: 0o600 });
+  const opensslOptions = {
+    cwd: directory, env: { PATH: "/usr/bin:/bin", LANG: "C" }, stdio: "ignore", timeout: 10_000,
+  } as const;
+  execFileSync("/usr/bin/openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "1", "-subj", "/CN=Green Room Issue 129 Test CA", "-keyout", caKeyPath, "-out", caCertificatePath], opensslOptions);
+  execFileSync("/usr/bin/openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-sha256", "-keyout", keyPath, "-out", requestPath, "-config", configPath], opensslOptions);
+  execFileSync("/usr/bin/openssl", ["x509", "-req", "-sha256", "-days", "1", "-in", requestPath, "-CA", caCertificatePath, "-CAkey", caKeyPath, "-CAcreateserial", "-out", certificatePath, "-extfile", configPath, "-extensions", "v3"], opensslOptions);
+  const caCertificate = readFileSync(caCertificatePath);
+  const model = "anthropic/claude-3.5-sonnet";
+  const requests: Array<{ readonly method: string; readonly url: string }> = [];
+  let seenSni: string | false | undefined;
+  const server = createServer({ key: readFileSync(keyPath), cert: readFileSync(certificatePath), ALPNProtocols: ["http/1.1"] }, (request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => { body += chunk; });
+    request.on("end", () => {
+      requests.push({ method: request.method ?? "", url: request.url ?? "" });
+      const value = request.method === "GET"
+        ? { data: [{ id: model }] }
+        : { model: JSON.parse(body).model, choices: [{ message: { content: "Local TLS adapter reply." } }] };
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8", connection: "close", "x-fixture": "issue-129" });
+      response.end(JSON.stringify(value));
+    });
+  });
+  server.on("secureConnection", (socket) => { seenSni = (socket as TLSSocket & { servername?: string | false }).servername; });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  const localPort = address.port;
+  const transport = __unsafeCreateSecureHttpTransportForTests({
+    dependencies: {
+      lookup: (hostname) => {
+        assert.equal(hostname, "openrouter.ai");
+        return { promise: Promise.resolve([{ address: globalAddress, family: 4 }]), cancel: () => {} };
+      },
+      connect: (options) => {
+        assert.deepEqual(options, { host: globalAddress, port: 443, servername: "openrouter.ai", rejectUnauthorized: true, ALPNProtocols: ["http/1.1"] });
+        const socket = realTlsConnect({ ...options, host: "127.0.0.1", port: localPort, ca: caCertificate });
+        socket.once("secureConnect", () => Object.defineProperties(socket, {
+          remoteAddress: { configurable: true, value: globalAddress },
+          remotePort: { configurable: true, value: 443 },
+        }));
+        return socket;
+      },
+      request: (options, callback) => realHttpsRequest(options, callback),
+    },
+    timers: { dns: 1_000, connectTls: 2_000, write: 2_000, headers: 2_000, bodyIdle: 2_000, total: 5_000 },
+  });
+  try {
+    const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openrouter", transport });
+    assert.deepEqual(await adapter.listModels({ credential: secret }, new AbortController().signal), [model]);
+
+    const raw = await transport.request(Object.freeze({
+      definitionId: "openrouter", scheme: "https", hostname: "openrouter.ai", port: 443,
+      method: "GET", path: "/api/v1/models",
+      headers: Object.freeze({ accept: "application/json", authorization: `Bearer ${secret}` }),
+    }), new AbortController().signal);
+    assert.equal(Object.getPrototypeOf(raw.headers), Object.prototype);
+    assert.equal(Object.isFrozen(raw.headers), true);
+    assert.equal(raw.headers["x-fixture"], "issue-129");
+    assert.equal(Object.values(Object.getOwnPropertyDescriptors(raw.headers)).every((descriptor) => "value" in descriptor && descriptor.enumerable), true);
+
+    assert.deepEqual(await adapter.generate({
+      credential: secret, model, messages: [{ role: "user", content: "Answer." }], temperature: 0, maxOutputTokens: 16,
+    }, new AbortController().signal), { kind: "text", text: "Local TLS adapter reply." });
+    assert.equal(seenSni, "openrouter.ai");
+    assert.deepEqual(requests, [
+      { method: "GET", url: "/api/v1/models" },
+      { method: "GET", url: "/api/v1/models" },
+      { method: "POST", url: "/api/v1/chat/completions" },
+    ]);
+    assert.deepEqual(transport.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

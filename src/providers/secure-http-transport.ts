@@ -314,7 +314,7 @@ function resolverLookup(hostname: string, resolver: FamilyResolver): LookupOpera
 function copiedResponseHeaders(headers: IncomingHttpHeaders, rawHeaders: readonly string[]): Readonly<Record<string, string>> {
   if (rawHeaders.length / 2 > MAX_HEADER_COUNT) throw failure("response_rejected");
   let bytes = 0;
-  const result: Record<string, string> = Object.create(null) as Record<string, string>;
+  const result: Record<string, string> = {};
   for (let index = 0; index < rawHeaders.length; index += 2) {
     const name = rawHeaders[index]; const value = rawHeaders[index + 1];
     if (name === undefined || value === undefined || !HEADER_NAME.test(name.toLowerCase()) || CONTROL.test(value)) throw failure("response_rejected");
@@ -322,8 +322,10 @@ function copiedResponseHeaders(headers: IncomingHttpHeaders, rawHeaders: readonl
     if (bytes > MAX_HEADER_BYTES) throw failure("response_rejected");
   }
   for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "string") result[name] = value;
-    else if (Array.isArray(value)) result[name] = value.join(", ");
+    const copied = typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : undefined;
+    if (copied !== undefined) Object.defineProperty(result, name, {
+      value: copied, enumerable: true, configurable: false, writable: false,
+    });
   }
   return Object.freeze(result);
 }
