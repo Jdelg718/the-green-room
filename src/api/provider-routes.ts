@@ -19,6 +19,7 @@ import {
   rebindRoom,
   reviseConnectionProfile,
   reviseModelProfile,
+  withImmediateTransaction,
 } from "../db/index.js";
 import { canonicalCredentialReference, type CredentialStore } from "../providers/credential-store.js";
 import { OpenAICompatibleCloudAdapter, type CloudTransport } from "../providers/openai-compatible-cloud.js";
@@ -428,6 +429,15 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
 
 export function registerProviderBindingRoutes(api: FastifyInstance, options: ProviderBindingRoutesOptions): void {
   const routeOptions = { bodyLimit: PROVIDER_BODY_LIMIT } as const;
+  const requireExpectedBinding = (roomId: string, bindingId: string, expected: number): void => {
+    const room = options.database.prepare("SELECT 1 AS present FROM rooms WHERE id = ?").get(roomId);
+    if (room === undefined) throw new ProviderHttpError(409, "revision_conflict", "Room does not exist");
+    const currentBinding = readEffectiveRoomBinding(options.database, roomId);
+    if ((currentBinding === undefined) !== (expected === 0) ||
+        (currentBinding !== undefined && (currentBinding.revision !== expected || currentBinding.id !== bindingId))) {
+      throw new ProviderHttpError(409, "revision_conflict", "Room binding revision is stale");
+    }
+  };
   api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/provider-binding", async (request, reply) => {
     const binding = readEffectiveRoomBinding(options.database, request.params.roomId);
     if (binding === undefined) return reply.code(404).send({ error: { code: "binding_missing", message: "Room has no provider binding" } });
@@ -446,56 +456,59 @@ export function registerProviderBindingRoutes(api: FastifyInstance, options: Pro
     try {
       if (ordinary(request.body) && Object.hasOwn(request.body, "provider")) {
         const body = exact(request.body, ["id", "expectedRevision", "provider"]);
-        if (body.provider !== "lmstudio" || options.lmStudioModel === undefined || options.lmStudioProbe === undefined) {
+        const lmStudioModel = options.lmStudioModel;
+        const lmStudioProbe = options.lmStudioProbe;
+        if (body.provider !== "lmstudio" || lmStudioModel === undefined || lmStudioProbe === undefined) {
           throw new ProviderHttpError(409, "provider_unavailable", "LM Studio is not active in this runtime");
         }
+        const bindingId = canonicalId(body.id);
         const expected = revision(body.expectedRevision, true);
-        const roomId = request.params.roomId;
-        const currentBinding = readEffectiveRoomBinding(options.database, roomId);
-        if ((currentBinding === undefined) !== (expected === 0) ||
-            (currentBinding !== undefined && (currentBinding.revision !== expected || currentBinding.id !== body.id))) {
-          throw new ProviderHttpError(409, "revision_conflict", "Room binding revision is stale");
-        }
-        await options.lmStudioProbe(request.signal);
-        const suffix = createHash("sha256").update(roomId).digest("hex").slice(0, 16);
-        const connectionId = `lmstudio-${suffix}`;
-        const modelId = `lmstudio-model-${suffix}`;
-        let connection = readCurrentConnectionProfile(options.database, connectionId);
-        if (connection === undefined) {
-          connection = createConnectionProfile(options.database, {
-            id: connectionId, revision: 1, target: { class: "local-endpoint", adapter: "openai-compatible" },
-          });
-        }
-        if (connection.state !== "enabled" || connection.profile.target.class !== "local-endpoint") {
-          throw new ProviderHttpError(409, "revision_conflict", "Local provider profile conflicts with current state");
-        }
-        observeConnection(options.database, {
-          id: `observation-${randomUUID()}`,
-          connection: { profileId: connectionId, revision: connection.profile.revision },
-          health: "ready",
-          capabilityFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ adapter: "lmstudio", modelId: options.lmStudioModel, chat: true })).digest("hex")}`,
-          evidence: { chat: true },
-        });
-        let model = readCurrentModelProfile(options.database, modelId);
-        if (model === undefined) {
-          model = createModelProfile(options.database, {
-            id: modelId, revision: 1,
+        const roomId = canonicalId(request.params.roomId);
+        requireExpectedBinding(roomId, bindingId, expected);
+        await lmStudioProbe(request.signal);
+        const { binding, model } = withImmediateTransaction(options.database, () => {
+          requireExpectedBinding(roomId, bindingId, expected);
+          const suffix = createHash("sha256").update(roomId).digest("hex").slice(0, 16);
+          const connectionId = `lmstudio-${suffix}`;
+          const modelId = `lmstudio-model-${suffix}`;
+          let connection = readCurrentConnectionProfile(options.database, connectionId);
+          if (connection === undefined) {
+            connection = createConnectionProfile(options.database, {
+              id: connectionId, revision: 1, target: { class: "local-endpoint", adapter: "openai-compatible" },
+            });
+          }
+          if (connection.state !== "enabled" || connection.profile.target.class !== "local-endpoint") {
+            throw new ProviderHttpError(409, "revision_conflict", "Local provider profile conflicts with current state");
+          }
+          observeConnection(options.database, {
+            id: `observation-${randomUUID()}`,
             connection: { profileId: connectionId, revision: connection.profile.revision },
-            modelId: options.lmStudioModel, requiredCapabilities: ["chat"],
-            generation: { temperature: 0.4, maxOutputTokens: 256 },
+            health: "ready",
+            capabilityFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ adapter: "lmstudio", modelId: lmStudioModel, chat: true })).digest("hex")}`,
+            evidence: { chat: true },
           });
-        } else if (model.profile.modelId !== options.lmStudioModel) {
-          model = reviseModelProfile(options.database, {
-            ...model.profile,
-            revision: model.profile.revision + 1,
-            modelId: options.lmStudioModel,
-          }, model.profile.revision);
-        }
-        const value = {
-          id: canonicalId(body.id), revision: expected + 1, roomId, purpose: "persona-default" as const,
-          model: { profileId: model.profile.id, revision: model.profile.revision },
-        };
-        const binding = expected === 0 ? bindRoom(options.database, value) : rebindRoom(options.database, value, expected);
+          let model = readCurrentModelProfile(options.database, modelId);
+          if (model === undefined) {
+            model = createModelProfile(options.database, {
+              id: modelId, revision: 1,
+              connection: { profileId: connectionId, revision: connection.profile.revision },
+              modelId: lmStudioModel, requiredCapabilities: ["chat"],
+              generation: { temperature: 0.4, maxOutputTokens: 256 },
+            });
+          } else if (model.profile.modelId !== lmStudioModel) {
+            model = reviseModelProfile(options.database, {
+              ...model.profile,
+              revision: model.profile.revision + 1,
+              modelId: lmStudioModel,
+            }, model.profile.revision);
+          }
+          const value = {
+            id: bindingId, revision: expected + 1, roomId, purpose: "persona-default" as const,
+            model: { profileId: model.profile.id, revision: model.profile.revision },
+          };
+          const binding = expected === 0 ? bindRoom(options.database, value) : rebindRoom(options.database, value, expected);
+          return { binding, model };
+        });
         return reply.code(expected === 0 ? 201 : 200).send({ binding, execution: "lmstudio", modelProfile: model });
       }
       if (!options.cloudEnabled) throw new ProviderHttpError(409, "provider_unavailable", "Cloud provider setup is unavailable in this runtime");

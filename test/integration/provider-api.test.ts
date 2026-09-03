@@ -49,7 +49,11 @@ class MockOpenRouterTransport implements CloudTransport {
   }
 }
 
-async function fixture(context: { after(callback: () => void | Promise<void>): void }, allowedOrigin = ORIGIN) {
+async function fixture(
+  context: { after(callback: () => void | Promise<void>): void },
+  allowedOrigin = ORIGIN,
+  lmStudioProbe: () => Promise<void> = async () => {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), "green-room-provider-api-"));
   const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
   const credentials = new MemoryCredentials();
@@ -61,7 +65,7 @@ async function fixture(context: { after(callback: () => void | Promise<void>): v
     providerCredentials: credentials,
     cloudTransport: transport,
     lmStudioModel: "local-model",
-    lmStudioProbe: async () => {},
+    lmStudioProbe,
   });
   await app.ready();
   context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
@@ -71,6 +75,12 @@ async function fixture(context: { after(callback: () => void | Promise<void>): v
     method, url, headers: { host: new URL(allowedOrigin).host, origin: allowedOrigin, "x-csrf-token": csrf }, payload,
   });
   return { app, credentials, database: store.database, transport, mutate, host: new URL(allowedOrigin).host };
+}
+
+function providerRecordCounts(database: ReturnType<typeof openGreenRoomDatabase>["database"]): Record<string, number> {
+  return Object.fromEntries([
+    "connection_profile_revisions", "provider_observations", "model_profile_revisions", "room_binding_revisions",
+  ].map((table) => [table, (database.prepare(`SELECT count(*) count FROM ${table}`).get() as { count: number }).count]));
 }
 
 test("provider routes enforce CSRF, exact bodies, caps, loopback mutation, and secret-free DTOs", async (context) => {
@@ -444,6 +454,37 @@ test("LM Studio probe failure creates no ready observation, profile, model, or b
   for (const table of ["connection_profile_revisions", "provider_observations", "model_profile_revisions", "room_binding_revisions"]) {
     assert.equal((store.database.prepare(`SELECT count(*) count FROM ${table}`).get() as { count: number }).count, 0, table);
   }
+});
+
+test("LM Studio binding validates binding and room identities before probing or writing", async (context) => {
+  let probes = 0;
+  const f = await fixture(context, ORIGIN, async () => { probes += 1; });
+  const before = providerRecordCounts(f.database);
+  const malformed = await f.mutate("POST", "/api/rooms/first-playable/provider-binding", {
+    id: "INVALID binding id", expectedRevision: 0, provider: "lmstudio",
+  });
+  assert.equal(malformed.statusCode, 400, malformed.body);
+  assert.equal(probes, 0);
+  assert.deepEqual(providerRecordCounts(f.database), before);
+
+  const missingRoom = await f.mutate("POST", "/api/rooms/room-does-not-exist/provider-binding", {
+    id: "missing-room-provider", expectedRevision: 0, provider: "lmstudio",
+  });
+  assert.equal(missingRoom.statusCode, 409, missingRoom.body);
+  assert.equal(probes, 0);
+  assert.deepEqual(providerRecordCounts(f.database), before);
+});
+
+test("LM Studio binding rolls back every provider record when its database commit fails", async (context) => {
+  const f = await fixture(context);
+  const before = providerRecordCounts(f.database);
+  f.database.exec(`CREATE TRIGGER fail_local_binding BEFORE INSERT ON room_binding_revisions
+    BEGIN SELECT RAISE(ABORT, 'injected binding failure'); END`);
+  const failed = await f.mutate("POST", "/api/rooms/first-playable/provider-binding", {
+    id: "first-playable-provider", expectedRevision: 0, provider: "lmstudio",
+  });
+  assert.equal(failed.statusCode, 503, failed.body);
+  assert.deepEqual(providerRecordCounts(f.database), before);
 });
 
 test("LM Studio selection creates an append-only local binding before generation can use it", async (context) => {

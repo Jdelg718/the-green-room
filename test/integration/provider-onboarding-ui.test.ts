@@ -71,3 +71,40 @@ test("cloud acknowledgement identity follows the exact live connection proposal"
     cloud: false, connection: null, connectionId: "openrouter-main", definitionId: "openrouter", credentialPresent: false,
   }), null);
 });
+
+test("cloud model rebinding remains enabled until the exact selected model revision is bound", async () => {
+  const contract = await import(`data:text/javascript;base64,${Buffer.from(script).toString("base64")}`) as {
+    providerBindDisabled(value: {
+      acknowledged: boolean;
+      binding: null | {
+        execution: string;
+        binding: { model: { profileId: string; revision: number } };
+        modelProfile: { profile: { id: string; revision: number; modelId: string; connection: { profileId: string; revision: number } } };
+      };
+      connection: { id: string; revision: number };
+      ready: boolean;
+      selectedModel: string;
+      testedModel: null | string;
+    }): boolean;
+  };
+  const connection = { id: "openrouter-main", revision: 1 };
+  const boundA = {
+    execution: "cloud",
+    binding: { model: { profileId: "main-model", revision: 1 } },
+    modelProfile: { profile: { id: "main-model", revision: 1, modelId: "provider/model-a", connection: { profileId: connection.id, revision: connection.revision } } },
+  };
+  assert.equal(contract.providerBindDisabled({
+    acknowledged: true, binding: boundA, connection, ready: true,
+    selectedModel: "provider/model-b", testedModel: "provider/model-b",
+  }), false);
+
+  const boundB = {
+    execution: "cloud",
+    binding: { model: { profileId: "main-model", revision: 2 } },
+    modelProfile: { profile: { id: "main-model", revision: 2, modelId: "provider/model-b", connection: { profileId: connection.id, revision: connection.revision } } },
+  };
+  assert.equal(contract.providerBindDisabled({
+    acknowledged: true, binding: boundB, connection, ready: true,
+    selectedModel: "provider/model-b", testedModel: "provider/model-b",
+  }), true);
+});

@@ -91,6 +91,17 @@ const ORIGINAL_PERSONA_PRESENTATION = Object.freeze({
 });
 export const HUMAN_EMOJIS = Object.freeze(["🙂", "😎", "🤓", "🧐", "😄", "🥳", "🧠", "🫡", "🦊", "🐸", "👻", "🤖"]);
 
+export function providerBindDisabled({ acknowledged, binding, connection, ready, selectedModel, testedModel }) {
+  if (!ready || testedModel !== selectedModel || !acknowledged) return true;
+  const boundModel = binding?.modelProfile?.profile;
+  return binding?.execution === "cloud" &&
+    binding?.binding?.model?.profileId === boundModel?.id &&
+    binding?.binding?.model?.revision === boundModel?.revision &&
+    boundModel?.modelId === selectedModel &&
+    boundModel?.connection?.profileId === connection?.id &&
+    boundModel?.connection?.revision === connection?.revision;
+}
+
 // Portrait paths are application-owned and bound only to built-in canonical IDs.
 // Catalog/persona data cannot provide or override image URLs.
 export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
@@ -1125,9 +1136,10 @@ export function startBrowserApp() {
     elements.disableProvider.disabled = !ready;
     elements.deleteProvider.disabled = !providerCapabilities.cloud || providerConnection === null;
     elements.testProvider.disabled = !ready || elements.providerModel.value === "";
-    elements.bindProvider.disabled = !ready || providerTestedModel !== elements.providerModel.value ||
-      !acknowledged || (providerBinding?.execution === "cloud" &&
-        providerBinding?.connectionRevision === proposal.revision);
+    elements.bindProvider.disabled = providerBindDisabled({
+      acknowledged, binding: providerBinding, connection: providerConnection, ready,
+      selectedModel: elements.providerModel.value, testedModel: providerTestedModel,
+    });
   }
 
   function acceptConnection(connection) {
