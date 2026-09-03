@@ -48,9 +48,17 @@ class FakeSocket extends EventEmitter {
   remoteAddress: string | undefined = globalAddress;
   alpnProtocol: string | false = "http/1.1";
   destroyed = false;
+  destroyCalls = 0;
+  unrefCalls = 0;
   readonly #closeDelay: number | "never";
-  constructor(closeDelay: number | "never" = 0) { super(); this.#closeDelay = closeDelay; }
+  readonly #unrefThrows: boolean;
+  readonly #keeper: NodeJS.Timeout | undefined;
+  constructor(closeDelay: number | "never" = 0, unrefThrows = false) {
+    super(); this.#closeDelay = closeDelay; this.#unrefThrows = unrefThrows;
+    this.#keeper = closeDelay === "never" ? setInterval(() => {}, 10_000) : undefined;
+  }
   destroy(): this {
+    this.destroyCalls += 1;
     if (!this.destroyed) {
       this.destroyed = true;
       if (this.#closeDelay === 0) this.emit("close");
@@ -58,6 +66,13 @@ class FakeSocket extends EventEmitter {
     }
     return this;
   }
+  unref(): this {
+    this.unrefCalls += 1;
+    this.#keeper?.unref();
+    if (this.#unrefThrows) throw new Error("hostile unref");
+    return this;
+  }
+  closeNow(): void { this.#keeper === undefined || clearInterval(this.#keeper); this.emit("close"); }
 }
 interface Reply {
   readonly status?: number;
@@ -77,6 +92,7 @@ interface HarnessOptions {
   readonly stallWrite?: boolean;
   readonly syncDestroyError?: boolean;
   readonly closeDelay?: number | "never";
+  readonly unrefThrows?: boolean;
   readonly timers?: Partial<{ dns: number; connectTls: number; write: number; headers: number; bodyIdle: number; total: number }>;
   readonly concurrency?: number;
 }
@@ -101,7 +117,7 @@ function harness(options: HarnessOptions = {}) {
     },
     connect: (connection: ConnectionOptions) => {
       connectOptions.push(connection);
-      const socket = new FakeSocket(options.closeDelay); openSockets += 1;
+      const socket = new FakeSocket(options.closeDelay, options.unrefThrows); openSockets += 1;
       sockets.push(socket);
       socket.once("close", () => { openSockets -= 1; });
       options.configureSocket?.(socket, connection);
@@ -456,6 +472,67 @@ test("DNS/connect/write/header/body-idle/total deadlines are distinct and saniti
   assert.ok(saturatedAtDeadline.closing >= 1 && saturatedAtDeadline.closing <= 2);
   await new Promise<void>((resolve) => setTimeout(resolve, 60));
   await assertQuiescent(saturated);
+});
+
+test("never-closing sockets retain bounded leases, are unrefed, and release capacity only on close", async () => {
+  if (process.env.GREENROOM_SOCKET_CHILD === "1") {
+    const child = harness({ concurrency: 1, closeDelay: "never", timers: { total: 5, bodyIdle: 100 } });
+    await Promise.allSettled(Array.from({ length: 40 }, () => child.transport.request(modelRequest(), new AbortController().signal)));
+    assert.equal(child.sockets.length, 1);
+    assert.equal(child.sockets[0]?.unrefCalls, 1);
+    assert.deepEqual(child.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
+    return; // The process can exit only if cleanup unrefed the never-closing socket's live handle.
+  }
+  const neverCloses = harness({ concurrency: 1, closeDelay: "never", timers: { total: 5, bodyIdle: 100 } });
+  const started = performance.now();
+  const results = await Promise.allSettled(Array.from({ length: 40 }, () =>
+    neverCloses.transport.request(modelRequest(), new AbortController().signal)));
+  assert.ok(performance.now() - started < 100, "logical callers must return at their total deadlines");
+  assert.equal(results.every((result) => result.status === "rejected" && result.reason === CLOUD_TRANSPORT_TIMEOUT), true);
+  assert.equal(neverCloses.sockets.length, 1, "a closing socket must continue occupying capacity");
+  assert.equal(neverCloses.writes.length, 1);
+  assert.equal(neverCloses.sockets[0]?.destroyCalls, 1);
+  assert.equal(neverCloses.sockets[0]?.unrefCalls, 1);
+  assert.deepEqual(neverCloses.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
+
+  neverCloses.sockets[0]!.closeNow();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await assertQuiescent(neverCloses);
+  await assert.rejects(neverCloses.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(neverCloses.sockets.length, 2, "capacity must resume after the exact close event");
+  neverCloses.sockets[1]!.closeNow();
+  await assertQuiescent(neverCloses);
+
+  const concurrency = 3;
+  const boundedN = harness({ concurrency, closeDelay: "never", timers: { total: 5, bodyIdle: 100 } });
+  await Promise.allSettled(Array.from({ length: 20 }, () => boundedN.transport.request(modelRequest(), new AbortController().signal)));
+  assert.equal(boundedN.sockets.length, concurrency);
+  assert.equal(boundedN.sockets.every((socket) => socket.destroyCalls === 1), true);
+  assert.equal(boundedN.sockets.every((socket) => socket.unrefCalls === 1), true);
+  assert.deepEqual(boundedN.transport.diagnostics(), { dns: 0, sockets: concurrency, closing: concurrency, agents: 0, active: 0, queued: 0 });
+  for (const socket of boundedN.sockets) socket.closeNow();
+  await assertQuiescent(boundedN);
+
+  const delayed = harness({ concurrency: 1, closeDelay: 250, timers: { total: 5, bodyIdle: 100 } });
+  await assert.rejects(delayed.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  await assert.rejects(delayed.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(delayed.sockets.length, 1);
+  await new Promise<void>((resolve) => setTimeout(resolve, 275));
+  await assert.rejects(delayed.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(delayed.sockets.length, 2, "delayed close must restore capacity");
+  await new Promise<void>((resolve) => setTimeout(resolve, 275));
+  await assertQuiescent(delayed);
+
+  const hostile = harness({ concurrency: 1, closeDelay: "never", unrefThrows: true, timers: { total: 5, bodyIdle: 100 } });
+  await assert.rejects(hostile.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(hostile.sockets[0]?.unrefCalls, 1, "hostile unref must be attempted once");
+  assert.deepEqual(hostile.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
+  hostile.sockets[0]!.closeNow();
+  await assertQuiescent(hostile);
+
+  execFileSync(process.execPath, ["--test", "--test-name-pattern=never-closing sockets retain bounded leases", import.meta.filename], {
+    env: { ...process.env, GREENROOM_SOCKET_CHILD: "1" }, timeout: 5_000, stdio: "pipe",
+  });
 });
 
 test("cancellation at DNS, connect/prewrite, header, body, and queued capacity destroys owned resources", async () => {

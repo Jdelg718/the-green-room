@@ -287,6 +287,11 @@ function timeoutLookup(milliseconds: number, operation: LookupOperation, signal:
   });
 }
 function canonicalPeer(value: string | undefined): string | undefined { return typeof value === "string" ? classifyAddress(value)?.canonical : undefined; }
+function safeDestroy(resource: { readonly destroyed?: boolean; destroy(): unknown } | undefined): void {
+  if (resource === undefined) return;
+  try { if (resource.destroyed === true) return; } catch { /* Fall through to the sanitized destroy attempt. */ }
+  try { resource.destroy(); } catch { /* Cleanup failures at dependency seams are never exposed. */ }
+}
 function resolverLookup(hostname: string, resolver: FamilyResolver): LookupOperation {
   const missing = (error: unknown): boolean => {
     if (typeof error !== "object" || error === null || types.isProxy(error)) return false;
@@ -326,8 +331,9 @@ function copiedResponseHeaders(headers: IncomingHttpHeaders, rawHeaders: readonl
 async function destroyAndAwaitClose(socket: TLSSocket | undefined, tracked: Set<TLSSocket>, closing: Set<TLSSocket>, deadline: number, signal: AbortSignal): Promise<void> {
   if (socket === undefined || !tracked.has(socket)) return;
   closing.add(socket);
-  socket.destroy();
+  safeDestroy(socket);
   if (!tracked.has(socket)) return;
+  try { socket.unref(); } catch { /* A hostile seam must not retain the event loop or alter the caller result. */ }
   const remaining = remainingMilliseconds(deadline);
   if (remaining <= 0 || safeSignalAborted(signal)) return;
   await new Promise<void>((resolve) => {
@@ -350,6 +356,7 @@ class SecureHttpTransport implements CloudTransport {
   readonly #deps: Dependencies; readonly #timers: Timers; readonly #semaphore: FairSemaphore;
   readonly #dns = new Set<LookupOperation>(); readonly #sockets = new Set<TLSSocket>();
   readonly #closing = new Set<TLSSocket>(); readonly #agents = new Set<Agent>();
+  #activeCallers = 0;
   constructor(options: InternalOptions) {
     this.#deps = options.dependencies; this.#timers = boundedTimers(options.timers);
     const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
@@ -368,15 +375,30 @@ class SecureHttpTransport implements CloudTransport {
     let timedOut = false;
     let callerAborted = false;
     let release: (() => void) | undefined;
+    let retainedSocket: TLSSocket | undefined;
+    let retainedSocketClosed = false;
+    let callerActive = false;
+    let callerFinished = false;
+    let leaseReleased = false;
+    const releaseLease = (): void => { if (leaseReleased) return; leaseReleased = true; release?.(); };
+    const retainLeaseUntilClose = (socket: TLSSocket): (() => void) => {
+      retainedSocket = socket;
+      return () => {
+        if (retainedSocket !== socket) return;
+        retainedSocketClosed = true;
+        if (callerFinished) releaseLease();
+      };
+    };
     const relayAbort = (): void => { callerAborted = true; controller.abort(); };
     signal.addEventListener("abort", relayAbort, { once: true });
     if (safeSignalAborted(signal)) relayAbort();
-    const timer = setTimeout(() => { timedOut = true; controller.abort(); release?.(); }, remainingMilliseconds(deadline));
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, remainingMilliseconds(deadline));
     timer.unref();
     try {
       release = await this.#semaphore.acquire(controller.signal);
+      callerActive = true; this.#activeCallers += 1;
       if (remainingMilliseconds(deadline) <= 0) { timedOut = true; controller.abort(); throw CLOUD_TRANSPORT_TIMEOUT; }
-      const result = await this.#perform(parsed, controller.signal, deadline);
+      const result = await this.#perform(parsed, controller.signal, deadline, retainLeaseUntilClose);
       if (callerAborted) throw failure("canceled");
       if (timedOut || remainingMilliseconds(deadline) <= 0) throw CLOUD_TRANSPORT_TIMEOUT;
       return result;
@@ -386,9 +408,14 @@ class SecureHttpTransport implements CloudTransport {
       if (timedOut || remainingMilliseconds(deadline) <= 0) throw CLOUD_TRANSPORT_TIMEOUT;
       throw error;
     }
-    finally { release?.(); clearTimeout(timer); signal.removeEventListener("abort", relayAbort); }
+    finally {
+      callerFinished = true;
+      if (callerActive) this.#activeCallers -= 1;
+      if (retainedSocket === undefined || retainedSocketClosed) releaseLease();
+      clearTimeout(timer); signal.removeEventListener("abort", relayAbort);
+    }
   }
-  async #perform(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal, deadline: number): Promise<CloudTransportResponse> {
+  async #perform(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal, deadline: number, retainLeaseUntilClose: (socket: TLSSocket) => () => void): Promise<CloudTransportResponse> {
     const definition = getProviderDefinition(parsed.providerId);
     let lookup: LookupOperation;
     try { lookup = this.#deps.lookup(definition.hostname); }
@@ -412,26 +439,28 @@ class SecureHttpTransport implements CloudTransport {
     try {
       (agent as unknown as { createConnection: (options: RequestOptions, callback: (error: Error | null, socket?: Duplex) => void) => undefined }).createConnection = (_options, callback) => {
         let called = false;
-        const done = (error: unknown, accepted?: TLSSocket): void => { if (called) { accepted?.destroy(); return; } called = true; if (connectTimer !== undefined) clearTimeout(connectTimer); callback(error as Error | null, accepted); };
+        const done = (error: unknown, accepted?: TLSSocket): void => { if (called) { safeDestroy(accepted); return; } called = true; if (connectTimer !== undefined) clearTimeout(connectTimer); callback(error as Error | null, accepted); };
         try {
           socket = this.#deps.connect({ host: selected.canonical, port: 443, servername: definition.hostname, rejectUnauthorized: true, ALPNProtocols: ["http/1.1"] });
           const createdSocket = socket;
           this.#sockets.add(createdSocket);
-          createdSocket.once("close", () => { this.#sockets.delete(createdSocket); this.#closing.delete(createdSocket); });
-          connectTimer = setTimeout(() => { socket?.destroy(); done(CLOUD_TRANSPORT_TIMEOUT); }, phaseMilliseconds(this.#timers.connectTls, deadline)); connectTimer.unref();
+          let releaseSocketLease: (() => void) | undefined;
+          createdSocket.once("close", () => { this.#sockets.delete(createdSocket); this.#closing.delete(createdSocket); releaseSocketLease?.(); });
+          releaseSocketLease = retainLeaseUntilClose(createdSocket);
+          connectTimer = setTimeout(() => { safeDestroy(socket); done(CLOUD_TRANSPORT_TIMEOUT); }, phaseMilliseconds(this.#timers.connectTls, deadline)); connectTimer.unref();
           socket.once("secureConnect", () => {
-            if (safeSignalAborted(signal)) { socket?.destroy(); done(failure("canceled")); return; }
+            if (safeSignalAborted(signal)) { safeDestroy(socket); done(failure("canceled")); return; }
             if (!socket?.authorized || socket.remotePort !== 443 || canonicalPeer(socket.remoteAddress) !== selected.canonical || socket.alpnProtocol !== "http/1.1") {
-              socket?.destroy(); done(failure(socket?.authorized ? "peer_rejected" : "tls_rejected")); return;
+              safeDestroy(socket); done(failure(socket?.authorized ? "peer_rejected" : "tls_rejected")); return;
             }
             writeTimer = setTimeout(() => {
-              settleRequest?.(CLOUD_TRANSPORT_TIMEOUT); request?.destroy(); socket?.destroy();
+              settleRequest?.(CLOUD_TRANSPORT_TIMEOUT); request?.destroy(); safeDestroy(socket);
             }, phaseMilliseconds(this.#timers.write, deadline));
             writeTimer.unref();
             done(null, socket);
           });
           socket.once("error", () => done(failure("tls_rejected")));
-        } catch { socket?.destroy(); done(failure("connection_rejected")); }
+        } catch { safeDestroy(socket); done(failure("connection_rejected")); }
         return undefined;
       };
       const headers: Record<string, string | number> = {
@@ -449,7 +478,7 @@ class SecureHttpTransport implements CloudTransport {
           if (error === undefined && value !== undefined) resolve(value); else reject(error);
         };
         settleRequest = finish;
-        abortHandler = () => { if (connectTimer !== undefined) clearTimeout(connectTimer); finish(failure("canceled")); response?.destroy(); request?.destroy(); agent.destroy(); this.#agents.delete(agent); socket?.destroy(); };
+        abortHandler = () => { if (connectTimer !== undefined) clearTimeout(connectTimer); finish(failure("canceled")); response?.destroy(); request?.destroy(); agent.destroy(); this.#agents.delete(agent); safeDestroy(socket); };
         signal.addEventListener("abort", abortHandler, { once: true });
         try {
           request = this.#deps.request({
@@ -494,12 +523,12 @@ class SecureHttpTransport implements CloudTransport {
           request.once("finish", () => {
             if (writeTimer !== undefined) clearTimeout(writeTimer);
             if (!headersReceived) {
-              headerTimer = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); response?.destroy(); request?.destroy(); socket?.destroy(); }, phaseMilliseconds(this.#timers.headers, deadline));
+              headerTimer = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); response?.destroy(); request?.destroy(); safeDestroy(socket); }, phaseMilliseconds(this.#timers.headers, deadline));
               headerTimer.unref();
             }
           });
           request.end(parsed.body);
-        } catch { request?.destroy(); socket?.destroy(); finish(failure("connection_rejected")); }
+        } catch { request?.destroy(); safeDestroy(socket); finish(failure("connection_rejected")); }
       });
       return await result;
     } finally {
@@ -513,7 +542,7 @@ class SecureHttpTransport implements CloudTransport {
     }
   }
   diagnostics(): Readonly<{ dns: number; sockets: number; closing: number; agents: number; active: number; queued: number }> {
-    return Object.freeze({ dns: this.#dns.size, sockets: this.#sockets.size, closing: this.#closing.size, agents: this.#agents.size, active: this.#semaphore.active, queued: this.#semaphore.queued });
+    return Object.freeze({ dns: this.#dns.size, sockets: this.#sockets.size, closing: this.#closing.size, agents: this.#agents.size, active: this.#activeCallers, queued: this.#semaphore.queued });
   }
 }
 
