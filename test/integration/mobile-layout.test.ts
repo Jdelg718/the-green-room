@@ -179,7 +179,8 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
   const port = await unusedPort();
   const launchedBrowser = spawn(chromium, [
     "--headless", "--disable-gpu", "--disable-dev-shm-usage", "--disable-background-networking",
-    "--no-first-run", "--no-default-browser-check", "--no-sandbox", `--remote-debugging-port=${port}`,
+    "--use-mock-keychain", "--no-first-run", "--no-default-browser-check", "--no-sandbox",
+    `--remote-debugging-port=${port}`,
     `--user-data-dir=${join(directory, "chromium-profile")}`, "about:blank",
   ], { stdio: "ignore" });
   browser = launchedBrowser;
