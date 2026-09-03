@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,17 +9,30 @@ import { pathToFileURL } from "node:url";
 const {
   assertAcceptanceSummary,
   assertInstallPolicy,
+  assertInstallScriptExecution,
   assertInstallScriptsReport,
   assertInspectionReport,
+  assertNoRootNpmCiLifecycles,
   assertProtectedDispatch,
   descendantProcesses,
   evaluateSourcePhaseAudit,
   evaluateUidProcessAudit,
   finalizeCommandLogs,
+  npmCiInvocation,
+  npmCiArguments,
   parseDarwinPsProcessLine,
   pathsOutsideRoots,
   validatePlaceholderHomeManifest,
 } = await import(pathToFileURL(join(process.cwd(), "scripts/clean-source-evidence.mjs")).href) as typeof import("../../scripts/clean-source-evidence.mjs");
+
+test("npm producer and finalizer share one exact fail-closed invocation contract", () => {
+  assert.deepEqual(npmCiArguments(), [
+    "ci", "--strict-allow-scripts=true", "--dangerously-allow-all-scripts=false", "--foreground-scripts",
+  ]);
+  const harness = readFileSync("scripts/clean-source-evidence.mjs", "utf8");
+  assert.match(harness, /args: npmCiArguments\(\), log: "02-npm-ci\.log"/u);
+  assert.match(harness, /args: npmCiArguments\(\),\n\s+env,/u);
+});
 
 const EXPECTED_COMMAND_LOGS = [
   "01-preflight.log",
@@ -31,23 +45,39 @@ const EXPECTED_COMMAND_LOGS = [
 ];
 
 test("clean-source evidence accepts only the exact npm lifecycle policy", () => {
+  const allowScripts = {
+    "esbuild@0.28.1": false,
+    "fs-ext@2.1.1": true,
+    "fsevents@2.3.3": false,
+    "workerd@1.20260831.1": false,
+  };
+  const lockHasInstallScript = [
+    { path: "node_modules/esbuild", version: "0.28.1" },
+    { path: "node_modules/fs-ext", version: "2.1.1" },
+    { path: "node_modules/fsevents", version: "2.3.3" },
+    { path: "node_modules/workerd", version: "1.20260831.1" },
+  ];
   const result = assertInstallPolicy(
     "strict-allow-scripts=true\n",
     {
       packageManager: "npm@11.19.0",
       engines: { npm: "11.19.0" },
       dependencies: { "fs-ext": "2.1.1" },
-      allowScripts: { "fs-ext@2.1.1": true },
+      allowScripts,
     },
     {
       packages: {
         "": {},
+        "node_modules/esbuild": { version: "0.28.1", hasInstallScript: true },
         "node_modules/fs-ext": { version: "2.1.1", hasInstallScript: true },
+        "node_modules/fsevents": { version: "2.3.3", hasInstallScript: true },
         "node_modules/ordinary": { version: "1.0.0" },
+        "node_modules/workerd": { version: "1.20260831.1", hasInstallScript: true },
       },
     },
   );
-  assert.deepEqual(result.lockHasInstallScript, [{ path: "node_modules/fs-ext", version: "2.1.1" }]);
+  assert.deepEqual(result.allowScripts, allowScripts);
+  assert.deepEqual(result.lockHasInstallScript, lockHasInstallScript);
 
   assert.throws(() => assertInstallPolicy(
     "strict-allow-scripts=true\n",
@@ -55,20 +85,138 @@ test("clean-source evidence accepts only the exact npm lifecycle policy", () => 
       packageManager: "npm@11.19.0",
       engines: { npm: "11.19.0" },
       dependencies: { "fs-ext": "2.1.1" },
-      allowScripts: { "fs-ext@2.1.1": true },
+      allowScripts,
     },
     {
       packages: {
+        "node_modules/esbuild": { version: "0.28.1", hasInstallScript: true },
         "node_modules/fs-ext": { version: "2.1.1", hasInstallScript: true },
+        "node_modules/fsevents": { version: "2.3.3", hasInstallScript: true },
         "node_modules/unreviewed": { version: "9.9.9", hasInstallScript: true },
+        "node_modules/workerd": { version: "1.20260831.1", hasInstallScript: true },
       },
     },
   ));
 });
 
+test("clean-source evidence matches the checked-in install policy and lock metadata", () => {
+  const result = assertInstallPolicy(
+    readFileSync(join(process.cwd(), ".npmrc"), "utf8"),
+    JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")),
+    JSON.parse(readFileSync(join(process.cwd(), "package-lock.json"), "utf8")),
+  );
+  assert.deepEqual(
+    Object.entries(result.allowScripts).filter(([, allowed]) => allowed),
+    [["fs-ext@2.1.1", true]],
+  );
+  assert.equal(result.lockHasInstallScript.length, 4);
+});
+
+test("clean-source evidence rejects root install lifecycles before npm can execute them", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-root-install-script-"));
+  const marker = join(root, "root-script-ran");
+  const cache = join(root, "cache");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`)}`;
+
+  for (const lifecycle of ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"]) {
+    assert.throws(
+      () => assertNoRootNpmCiLifecycles({ scripts: { [lifecycle]: command } }),
+      new RegExp(`root npm lifecycle scripts.*${lifecycle}`),
+    );
+    assert.equal(existsSync(marker), false, `${lifecycle} executed before policy rejection`);
+  }
+
+  const packageContract = {
+    name: "clean-source-root-script-fixture",
+    version: "1.0.0",
+    private: true,
+    scripts: { prepare: command },
+  };
+  writeFileSync(join(root, "package.json"), `${JSON.stringify(packageContract)}\n`);
+  const env = { ...process.env, npm_config_cache: cache };
+  const lock = spawnSync("npm", ["install", "--package-lock-only", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+    shell: false,
+    timeout: 30_000,
+  });
+  assert.equal(lock.status, 0, `${lock.stdout}\n${lock.stderr}`);
+  assert.throws(() => {
+    assertNoRootNpmCiLifecycles(packageContract);
+    const invocation = npmCiInvocation(env);
+    spawnSync("npm", invocation.args, { cwd: root, encoding: "utf8", env: invocation.env, shell: false });
+  }, /root npm lifecycle scripts.*prepare/);
+  assert.equal(existsSync(marker), false, "root prepare script executed before policy rejection");
+});
+
+test("npm ci cannot inherit an allow-all override that executes a denied dependency", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-npm-ci-env-"));
+  const app = join(root, "app");
+  const dependency = join(root, "denied-package");
+  const marker = join(root, "denied-script-ran");
+  const cache = join(root, "cache");
+  mkdirSync(app);
+  mkdirSync(dependency);
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(app, ".npmrc"), "strict-allow-scripts=true\n");
+  writeFileSync(join(app, "package.json"), `${JSON.stringify({
+    name: "clean-source-denied-script-fixture",
+    version: "1.0.0",
+    private: true,
+    dependencies: { "denied-install-fixture": "file:../denied-package" },
+    allowScripts: { "denied-install-fixture@1.0.0": false },
+  })}\n`);
+  writeFileSync(join(dependency, "package.json"), `${JSON.stringify({
+    name: "denied-install-fixture",
+    version: "1.0.0",
+    scripts: { install: "node install.cjs" },
+  })}\n`);
+  writeFileSync(join(dependency, "install.cjs"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
+
+  const baseEnv = { ...process.env, npm_config_cache: cache };
+  const lock = spawnSync("npm", ["install", "--package-lock-only", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
+    cwd: app,
+    encoding: "utf8",
+    env: baseEnv,
+    shell: false,
+    timeout: 30_000,
+  });
+  assert.equal(lock.status, 0, `${lock.stdout}\n${lock.stderr}`);
+
+  const invocation = npmCiInvocation({
+    ...baseEnv,
+    NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS: "true",
+    "npm_config_dangerously-allow-all-scripts": "true",
+  });
+  assert.equal(
+    Object.keys(invocation.env).some((key) => /^npm_config_dangerously[-_]allow[-_]all[-_]scripts$/i.test(key)),
+    false,
+  );
+  const result = spawnSync("npm", [...invocation.args, "--offline", "--no-audit", "--no-fund"], {
+    cwd: app,
+    encoding: "utf8",
+    env: invocation.env,
+    shell: false,
+    timeout: 30_000,
+  });
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /ESTRICTALLOWSCRIPTS/);
+  assert.equal(existsSync(marker), false, "inherited npm allow-all override executed the denied dependency script");
+});
+
 test("clean-source evidence requires npm to report no unreviewed scripts", () => {
   assert.deepEqual(assertInstallScriptsReport({ allowScripts: [] }).unreviewedInstallScripts, []);
   assert.throws(() => assertInstallScriptsReport({ allowScripts: ["unreviewed@1.0.0"] }));
+});
+
+test("clean-source evidence records only the approved fs-ext lifecycle execution", () => {
+  const output = "> fs-ext@2.1.1 install\n> node-gyp configure build\n";
+  assert.deepEqual(assertInstallScriptExecution(output), [
+    { packageIdentity: "fs-ext@2.1.1", lifecycle: "install" },
+  ]);
+  assert.throws(() => assertInstallScriptExecution(`${output}> esbuild@0.28.1 install\n> node install.js\n`));
 });
 
 test("clean-source evidence enforces exact inspection and acceptance contracts", () => {
@@ -375,7 +523,7 @@ test("manual workflow preserves the evidence-only GitHub boundary", () => {
   assert.match(workflow, /clean-source-evidence\.mjs.*run/);
   assert.match(harness, /declaredWriteRoots: \[workRoot\]/);
   assert.doesNotMatch(harness, /declaredWriteRoots: \[workRoot, homedir\(\)\]/);
-  assert.match(harness, /\["ci", "--strict-allow-scripts=true", "--foreground-scripts"\]/);
+  assert.match(harness, /"--dangerously-allow-all-scripts=false"/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
 });
 

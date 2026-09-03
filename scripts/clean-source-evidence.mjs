@@ -58,6 +58,28 @@ const EXPECTED_COMMAND_LOG_NAMES = Object.freeze([
   "07-acceptance.log",
 ]);
 const MAX_COMMAND_LOG_BYTES = 50 * 1024 * 1024;
+const EXPECTED_ALLOW_SCRIPTS = Object.freeze({
+  "esbuild@0.28.1": false,
+  "fs-ext@2.1.1": true,
+  "fsevents@2.3.3": false,
+  "workerd@1.20260831.1": false,
+});
+const EXPECTED_LOCK_INSTALL_SCRIPTS = Object.freeze([
+  Object.freeze({ path: "node_modules/esbuild", version: "0.28.1" }),
+  Object.freeze({ path: "node_modules/fs-ext", version: "2.1.1" }),
+  Object.freeze({ path: "node_modules/fsevents", version: "2.3.3" }),
+  Object.freeze({ path: "node_modules/workerd", version: "1.20260831.1" }),
+]);
+const ROOT_NPM_CI_LIFECYCLES = Object.freeze([
+  "preinstall",
+  "install",
+  "postinstall",
+  "prepublish",
+  "preprepare",
+  "prepare",
+  "postprepare",
+]);
+const DANGEROUS_ALLOW_ALL_SCRIPTS_ENV = /^npm_config_dangerously[-_]allow[-_]all[-_]scripts$/i;
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -67,27 +89,61 @@ function errorText(error) {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
+export function assertNoRootNpmCiLifecycles(packageContract) {
+  const rootInstallLifecycles = ROOT_NPM_CI_LIFECYCLES.filter((lifecycle) =>
+    Object.hasOwn(packageContract.scripts ?? {}, lifecycle)
+  );
+  assert.equal(
+    rootInstallLifecycles.length,
+    0,
+    `root npm lifecycle scripts are forbidden before npm ci: ${rootInstallLifecycles.join(", ")}`,
+  );
+}
+
 export function assertInstallPolicy(npmrc, packageContract, lockContract) {
   assert.equal(npmrc, "strict-allow-scripts=true\n", ".npmrc is not the exact strict policy");
-  assert.deepEqual(packageContract.allowScripts, { "fs-ext@2.1.1": true });
+  assert.deepEqual(packageContract.allowScripts, EXPECTED_ALLOW_SCRIPTS);
   assert.equal(packageContract.dependencies?.["fs-ext"], "2.1.1");
   assert.equal(packageContract.packageManager, "npm@11.19.0");
   assert.equal(packageContract.engines?.npm, "11.19.0");
+  assertNoRootNpmCiLifecycles(packageContract);
   const installScriptPackages = Object.entries(lockContract.packages ?? {})
     .filter(([, details]) => details?.hasInstallScript === true)
     .map(([path, details]) => ({ path, version: details.version }))
     .sort((left, right) => left.path.localeCompare(right.path));
-  assert.deepEqual(installScriptPackages, [{ path: "node_modules/fs-ext", version: "2.1.1" }]);
+  assert.deepEqual(installScriptPackages, EXPECTED_LOCK_INSTALL_SCRIPTS);
   return {
     npmrc: "strict-allow-scripts=true",
-    allowScripts: { "fs-ext@2.1.1": true },
+    allowScripts: EXPECTED_ALLOW_SCRIPTS,
     lockHasInstallScript: installScriptPackages,
+  };
+}
+
+export function npmCiArguments() {
+  return ["ci", "--strict-allow-scripts=true", "--dangerously-allow-all-scripts=false", "--foreground-scripts"];
+}
+
+export function npmCiInvocation(inheritedEnv) {
+  const env = { ...inheritedEnv };
+  for (const key of Object.keys(env)) {
+    if (DANGEROUS_ALLOW_ALL_SCRIPTS_ENV.test(key)) delete env[key];
+  }
+  return {
+    args: npmCiArguments(),
+    env,
   };
 }
 
 export function assertInstallScriptsReport(report) {
   assert.deepEqual(report, { allowScripts: [] });
   return { unreviewedInstallScripts: [], exactReport: report };
+}
+
+export function assertInstallScriptExecution(output) {
+  const executedInstallScripts = [...output.matchAll(/^> ([^\r\n]+?) (preinstall|install|postinstall|prepare)\r?$/gm)]
+    .map(([, packageIdentity, lifecycle]) => ({ packageIdentity, lifecycle }));
+  assert.deepEqual(executedInstallScripts, [{ packageIdentity: "fs-ext@2.1.1", lifecycle: "install" }]);
+  return executedInstallScripts;
 }
 
 export function assertAcceptanceSummary(summary) {
@@ -585,7 +641,7 @@ async function runEvidence(options) {
       JSON.parse(await readFile(join(repoRoot, "package-lock.json"), "utf8")),
     );
 
-    const env = {
+    const npmCiCommand = npmCiInvocation({
       ...process.env,
       NODE_DISABLE_COMPILE_CACHE: "1",
       HOME: syntheticHome,
@@ -594,7 +650,8 @@ async function runEvidence(options) {
       UV_CACHE_DIR: join(workRoot, "cache", "uv"),
       XDG_CACHE_HOME: join(workRoot, "cache", "xdg"),
       NO_COLOR: "1",
-    };
+    });
+    const env = npmCiCommand.env;
     delete env.NODE_COMPILE_CACHE;
     await mkdir(env.HOME, { recursive: true, mode: 0o700 });
     await mkdir(env.TMPDIR, { recursive: true, mode: 0o700 });
@@ -609,11 +666,11 @@ async function runEvidence(options) {
     evidence.preflight = JSON.parse(preflight.output.trim().split("\n").at(-1));
     assert.equal(evidence.preflight.code, "source_clean_host_preflight_ok");
 
-    const npmCi = await runLogged("npm", ["ci", "--strict-allow-scripts=true", "--foreground-scripts"], {
+    const npmCi = await runLogged("npm", npmCiCommand.args, {
       cwd: repoRoot, env, logPath: join(logsRoot, "02-npm-ci.log"),
     });
     evidence.commands.push({ ...npmCi, output: undefined });
-    assert.match(npmCi.output, /fs-ext@2\.1\.1[^\n]*install|node_modules\/fs-ext[^\n]*install/i, "approved fs-ext install script was not visible");
+    evidence.installScriptExecution = assertInstallScriptExecution(npmCi.output);
 
     const installScripts = await runLogged("npm", ["install-scripts", "ls", "--json"], {
       cwd: repoRoot, env, logPath: join(logsRoot, "03-install-scripts.json"),
@@ -741,7 +798,7 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
   assertExactKeys(harness, [
     "schemaVersion", "issue", "claim", "passed", "startedAt", "repository", "requestedSha", "sourceRef",
     "sourceRefProtected", "auditScope", "declaredWriteRoots", "commands", "environment",
-    "cleanSourceBeforePreflight", "installPolicy", "preflight", "installScriptAudit", "sourceLaunch",
+    "cleanSourceBeforePreflight", "installPolicy", "preflight", "installScriptExecution", "installScriptAudit", "sourceLaunch",
     "inspection", "acceptance", "cleanup", "finishedAt",
   ], "harness evidence");
   assert.equal(harness.schemaVersion, 1);
@@ -792,9 +849,10 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
   assert.deepEqual(harness.cleanSourceBeforePreflight, { node_modules: true, ".venv": true, dist: true, dataRoot: true });
   assert.deepEqual(harness.installPolicy, {
     npmrc: "strict-allow-scripts=true",
-    allowScripts: { "fs-ext@2.1.1": true },
-    lockHasInstallScript: [{ path: "node_modules/fs-ext", version: "2.1.1" }],
+    allowScripts: EXPECTED_ALLOW_SCRIPTS,
+    lockHasInstallScript: EXPECTED_LOCK_INSTALL_SCRIPTS,
   });
+  assert.deepEqual(harness.installScriptExecution, [{ packageIdentity: "fs-ext@2.1.1", lifecycle: "install" }]);
   assert.deepEqual(harness.installScriptAudit, { unreviewedInstallScripts: [], exactReport: { allowScripts: [] } });
   assertAcceptanceSummary(harness.acceptance);
   assertInspectionReport(harness.inspection);
@@ -811,7 +869,7 @@ export function validateHarnessEvidence(harness, { harnessRoot, allowedRoot, exp
 
   const expectedCommands = [
     { executable: /(?:^|\/)node$/, args: [join(harness.preflight.repoRoot, "scripts/source-clean-host.mjs"), `--data-root=${harness.preflight.dataRoot}`], log: "01-preflight.log" },
-    { executable: /^npm$/, args: ["ci", "--strict-allow-scripts=true", "--foreground-scripts"], log: "02-npm-ci.log" },
+    { executable: /^npm$/, args: npmCiArguments(), log: "02-npm-ci.log" },
     { executable: /^npm$/, args: ["install-scripts", "ls", "--json"], log: "03-install-scripts.json" },
     { executable: /^uv$/, args: ["sync", "--locked", "--no-dev"], log: "04-uv-sync.log" },
     { executable: /^npm$/, args: ["run", "build"], log: "05-build.log" },
