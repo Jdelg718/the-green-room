@@ -15,6 +15,7 @@ export interface CloudTransportRequest {
   readonly body?: Uint8Array;
 }
 export interface CloudTransportResponse { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array; }
+/** Injected transports must return an unmodified, same-realm native Promise. */
 export interface CloudTransport { request(request: CloudTransportRequest, signal: AbortSignal): Promise<CloudTransportResponse>; }
 export const CLOUD_TRANSPORT_TIMEOUT: unique symbol = Symbol("cloud-transport-timeout");
 export type CloudProviderFailureCode = "invalid_request" | "canceled" | "timeout" | "provider_failure" | "invalid_response";
@@ -26,6 +27,11 @@ const MAX_MODEL_LIST_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_TRANSPORT_HEADER_COUNT = 128;
 const MAX_TRANSPORT_HEADER_BYTES = 64 * 1024;
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+const intrinsicPromisePrototype = Promise.prototype;
+const intrinsicPromiseThen = Promise.prototype.then;
+const intrinsicPromiseConstructor = Promise;
+const intrinsicAbortSignalPrototype = AbortSignal.prototype;
+const intrinsicAbortSignalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(
   typedArrayPrototype,
   "byteLength",
@@ -41,9 +47,10 @@ type Message = Readonly<{ role: "system" | "user" | "assistant"; content: string
 
 function fields(value: unknown, allowed: readonly string[]): Map<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value) || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new CloudProviderError("invalid_request");
+  const descriptors = Object.getOwnPropertyDescriptors(value);
   const result = new Map<string, unknown>();
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const descriptor = descriptors[key as keyof typeof descriptors];
     if (typeof key !== "string" || !allowed.includes(key) || descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) throw new CloudProviderError("invalid_request");
     result.set(key, descriptor.value);
   }
@@ -63,25 +70,68 @@ function modelId(value: unknown, openrouter: boolean): string {
   return value;
 }
 function messages(value: unknown): readonly Message[] {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length === 0 || value.length > 32) throw new CloudProviderError("invalid_request");
+  if (typeof value !== "object" || value === null || types.isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new CloudProviderError("invalid_request");
+  const descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  const lengthDescriptor = descriptors.length;
+  const length = lengthDescriptor !== undefined && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (
+    typeof length !== "number" || !Number.isInteger(length) || length < 1 || length > 32 ||
+    Reflect.ownKeys(descriptors).length !== length + 1
+  ) throw new CloudProviderError("invalid_request");
   let total = 0;
-  const parsed = value.map((item) => {
-    const data = fields(item, ["role", "content"]);
+  const parsed: Message[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const itemDescriptor = descriptors[String(index)];
+    if (itemDescriptor === undefined || !("value" in itemDescriptor) || !itemDescriptor.enumerable) throw new CloudProviderError("invalid_request");
+    const data = fields(itemDescriptor.value, ["role", "content"]);
     if (data.size !== 2) throw new CloudProviderError("invalid_request");
     const role = data.get("role"); const content = data.get("content");
     if ((role !== "system" && role !== "user" && role !== "assistant") || typeof content !== "string" || content.length === 0 || /\u0000/u.test(content)) throw new CloudProviderError("invalid_request");
     total += new TextEncoder().encode(content).byteLength;
     if (total > 64 * 1024) throw new CloudProviderError("invalid_request");
-    return Object.freeze({ role, content });
-  });
+    parsed.push(Object.freeze({ role, content }));
+  }
   return Object.freeze(parsed);
+}
+
+function isExactNativePromise(value: unknown): value is Promise<unknown> {
+  if (
+    typeof value !== "object" || value === null || types.isProxy(value) ||
+    !types.isPromise(value) || Object.getPrototypeOf(value) !== intrinsicPromisePrototype
+  ) return false;
+  const ownDescriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.hasOwn(ownDescriptors, "then") || Object.hasOwn(ownDescriptors, "constructor")) return false;
+  const thenDescriptor = Object.getOwnPropertyDescriptor(intrinsicPromisePrototype, "then");
+  const constructorDescriptor = Object.getOwnPropertyDescriptor(intrinsicPromisePrototype, "constructor");
+  return thenDescriptor?.value === intrinsicPromiseThen && thenDescriptor.get === undefined && thenDescriptor.set === undefined &&
+    constructorDescriptor?.value === intrinsicPromiseConstructor && constructorDescriptor.get === undefined && constructorDescriptor.set === undefined;
+}
+
+function signalAborted(value: unknown): boolean {
+  if (
+    typeof value !== "object" || value === null || types.isProxy(value) ||
+    Object.getPrototypeOf(value) !== intrinsicAbortSignalPrototype
+  ) throw new CloudProviderError("invalid_request");
+  const ownDescriptors = Object.getOwnPropertyDescriptors(value);
+  const currentDescriptor = Object.getOwnPropertyDescriptor(intrinsicAbortSignalPrototype, "aborted");
+  if (
+    Object.hasOwn(ownDescriptors, "aborted") || intrinsicAbortSignalAborted === undefined ||
+    currentDescriptor?.get !== intrinsicAbortSignalAborted || currentDescriptor.set !== undefined
+  ) throw new CloudProviderError("invalid_request");
+  try {
+    const aborted = Reflect.apply(intrinsicAbortSignalAborted, value, []) as unknown;
+    if (typeof aborted !== "boolean") throw new Error();
+    return aborted;
+  } catch {
+    throw new CloudProviderError("invalid_request");
+  }
 }
 function contentType(response: CloudTransportResponse): boolean {
   const value = response.headers["content-type"];
   return typeof value === "string" && value.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 function mappedTransportFailure(error: unknown, signal: AbortSignal): CloudProviderError {
-  if (signal.aborted) return new CloudProviderError("canceled");
+  if (signalAborted(signal)) return new CloudProviderError("canceled");
   if (error === CLOUD_TRANSPORT_TIMEOUT) return new CloudProviderError("timeout");
   return new CloudProviderError("provider_failure");
 }
@@ -167,11 +217,11 @@ export class OpenAICompatibleCloudAdapter {
     this.#transport = parsed.get("transport") as CloudTransport;
   }
   async #request(request: CloudTransportRequest, signal: AbortSignal): Promise<CloudTransportResponse> {
-    if (signal.aborted) throw new CloudProviderError("canceled");
+    if (signalAborted(signal)) throw new CloudProviderError("canceled");
     let pending: unknown;
     try { pending = this.#transport.request(request, signal); }
     catch (error) { throw mappedTransportFailure(error, signal); }
-    if (types.isProxy(pending) || !types.isPromise(pending)) {
+    if (!isExactNativePromise(pending)) {
       throw new CloudProviderError("invalid_response");
     }
     let resolved: unknown;

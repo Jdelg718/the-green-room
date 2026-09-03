@@ -245,6 +245,153 @@ test("non-Promise transport return values are rejected without invoking promise-
   assert.equal(thenExecutions, 0);
 });
 
+test("only exact same-realm intrinsic Promises cross the transport boundary", async () => {
+  const sentinel = "SENTINEL_HOSTILE_PROMISE";
+  let thenExecutions = 0;
+  let proxyTraps = 0;
+  class HostilePromise<T> extends Promise<T> {
+    override then<TResult1 = T, TResult2 = never>(): Promise<TResult1 | TResult2> {
+      thenExecutions += 1;
+      throw new Error(`${sentinel}:subclass-then`);
+    }
+  }
+  const subclass = new HostilePromise<CloudTransportResponse>((resolve) => {
+    resolve(response({ data: [] }));
+  });
+  const ownThen = Promise.resolve(response({ data: [] }));
+  Object.defineProperty(ownThen, "then", {
+    configurable: true,
+    get() { thenExecutions += 1; throw new Error(`${sentinel}:own-then`); },
+  });
+  const ownThenFunction = Promise.resolve(response({ data: [] }));
+  Object.defineProperty(ownThenFunction, "then", {
+    value() { thenExecutions += 1; throw new Error(`${sentinel}:own-then-function`); },
+  });
+  const ownConstructor = Promise.resolve(response({ data: [] }));
+  Object.defineProperty(ownConstructor, "constructor", {
+    get() { thenExecutions += 1; throw new Error(`${sentinel}:own-constructor`); },
+  });
+  const customPrototype = Promise.resolve(response({ data: [] }));
+  Object.setPrototypeOf(customPrototype, Object.create(Promise.prototype, {
+    then: { value() { thenExecutions += 1; throw new Error(`${sentinel}:prototype-then`); } },
+  }));
+  const proxied = new Proxy(Promise.resolve(response({ data: [] })), {
+    getPrototypeOf() { proxyTraps += 1; throw new Error(`${sentinel}:prototype`); },
+    ownKeys() { proxyTraps += 1; throw new Error(`${sentinel}:keys`); },
+    get() { proxyTraps += 1; throw new Error(`${sentinel}:get`); },
+  });
+
+  for (const pending of [subclass, ownThen, ownThenFunction, ownConstructor, customPrototype, proxied]) {
+    for (const method of ["generate", "listModels"] as const) {
+      const adapter = new OpenAICompatibleCloudAdapter({
+        definitionId: "openai",
+        transport: { request: (() => pending) as never },
+      });
+      const operation = method === "generate"
+        ? adapter.generate({ credential: secret, model: "opaque:model", messages: [{ role: "user", content: "Answer." }], temperature: 1, maxOutputTokens: 64 }, new AbortController().signal)
+        : adapter.listModels({ credential: secret }, new AbortController().signal);
+      await assert.rejects(operation, (error: unknown) => {
+        assert.equal(error instanceof CloudProviderError, true);
+        assert.equal((error as CloudProviderError).code, "invalid_response");
+        assert.equal(Object.hasOwn(error as object, "cause"), false);
+        assert.equal(inspect(error).includes(sentinel), false);
+        return true;
+      });
+    }
+  }
+  assert.equal(thenExecutions, 0);
+  assert.equal(proxyTraps, 0);
+});
+
+test("hostile message containers and items are rejected without traps, getters, or transport", async () => {
+  const sentinel = "SENTINEL_HOSTILE_MESSAGES";
+  let executions = 0;
+  const valid = { role: "user", content: "Answer." };
+  const proxyArray = new Proxy([valid], {
+    getPrototypeOf() { executions += 1; throw new Error(`${sentinel}:array-prototype`); },
+    ownKeys() { executions += 1; throw new Error(`${sentinel}:array-keys`); },
+    get() { executions += 1; throw new Error(`${sentinel}:array-get`); },
+  });
+  const indexedGetter = [valid];
+  Object.defineProperty(indexedGetter, "0", {
+    enumerable: true,
+    configurable: true,
+    get() { executions += 1; throw new Error(`${sentinel}:index-getter`); },
+  });
+  const itemGetter: Record<string, unknown> = { role: "user" };
+  Object.defineProperty(itemGetter, "content", {
+    enumerable: true,
+    get() { executions += 1; throw new Error(`${sentinel}:item-getter`); },
+  });
+  const proxyItem = new Proxy(valid, {
+    getPrototypeOf() { executions += 1; throw new Error(`${sentinel}:item-prototype`); },
+    ownKeys() { executions += 1; throw new Error(`${sentinel}:item-keys`); },
+    get() { executions += 1; throw new Error(`${sentinel}:item-get`); },
+  });
+  const inheritedItem = Object.create({ role: "user", content: "Answer." }) as unknown;
+  const sparse = new Array(1);
+  const extraString = [valid];
+  Object.defineProperty(extraString, "extra", { value: sentinel, enumerable: false });
+  const extraSymbol = [valid];
+  Object.defineProperty(extraSymbol, Symbol(sentinel), { value: sentinel, enumerable: true });
+  const inheritedIndex = new Array(1);
+  Object.setPrototypeOf(inheritedIndex, Object.create(Array.prototype, { 0: { value: valid, enumerable: true } }));
+
+  const mock = mockTransport([]);
+  const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openai", transport: mock.transport });
+  for (const hostileMessages of [
+    proxyArray, indexedGetter, [itemGetter], [proxyItem], [inheritedItem], sparse, extraString, extraSymbol, inheritedIndex,
+  ]) {
+    await assert.rejects(
+      adapter.generate({ credential: secret, model: "opaque:model", messages: hostileMessages, temperature: 1, maxOutputTokens: 64 }, new AbortController().signal),
+      (error: unknown) => {
+        assert.equal(error instanceof CloudProviderError, true);
+        assert.equal((error as CloudProviderError).code, "invalid_request");
+        assert.equal(Object.hasOwn(error as object, "cause"), false);
+        assert.equal(inspect(error).includes(sentinel), false);
+        return true;
+      },
+    );
+  }
+  assert.equal(executions, 0);
+  assert.equal(mock.calls.length, 0);
+});
+
+test("hostile abort signals are rejected without property access or transport", async () => {
+  const sentinel = "SENTINEL_HOSTILE_SIGNAL";
+  let executions = 0;
+  const proxiedSignal = new Proxy(new AbortController().signal, {
+    getPrototypeOf() { executions += 1; throw new Error(`${sentinel}:prototype`); },
+    get() { executions += 1; throw new Error(`${sentinel}:get`); },
+  });
+  const accessorSignal = new AbortController().signal;
+  Object.defineProperty(accessorSignal, "aborted", {
+    get() { executions += 1; throw new Error(`${sentinel}:aborted`); },
+  });
+  const customPrototypeSignal = new AbortController().signal;
+  Object.setPrototypeOf(customPrototypeSignal, Object.create(AbortSignal.prototype, {
+    aborted: { get() { executions += 1; throw new Error(`${sentinel}:inherited-aborted`); } },
+  }));
+  const mock = mockTransport([]);
+  const adapter = new OpenAICompatibleCloudAdapter({ definitionId: "openai", transport: mock.transport });
+  for (const signal of [proxiedSignal, accessorSignal, customPrototypeSignal]) {
+    for (const method of ["generate", "listModels"] as const) {
+      const operation = method === "generate"
+        ? adapter.generate({ credential: secret, model: "opaque:model", messages: [{ role: "user", content: "Answer." }], temperature: 1, maxOutputTokens: 64 }, signal)
+        : adapter.listModels({ credential: secret }, signal);
+      await assert.rejects(operation, (error: unknown) => {
+        assert.equal(error instanceof CloudProviderError, true);
+        assert.equal((error as CloudProviderError).code, "invalid_request");
+        assert.equal(Object.hasOwn(error as object, "cause"), false);
+        assert.equal(inspect(error).includes(sentinel), false);
+        return true;
+      });
+    }
+  }
+  assert.equal(executions, 0);
+  assert.equal(mock.calls.length, 0);
+});
+
 test("transport cancellation, timeout, and provider failures become sanitized typed failures", async () => {
   const canceled = new AbortController();
   canceled.abort();
