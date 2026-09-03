@@ -4,11 +4,22 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   appendEventInTransaction,
   canonicalJson,
+  commitDecisionSnapshotInTransaction,
+  isResolvedRoomProviderDecisionCurrent,
+  readEffectiveRoomBinding,
   replaceCurrentRoomCast,
   requireRoomSelection,
+  resolveRoomProviderDecision,
+  SINGLE_ATTEMPT_ROUTING_POLICY,
   type CastReplacementResult,
+  type ResolvedRoomProviderDecision,
   withImmediateTransaction,
 } from "../db/index.js";
+import { getProviderDefinition } from "../providers/provider-definitions.js";
+import {
+  parseDecisionSnapshot,
+  type DecisionSnapshot,
+} from "../providers/profile-contracts.js";
 import type {
   GenerationProvider,
   ProviderResult,
@@ -89,9 +100,17 @@ export interface PersonaControlResult {
   readonly changed: boolean;
 }
 
+export interface ProviderDecisionEvidence {
+  readonly adapterVersion: string;
+  readonly directorRevision: number;
+  readonly policyRevision: number;
+}
+
 export interface RoomServiceOptions {
   readonly database: DatabaseSync;
   readonly provider: GenerationProvider;
+  readonly providerDecisionEvidence?: ProviderDecisionEvidence;
+  readonly providerResolver?: (decision: DecisionSnapshot) => GenerationProvider;
   readonly generationTimeoutMs?: number;
   readonly maxAutonomousTurns?: number;
   readonly now?: () => number;
@@ -137,6 +156,12 @@ interface PendingMessage {
   readonly decision: DirectorDecision;
   readonly generation: number;
   readonly prompt: string;
+  readonly providerDecision?: DecisionSnapshot;
+}
+
+interface GeneratedMessage {
+  readonly providerResult?: ProviderResult;
+  readonly providerDecision?: DecisionSnapshot;
 }
 
 interface CompleteCommand<T> {
@@ -281,6 +306,8 @@ function roomError(status: RoomRow["status"]): Error {
 export class RoomService {
   readonly #database: DatabaseSync;
   readonly #provider: GenerationProvider;
+  readonly #providerDecisionEvidence: ProviderDecisionEvidence | undefined;
+  readonly #providerResolver: ((decision: DecisionSnapshot) => GenerationProvider) | undefined;
   readonly #generationTimeoutMs: number;
   readonly #maxAutonomousTurns: number;
   readonly #now: () => number;
@@ -334,6 +361,16 @@ export class RoomService {
     }
     this.#database = options.database;
     this.#provider = options.provider;
+    this.#providerDecisionEvidence = options.providerDecisionEvidence;
+    this.#providerResolver = options.providerResolver;
+    if (this.#providerDecisionEvidence !== undefined && (
+      !Number.isInteger(this.#providerDecisionEvidence.directorRevision) ||
+      this.#providerDecisionEvidence.directorRevision < 1 ||
+      !Number.isInteger(this.#providerDecisionEvidence.policyRevision) ||
+      this.#providerDecisionEvidence.policyRevision < 1
+    )) {
+      throw new TypeError("Provider decision revisions must be positive integers");
+    }
     this.#generationTimeoutMs = generationTimeoutMs;
     this.#maxAutonomousTurns =
       options.maxAutonomousTurns ?? DEFAULT_AUTONOMOUS_TURN_BUDGET;
@@ -508,7 +545,7 @@ export class RoomService {
   ): Promise<SendMessageResult> {
     const claimOwner = randomUUID();
     let generated = false;
-    let providerResult: ProviderResult | undefined;
+    let generatedMessage: GeneratedMessage | undefined;
     try {
       while (true) {
         this.#throwIfClosed();
@@ -525,7 +562,7 @@ export class RoomService {
             requestId: command.requestId,
           });
           if (!generated) {
-            providerResult = await this.#generateMessage(
+            generatedMessage = await this.#generateMessage(
               command.roomId,
               command.requestId,
               prepared.pending,
@@ -538,14 +575,14 @@ export class RoomService {
             command.roomId,
             command.requestId,
             prepared.pending,
-            providerResult,
+            generatedMessage,
             claimOwner,
           );
           if (complete !== undefined) {
             return complete;
           }
           generated = false;
-          providerResult = undefined;
+          generatedMessage = undefined;
           continue;
         }
         const remaining = Math.max(
@@ -759,7 +796,7 @@ export class RoomService {
     requestId: string,
     pending: PendingMessage,
     claimOwner: string,
-  ): Promise<ProviderResult | undefined> {
+  ): Promise<GeneratedMessage> {
     const speaker = pending.decision.speaker;
     if (speaker === null) {
       throw new Error("Cannot generate without a selected speaker");
@@ -785,10 +822,23 @@ export class RoomService {
     this.#addController(roomId, active);
     try {
       if (this.#isStale(roomId, pending.generation, speaker)) {
-        return undefined;
+        return {};
       }
       try {
+        const providerDecision = this.#pinProviderDecision(
+          roomId, requestId, pending, claimOwner,
+        );
+        if (
+          providerDecision !== undefined &&
+          !this.#isProviderDecisionCurrent(providerDecision)
+        ) {
+          return { providerDecision };
+        }
+        const provider = providerDecision === undefined
+          ? this.#provider
+          : this.#providerResolver?.(providerDecision) ?? this.#provider;
         const result: unknown = await this.#raceProviderGeneration(
+          provider,
           {
             id: `${roomId}:${pending.generation}:${pending.humanEventSequence}:${speaker}`,
             personaId: this.#providerPersonaId(roomId, speaker),
@@ -797,19 +847,22 @@ export class RoomService {
           controller,
         );
         if (claimMaintenanceState.lost) {
-          return undefined;
+          return providerDecision === undefined ? {} : { providerDecision };
         }
         if (claimMaintenanceState.error !== undefined) {
           this.#releaseClaim(roomId, requestId, claimOwner);
           throw claimMaintenanceState.error;
         }
-        return this.#validatedProviderResult(result);
+        return {
+          providerResult: this.#validatedProviderResult(result),
+          ...(providerDecision === undefined ? {} : { providerDecision }),
+        };
       } catch (error) {
         if (this.#isStale(roomId, pending.generation, speaker)) {
-          return undefined;
+          return {};
         }
         if (claimMaintenanceState.lost) {
-          return undefined;
+          return {};
         }
         if (claimMaintenanceState.error !== undefined) {
           this.#releaseClaim(roomId, requestId, claimOwner);
@@ -826,11 +879,86 @@ export class RoomService {
     }
   }
 
+  #pinProviderDecision(
+    roomId: string,
+    requestId: string,
+    pending: PendingMessage,
+    claimOwner: string,
+  ): DecisionSnapshot | undefined {
+    return withImmediateTransaction(this.#database, () => {
+      const row = this.#findCommand(roomId, requestId);
+      if (row?.claim_owner !== claimOwner) {
+        throw new Error("Pending provider claim was lost");
+      }
+      const stored = parseStored<SendMessageResult>(row.result_json);
+      if (stored.state !== "pending") {
+        throw new Error("Pending command completed before provider resolution");
+      }
+      if (stored.providerDecision !== undefined) {
+        return parseDecisionSnapshot(stored.providerDecision);
+      }
+      if (readEffectiveRoomBinding(this.#database, roomId) === undefined) {
+        return undefined;
+      }
+      const evidence = this.#providerDecisionEvidence;
+      if (evidence === undefined) {
+        throw new Error("Provider decision evidence is required for a bound room");
+      }
+      const resolved = resolveRoomProviderDecision(this.#database, roomId);
+      const providerDecision = parseDecisionSnapshot({
+        id: `decision-${digest({
+          roomId,
+          requestId,
+          bindingId: resolved.binding.id,
+          bindingRevision: resolved.binding.revision,
+        }).slice(0, 64)}`,
+        binding: resolved.binding,
+        connection: resolved.connection,
+        model: resolved.model,
+        effectiveGeneration: resolved.model.generation,
+        adapter: {
+          id: resolved.connection.target.class === "approved-provider"
+            ? "openai-compatible"
+            : resolved.connection.target.adapter,
+          version: evidence.adapterVersion,
+        },
+        capabilityFingerprint: resolved.observation.capabilityFingerprint,
+        directorRevision: evidence.directorRevision,
+        policyRevision: evidence.policyRevision,
+      });
+      const pinned: PendingMessage = { ...stored, providerDecision };
+      this.#database.prepare(
+        `UPDATE commands SET result_json = ?
+         WHERE room_id = ? AND request_id = ? AND claim_owner = ?`,
+      ).run(canonicalJson(pinned), roomId, requestId, claimOwner);
+      return providerDecision;
+    });
+  }
+
+  #isProviderDecisionCurrent(providerDecision: DecisionSnapshot): boolean {
+    const resolved: ResolvedRoomProviderDecision = {
+      binding: providerDecision.binding,
+      connection: providerDecision.connection,
+      model: providerDecision.model,
+      observation: {
+        id: "snapshot-observation",
+        connection: {
+          profileId: providerDecision.connection.id,
+          revision: providerDecision.connection.revision,
+        },
+        health: "ready",
+        capabilityFingerprint: providerDecision.capabilityFingerprint,
+        evidence: {},
+      },
+    };
+    return isResolvedRoomProviderDecisionCurrent(this.#database, resolved);
+  }
+
   #completeMessage(
     roomId: string,
     requestId: string,
     pending: PendingMessage,
-    providerResult: ProviderResult | undefined,
+    generatedMessage: GeneratedMessage | undefined,
     claimOwner: string,
   ): SendMessageResult | undefined {
     return withImmediateTransaction(this.#database, () => {
@@ -854,7 +982,10 @@ export class RoomService {
       if (speaker === null) {
         throw new Error("Stored pending command has no speaker");
       }
-      const stale = this.#isStale(roomId, pending.generation, speaker);
+      const providerResult = generatedMessage?.providerResult;
+      const providerDecision = generatedMessage?.providerDecision;
+      const stale = this.#isStale(roomId, pending.generation, speaker) ||
+        (providerDecision !== undefined && !this.#isProviderDecisionCurrent(providerDecision));
       let personaEventSequence: number | null = null;
       let outcome: MessageOutcome;
       if (stale || providerResult === undefined) {
@@ -870,6 +1001,22 @@ export class RoomService {
         });
         personaEventSequence = persona.sequence;
         outcome = "text";
+      }
+
+      if (!stale && providerResult !== undefined && providerDecision !== undefined) {
+        const target = providerDecision.connection.target;
+        commitDecisionSnapshotInTransaction(this.#database, {
+          roomId,
+          requestId,
+          snapshot: providerDecision,
+          ...(target.class === "approved-provider" ? {
+            providerDefinition: {
+              id: target.definitionId,
+              version: getProviderDefinition(target.definitionId).version,
+            },
+          } : {}),
+          routingPolicy: SINGLE_ATTEMPT_ROUTING_POLICY,
+        });
       }
 
       const result: SendMessageResult = {
@@ -1190,6 +1337,7 @@ export class RoomService {
   }
 
   async #raceProviderGeneration(
+    provider: GenerationProvider,
     invitation: {
       readonly id: string;
       readonly personaId: string;
@@ -1212,8 +1360,8 @@ export class RoomService {
         controller.signal.removeEventListener("abort", rejectAborted);
       };
     });
-    const provider = Promise.resolve().then(() =>
-      this.#provider.generate(invitation, controller.signal),
+    const providerWork = Promise.resolve().then(() =>
+      provider.generate(invitation, controller.signal),
     );
     const timedOut = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
@@ -1227,7 +1375,7 @@ export class RoomService {
     });
 
     try {
-      return await Promise.race([provider, aborted, timedOut]);
+      return await Promise.race([providerWork, aborted, timedOut]);
     } finally {
       removeAbortListener();
       if (timeout !== undefined) {
