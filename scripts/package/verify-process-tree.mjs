@@ -48,10 +48,10 @@ function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function buildFixtures() {
+function buildFixtures(scratch) {
   const result = spawnSync(
     "/usr/bin/swift",
-    ["build", "--package-path", packageRoot, "--configuration", "debug"],
+    ["build", "--package-path", packageRoot, "--scratch-path", scratch, "--configuration", "debug"],
     { encoding: "utf8", timeout: 60_000 },
   );
   if (result.error || result.status !== 0) {
@@ -60,7 +60,7 @@ function buildFixtures() {
       stderr: (result.stderr ?? "").slice(-4096),
     });
   }
-  const buildRoot = join(packageRoot, ".build/debug");
+  const buildRoot = join(scratch, "debug");
   return {
     launcher: realpathSync(join(buildRoot, "GreenRoomLauncher")),
     fixture: realpathSync(join(buildRoot, "ProcessFixture")),
@@ -435,12 +435,13 @@ async function runLaunchFailureCase(root, binaries, hostilePath, name, scenario,
 export async function verifyProcessTree() {
   const disposition = platformDisposition(process.platform, process.arch);
   if (disposition.action === "skip") return disposition;
-  const binaries = buildFixtures();
   // Foundation canonicalizes the /private/var alias back to /var for an existing
-  // executable. Keep the spelling returned by mkdtemp so argv[0] is canonical
-  // under the launcher's strict invocation contract.
+  // executable. Keep this fixture spelling while Swift scratch stays canonical
+  // and external under /private/tmp.
   const root = mkdtempSync(join(tmpdir(), "GreenRoomProcessTree-"));
+  const swiftScratch = realpathSync(mkdtempSync("/private/tmp/GreenRoomProcessTreeSwift-"));
   try {
+    const binaries = buildFixtures(swiftScratch);
     const { hostile, trap } = makeHostilePath(root);
     const cases = [];
     cases.push(await runCase(root, binaries, hostile, "outer-exit", "normal-exit", async (_child, bundle) => {
@@ -517,6 +518,7 @@ export async function verifyProcessTree() {
     };
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(swiftScratch, { recursive: true, force: false, maxRetries: 0 });
   }
 }
 

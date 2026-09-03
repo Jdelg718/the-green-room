@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -23,18 +23,20 @@ function fail(code, message, details = undefined) {
 export function verifyReleaseBrowserBoundary() {
   const disposition = platformDisposition(process.platform, process.arch);
   if (disposition.action === "skip") return disposition;
-  const build = spawnSync(
-    "/usr/bin/swift",
-    ["build", "--package-path", packageRoot, "--configuration", "release", "--product", "GreenRoomLauncher"],
-    { cwd: repositoryRoot, encoding: "utf8", timeout: 90_000 },
-  );
-  if (build.error || build.status !== 0) {
-    fail("release_launcher_build_failed", "release launcher build failed", {
-      status: build.status,
-      stderr: (build.stderr ?? "").slice(-4096),
-    });
-  }
-  const launcher = realpathSync(join(packageRoot, ".build/release/GreenRoomLauncher"));
+  const scratch = realpathSync(mkdtempSync("/private/tmp/GreenRoomBrowserBoundary-"));
+  try {
+    const build = spawnSync(
+      "/usr/bin/swift",
+      ["build", "--package-path", packageRoot, "--scratch-path", scratch, "--configuration", "release", "--product", "GreenRoomLauncher"],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 90_000 },
+    );
+    if (build.error || build.status !== 0) {
+      fail("release_launcher_build_failed", "release launcher build failed", {
+        status: build.status,
+        stderr: (build.stderr ?? "").slice(-4096),
+      });
+    }
+    const launcher = realpathSync(join(scratch, "release/GreenRoomLauncher"));
   const denied = spawnSync(launcher, ["--internal-browser-opener"], {
     argv0: launcher,
     env: { LANG: "C", LC_ALL: "C" },
@@ -62,14 +64,17 @@ export function verifyReleaseBrowserBoundary() {
       fail("release_debug_browser_boundary_present", `release binary contains forbidden browser boundary ${contract}`);
     }
   }
-  return {
-    code: "release_browser_boundary_verified",
-    configuration: "release",
-    guardedEntry: true,
-    fixedURL: "http://127.0.0.1:8787/",
-    debugSelectorAbsent: true,
-    realBrowserOpened: false,
-  };
+    return {
+      code: "release_browser_boundary_verified",
+      configuration: "release",
+      guardedEntry: true,
+      fixedURL: "http://127.0.0.1:8787/",
+      debugSelectorAbsent: true,
+      realBrowserOpened: false,
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: false, maxRetries: 0 });
+  }
 }
 
 const invokedPath = process.argv[1] === undefined ? null : pathToFileURL(resolve(process.argv[1])).href;

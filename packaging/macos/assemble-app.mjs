@@ -513,6 +513,10 @@ function realCli(argv) {
   if (process.platform !== "darwin" || process.arch !== "arm64" || !/^v24\./.test(process.version)) fail("host_unsupported", "native macOS arm64 Node 24 is required");
   const args = parseArguments(argv);
   const metadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
+  const packagingRoot = process.env.GREENROOM_PACKAGING_ROOT ?? join(repositoryRoot, "build/packaging");
+  const appDist = process.env.GREENROOM_DIST_ROOT ?? join(repositoryRoot, "dist");
+  assertAbsoluteCanonical(packagingRoot, "packaging_root_noncanonical");
+  assertAbsoluteCanonical(appDist, "app_dist_noncanonical");
   const clangVersion = spawnSync("/usr/bin/xcrun", ["clang", "--version"], { encoding: "utf8" });
   const xcodeVersion = spawnSync("/usr/bin/xcodebuild", ["-version"], { encoding: "utf8" });
   if (clangVersion.status !== 0 || xcodeVersion.status !== 0 ||
@@ -520,8 +524,8 @@ function realCli(argv) {
       !xcodeVersion.stdout.includes(metadata.greenroomPackageIdentity.macosToolchain.xcodeBuild)) {
     fail("macos_toolchain_mismatch", "native packaging requires the locked Xcode/clang toolchain");
   }
-  const validatorEvidence = JSON.parse(readFileSync(join(repositoryRoot, "build/packaging/validator-build.evidence.json"), "utf8"));
-  const validatorInventory = JSON.parse(readFileSync(join(repositoryRoot, "build/packaging/validator-payload.inventory.json"), "utf8"));
+  const validatorEvidence = JSON.parse(readFileSync(join(packagingRoot, "validator-build.evidence.json"), "utf8"));
+  const validatorInventory = JSON.parse(readFileSync(join(packagingRoot, "validator-payload.inventory.json"), "utf8"));
   if (validatorEvidence.pythonVersion !== metadata.greenroomPackageIdentity.pythonVersion || validatorEvidence.targetTriple !== "arm64-apple-darwin" ||
       validatorEvidence.payloadRootSha256 !== validatorInventory.payloadRootSha256 || realpathSync(args["validator-root"]) !== realpathSync(validatorEvidence.outputRoot)) {
     fail("validator_evidence_mismatch", "frozen validator must match the verified locked candidate");
@@ -567,7 +571,7 @@ function realCli(argv) {
         launcher: preparedLauncher,
         nodeExecutable,
         nodeLicense: join(runtimeRoot, "LICENSE"),
-        appDist: join(repositoryRoot, "dist"),
+        appDist,
         productionNodeModules: join(npmStage, "node_modules"),
         validatorRoot: args["validator-root"],
         projectLicense: join(repositoryRoot, "LICENSE"),

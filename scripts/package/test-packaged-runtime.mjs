@@ -11,8 +11,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import {
   chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync,
-  mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync,
-  symlinkSync, unlinkSync, utimesSync, writeFileSync,
+  mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync,
+  rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { arch, platform, release, tmpdir } from "node:os";
@@ -40,12 +40,25 @@ const POISONED_KEYS = Object.freeze([
   "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE", "NPM_CONFIG_USERCONFIG",
 ]);
 const TASK13_WORKTREE_ALLOWLIST = Object.freeze([
+  "packaging/macos/assemble-app.mjs",
+  "scripts/copy-runtime-assets.mjs",
   "scripts/deny-external-sockets.mjs",
+  "scripts/package/build-launcher.mjs",
+  "scripts/package/build-validator.mjs",
   "scripts/package/network-policy-probe.mjs",
   "scripts/package/runtime-boundary-probe.mjs",
   "scripts/package/runtime-sandbox.mjs",
+  "scripts/package/test-packaged-validator.mjs",
   "scripts/package/test-packaged-runtime.mjs",
+  "scripts/package/verify-browser-boundary.mjs",
+  "scripts/package/verify-process-tree.mjs",
   "test/packaging/packaged-runtime.test.ts",
+  "test/packaging/process-tree-verifier.test.ts",
+]);
+const OPERATOR_GENERATED_ROOTS = Object.freeze([
+  resolve(repositoryRoot, "dist"),
+  resolve(repositoryRoot, "build/packaging"),
+  resolve(repositoryRoot, "packaging/macos/GreenRoomLauncher/.build"),
 ]);
 
 function fail(code, message) {
@@ -95,18 +108,32 @@ function validateTask13WorkingTree() {
   return validateTask13Porcelain(status.stdout);
 }
 
-function cleanDisposableBuildOutputs() {
-  const disposableRoots = [
-    resolve(repositoryRoot, "dist"),
-    resolve(repositoryRoot, "packaging/macos/GreenRoomLauncher/.build"),
-  ];
-  for (const target of disposableRoots) {
-    if (!within(repositoryRoot, target)) {
-      fail("generated_cleanup_scope_invalid", "generated path escaped repository root");
+function snapshotOperatorGeneratedRoots() {
+  const records = [];
+  const visit = (path) => {
+    let details;
+    try { details = lstatSync(path, { bigint: true }); } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
     }
-    rmSync(target, { recursive: true, force: true });
-    assert.equal(existsSync(target), false);
-  }
+    const relativePath = relative(repositoryRoot, path);
+    const common = {
+      path: relativePath, dev: String(details.dev), ino: String(details.ino),
+      mode: String(details.mode), size: String(details.size), mtimeNs: String(details.mtimeNs),
+    };
+    if (details.isSymbolicLink()) records.push({ ...common, type: "symlink", target: readlinkSync(path) });
+    else if (details.isDirectory()) {
+      records.push({ ...common, type: "directory" });
+      for (const name of readdirSync(path).sort()) visit(join(path, name));
+    } else if (details.isFile()) records.push({ ...common, type: "file", sha256: sha256(readFileSync(path)) });
+    else if (details.isFIFO()) records.push({ ...common, type: "fifo" });
+    else if (details.isSocket()) records.push({ ...common, type: "socket" });
+    else if (details.isCharacterDevice()) records.push({ ...common, type: "character-device" });
+    else if (details.isBlockDevice()) records.push({ ...common, type: "block-device" });
+    else records.push({ ...common, type: "other" });
+  };
+  for (const root of OPERATOR_GENERATED_ROOTS) visit(root);
+  return Object.freeze(records.map((entry) => Object.freeze(entry)));
 }
 
 export function sanitizePackagedEnvironment(hostile = {}) {
@@ -972,18 +999,22 @@ async function controllerMain(configPath) {
 async function main() {
   if (platform() !== "darwin" || arch() !== "arm64" || !/^v24\./.test(process.version)) fail("host_unsupported", "macOS arm64 Node 24 required");
   const head = runChecked("/usr/bin/git", ["rev-parse", "HEAD"]);
-  cleanDisposableBuildOutputs();
   validateTask13WorkingTree();
+  const operatorGeneratedBaseline = snapshotOperatorGeneratedRoots();
   const archive = process.env.GREENROOM_NODE_ARCHIVE;
   if (!archive) fail("node_archive_required", "set GREENROOM_NODE_ARCHIVE to the pinned Task12 archive");
   assertCanonical(realpathSync(archive), "file");
-  runChecked(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "tsconfig.json"]);
-  runChecked(process.execPath, ["scripts/copy-runtime-assets.mjs"]);
-  runChecked(process.execPath, ["scripts/package/build-launcher.mjs"]);
-  runChecked(process.execPath, ["scripts/package/build-validator.mjs"]);
   const outer = realpathSync(mkdtempSync(join("/private/tmp", "greenroom-task13-")));
+  const distRoot = join(outer, "source-dist");
+  const packagingRoot = join(outer, "packaging-build");
+  mkdirSync(packagingRoot, { mode: 0o700 });
+  const buildEnvironment = { ...process.env, GREENROOM_DIST_ROOT: distRoot, GREENROOM_PACKAGING_ROOT: packagingRoot };
+  runChecked(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "tsconfig.json", "--outDir", distRoot], repositoryRoot, buildEnvironment);
+  runChecked(process.execPath, ["scripts/copy-runtime-assets.mjs"], repositoryRoot, buildEnvironment);
+  runChecked(process.execPath, ["scripts/package/build-launcher.mjs"], repositoryRoot, buildEnvironment);
+  runChecked(process.execPath, ["scripts/package/build-validator.mjs"], repositoryRoot, buildEnvironment);
   const artifactRoot = join(outer, "fresh-artifact"); mkdirSync(artifactRoot, { mode: 0o700 });
-  runChecked(process.execPath, ["packaging/macos/assemble-app.mjs", "--output-parent", artifactRoot, "--launcher", join(repositoryRoot, "build/packaging/launcher/GreenRoomLauncher"), "--node-archive", realpathSync(archive), "--validator-root", join(repositoryRoot, "build/packaging/validator/greenroom-persona")]);
+  runChecked(process.execPath, ["packaging/macos/assemble-app.mjs", "--output-parent", artifactRoot, "--launcher", join(packagingRoot, "launcher/GreenRoomLauncher"), "--node-archive", realpathSync(archive), "--validator-root", join(packagingRoot, "validator/greenroom-persona")], repositoryRoot, buildEnvironment);
   const artifact = join(artifactRoot, "The Green Room.app");
   const sandbox = join(outer, "isolated-sandbox"); mkdirSync(sandbox, { mode: 0o700 });
   const executionParent = join(sandbox, "Green Room α Test"); mkdirSync(executionParent, { mode: 0o700 });
@@ -997,7 +1028,7 @@ async function main() {
   writeFileSync(controllerConfig, `${JSON.stringify({
     artifact, executionApp, sandboxRoot: sandbox, guardPath: guard,
     boundaryProbePath: controller.boundaryProbe, networkProbePath: controller.networkProbe, sourceProbePaths: [
-      join(repositoryRoot, "package.json"), join(repositoryRoot, "dist/src/server.js"), join(repositoryRoot, ".venv/bin/greenroom-persona"),
+      join(repositoryRoot, "package.json"), join(distRoot, "src/server.js"), join(repositoryRoot, ".venv/bin/greenroom-persona"),
     ],
     forbiddenSourceRoot: repositoryRoot, evidencePath,
     outerExecutableInventory: ["node", "python", "python3", "npm", "npx", "uv", "sh"],
@@ -1029,6 +1060,8 @@ async function main() {
   assert.equal(evidence.outerBoundary.hostilePathInheritedByController, true);
   assert.equal(evidence.outerBoundary.runtimePath, "/nonexistent");
   assert.equal(evidence.outerBoundary.strippedPoisonCount, POISONED_KEYS.length);
+  validateTask13WorkingTree();
+  assert.deepEqual(snapshotOperatorGeneratedRoots(), operatorGeneratedBaseline, "operator generated roots changed during Task13");
   process.stdout.write(`${JSON.stringify({ ...evidence, evidencePath, controller: "external-frozen-copy" })}\n`);
 }
 

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmdirSync,
+  rmSync, symlinkSync, unlinkSync, writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -63,6 +66,44 @@ test("Task13 porcelain validation includes staged and untracked records and reje
     () => validateTask13Porcelain("R  scripts/package/runtime-sandbox.mjs\0old-name.mjs\0", ["scripts/package/runtime-sandbox.mjs"]),
     /source_tree_rename_forbidden/,
   );
+});
+
+test("Task13 harness rejects operator entries before cleanup and preserves their exact identities", () => {
+  const buildRoot = resolve("packaging/macos/GreenRoomLauncher/.build");
+  const operatorRoot = join(buildRoot, `task13-operator-${process.pid}-${Date.now()}`);
+  const nested = join(operatorRoot, "nested");
+  const sentinel = join(nested, "sentinel.bin");
+  const link = join(operatorRoot, "sentinel-link");
+  const fifo = join(operatorRoot, "sentinel-fifo");
+  const bytes = Buffer.from([0, 1, 2, 0xfe, 0xff, 13, 10]);
+  assert.equal(existsSync(buildRoot), false, "test refuses to touch a pre-existing .build root");
+  mkdirSync(nested, { recursive: true });
+  writeFileSync(sentinel, bytes, { flag: "wx", mode: 0o600 });
+  symlinkSync("nested/sentinel.bin", link);
+  const madeFifo = spawnSync("/usr/bin/mkfifo", [fifo], { encoding: "utf8" });
+  assert.equal(madeFifo.status, 0, madeFifo.stderr);
+  const before = Object.fromEntries([operatorRoot, nested, sentinel, link, fifo].map((path) => {
+    const details = lstatSync(path);
+    return [path, { dev: details.dev, ino: details.ino, mode: details.mode }];
+  }));
+  try {
+    const result = spawnSync(process.execPath, ["scripts/package/test-packaged-runtime.mjs"], {
+      cwd: resolve("."), encoding: "utf8", env: { ...process.env, GREENROOM_NODE_ARCHIVE: "" },
+    });
+    assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /source_tree_unexpected_dirty/);
+    for (const [path, identity] of Object.entries(before)) {
+      const after = lstatSync(path);
+      assert.deepEqual({ dev: after.dev, ino: after.ino, mode: after.mode }, identity, `${path} identity changed`);
+    }
+    assert.deepEqual(readFileSync(sentinel), bytes);
+    assert.equal(readlinkSync(link), "nested/sentinel.bin");
+    assert.equal(lstatSync(link).isSymbolicLink(), true);
+    assert.equal(lstatSync(fifo).isFIFO(), true);
+  } finally {
+    unlinkSync(fifo); unlinkSync(link); unlinkSync(sentinel);
+    rmdirSync(nested); rmdirSync(operatorRoot); rmdirSync(buildRoot);
+  }
 });
 
 test("failure diagnostics remove raw/hex/base64 sensitive forms and cap on a UTF-8 boundary", () => {

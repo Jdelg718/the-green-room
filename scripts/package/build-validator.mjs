@@ -20,7 +20,11 @@ import { inventoryValidatorPayload } from "./verify-payload.mjs";
 import { isThinArm64Macho, normalizeAndAdhocSignMacho } from "./macos-binary.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const packagingRoot = join(repositoryRoot, "build/packaging");
+const configuredPackagingRoot = process.env.GREENROOM_PACKAGING_ROOT;
+if (configuredPackagingRoot !== undefined && (!isAbsolute(configuredPackagingRoot) || resolve(configuredPackagingRoot) !== configuredPackagingRoot || realpathSync(configuredPackagingRoot) !== configuredPackagingRoot)) {
+  throw new Error("GREENROOM_PACKAGING_ROOT must be an existing canonical directory");
+}
+const packagingRoot = configuredPackagingRoot ?? join(repositoryRoot, "build/packaging");
 const finalRoot = join(packagingRoot, "validator/greenroom-persona");
 const inventoryPath = join(packagingRoot, "validator-payload.inventory.json");
 const evidencePath = join(packagingRoot, "validator-build.evidence.json");
@@ -140,9 +144,9 @@ try {
   run(uv, ["lock", "--check"]);
 
   mkdirSync(packagingRoot, { recursive: true });
-  removeExact(join(packagingRoot, "validator"));
-  rmSync(inventoryPath, { force: true });
-  rmSync(evidencePath, { force: true });
+  for (const candidate of [join(packagingRoot, "validator"), inventoryPath, evidencePath]) {
+    if (existsSync(candidate)) fail("validator_build_output_exists", "refusing to replace operator files");
+  }
   const stagingRoot = mkdtempSync(join(packagingRoot, "validator-staging-"));
   const distPath = join(stagingRoot, "dist");
   const workPath = join(stagingRoot, "work");

@@ -39,11 +39,11 @@ test("cooperative evidence rejects TERM-ignoring fixtures and KILL escalation", 
   ], "cooperative"));
 });
 
-test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout: 60_000 }, () => {
+test("process-tree verifier runs on macOS arm64 and skips elsewhere", { timeout: 120_000 }, () => {
   const result = spawnSync(process.execPath, ["scripts/package/verify-process-tree.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
-    timeout: 55_000,
+    timeout: 115_000,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const evidence = JSON.parse(result.stdout.trim());
