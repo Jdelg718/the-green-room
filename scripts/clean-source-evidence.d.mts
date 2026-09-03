@@ -1,3 +1,5 @@
+export function assertNoRootNpmCiLifecycles(packageContract: Record<string, any>): void;
+
 export function assertInstallPolicy(
   npmrc: string,
   packageContract: Record<string, any>,
@@ -8,10 +10,21 @@ export function assertInstallPolicy(
   lockHasInstallScript: Array<{ path: string; version: string }>;
 };
 
+export function npmCiInvocation(inheritedEnv: NodeJS.ProcessEnv): {
+  args: string[];
+  env: NodeJS.ProcessEnv;
+};
+export function npmCiArguments(): string[];
+
 export function assertInstallScriptsReport(report: Record<string, any>): {
-  unreviewedInstallScripts: unknown[];
+  unreviewedInstallScripts: string[];
   exactReport: Record<string, any>;
 };
+
+export function assertInstallScriptExecution(output: string): Array<{
+  packageIdentity: string;
+  lifecycle: string;
+}>;
 
 export function assertAcceptanceSummary<T extends Record<string, any>>(summary: T): T;
 export function assertInspectionReport<T extends Record<string, any>>(report: T): T;

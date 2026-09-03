@@ -5,6 +5,13 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+const EXPECTED_ALLOW_SCRIPTS = Object.freeze({
+  "esbuild@0.28.1": false,
+  "fs-ext@2.1.1": true,
+  "fsevents@2.3.3": false,
+  "workerd@1.20260831.1": false,
+});
+
 export class PreflightError extends Error {
   constructor(code, message) {
     super(`${code}: ${message}`);
@@ -103,15 +110,11 @@ export async function runSourceCleanHostPreflight(options = {}) {
       packageContract.dependencies?.["fs-ext"] !== "2.1.1" ||
       packageContract.packageManager !== "npm@11.19.0" ||
       packageContract.engines?.npm !== "11.19.0" ||
-      approvedScripts === null ||
-      typeof approvedScripts !== "object" ||
-      Array.isArray(approvedScripts) ||
-      Object.keys(approvedScripts).length !== 1 ||
-      approvedScripts["fs-ext@2.1.1"] !== true
+      JSON.stringify(approvedScripts) !== JSON.stringify(EXPECTED_ALLOW_SCRIPTS)
     ) {
       fail(
         "preflight_native_script_policy_invalid",
-        "fs-ext@2.1.1 must be pinned and be the only explicitly approved install script",
+        "fs-ext@2.1.1 must be the only approved install script and all other locked lifecycle scripts must be explicitly denied",
       );
     }
   } catch (error) {

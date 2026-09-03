@@ -18,7 +18,12 @@ function checkout(context: { after(callback: () => void): void }): string {
       packageManager: "npm@11.19.0",
       engines: { npm: "11.19.0" },
       dependencies: { "fs-ext": "2.1.1" },
-      allowScripts: { "fs-ext@2.1.1": true },
+      allowScripts: {
+        "esbuild@0.28.1": false,
+        "fs-ext@2.1.1": true,
+        "fsevents@2.3.3": false,
+        "workerd@1.20260831.1": false,
+      },
     })}\n`,
   );
   writeFileSync(join(root, ".npmrc"), "strict-allow-scripts=true\n");
@@ -135,8 +140,15 @@ test("clean-host preflight requires the exact native install-script policy", asy
   writeFileSync(
     join(root, "package.json"),
     `${JSON.stringify({
+      packageManager: "npm@11.19.0",
+      engines: { npm: "11.19.0" },
       dependencies: { "fs-ext": "2.1.1" },
-      allowScripts: { "fs-ext@2.1.1": true, "unexpected@1.0.0": true },
+      allowScripts: {
+        "esbuild@0.28.1": true,
+        "fs-ext@2.1.1": true,
+        "fsevents@2.3.3": false,
+        "workerd@1.20260831.1": false,
+      },
     })}\n`,
   );
   await rejectsCode(() => runSourceCleanHostPreflight(options), "preflight_native_script_policy_invalid");
