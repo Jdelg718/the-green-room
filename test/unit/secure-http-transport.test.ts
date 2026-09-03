@@ -48,13 +48,13 @@ class FakeSocket extends EventEmitter {
   remoteAddress: string | undefined = globalAddress;
   alpnProtocol: string | false = "http/1.1";
   destroyed = false;
-  readonly #closeDelay: number;
-  constructor(closeDelay = 0) { super(); this.#closeDelay = closeDelay; }
+  readonly #closeDelay: number | "never";
+  constructor(closeDelay: number | "never" = 0) { super(); this.#closeDelay = closeDelay; }
   destroy(): this {
     if (!this.destroyed) {
       this.destroyed = true;
       if (this.#closeDelay === 0) this.emit("close");
-      else setTimeout(() => this.emit("close"), this.#closeDelay).unref();
+      else if (this.#closeDelay !== "never") setTimeout(() => this.emit("close"), this.#closeDelay).unref();
     }
     return this;
   }
@@ -69,13 +69,14 @@ interface Reply {
 interface HarnessOptions {
   readonly answers?: readonly { readonly address: string; readonly family: number }[];
   readonly lookup?: () => Promise<readonly { readonly address: string; readonly family: number }[]>;
+  readonly cancelLookup?: () => void;
   readonly configureSocket?: (socket: FakeSocket, options: ConnectionOptions) => void;
   readonly autoSecure?: boolean;
   readonly reply?: Reply;
   readonly stallHeaders?: boolean;
   readonly stallWrite?: boolean;
   readonly syncDestroyError?: boolean;
-  readonly closeDelay?: number;
+  readonly closeDelay?: number | "never";
   readonly timers?: Partial<{ dns: number; connectTls: number; write: number; headers: number; bodyIdle: number; total: number }>;
   readonly concurrency?: number;
 }
@@ -85,13 +86,23 @@ function harness(options: HarnessOptions = {}) {
   const writes: Array<{ readonly headers: RequestOptions["headers"]; readonly body: Uint8Array | undefined }> = [];
   let requests = 0;
   let openSockets = 0;
+  let lookupStarts = 0;
+  let lookupCancels = 0;
+  const sockets: FakeSocket[] = [];
   const dependencies = {
-    lookup: async (_hostname: string, _lookupOptions: { all: true; verbatim: true }) => options.lookup === undefined
-      ? (options.answers ?? [{ address: globalAddress, family: 4 }])
-      : options.lookup(),
+    lookup: (_hostname: string) => {
+      lookupStarts += 1;
+      return {
+        promise: options.lookup === undefined
+          ? Promise.resolve(options.answers ?? [{ address: globalAddress, family: 4 }])
+          : options.lookup(),
+        cancel: () => { lookupCancels += 1; options.cancelLookup?.(); },
+      };
+    },
     connect: (connection: ConnectionOptions) => {
       connectOptions.push(connection);
       const socket = new FakeSocket(options.closeDelay); openSockets += 1;
+      sockets.push(socket);
       socket.once("close", () => { openSockets -= 1; });
       options.configureSocket?.(socket, connection);
       if (options.autoSecure !== false) queueMicrotask(() => { if (!socket.destroyed) socket.emit("secureConnect"); });
@@ -132,10 +143,14 @@ function harness(options: HarnessOptions = {}) {
     ...(options.timers === undefined ? {} : { timers: options.timers }),
     ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }),
   });
-  return { transport, connectOptions, requestOptions, writes, get requests() { return requests; }, get openSockets() { return openSockets; } };
+  return {
+    transport, connectOptions, requestOptions, writes, sockets,
+    get requests() { return requests; }, get openSockets() { return openSockets; },
+    get lookupStarts() { return lookupStarts; }, get lookupCancels() { return lookupCancels; },
+  };
 }
 async function assertQuiescent(h: ReturnType<typeof harness>): Promise<void> {
-  assert.deepEqual(h.transport.diagnostics(), { sockets: 0, agents: 0, active: 0, queued: 0 });
+  assert.deepEqual(h.transport.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
   assert.equal(h.openSockets, 0);
 }
 
@@ -190,6 +205,40 @@ test("DNS vetting fails closed for empty, malformed, poisoned, inconsistent, ove
   revoked.revoke(); bad.push(revoked.proxy);
   for (const answers of bad) assert.throws(() => internals.vettedAnswers(answers), code("dns_rejected"));
   assert.equal(getterRuns, 0);
+});
+
+test("family DNS resolver waits for both complete families and treats only absence as empty", async () => {
+  const absent = (codeValue: "ENODATA" | "ENOTFOUND") => Object.assign(new Error("resolver detail"), { code: codeValue });
+  let resolveIpv6!: (addresses: readonly string[]) => void;
+  const pendingIpv6 = new Promise<readonly string[]>((resolve) => { resolveIpv6 = resolve; });
+  let cancelCalls = 0;
+  const operation = internals.resolverLookup("api.openai.com", {
+    resolve4: async () => { throw absent("ENODATA"); },
+    resolve6: async () => pendingIpv6,
+    cancel: () => { cancelCalls += 1; },
+  });
+  let settled = false;
+  void operation.promise.finally(() => { settled = true; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "must not accept a partial family result");
+  resolveIpv6(["2606:4700:4700::1111"]);
+  assert.deepEqual(await operation.promise, [{ address: "2606:4700:4700::1111", family: 6 }]);
+  operation.cancel();
+  assert.equal(cancelCalls, 1);
+
+  const ipv4Only = internals.resolverLookup("api.openai.com", {
+    resolve4: async () => [globalAddress],
+    resolve6: async () => { throw absent("ENOTFOUND"); },
+    cancel: () => {},
+  });
+  assert.deepEqual(await ipv4Only.promise, [{ address: globalAddress, family: 4 }]);
+
+  const failed = internals.resolverLookup("api.openai.com", {
+    resolve4: async () => [globalAddress],
+    resolve6: async () => { throw Object.assign(new Error("servfail detail"), { code: "ESERVFAIL" }); },
+    cancel: () => {},
+  });
+  await assert.rejects(failed.promise, code("dns_rejected"));
 });
 
 test("closed request boundary builds only fixed HTTPS fields and ignores poisoned proxy environment", async () => {
@@ -294,7 +343,7 @@ test("ephemeral local CA proves real TLS certificate validation, SNI, HTTP/1.1, 
   };
   const makeTransport = (wrongSni: boolean) => __unsafeCreateSecureHttpTransportForTests({
     dependencies: {
-      lookup: async () => [{ address: globalAddress, family: 4 }],
+      lookup: () => ({ promise: Promise.resolve([{ address: globalAddress, family: 4 }]), cancel: () => {} }),
       connect: (options) => {
         assert.equal(options.host, globalAddress); assert.equal(options.port, 443);
         assert.equal(options.servername, "api.openai.com"); assert.equal(options.rejectUnauthorized, true);
@@ -309,11 +358,11 @@ test("ephemeral local CA proves real TLS certificate validation, SNI, HTTP/1.1, 
     const valid = makeTransport(false);
     assert.equal((await valid.request(modelRequest(), new AbortController().signal)).status, 200);
     assert.equal(seenSni, "api.openai.com"); assert.equal(seenAuthorization, `Bearer ${secret}`); assert.equal(requests, 1);
-    assert.deepEqual(valid.diagnostics(), { sockets: 0, agents: 0, active: 0, queued: 0 });
+    assert.deepEqual(valid.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
 
     const wrongName = makeTransport(true);
     await assert.rejects(wrongName.request(modelRequest(), new AbortController().signal), code("connection_rejected"));
-    assert.equal(requests, 1); assert.deepEqual(wrongName.diagnostics(), { sockets: 0, agents: 0, active: 0, queued: 0 });
+    assert.equal(requests, 1); assert.deepEqual(wrongName.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -377,16 +426,35 @@ test("DNS/connect/write/header/body-idle/total deadlines are distinct and saniti
     await assert.rejects(h.transport.request(request ?? modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
     await assertQuiescent(h);
   }
-  const cleanupDeadline = harness({ closeDelay: 20, timers: { total: 5, bodyIdle: 100 } });
+  const cleanupDeadline = harness({ closeDelay: 250, timers: { total: 5, bodyIdle: 100 } });
+  const cleanupStarted = performance.now();
   await assert.rejects(cleanupDeadline.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.ok(performance.now() - cleanupStarted < 75, "total deadline must include cleanup");
+  assert.equal(cleanupDeadline.sockets[0]?.destroyed, true);
+  assert.deepEqual(cleanupDeadline.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
+  await new Promise<void>((resolve) => setTimeout(resolve, 275));
   await assertQuiescent(cleanupDeadline);
+
+  const neverCloses = harness({ closeDelay: "never", timers: { total: 5, bodyIdle: 100 } });
+  await assert.rejects(neverCloses.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(neverCloses.sockets[0]?.destroyed, true);
+  assert.deepEqual(neverCloses.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
 
   const saturated = harness({ concurrency: 1, closeDelay: 50, timers: { total: 20, bodyIdle: 100 } });
   const occupying = saturated.transport.request(modelRequest(), new AbortController().signal);
   await new Promise<void>((resolve) => setImmediate(resolve));
   const queued = saturated.transport.request(modelRequest(), new AbortController().signal);
-  await assert.rejects(queued, (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
-  await assert.rejects(occupying, (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  const queuedTimeout = assert.rejects(queued, (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  const occupyingTimeout = assert.rejects(occupying, (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  await Promise.all([queuedTimeout, occupyingTimeout]);
+  const saturatedAtDeadline = saturated.transport.diagnostics();
+  assert.equal(saturatedAtDeadline.dns, 0);
+  assert.equal(saturatedAtDeadline.agents, 0);
+  assert.equal(saturatedAtDeadline.active, 0);
+  assert.equal(saturatedAtDeadline.queued, 0);
+  assert.equal(saturatedAtDeadline.sockets, saturatedAtDeadline.closing);
+  assert.ok(saturatedAtDeadline.closing >= 1 && saturatedAtDeadline.closing <= 2);
+  await new Promise<void>((resolve) => setTimeout(resolve, 60));
   await assertQuiescent(saturated);
 });
 
@@ -407,7 +475,10 @@ test("cancellation at DNS, connect/prewrite, header, body, and queued capacity d
   const cleanupCancel = harness({ closeDelay: 20, timers: { total: 100 } });
   const cleanupController = new AbortController(); const cleanupPending = cleanupCancel.transport.request(modelRequest(), cleanupController.signal);
   await new Promise<void>((resolve) => setImmediate(resolve)); cleanupController.abort();
-  await assert.rejects(cleanupPending, code("canceled")); await assertQuiescent(cleanupCancel);
+  await assert.rejects(cleanupPending, code("canceled"));
+  assert.deepEqual(cleanupCancel.transport.diagnostics(), { dns: 0, sockets: 1, closing: 1, agents: 0, active: 0, queued: 0 });
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  await assertQuiescent(cleanupCancel);
   let releaseLookup!: (answers: readonly { address: string; family: number }[]) => void;
   const firstLookup = new Promise<readonly { address: string; family: number }[]>((resolve) => { releaseLookup = resolve; });
   let calls = 0;
@@ -420,13 +491,37 @@ test("cancellation at DNS, connect/prewrite, header, body, and queued capacity d
   assert.equal(calls, 1); await assertQuiescent(h);
 });
 
+test("DNS timeout and cancellation actively cancel exactly once and ignore late settlement", async () => {
+  let settleLate!: (answers: readonly { address: string; family: number }[]) => void;
+  const never = new Promise<readonly { address: string; family: number }[]>((resolve) => { settleLate = resolve; });
+  const timed = harness({ lookup: () => never, timers: { dns: 5, total: 100 } });
+  await assert.rejects(timed.transport.request(modelRequest(), new AbortController().signal), (error: unknown) => error === CLOUD_TRANSPORT_TIMEOUT);
+  assert.equal(timed.lookupStarts, 1);
+  assert.equal(timed.lookupCancels, 1);
+  assert.deepEqual(timed.transport.diagnostics(), { dns: 0, sockets: 0, closing: 0, agents: 0, active: 0, queued: 0 });
+  settleLate([{ address: globalAddress, family: 4 }]);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(timed.requests, 0);
+  assert.equal(timed.lookupCancels, 1);
+
+  const canceled = harness({ lookup: () => new Promise(() => {}), timers: { dns: 1_000, total: 2_000 } });
+  const controller = new AbortController();
+  const pending = canceled.transport.request(modelRequest(), controller.signal);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(canceled.transport.diagnostics(), { dns: 1, sockets: 0, closing: 0, agents: 0, active: 1, queued: 0 });
+  controller.abort();
+  await assert.rejects(pending, code("canceled"));
+  assert.equal(canceled.lookupCancels, 1);
+  await assertQuiescent(canceled);
+});
+
 test("bounded semaphore is FIFO, caps floods, and releases fairly after failures", async () => {
   const resolvers: Array<(answers: readonly { address: string; family: number }[]) => void> = [];
   const starts: number[] = [];
   const h = harness({ concurrency: 2, lookup: () => new Promise((resolve) => { starts.push(starts.length); resolvers.push(resolve); }), timers: { total: 2_000 } });
   const operations = Array.from({ length: 5 }, () => h.transport.request(modelRequest(), new AbortController().signal));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(starts.length, 2); assert.deepEqual(h.transport.diagnostics(), { sockets: 0, agents: 0, active: 2, queued: 3 });
+  assert.equal(starts.length, 2); assert.deepEqual(h.transport.diagnostics(), { dns: 2, sockets: 0, closing: 0, agents: 0, active: 2, queued: 3 });
   resolvers.shift()!([{ address: "127.0.0.1", family: 4 }]);
   await assert.rejects(operations[0]!, code("dns_rejected")); await new Promise<void>((resolve) => setImmediate(resolve)); assert.equal(starts.length, 3);
   while (resolvers.length > 0) { resolvers.shift()!([{ address: globalAddress, family: 4 }]); await new Promise<void>((resolve) => setImmediate(resolve)); }
@@ -438,7 +533,7 @@ test("bounded semaphore rejects an over-capacity flood without retaining unbound
   const controllers = Array.from({ length: internals.limits.maxQueuedRequests + 2 }, () => new AbortController());
   const pending = controllers.map((controller) => h.transport.request(modelRequest(), controller.signal));
   await assert.rejects(pending.at(-1)!, code("capacity_rejected"));
-  assert.deepEqual(h.transport.diagnostics(), { sockets: 0, agents: 0, active: 1, queued: internals.limits.maxQueuedRequests });
+  assert.deepEqual(h.transport.diagnostics(), { dns: 1, sockets: 0, closing: 0, agents: 0, active: 1, queued: internals.limits.maxQueuedRequests });
   for (const controller of controllers) controller.abort();
   const results = await Promise.allSettled(pending.slice(0, -1));
   assert.equal(results.every((result) => result.status === "rejected"), true);

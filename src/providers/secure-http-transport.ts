@@ -1,4 +1,4 @@
-import { lookup as dnsLookup } from "node:dns";
+import { Resolver } from "node:dns/promises";
 import { Agent, request as httpsRequest, type RequestOptions } from "node:https";
 import type { ClientRequest, IncomingHttpHeaders, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -42,7 +42,13 @@ export class SecureHttpTransportError extends Error {
 }
 
 type LookupAnswer = Readonly<{ address: string; family: number }>;
-type Lookup = (hostname: string, options: { all: true; verbatim: true }) => Promise<readonly LookupAnswer[]>;
+interface LookupOperation { readonly promise: Promise<readonly LookupAnswer[]>; readonly cancel: () => void; }
+type Lookup = (hostname: string) => LookupOperation;
+interface FamilyResolver {
+  resolve4(hostname: string): Promise<readonly string[]>;
+  resolve6(hostname: string): Promise<readonly string[]>;
+  cancel(): void;
+}
 type Connect = (options: ConnectionOptions) => TLSSocket;
 type Request = (options: RequestOptions, callback: (response: IncomingMessage) => void) => ClientRequest;
 type Timers = Readonly<{ dns: number; connectTls: number; write: number; headers: number; bodyIdle: number; total: number }>;
@@ -251,19 +257,55 @@ function boundedTimers(overrides: Partial<Timers> | undefined): Timers {
   for (const value of Object.values(timers)) if (!Number.isInteger(value) || value < 1 || value > 120_000) throw new TypeError("invalid internal transport timer");
   return Object.freeze(timers);
 }
-function timeoutPromise<T>(milliseconds: number, work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (safeSignalAborted(signal)) return Promise.reject(failure("canceled"));
+function remainingMilliseconds(deadline: number): number { return Math.max(0, deadline - performance.now()); }
+function phaseMilliseconds(milliseconds: number, deadline: number): number { return Math.max(1, Math.min(milliseconds, remainingMilliseconds(deadline))); }
+function timeoutLookup(milliseconds: number, operation: LookupOperation, signal: AbortSignal, active: Set<LookupOperation>): Promise<readonly LookupAnswer[]> {
+  let canceled = false;
+  const cancel = (): void => {
+    if (canceled) return;
+    canceled = true;
+    active.delete(operation);
+    try { operation.cancel(); } catch { /* Cancellation is best-effort at the seam and errors are never exposed. */ }
+  };
+  active.add(operation);
+  if (safeSignalAborted(signal)) { cancel(); return Promise.reject(failure("canceled")); }
   return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (action: () => void): void => { if (settled) return; settled = true; clearTimeout(timer); signal.removeEventListener("abort", abort); action(); };
-    const timer = setTimeout(() => finish(() => reject(CLOUD_TRANSPORT_TIMEOUT)), milliseconds);
+    const finish = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      active.delete(operation);
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      action();
+    };
+    const timer = setTimeout(() => { cancel(); finish(() => reject(CLOUD_TRANSPORT_TIMEOUT)); }, milliseconds);
     timer.unref();
-    const abort = (): void => finish(() => reject(failure("canceled")));
+    const abort = (): void => { cancel(); finish(() => reject(failure("canceled"))); };
     signal.addEventListener("abort", abort, { once: true });
-    work.then((value) => finish(() => resolve(value)), () => finish(() => reject(failure("dns_rejected"))));
+    operation.promise.then((value) => finish(() => resolve(value)), () => finish(() => reject(failure("dns_rejected"))));
   });
 }
 function canonicalPeer(value: string | undefined): string | undefined { return typeof value === "string" ? classifyAddress(value)?.canonical : undefined; }
+function resolverLookup(hostname: string, resolver: FamilyResolver): LookupOperation {
+  const missing = (error: unknown): boolean => {
+    if (typeof error !== "object" || error === null || types.isProxy(error)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+    return descriptor !== undefined && "value" in descriptor && (descriptor.value === "ENODATA" || descriptor.value === "ENOTFOUND");
+  };
+  const ipv4 = resolver.resolve4(hostname).then((addresses) => addresses.map((address) => ({ address, family: 4 })));
+  const ipv6 = resolver.resolve6(hostname).then((addresses) => addresses.map((address) => ({ address, family: 6 })));
+  const promise = Promise.allSettled([ipv4, ipv6]).then((results): readonly LookupAnswer[] => {
+    const answers: LookupAnswer[] = [];
+    for (const result of results) {
+      if (result.status === "rejected") {
+        if (!missing(result.reason)) throw failure("dns_rejected");
+      } else answers.push(...result.value);
+    }
+    return answers;
+  });
+  return { promise, cancel: () => resolver.cancel() };
+}
 function copiedResponseHeaders(headers: IncomingHttpHeaders, rawHeaders: readonly string[]): Readonly<Record<string, string>> {
   if (rawHeaders.length / 2 > MAX_HEADER_COUNT) throw failure("response_rejected");
   let bytes = 0;
@@ -281,24 +323,33 @@ function copiedResponseHeaders(headers: IncomingHttpHeaders, rawHeaders: readonl
   return Object.freeze(result);
 }
 
-async function destroyAndAwaitClose(socket: TLSSocket | undefined, tracked: Set<TLSSocket>): Promise<void> {
+async function destroyAndAwaitClose(socket: TLSSocket | undefined, tracked: Set<TLSSocket>, closing: Set<TLSSocket>, deadline: number, signal: AbortSignal): Promise<void> {
   if (socket === undefined || !tracked.has(socket)) return;
-  await new Promise<void>((resolve, reject) => {
+  closing.add(socket);
+  socket.destroy();
+  if (!tracked.has(socket)) return;
+  const remaining = remainingMilliseconds(deadline);
+  if (remaining <= 0 || safeSignalAborted(signal)) return;
+  await new Promise<void>((resolve) => {
     let settled = false;
     const close = (): void => finish(resolve);
-    const timer = setTimeout(() => finish(() => reject(failure("connection_rejected"))), 1_000);
-    timer.unref();
+    const abort = (): void => finish(resolve);
+    let timer: NodeJS.Timeout;
     const finish = (action: () => void): void => {
-      if (settled) return; settled = true; clearTimeout(timer); socket.removeListener("close", close); action();
+      if (settled) return; settled = true; clearTimeout(timer); socket.removeListener("close", close); signal.removeEventListener("abort", abort); action();
     };
+    timer = setTimeout(() => finish(resolve), remaining);
+    timer.unref();
     socket.once("close", close);
-    socket.destroy();
+    signal.addEventListener("abort", abort, { once: true });
+    if (safeSignalAborted(signal)) abort();
   });
 }
 
 class SecureHttpTransport implements CloudTransport {
   readonly #deps: Dependencies; readonly #timers: Timers; readonly #semaphore: FairSemaphore;
-  readonly #sockets = new Set<TLSSocket>(); readonly #agents = new Set<Agent>();
+  readonly #dns = new Set<LookupOperation>(); readonly #sockets = new Set<TLSSocket>();
+  readonly #closing = new Set<TLSSocket>(); readonly #agents = new Set<Agent>();
   constructor(options: InternalOptions) {
     this.#deps = options.dependencies; this.#timers = boundedTimers(options.timers);
     const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
@@ -306,12 +357,13 @@ class SecureHttpTransport implements CloudTransport {
     this.#semaphore = new FairSemaphore(concurrency);
   }
   async request(rawRequest: CloudTransportRequest, rawSignal: AbortSignal): Promise<CloudTransportResponse> {
+    const deadline = performance.now() + this.#timers.total;
     const signal = requireSignal(rawSignal);
     const parsed = validateRequest(rawRequest);
     if (safeSignalAborted(signal)) throw failure("canceled");
-    return this.#withTotalDeadline(parsed, signal);
+    return this.#withTotalDeadline(parsed, signal, deadline);
   }
-  async #withTotalDeadline(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal): Promise<CloudTransportResponse> {
+  async #withTotalDeadline(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal, deadline: number): Promise<CloudTransportResponse> {
     const controller = new AbortController();
     let timedOut = false;
     let callerAborted = false;
@@ -319,25 +371,29 @@ class SecureHttpTransport implements CloudTransport {
     const relayAbort = (): void => { callerAborted = true; controller.abort(); };
     signal.addEventListener("abort", relayAbort, { once: true });
     if (safeSignalAborted(signal)) relayAbort();
-    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.#timers.total);
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); release?.(); }, remainingMilliseconds(deadline));
     timer.unref();
     try {
       release = await this.#semaphore.acquire(controller.signal);
-      const result = await this.#perform(parsed, controller.signal);
+      if (remainingMilliseconds(deadline) <= 0) { timedOut = true; controller.abort(); throw CLOUD_TRANSPORT_TIMEOUT; }
+      const result = await this.#perform(parsed, controller.signal, deadline);
       if (callerAborted) throw failure("canceled");
-      if (timedOut) throw CLOUD_TRANSPORT_TIMEOUT;
+      if (timedOut || remainingMilliseconds(deadline) <= 0) throw CLOUD_TRANSPORT_TIMEOUT;
       return result;
     }
     catch (error) {
       if (callerAborted) throw failure("canceled");
-      if (timedOut) throw CLOUD_TRANSPORT_TIMEOUT;
+      if (timedOut || remainingMilliseconds(deadline) <= 0) throw CLOUD_TRANSPORT_TIMEOUT;
       throw error;
     }
     finally { release?.(); clearTimeout(timer); signal.removeEventListener("abort", relayAbort); }
   }
-  async #perform(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal): Promise<CloudTransportResponse> {
+  async #perform(parsed: ReturnType<typeof validateRequest>, signal: AbortSignal, deadline: number): Promise<CloudTransportResponse> {
     const definition = getProviderDefinition(parsed.providerId);
-    const answers = await timeoutPromise(this.#timers.dns, this.#deps.lookup(definition.hostname, { all: true, verbatim: true }), signal);
+    let lookup: LookupOperation;
+    try { lookup = this.#deps.lookup(definition.hostname); }
+    catch { throw failure("dns_rejected"); }
+    const answers = await timeoutLookup(phaseMilliseconds(this.#timers.dns, deadline), lookup, signal, this.#dns);
     if (safeSignalAborted(signal)) throw failure("canceled");
     const selected = vettedAnswers(answers)[0];
     if (selected === undefined) throw failure("dns_rejected");
@@ -349,10 +405,10 @@ class SecureHttpTransport implements CloudTransport {
     let connectTimer: NodeJS.Timeout | undefined;
     let headerTimer: NodeJS.Timeout | undefined;
     let writeTimer: NodeJS.Timeout | undefined;
+    let bodyTimer: NodeJS.Timeout | undefined;
     let abortHandler: (() => void) | undefined;
     let settleRequest: ((error?: unknown, value?: CloudTransportResponse) => void) | undefined;
     let headersReceived = false;
-    let primaryError: unknown;
     try {
       (agent as unknown as { createConnection: (options: RequestOptions, callback: (error: Error | null, socket?: Duplex) => void) => undefined }).createConnection = (_options, callback) => {
         let called = false;
@@ -361,8 +417,8 @@ class SecureHttpTransport implements CloudTransport {
           socket = this.#deps.connect({ host: selected.canonical, port: 443, servername: definition.hostname, rejectUnauthorized: true, ALPNProtocols: ["http/1.1"] });
           const createdSocket = socket;
           this.#sockets.add(createdSocket);
-          createdSocket.once("close", () => this.#sockets.delete(createdSocket));
-          connectTimer = setTimeout(() => { socket?.destroy(); done(CLOUD_TRANSPORT_TIMEOUT); }, this.#timers.connectTls); connectTimer.unref();
+          createdSocket.once("close", () => { this.#sockets.delete(createdSocket); this.#closing.delete(createdSocket); });
+          connectTimer = setTimeout(() => { socket?.destroy(); done(CLOUD_TRANSPORT_TIMEOUT); }, phaseMilliseconds(this.#timers.connectTls, deadline)); connectTimer.unref();
           socket.once("secureConnect", () => {
             if (safeSignalAborted(signal)) { socket?.destroy(); done(failure("canceled")); return; }
             if (!socket?.authorized || socket.remotePort !== 443 || canonicalPeer(socket.remoteAddress) !== selected.canonical || socket.alpnProtocol !== "http/1.1") {
@@ -370,7 +426,7 @@ class SecureHttpTransport implements CloudTransport {
             }
             writeTimer = setTimeout(() => {
               settleRequest?.(CLOUD_TRANSPORT_TIMEOUT); request?.destroy(); socket?.destroy();
-            }, this.#timers.write);
+            }, phaseMilliseconds(this.#timers.write, deadline));
             writeTimer.unref();
             done(null, socket);
           });
@@ -389,11 +445,11 @@ class SecureHttpTransport implements CloudTransport {
           if (settled) return; settled = true;
           if (headerTimer !== undefined) clearTimeout(headerTimer);
           if (writeTimer !== undefined) clearTimeout(writeTimer);
-          if (abortHandler !== undefined) signal.removeEventListener("abort", abortHandler);
+          if (bodyTimer !== undefined) clearTimeout(bodyTimer);
           if (error === undefined && value !== undefined) resolve(value); else reject(error);
         };
         settleRequest = finish;
-        abortHandler = () => { finish(failure("canceled")); response?.destroy(); request?.destroy(); socket?.destroy(); };
+        abortHandler = () => { if (connectTimer !== undefined) clearTimeout(connectTimer); finish(failure("canceled")); response?.destroy(); request?.destroy(); agent.destroy(); this.#agents.delete(agent); socket?.destroy(); };
         signal.addEventListener("abort", abortHandler, { once: true });
         try {
           request = this.#deps.request({
@@ -415,22 +471,22 @@ class SecureHttpTransport implements CloudTransport {
             let responseHeaders: Readonly<Record<string, string>>;
             try { responseHeaders = copiedResponseHeaders(incoming.headers, incoming.rawHeaders); }
             catch (error) { finish(error); incoming.destroy(); return; }
-            const chunks: Uint8Array[] = []; let received = 0; let idle: NodeJS.Timeout | undefined;
-            const armIdle = (): void => { if (idle !== undefined) clearTimeout(idle); idle = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); incoming.destroy(); }, this.#timers.bodyIdle); idle.unref(); };
+            const chunks: Uint8Array[] = []; let received = 0;
+            const armIdle = (): void => { if (bodyTimer !== undefined) clearTimeout(bodyTimer); bodyTimer = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); incoming.destroy(); }, phaseMilliseconds(this.#timers.bodyIdle, deadline)); bodyTimer.unref(); };
             armIdle();
             incoming.on("data", (chunk: Buffer) => {
               received += chunk.byteLength;
-              if (received > MAX_RESPONSE_BYTES || chunks.length >= MAX_RESPONSE_CHUNKS) { if (idle !== undefined) clearTimeout(idle); finish(failure("response_too_large")); incoming.destroy(); return; }
+              if (received > MAX_RESPONSE_BYTES || chunks.length >= MAX_RESPONSE_CHUNKS) { if (bodyTimer !== undefined) clearTimeout(bodyTimer); finish(failure("response_too_large")); incoming.destroy(); return; }
               chunks.push(Uint8Array.prototype.slice.call(chunk) as Uint8Array); armIdle();
             });
             incoming.once("end", () => {
-              if (idle !== undefined) clearTimeout(idle);
+              if (bodyTimer !== undefined) clearTimeout(bodyTimer);
               const body = new Uint8Array(received); let offset = 0;
               for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
               finish(undefined, Object.freeze({ status, headers: responseHeaders, body }));
             });
-            incoming.once("aborted", () => { if (idle !== undefined) clearTimeout(idle); finish(failure("response_rejected")); });
-            incoming.once("error", () => { if (idle !== undefined) clearTimeout(idle); finish(failure("response_rejected")); });
+            incoming.once("aborted", () => { if (bodyTimer !== undefined) clearTimeout(bodyTimer); finish(failure("response_rejected")); });
+            incoming.once("error", () => { if (bodyTimer !== undefined) clearTimeout(bodyTimer); finish(failure("response_rejected")); });
           });
           // Exactly one attempt. Once request.end() queues bytes, no failure is retry-safe: callers receive
           // a sanitized terminal result and must not repeat an operation whose upstream acceptance is ambiguous.
@@ -438,7 +494,7 @@ class SecureHttpTransport implements CloudTransport {
           request.once("finish", () => {
             if (writeTimer !== undefined) clearTimeout(writeTimer);
             if (!headersReceived) {
-              headerTimer = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); response?.destroy(); request?.destroy(); socket?.destroy(); }, this.#timers.headers);
+              headerTimer = setTimeout(() => { finish(CLOUD_TRANSPORT_TIMEOUT); response?.destroy(); request?.destroy(); socket?.destroy(); }, phaseMilliseconds(this.#timers.headers, deadline));
               headerTimer.unref();
             }
           });
@@ -446,28 +502,23 @@ class SecureHttpTransport implements CloudTransport {
         } catch { request?.destroy(); socket?.destroy(); finish(failure("connection_rejected")); }
       });
       return await result;
-    } catch (error) {
-      primaryError = error;
-      throw error;
     } finally {
       if (connectTimer !== undefined) clearTimeout(connectTimer);
       if (headerTimer !== undefined) clearTimeout(headerTimer);
       if (writeTimer !== undefined) clearTimeout(writeTimer);
+      if (bodyTimer !== undefined) clearTimeout(bodyTimer);
       if (abortHandler !== undefined) signal.removeEventListener("abort", abortHandler);
       response?.destroy(); request?.destroy(); agent.destroy(); this.#agents.delete(agent);
-      try { await destroyAndAwaitClose(socket, this.#sockets); }
-      catch (cleanupError) { if (primaryError === undefined) throw cleanupError; }
+      await destroyAndAwaitClose(socket, this.#sockets, this.#closing, deadline, signal);
     }
   }
-  diagnostics(): Readonly<{ sockets: number; agents: number; active: number; queued: number }> {
-    return Object.freeze({ sockets: this.#sockets.size, agents: this.#agents.size, active: this.#semaphore.active, queued: this.#semaphore.queued });
+  diagnostics(): Readonly<{ dns: number; sockets: number; closing: number; agents: number; active: number; queued: number }> {
+    return Object.freeze({ dns: this.#dns.size, sockets: this.#sockets.size, closing: this.#closing.size, agents: this.#agents.size, active: this.#semaphore.active, queued: this.#semaphore.queued });
   }
 }
 
 const productionDependencies: Dependencies = Object.freeze({
-  lookup: (hostname: string, options: { all: true; verbatim: true }): Promise<readonly LookupAnswer[]> => new Promise((resolve, reject) => {
-    dnsLookup(hostname, options, (error, addresses) => error === null ? resolve(addresses) : reject(error));
-  }),
+  lookup: (hostname: string): LookupOperation => resolverLookup(hostname, new Resolver()),
   connect: (options: ConnectionOptions): TLSSocket => tlsConnect(options),
   request: (options: RequestOptions, callback: (response: IncomingMessage) => void): ClientRequest => httpsRequest(options, callback),
 });
@@ -482,5 +533,6 @@ export function __unsafeCreateSecureHttpTransportForTests(options: InternalOptio
 export const __unsafeSecureHttpTransportInternalsForTests = Object.freeze({
   classifyAddress: (address: string): string | undefined => classifyAddress(address)?.canonical,
   vettedAnswers: (answers: unknown): readonly string[] => vettedAnswers(answers).map(({ canonical }) => canonical),
+  resolverLookup,
   limits: Object.freeze({ maxDnsAnswers: MAX_DNS_ANSWERS, maxDnsBytes: MAX_DNS_BYTES, maxRequestBytes: MAX_REQUEST_BYTES, maxResponseBytes: MAX_RESPONSE_BYTES, maxResponseChunks: MAX_RESPONSE_CHUNKS, maxHeaderBytes: MAX_HEADER_BYTES, maxHeaderCount: MAX_HEADER_COUNT, maxApiKeyBytes: MAX_API_KEY_BYTES, concurrency: DEFAULT_CONCURRENCY, maxQueuedRequests: MAX_QUEUED_REQUESTS, timers: DEFAULT_TIMEOUTS }),
 });
