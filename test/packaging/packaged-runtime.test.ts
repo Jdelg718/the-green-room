@@ -68,7 +68,9 @@ test("Task13 porcelain validation includes staged and untracked records and reje
   );
 });
 
-test("Task13 harness rejects operator entries before cleanup and preserves their exact identities", () => {
+test("Task13 harness rejects operator entries before cleanup and preserves their exact identities", {
+  skip: process.platform !== "darwin" || process.arch !== "arm64",
+}, () => {
   const buildRoot = resolve("packaging/macos/GreenRoomLauncher/.build");
   const operatorRoot = join(buildRoot, `task13-operator-${process.pid}-${Date.now()}`);
   const nested = join(operatorRoot, "nested");
