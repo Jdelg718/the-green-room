@@ -51,7 +51,7 @@ This establishes technical viability. It does not approve historical candidates 
 
 The current packaging boundary and executable spike sequence are defined in the [accepted downloadable-alpha packaging ADR](docs/adr/proposed-downloadable-alpha-packaging.md) and [downloadable-alpha packaging spike plan](docs/plans/2026-09-01-downloadable-alpha-packaging-spike.md). Acceptance authorizes bounded private implementation spikes only. It replaces closed PR #52's obsolete greenfield/runtime assumptions but is not evidence that an installer, signed artifact, clean-host pass, supported platform, downloadable release, or publication exists.
 
-**Current truth:** the source-hardening contract and both named clean-source targets are complete. Issue #87 closed against independently reviewed macOS 14 arm64 and Ubuntu 24.04 x64 artifacts from the same protected-main SHA `172b1d46657374b8f2db8c3622fe4c2636f82260`. Node `24.20.0`, npm `11.19.0`, strict lifecycle-script policy, source acceptance, outside-root write audit, process closure, and artifact manifests passed. Issue #98 is now the active bounded lane for explicit packaged runtime assets and frozen-validator equivalence. No signed/notarized application or public download exists yet.
+**Current truth:** the source-hardening contract and both named clean-source targets are complete. Issue #87 closed against independently reviewed macOS 14 arm64 and Ubuntu 24.04 x64 artifacts from the same protected-main SHA `172b1d46657374b8f2db8c3622fe4c2636f82260`. Node `24.20.0`, npm `11.19.0`, strict lifecycle-script policy, source acceptance, outside-root write audit, process closure, and artifact manifests passed. Issue #98 closed through PR #117 at protected-main SHA `6ac368ac4aa4453777e67deff22ea1e218a0442c`, making package-mode assets explicit and proving frozen-validator equivalence. Issue #118 closed through PR #119 at protected-main SHA `03c37c76956d1661861e3f8265c1ada2a342860e`, adding the bounded native macOS launcher, supervised process tree, and authenticated readiness before browser open. Issue #120 is the active bounded lane for deterministic unsigned app assembly and exact-payload exercise. No assembled release candidate, signed/notarized application, or public download exists yet.
 
 - Prove the locked source/operator workflow first on named clean macOS arm64 and Ubuntu 24.04 x64 targets.
 - Run one bounded macOS Apple-silicon downloadable spike that preserves the Node 24 runtime and strict validator as separate, supervised, absolute-path executables.
@@ -67,7 +67,7 @@ The current packaging boundary and executable spike sequence are defined in the 
 
 **Outcome:** support a library of multiple local rooms with inspectable continuity.
 
-**Current truth:** the authoritative architecture and guided setup prototype are merged. SQLite ordered events remain sole authority; Obsidian and fixed-loopback HTTP are optional projections. Reopenable multi-room history is implemented on PR #106 but remains outside protected `main` pending exact-head review and a successful required release gate. Production memory adapters, real vault writes, arbitrary projection endpoints, and cross-device synchronization are not implemented.
+**Current truth:** the authoritative architecture and guided setup prototype are merged. SQLite ordered events remain sole authority; Obsidian and fixed-loopback HTTP are optional projections. Reopenable multi-room history passed its exact-head release gate and merged through PR #115 at protected-main SHA `9152a3cfa065c914081d0876a0c66ca29b81c945`; local room creation, bounded recent-history listing, revision-fenced selection, restart continuity, and mobile containment are implemented. Room archive/delete flows, production memory adapters, real vault writes, arbitrary projection endpoints, and cross-device synchronization are not implemented.
 
 - Add local room create/list/archive/delete flows.
 - Add bounded summaries and relationship memory linked to source events.
@@ -113,12 +113,11 @@ The portable-character and community boundary is specified in [ADR 0003](docs/ad
 
 ## Current execution order
 
-1. Re-review PR #106 at its exact latest head, require the room-ordering, mobile-containment, and concurrent-selection fixes plus a successful protected release gate, then merge only if all three are closed.
-2. Reconfirm PR #110 at its exact head and merge the FF2K bundled-original candidate only after its protected gate and privacy/content approval remain current; it must never be automatically seated or represented as Official Catalog admission.
-3. Start issue #98 on a fresh focused branch: explicit immutable package-mode assets first, then one native macOS arm64 frozen-validator candidate, then source/frozen semantic equivalence across the hostile corpus.
-4. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
-5. Continue the minimal supervised macOS launcher and lifecycle matrix only after issue #98 closes; signing, notarization, download publication, updater work, and demo video remain separate human gates.
-6. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
+1. Execute issue #120 on a fresh focused branch: deterministic unsigned macOS app assembly first, then exact-payload exercise from a hostile path with the source tree, build tree, and virtual environment unavailable.
+2. Rebase and re-review PR #55 at its exact head before considering the four arts-and-music historical packs; successful validation would keep them candidates and would not create Official Catalog admission.
+3. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
+4. Continue the macOS packaging and lifecycle matrix only after issue #120 closes with exact payload evidence; signing, notarization, download publication, updater work, and demo video remain separate human gates.
+5. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
 
 ## Future launch milestone — community demo video
 
