@@ -24,6 +24,7 @@ import {
   FIXED_TIMESTAMP_MS,
   assembleUnsignedApp,
   inventoryApp,
+  parseInfoPlist,
   verifyUnsignedApp,
 } from "../../packaging/macos/assemble-app.mjs";
 
@@ -98,6 +99,13 @@ function withFixture(run: (value: ReturnType<typeof fixture>, root: string) => v
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("plist identity parser has a portable Python fallback for non-macOS CI", () => withFixture((options) => {
+  const parsed = parseInfoPlist(options.inputs.infoPlist, "linux");
+  assert.equal(parsed.CFBundleIdentifier, "net.greenroomai.GreenRoom");
+  assert.equal(parsed.CFBundleShortVersionString, "0.1.0");
+  assert.equal(parsed.CFBundleVersion, "120");
+}));
 
 function chmodTree(path: string): void {
   try {

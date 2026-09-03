@@ -144,13 +144,24 @@ function collectTree(sourceRoot, destinationRoot, options = {}) {
   return records;
 }
 
-function validatePlistAndEntitlements(inputs, identity) {
-  const plistResult = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "--", inputs.infoPlist], {
+export function parseInfoPlist(path, hostPlatform = process.platform) {
+  const command = hostPlatform === "darwin"
+    ? ["/usr/bin/plutil", ["-convert", "json", "-o", "-", "--", path]]
+    : ["/usr/bin/python3", [
+      "-c",
+      "import json, plistlib, sys; json.dump(plistlib.load(open(sys.argv[1], 'rb')), sys.stdout)",
+      path,
+    ]];
+  const plistResult = spawnSync(command[0], command[1], {
     encoding: "utf8", stdio: "pipe", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
   });
   if (plistResult.error || plistResult.status !== 0) fail("info_plist_parse_invalid", (plistResult.stderr ?? "invalid plist").trim());
-  let plist;
-  try { plist = JSON.parse(plistResult.stdout); } catch { fail("info_plist_parse_invalid", inputs.infoPlist); }
+  try { return JSON.parse(plistResult.stdout); }
+  catch { fail("info_plist_parse_invalid", path); }
+}
+
+function validatePlistAndEntitlements(inputs, identity) {
+  const plist = parseInfoPlist(inputs.infoPlist);
   const required = {
     CFBundleIdentifier: "net.greenroomai.GreenRoom",
     CFBundleShortVersionString: identity.appVersion,

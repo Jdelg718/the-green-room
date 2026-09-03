@@ -23,6 +23,7 @@ export interface AssembleOptions {
   };
 }
 export interface AssembleResult { appPath: string; inventory: InventoryEntry[]; appDigest: string; manifest: Record<string, unknown> }
+export function parseInfoPlist(path: string, hostPlatform?: string): Record<string, unknown>;
 export function assembleUnsignedApp(options: AssembleOptions): AssembleResult;
 export function inventoryApp(root: string, options?: { requireImmutable?: boolean; expectedTimestampMs?: number | null }): InventoryEntry[];
 export function verifyUnsignedApp(appPath: string): AssembleResult & { undeclaredFiles: string[] };
