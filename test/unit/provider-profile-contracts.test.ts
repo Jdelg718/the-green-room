@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import vm from "node:vm";
 
 import {
   parseConnectionProfile,
@@ -16,7 +17,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       class: "approved-provider",
       definitionId: "openai",
     },
-    credentialRef: "credential:connection.primary",
+    credentialRef: "credential:connection.primary:3",
   });
 
   assert.deepEqual(profile, {
@@ -26,7 +27,7 @@ test("connection profiles preserve an exact immutable revision without credentia
       class: "approved-provider",
       definitionId: "openai",
     },
-    credentialRef: "credential:connection.primary",
+    credentialRef: "credential:connection.primary:3",
   });
   assert.equal(Object.isFrozen(profile), true);
   assert.equal(Object.isFrozen(profile.target), true);
@@ -40,7 +41,7 @@ test("model profiles bind exact connection revisions and bounded generation defa
     id: "model.primary",
     revision: 5,
     connection: { profileId: "connection.primary", revision: 3 },
-    modelId: "openai/gpt-5.2",
+    modelId: "openai/gpt-5.2:preview",
     requiredCapabilities: ["chat", "system-messages"],
     generation: { temperature: 0.7, maxOutputTokens: 2048 },
   });
@@ -49,7 +50,7 @@ test("model profiles bind exact connection revisions and bounded generation defa
     id: "model.primary",
     revision: 5,
     connection: { profileId: "connection.primary", revision: 3 },
-    modelId: "openai/gpt-5.2",
+    modelId: "openai/gpt-5.2:preview",
     requiredCapabilities: ["chat", "system-messages"],
     generation: { temperature: 0.7, maxOutputTokens: 2048 },
   });
@@ -57,6 +58,25 @@ test("model profiles bind exact connection revisions and bounded generation defa
   assert.equal(Object.isFrozen(profile.connection), true);
   assert.equal(Object.isFrozen(profile.requiredCapabilities), true);
   assert.equal(Object.isFrozen(profile.generation), true);
+});
+
+test("model profiles accept deeply frozen cross-realm plain data", () => {
+  const input = vm.runInNewContext(`Object.freeze({
+    id: "model.cross-realm",
+    revision: 1,
+    connection: Object.freeze({ profileId: "connection.primary", revision: 1 }),
+    modelId: "owner/model",
+    requiredCapabilities: Object.freeze(["chat"]),
+    generation: Object.freeze({ temperature: 1, maxOutputTokens: 512 })
+  })`) as unknown;
+  assert.deepEqual(parseModelProfile(input), {
+    id: "model.cross-realm",
+    revision: 1,
+    connection: { profileId: "connection.primary", revision: 1 },
+    modelId: "owner/model",
+    requiredCapabilities: ["chat"],
+    generation: { temperature: 1, maxOutputTokens: 512 },
+  });
 });
 
 test("room bindings revision one room purpose to one exact model revision", () => {
@@ -98,7 +118,7 @@ test("decision snapshots freeze exact non-secret profile revisions and capabilit
       id: "model.primary",
       revision: 5,
       connection: { profileId: "connection.primary", revision: 3 },
-      modelId: "openai/gpt-5.2",
+      modelId: "openai/gpt-5.2:preview",
       requiredCapabilities: ["chat", "system-messages"],
       generation: { temperature: 0.7, maxOutputTokens: 2048 },
     },
@@ -318,7 +338,28 @@ test("profile identifiers, revisions, capabilities, and numeric generation optio
     requiredCapabilities: ["chat"],
     generation: { temperature: 1, maxOutputTokens: 512 },
   };
-  for (const modelId of ["", "../model", "owner//model", "https://example.test/model"]){
+  for (const modelId of [
+    "https://opaque.example/model",
+    "owner//opaque",
+    "owner/../opaque",
+    "owner\\opaque",
+    "/leading/slash",
+    "provider:model:variant",
+  ]) {
+    assert.equal(parseModelProfile({ ...modelBase, modelId }).modelId, modelId);
+  }
+  for (const modelId of [
+    "",
+    " owner/model",
+    "owner/model ",
+    "owner model",
+    "owner/model\nsecret",
+    "owner/model\u0085secret",
+    "owner/model\u00a0secret",
+    "owner/model\u2028secret",
+    "owner/e\u0301",
+    "é".repeat(129),
+  ]) {
     assert.throws(() => parseModelProfile({ ...modelBase, modelId }), /modelId/);
   }
   for (const generation of [
@@ -362,7 +403,7 @@ function validDecisionInput(): Record<string, unknown> {
       id: "model.primary",
       revision: 5,
       connection: { profileId: "connection.primary", revision: 3 },
-      modelId: "openai/gpt-5.2",
+      modelId: "openai/gpt-5.2:preview",
       requiredCapabilities: ["chat", "system-messages"],
       generation: { temperature: 0.7, maxOutputTokens: 2048 },
     },
@@ -411,6 +452,22 @@ test("decision snapshots reject credentials, stale revision links, and noncanoni
   }
 });
 
+test("all approved cloud connection targets map only to openai-compatible evidence", () => {
+  for (const definitionId of ["openrouter", "openai", "xai", "groq", "together"] as const) {
+    const input = validDecisionInput();
+    (input.connection as Record<string, unknown>).target = {
+      class: "approved-provider",
+      definitionId,
+    };
+    assert.equal(parseDecisionSnapshot(input).adapter.id, "openai-compatible");
+  }
+  assert.throws(() => parseConnectionProfile({
+    id: "connection.anthropic",
+    revision: 1,
+    target: { class: "approved-provider", definitionId: "anthropic" },
+  }), /not approved/);
+});
+
 test("decision snapshot adapter evidence must match every closed connection target", () => {
   const mismatches = [
     {
@@ -420,6 +477,7 @@ test("decision snapshot adapter evidence must match every closed connection targ
     {
       target: { class: "approved-provider", definitionId: "anthropic" },
       adapterId: "openai-compatible",
+      expected: /approved/i,
     },
     {
       target: { class: "local-endpoint", adapter: "ollama" },
@@ -431,10 +489,10 @@ test("decision snapshot adapter evidence must match every closed connection targ
     },
   ];
 
-  for (const { target, adapterId } of mismatches) {
+  for (const { target, adapterId, expected = /adapter/i } of mismatches) {
     const input = validDecisionInput();
     (input.connection as Record<string, unknown>).target = target;
     (input.adapter as Record<string, unknown>).id = adapterId;
-    assert.throws(() => parseDecisionSnapshot(input), /adapter/i);
+    assert.throws(() => parseDecisionSnapshot(input), expected);
   }
 });

@@ -1,14 +1,18 @@
-import { types } from "node:util";
+import {
+  isApprovedCloudProviderId,
+  type ApprovedCloudProviderId,
+} from "./provider-definitions.js";
+import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
+import { isOrdinaryDataArray, isOrdinaryDataObject } from "./plain-data.js";
 
 const MAX_ID_LENGTH = 128;
 const MAX_REVISION = 2_147_483_647;
 
-const APPROVED_PROVIDER_DEFINITIONS = new Set(["anthropic", "openai"]);
 const LOCAL_ADAPTERS = new Set(["ollama", "openai-compatible"]);
 
 export interface ApprovedProviderTarget {
   readonly class: "approved-provider";
-  readonly definitionId: "anthropic" | "openai";
+  readonly definitionId: ApprovedCloudProviderId;
 }
 
 export interface LocalEndpointTarget {
@@ -65,7 +69,7 @@ export interface SnapshotConnectionProfile {
 }
 
 export interface AdapterEvidence {
-  readonly id: "anthropic" | "ollama" | "openai-compatible";
+  readonly id: "ollama" | "openai-compatible";
   readonly version: string;
 }
 
@@ -82,13 +86,7 @@ export interface DecisionSnapshot {
 }
 
 function plainObject(value: unknown, label: string): object {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    types.isProxy(value) ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
+  if (!isOrdinaryDataObject(value)) {
     throw new TypeError(`${label} must be a plain object`);
   }
   return value;
@@ -152,10 +150,7 @@ function connectionTarget(value: unknown): ConnectionTarget {
       "connection target",
     );
     const definitionId = approvedTarget.get("definitionId");
-    if (
-      typeof definitionId !== "string" ||
-      !APPROVED_PROVIDER_DEFINITIONS.has(definitionId)
-    ) {
+    if (!isApprovedCloudProviderId(definitionId)) {
       throw new TypeError("connection target definitionId is not approved");
     }
     return Object.freeze({
@@ -200,7 +195,7 @@ export function parseConnectionProfile(value: unknown): ConnectionProfile {
   if (credentialRef !== undefined) {
     if (
       typeof credentialRef !== "string" ||
-      credentialRef !== `credential:${id}`
+      credentialRef !== `credential:${id}:${parsed.revision}`
     ) {
       throw new TypeError("connection profile credentialRef must be its opaque local reference");
     }
@@ -218,26 +213,14 @@ function profileRevisionRef(value: unknown, label: string): ProfileRevisionRef {
 }
 
 function modelId(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > MAX_ID_LENGTH ||
-    !/^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/u.test(value) ||
-    value.split("/").some((segment) => segment === "." || segment === "..")
-  ) {
-    throw new TypeError("model profile modelId must be a canonical ID of at most 128 characters");
+  if (!isBoundedOpaqueModelId(value)) {
+    throw new TypeError("model profile modelId must be a bounded opaque provider ID");
   }
   return value;
 }
 
 function requiredCapabilities(value: unknown): readonly ModelCapability[] {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    types.isProxy(value) ||
-    !Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Array.prototype
-  ) {
+  if (!isOrdinaryDataArray(value)) {
     throw new TypeError("model profile requiredCapabilities must be a plain array");
   }
   const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
@@ -385,7 +368,7 @@ function adapterEvidence(value: unknown): AdapterEvidence {
     throw new TypeError("decision snapshot adapter version must be canonical semver");
   }
   const id = canonicalId(adapter.get("id"), "decision snapshot adapter id");
-  if (id !== "anthropic" && id !== "ollama" && id !== "openai-compatible") {
+  if (id !== "ollama" && id !== "openai-compatible") {
     throw new TypeError("decision snapshot adapter id is not supported");
   }
   return Object.freeze({
@@ -396,7 +379,7 @@ function adapterEvidence(value: unknown): AdapterEvidence {
 
 function adapterForTarget(target: ConnectionTarget): AdapterEvidence["id"] {
   if (target.class === "local-endpoint") return target.adapter;
-  return target.definitionId === "anthropic" ? "anthropic" : "openai-compatible";
+  return "openai-compatible";
 }
 
 function sameReference(

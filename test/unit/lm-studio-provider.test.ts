@@ -310,6 +310,32 @@ test("LM Studio completion scan remains bounded on punctuation-heavy input", () 
   assert.equal(boundedCompleteResponse(`${"What?! ".repeat(6)}Trailing fragment`), "What?! What?! What?! What?! What?!");
 });
 
+test("LM Studio bounded completion failures preserve the exact historical error shape", () => {
+  const cases = [
+    "# Heading\nAnswer.",
+    "Read https://opaque.example before deciding.",
+    "An incomplete answer",
+    `${"A. ".repeat(5_000)}Final.`,
+  ];
+  for (const content of cases) {
+    assert.throws(
+      () => boundedCompleteResponse(content),
+      (error: unknown) => {
+        assert.equal(error instanceof Error, true);
+        const failure = error as Error & { cause?: unknown };
+        assert.equal(failure.name, "Error");
+        assert.equal(failure.message, "LM Studio response was invalid");
+        assert.equal(Object.hasOwn(failure, "name"), false);
+        assert.equal(Object.hasOwn(failure, "message"), true);
+        assert.equal(Object.hasOwn(failure, "cause"), false);
+        assert.deepEqual(Object.keys(failure), []);
+        return true;
+      },
+      content.slice(0, 80),
+    );
+  }
+});
+
 test("LM Studio rejects remaining Markdown block forms while preserving plain punctuation", () => {
   const rejected = [
     "Setext heading\n===\nBody.",
