@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Descriptor-relative macOS directory publication primitives.
+"""Descriptor-relative directory publication primitives for macOS and Linux.
 
 All results are one JSON object. This helper never follows symlinks and never
 uses overwrite-capable rename for public, quarantine, or restoration names.
@@ -15,17 +15,27 @@ import stat
 import sys
 
 RENAME_EXCL = 0x00000004
+RENAME_NOREPLACE = 0x00000001
 PARENT_FD = 3
 libc = ctypes.CDLL(None, use_errno=True)
-renameatx_np = libc.renameatx_np
-renameatx_np.argtypes = [
-    ctypes.c_int,
-    ctypes.c_char_p,
-    ctypes.c_int,
-    ctypes.c_char_p,
-    ctypes.c_uint,
-]
-renameatx_np.restype = ctypes.c_int
+if sys.platform == "darwin":
+    rename_exclusive = libc.renameatx_np
+    rename_flags = RENAME_EXCL
+elif sys.platform.startswith("linux"):
+    rename_exclusive = libc.renameat2
+    rename_flags = RENAME_NOREPLACE
+else:
+    rename_exclusive = None
+    rename_flags = 0
+if rename_exclusive is not None:
+    rename_exclusive.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename_exclusive.restype = ctypes.c_int
 
 
 def emit(**value: object) -> None:
@@ -33,7 +43,11 @@ def emit(**value: object) -> None:
 
 
 def rename_no_replace(source: str, destination: str) -> int:
-    result = renameatx_np(PARENT_FD, source.encode(), PARENT_FD, destination.encode(), RENAME_EXCL)
+    if rename_exclusive is None:
+        return errno.ENOSYS
+    result = rename_exclusive(
+        PARENT_FD, source.encode(), PARENT_FD, destination.encode(), rename_flags
+    )
     return 0 if result == 0 else ctypes.get_errno()
 
 
