@@ -36,12 +36,10 @@ interface SnapshotRow {
 }
 
 function sameExactDecision(current: ReturnType<typeof resolveRoomProviderDecision>, snapshot: DecisionSnapshot): boolean {
-  return current.binding.id === snapshot.binding.id &&
-    current.binding.revision === snapshot.binding.revision &&
-    current.connection.id === snapshot.connection.id &&
-    current.connection.revision === snapshot.connection.revision &&
-    current.model.id === snapshot.model.id &&
-    current.model.revision === snapshot.model.revision;
+  return canonicalJson(current.binding) === canonicalJson(snapshot.binding) &&
+    canonicalJson(current.connection) === canonicalJson(snapshot.connection) &&
+    canonicalJson(current.model) === canonicalJson(snapshot.model) &&
+    canonicalJson(current.model.generation) === canonicalJson(snapshot.effectiveGeneration);
 }
 
 function validatedRecord(input: CommitDecisionSnapshotInput): DecisionSnapshotRecord {

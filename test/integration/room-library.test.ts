@@ -33,6 +33,7 @@ test("0006 preserves the fixed room id, cast, event order, and transcript", (con
   cpSync(migrationsDir, oldMigrations, { recursive: true });
   rmSync(join(oldMigrations, "0006-room-library.sql"));
   rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
+  rmSync(join(oldMigrations, "0008-provider-profiles.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   appendEvent(old.database, "first-playable", { type: "legacy-one", text: "First" });
   appendEvent(old.database, "first-playable", { type: "legacy-two", text: "Second" });
@@ -64,6 +65,7 @@ test("0006 deterministically backfills every pre-existing room and advances its 
   cpSync(migrationsDir, oldMigrations, { recursive: true });
   rmSync(join(oldMigrations, "0006-room-library.sql"));
   rmSync(join(oldMigrations, "0007-room-selection-authority.sql"));
+  rmSync(join(oldMigrations, "0008-provider-profiles.sql"));
   const old = openGreenRoomDatabase({ dataDir, migrationsDir: oldMigrations });
   old.database.exec(`
     UPDATE rooms SET status = 'stopped', created_at = '2026-01-01 09:00:00' WHERE id = 'first-playable';

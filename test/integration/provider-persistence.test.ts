@@ -127,6 +127,50 @@ test("capability observations are exact, immutable, and reject malformed fingerp
   );
 });
 
+test("capability observations accept only bounded non-secret capability evidence", (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  createConnectionProfile(store.database, connection(1));
+
+  const sentinel = "observation-secret-sentinel";
+  for (const [index, evidence] of [
+    { password: sentinel },
+    { accessToken: sentinel },
+    { cookie: sentinel },
+    { capabilities: { chat: true, password: sentinel } },
+    { chat: "yes" },
+  ].entries()) {
+    assert.throws(() => observeConnection(store.database, {
+      id: `rejected-observation-${index}`,
+      connection: { profileId: "primary-cloud", revision: 1 },
+      health: "ready",
+      capabilityFingerprint: fingerprint,
+      evidence,
+    }), /evidence/i);
+  }
+  assert.equal(
+    store.database.prepare("SELECT count(*) AS n FROM provider_observations").get()?.n,
+    0,
+  );
+  assert.throws(() => store.database.prepare(
+    `INSERT INTO provider_observations(
+       id, connection_id, connection_revision, health, capability_fingerprint, evidence_json
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    "sql-secret-observation", "primary-cloud", 1, "ready", fingerprint,
+    JSON.stringify({ chat: true, cookie: sentinel }),
+  ), /evidence|observation/i);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const path = join(dataDir, `greenroom.sqlite${suffix}`);
+    try {
+      assert.equal(readFileSync(path).includes(Buffer.from(sentinel)), false, `${suffix || "database"} leaked sentinel`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+});
+
 test("provider persistence rejects secret-bearing shapes and leaves no secret sentinel in SQLite sidecars", (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });

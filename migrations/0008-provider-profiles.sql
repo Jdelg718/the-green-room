@@ -139,16 +139,15 @@ CREATE TABLE provider_observations (
 CREATE INDEX provider_observations_by_connection
 ON provider_observations(connection_id, connection_revision, observation_sequence);
 
-CREATE TRIGGER provider_observations_have_no_secret_fields
+CREATE TRIGGER provider_observations_have_only_safe_evidence_fields
 BEFORE INSERT ON provider_observations
 WHEN EXISTS (
-  SELECT 1 FROM json_tree(NEW.evidence_json)
-  WHERE lower(COALESCE(key, '')) IN (
-    'credentialref', 'credential', 'apikey', 'api_key', 'authorization', 'secret', 'token'
-  )
+  SELECT 1 FROM json_each(NEW.evidence_json)
+  WHERE key NOT IN ('chat', 'jsonOutput', 'streaming', 'systemMessages')
+     OR type NOT IN ('true', 'false')
 )
 BEGIN
-  SELECT RAISE(ABORT, 'provider observation contains a secret field');
+  SELECT RAISE(ABORT, 'provider observation evidence contains an unknown or invalid field');
 END;
 
 CREATE TRIGGER provider_observations_cannot_be_updated

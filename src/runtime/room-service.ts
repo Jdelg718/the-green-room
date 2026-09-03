@@ -834,9 +834,14 @@ export class RoomService {
         ) {
           return { providerDecision };
         }
-        const provider = providerDecision === undefined
-          ? this.#provider
-          : this.#providerResolver?.(providerDecision) ?? this.#provider;
+        let provider = this.#provider;
+        if (providerDecision !== undefined) {
+          const resolvedProvider = this.#providerResolver?.(providerDecision);
+          if (resolvedProvider === undefined) {
+            throw new Error("An exact provider resolver is required for a bound room");
+          }
+          provider = resolvedProvider;
+        }
         const result: unknown = await this.#raceProviderGeneration(
           provider,
           {

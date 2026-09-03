@@ -47,6 +47,13 @@ interface ObservationRow {
   readonly evidence_json: string;
 }
 
+const OBSERVATION_EVIDENCE_FIELDS = new Set([
+  "chat",
+  "jsonOutput",
+  "streaming",
+  "systemMessages",
+]);
+
 function latestRevision(database: DatabaseSync, table: string, id: string): number | undefined {
   const row = database.prepare(
     `SELECT max(revision) AS revision FROM ${table} WHERE profile_id = ?`,
@@ -302,14 +309,29 @@ function validateObservation(value: ProviderObservation): ProviderObservation {
   if (!isOrdinaryDataObject(value.evidence)) {
     throw new TypeError("Observation evidence must be a plain object");
   }
-  const evidenceJson = canonicalJson(value.evidence);
+  const evidence: Record<string, boolean> = {};
+  for (const key of Reflect.ownKeys(value.evidence)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value.evidence, key);
+    if (
+      typeof key !== "string" ||
+      !OBSERVATION_EVIDENCE_FIELDS.has(key) ||
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      !descriptor.enumerable ||
+      typeof descriptor.value !== "boolean"
+    ) {
+      throw new TypeError("Observation evidence contains an unknown or invalid field");
+    }
+    evidence[key] = descriptor.value;
+  }
+  const evidenceJson = canonicalJson(evidence);
   if (evidenceJson.length > 16_384) throw new TypeError("Observation evidence is oversized");
   return Object.freeze({
     id: value.id,
     connection: Object.freeze({ ...value.connection }),
     health: value.health,
     capabilityFingerprint: value.capabilityFingerprint,
-    evidence: Object.freeze(JSON.parse(evidenceJson) as Record<string, unknown>),
+    evidence: Object.freeze(JSON.parse(evidenceJson) as Record<string, boolean>),
   });
 }
 

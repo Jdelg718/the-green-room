@@ -10,7 +10,10 @@ import {
   commitDecisionSnapshotInTransaction,
   createConnectionProfile,
   createModelProfile,
+  deleteConnectionProfile,
+  deleteModelProfile,
   disableConnectionProfile,
+  disableModelProfile,
   observeConnection,
   openGreenRoomDatabase,
   readDecisionSnapshot,
@@ -159,6 +162,27 @@ test("decision snapshots are immutable, credential-free, and validate exact evid
     store.database.prepare("SELECT count(*) AS n FROM provider_decision_snapshots").get()?.n,
     1,
   );
+
+  for (const forged of [
+    { ...value, id: "forged-target", connection: { ...value.connection, target: { class: "approved-provider", definitionId: "groq" } } },
+    { ...value, id: "forged-model", model: { ...value.model, modelId: "forged/model" } },
+    { ...value, id: "forged-capabilities", model: { ...value.model, requiredCapabilities: ["chat", "streaming"] } },
+    { ...value, id: "forged-generation", model: { ...value.model, generation: { temperature: 1.5, maxOutputTokens: 256 } } },
+    { ...value, id: "forged-effective-generation", effectiveGeneration: { temperature: 1.5, maxOutputTokens: 256 } },
+  ] as DecisionSnapshot[]) {
+    assert.throws(
+      () => withImmediateTransaction(store.database, () => commitDecisionSnapshotInTransaction(store.database, {
+        roomId: "first-playable",
+        requestId: forged.id,
+        snapshot: forged,
+        ...(forged.connection.target.class === "approved-provider" ? {
+          providerDefinition: { id: forged.connection.target.definitionId, version: 1 as const },
+        } : {}),
+        routingPolicy: "single-attempt-no-fallback-v1",
+      })),
+      /stale|mismatched/i,
+    );
+  }
 });
 
 class LatchingProvider implements GenerationProvider {
@@ -236,14 +260,61 @@ test("stale or disabled exact references fail before any provider call without f
   assert.equal(readEffectiveRoomBinding(store.database, "first-playable")?.revision, 1);
 });
 
+test("disabled or deleted model and connection revisions fail exact resolution", async (context) => {
+  const transitions = [
+    { name: "disabled model", apply(database: DatabaseSync) { disableModelProfile(database, "room-model", 1); } },
+    { name: "deleted model", apply(database: DatabaseSync) { deleteModelProfile(database, "room-model", 1); } },
+    { name: "deleted connection", apply(database: DatabaseSync) { deleteConnectionProfile(database, "primary-cloud", 1); } },
+  ] as const;
+  for (const transition of transitions) {
+    await context.test(transition.name, (child) => {
+      const dataDir = temporaryDirectory(child);
+      const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+      child.after(() => store.close());
+      seed(store.database);
+      transition.apply(store.database);
+      assert.throws(
+        () => resolveRoomProviderDecision(store.database, "first-playable"),
+        /stale|disabled|deleted/i,
+      );
+    });
+  }
+});
+
+test("degraded or failed latest observations fail exact resolution", async (context) => {
+  for (const health of ["degraded", "failed"] as const) {
+    await context.test(health, (child) => {
+      const dataDir = temporaryDirectory(child);
+      const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+      child.after(() => store.close());
+      seed(store.database);
+      observeConnection(store.database, {
+        id: `observation-${health}`,
+        connection: { profileId: "primary-cloud", revision: 1 },
+        health,
+        capabilityFingerprint: fingerprint,
+        evidence: { chat: true },
+      });
+      assert.throws(
+        () => resolveRoomProviderDecision(store.database, "first-playable"),
+        new RegExp(`health is ${health}`, "i"),
+      );
+    });
+  }
+});
+
 test("provider errors preserve the human/director decision and commit no snapshot", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
   context.after(() => store.close());
   seed(store.database);
+  const provider: GenerationProvider = {
+    async generate() { throw new Error("sanitized provider failure"); },
+  };
   const service = new RoomService({
     database: store.database,
-    provider: { async generate() { throw new Error("sanitized provider failure"); } },
+    provider,
+    providerResolver: () => provider,
     providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
   });
   await assert.rejects(service.sendMessage({
@@ -260,9 +331,13 @@ test("successful bound generation commits one immutable snapshot and an idempote
   context.after(() => store.close());
   seed(store.database);
   let calls = 0;
+  const provider: GenerationProvider = {
+    async generate() { calls += 1; return { kind: "text", text: "Exactly pinned." }; },
+  };
   const service = new RoomService({
     database: store.database,
-    provider: { async generate() { calls += 1; return { kind: "text", text: "Exactly pinned." }; } },
+    provider,
+    providerResolver: () => provider,
     providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 7, policyRevision: 3 },
   });
   const command = {
@@ -299,15 +374,17 @@ test("malformed output and timeout on a bound decision commit no persona event o
       child.after(() => store.close());
       seed(store.database);
       let signal: AbortSignal | undefined;
+      const provider: GenerationProvider = {
+        generate(_invitation, providerSignal): Promise<ProviderResult> {
+          signal = providerSignal;
+          if (failure === "malformed") return Promise.resolve({ kind: "text", text: "" });
+          return new Promise(() => undefined);
+        },
+      };
       const service = new RoomService({
         database: store.database,
-        provider: {
-          generate(_invitation, providerSignal): Promise<ProviderResult> {
-            signal = providerSignal;
-            if (failure === "malformed") return Promise.resolve({ kind: "text", text: "" });
-            return new Promise(() => undefined);
-          },
-        },
+        provider,
+        providerResolver: () => provider,
         generationTimeoutMs: 10,
         providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
       });
@@ -320,4 +397,57 @@ test("malformed output and timeout on a bound decision commit no persona event o
       if (failure === "timeout") assert.equal(signal?.aborted, true);
     });
   }
+});
+
+test("bound generation fails closed when no exact provider resolver is available", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  seed(store.database);
+  let defaultCalls = 0;
+  const service = new RoomService({
+    database: store.database,
+    provider: { async generate() { defaultCalls += 1; return { kind: "text", text: "Wrong provider." }; } },
+    providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
+  });
+  await assert.rejects(service.sendMessage({
+    roomId: "first-playable", selectionRevision: 0,
+    requestId: "missing-exact-resolver", text: "Do not substitute.",
+  }), /resolver.*required|exact provider/i);
+  assert.equal(defaultCalls, 0);
+  assert.equal(store.database.prepare("SELECT count(*) AS n FROM events").get()?.n, 2);
+  assert.equal(store.database.prepare("SELECT count(*) AS n FROM provider_decision_snapshots").get()?.n, 0);
+});
+
+test("snapshot insert failure rolls back persona event and command completion", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  seed(store.database);
+  store.database.exec(`
+    CREATE TRIGGER reject_provider_snapshot
+    BEFORE INSERT ON provider_decision_snapshots
+    BEGIN
+      SELECT RAISE(ABORT, 'forced snapshot insert failure');
+    END
+  `);
+  const provider: GenerationProvider = {
+    async generate() { return { kind: "text", text: "Must roll back." }; },
+  };
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    providerResolver: () => provider,
+    providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
+  });
+  await assert.rejects(service.sendMessage({
+    roomId: "first-playable", selectionRevision: 0,
+    requestId: "snapshot-insert-failure", text: "Keep scheduling only.",
+  }), /forced snapshot insert failure/i);
+  assert.equal(store.database.prepare("SELECT count(*) AS n FROM events").get()?.n, 2);
+  assert.equal(store.database.prepare("SELECT count(*) AS n FROM provider_decision_snapshots").get()?.n, 0);
+  const command = store.database.prepare(
+    "SELECT result_json FROM commands WHERE request_id = 'snapshot-insert-failure'",
+  ).get() as { result_json: string };
+  assert.equal(JSON.parse(command.result_json).state, "pending");
 });
