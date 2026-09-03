@@ -112,7 +112,10 @@ test("browser accepts the complete bootstrap capability contract", async (contex
   const ui = await contract();
   const bootstrap = ui.validateBootstrapDto(response.json());
   assert.equal(typeof bootstrap.csrfToken, "string");
-  assert.deepEqual(bootstrap.capabilities, { personaPackInspection: false });
+  assert.deepEqual(bootstrap.capabilities, {
+    personaPackInspection: false,
+    providerSetup: { cloud: false, lmStudio: false },
+  });
 });
 
 test("search, horizon, and domain filters use deterministic AND semantics", async (context) => {

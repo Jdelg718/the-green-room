@@ -41,6 +41,13 @@ export interface ProviderRoutesOptions {
   readonly cloudTransport: CloudTransport;
   readonly credentialStore: CredentialStore;
   readonly database: DatabaseSync;
+  readonly lmStudioModel?: string;
+}
+
+export interface ProviderBindingRoutesOptions {
+  readonly cloudEnabled: boolean;
+  readonly database: DatabaseSync;
+  readonly lmStudioModel?: string;
 }
 
 function ordinary(value: unknown): value is Record<string, unknown> {
@@ -144,6 +151,25 @@ async function withCredential<T>(store: CredentialStore, reference: string, acti
   finally { bytes.fill(0); }
 }
 
+function credentialUnavailable(): ProviderHttpError {
+  return new ProviderHttpError(503, "credential_unavailable", "Credential storage is unavailable");
+}
+
+async function deleteCredential(store: CredentialStore, reference: string): Promise<void> {
+  try { await store.delete(reference); }
+  catch { throw credentialUnavailable(); }
+}
+
+async function readCredential(store: CredentialStore, reference: string): Promise<Buffer | null> {
+  try { return await store.get(reference); }
+  catch { throw credentialUnavailable(); }
+}
+
+async function restoreCredential(store: CredentialStore, reference: string, value: Buffer): Promise<void> {
+  try { await store.put(reference, Buffer.from(value)); }
+  catch { throw credentialUnavailable(); }
+}
+
 function sendError(reply: FastifyReply, error: unknown): FastifyReply {
   if (error instanceof ProviderHttpError) {
     return reply.code(error.status).send({ error: { code: error.code, message: error.publicMessage } });
@@ -163,6 +189,15 @@ function loopbackOrigin(origin: string): boolean {
 
 export function registerProviderRoutes(api: FastifyInstance, options: ProviderRoutesOptions): void {
   const routeOptions = { bodyLimit: PROVIDER_BODY_LIMIT } as const;
+  let credentialMutationTail = Promise.resolve();
+  const serializeCredentialMutation = async <T>(action: () => Promise<T>): Promise<T> => {
+    const previous = credentialMutationTail;
+    let release!: () => void;
+    credentialMutationTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await action(); }
+    finally { release(); }
+  };
   const allowCredentialMutation = loopbackOrigin(options.allowedOrigin);
   const requireLoopback = (): void => {
     if (!allowCredentialMutation) throw new ProviderHttpError(403, "loopback_required", "Credential changes are available only from loopback");
@@ -170,7 +205,7 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
 
   api.get("/api/providers/connections", async () => ({ connections: currentConnections(options.database) }));
 
-  api.post("/api/providers/connections", routeOptions, async (request, reply) => {
+  api.post("/api/providers/connections", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
     let secret: Buffer | undefined;
     let reference: string | undefined;
     try {
@@ -179,28 +214,38 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const id = canonicalId(body.id);
       if (!isApprovedCloudProviderId(body.definitionId)) throw new ProviderHttpError(400, "invalid_request", "Request body is invalid");
       if (revision(body.acknowledgedConnectionRevision) !== 1) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
+      if (readCurrentConnectionProfile(options.database, id) !== undefined) {
+        throw new ProviderHttpError(409, "revision_conflict", "Connection already exists");
+      }
       secret = credential(body.credential);
       reference = canonicalCredentialReference(id, 1);
-      await options.credentialStore.put(reference, secret);
-      secret = undefined;
+      const created = createConnectionProfile(options.database, {
+        id, revision: 1, target: { class: "approved-provider", definitionId: body.definitionId }, credentialRef: reference,
+      });
       try {
-        const created = createConnectionProfile(options.database, {
-          id, revision: 1, target: { class: "approved-provider", definitionId: body.definitionId }, credentialRef: reference,
-        });
+        await options.credentialStore.put(reference, secret);
+        secret = undefined;
         return reply.code(201).send({ connection: connectionDto(created) });
-      } catch (error) {
-        await options.credentialStore.delete(reference).catch(() => false);
-        throw error;
+      } catch {
+        try {
+          await deleteCredential(options.credentialStore, reference);
+          disableConnectionProfile(options.database, id, 1);
+        } catch {
+          // Keep revision 1 current and its credentialRef reachable so a later
+          // disable/delete retry can complete cleanup after storage recovers.
+        }
+        throw credentialUnavailable();
       }
     } catch (error) {
       secret?.fill(0);
       return sendError(reply, error);
     }
-  });
+  }));
 
-  api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/replace", routeOptions, async (request, reply) => {
+  api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/replace", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
     let secret: Buffer | undefined;
-    let nextReference: string | undefined;
+    let previousSecret: Buffer | null = null;
+    let stagedSecret: Buffer | null = null;
     try {
       requireLoopback();
       const id = canonicalId(request.params.connectionId);
@@ -212,29 +257,62 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       }
       const nextRevision = expected + 1;
       if (revision(body.acknowledgedConnectionRevision) !== nextRevision) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
-      nextReference = canonicalCredentialReference(id, nextRevision);
+      const nextReference = canonicalCredentialReference(id, nextRevision);
+      const previousReference = current.profile.credentialRef;
+      if (previousReference === undefined) throw new ProviderHttpError(409, "credential_missing", "The connection credential is missing");
+      stagedSecret = await readCredential(options.credentialStore, nextReference);
+      previousSecret = await readCredential(options.credentialStore, previousReference);
+      if (previousSecret === null) {
+        if (stagedSecret === null) throw new ProviderHttpError(409, "credential_missing", "The connection credential is missing");
+        // A process may have stopped after deleting the old key but before the
+        // durable revision advanced. Promote the only surviving, deterministic
+        // next credential rather than deleting it and making recovery impossible.
+        const recovered = reviseConnectionProfile(options.database, {
+          id, revision: nextRevision, target: current.profile.target, credentialRef: nextReference,
+        }, expected);
+        return { connection: connectionDto(recovered) };
+      }
+      if (stagedSecret !== null) await deleteCredential(options.credentialStore, nextReference);
       secret = credential(body.credential);
-      await options.credentialStore.put(nextReference, secret);
+      try { await options.credentialStore.put(nextReference, secret); }
+      catch {
+        try { await deleteCredential(options.credentialStore, nextReference); }
+        catch { /* The next retry derives and cleans the same durable next ref. */ }
+        throw credentialUnavailable();
+      }
       secret = undefined;
+      try {
+        await deleteCredential(options.credentialStore, previousReference);
+      } catch {
+        let compensationFailed = false;
+        try { await options.credentialStore.replace(previousReference, Buffer.from(previousSecret)); }
+        catch { compensationFailed = true; }
+        try { await deleteCredential(options.credentialStore, nextReference); }
+        catch { compensationFailed = true; }
+        if (compensationFailed) throw credentialUnavailable();
+        throw credentialUnavailable();
+      }
       try {
         const revised = reviseConnectionProfile(options.database, {
           id, revision: nextRevision, target: current.profile.target, credentialRef: nextReference,
         }, expected);
-        if (current.profile.credentialRef !== undefined) {
-          await options.credentialStore.delete(current.profile.credentialRef).catch(() => false);
-        }
         return { connection: connectionDto(revised) };
       } catch (error) {
-        await options.credentialStore.delete(nextReference).catch(() => false);
+        let compensationFailed = false;
+        try { await restoreCredential(options.credentialStore, previousReference, previousSecret); }
+        catch { compensationFailed = true; }
+        try { await deleteCredential(options.credentialStore, nextReference); }
+        catch { compensationFailed = true; }
+        if (compensationFailed) throw credentialUnavailable();
         throw error;
       }
     } catch (error) {
       secret?.fill(0);
       return sendError(reply, error);
-    }
-  });
+    } finally { previousSecret?.fill(0); stagedSecret?.fill(0); }
+  }));
 
-  api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/disable", routeOptions, async (request, reply) => {
+  api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/disable", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
     try {
       requireLoopback();
       const id = canonicalId(request.params.connectionId);
@@ -242,13 +320,20 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const expected = revision(body.expectedRevision);
       const current = readCurrentConnectionProfile(options.database, id);
       if (current === undefined || current.profile.revision !== expected) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
-      const disabled = disableConnectionProfile(options.database, id, expected);
-      if (current.profile.credentialRef !== undefined) await options.credentialStore.delete(current.profile.credentialRef).catch(() => false);
-      return { connection: connectionDto(disabled) };
+      const reference = current.profile.credentialRef;
+      const previousSecret = reference === undefined ? null : await readCredential(options.credentialStore, reference);
+      try {
+        if (reference !== undefined) await deleteCredential(options.credentialStore, reference);
+        try { return { connection: connectionDto(disableConnectionProfile(options.database, id, expected)) }; }
+        catch (error) {
+          if (reference !== undefined && previousSecret !== null) await restoreCredential(options.credentialStore, reference, previousSecret);
+          throw error;
+        }
+      } finally { previousSecret?.fill(0); }
     } catch (error) { return sendError(reply, error); }
-  });
+  }));
 
-  api.delete<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId", routeOptions, async (request, reply) => {
+  api.delete<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId", routeOptions, async (request, reply) => serializeCredentialMutation(async () => {
     try {
       requireLoopback();
       const id = canonicalId(request.params.connectionId);
@@ -256,11 +341,20 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
       const expected = revision(body.expectedRevision);
       const current = readCurrentConnectionProfile(options.database, id);
       if (current === undefined) throw new ProviderHttpError(409, "revision_conflict", "Connection does not exist");
-      const deleted = deleteConnectionProfile(options.database, id, expected);
-      if (current.profile.credentialRef !== undefined) await options.credentialStore.delete(current.profile.credentialRef).catch(() => false);
-      return { connection: connectionDto(deleted) };
+      if (current.state === "deleted") return { connection: connectionDto(current) };
+      if (current.profile.revision !== expected) throw new ProviderHttpError(409, "revision_conflict", "Connection revision is stale");
+      const reference = current.profile.credentialRef;
+      const previousSecret = reference === undefined ? null : await readCredential(options.credentialStore, reference);
+      try {
+        if (reference !== undefined) await deleteCredential(options.credentialStore, reference);
+        try { return { connection: connectionDto(deleteConnectionProfile(options.database, id, expected)) }; }
+        catch (error) {
+          if (reference !== undefined && previousSecret !== null) await restoreCredential(options.credentialStore, reference, previousSecret);
+          throw error;
+        }
+      } finally { previousSecret?.fill(0); }
     } catch (error) { return sendError(reply, error); }
-  });
+  }));
 
   api.post<{ Params: { connectionId: string } }>("/api/providers/connections/:connectionId/models", routeOptions, async (request, reply) => {
     try {
@@ -324,25 +418,101 @@ export function registerProviderRoutes(api: FastifyInstance, options: ProviderRo
   api.post("/api/providers/model-profiles", routeOptions, saveModel(false));
   api.post<{ Params: { modelProfileId: string } }>("/api/providers/model-profiles/:modelProfileId/revise", routeOptions, saveModel(true));
 
+  registerProviderBindingRoutes(api, {
+    cloudEnabled: true,
+    database: options.database,
+    ...(options.lmStudioModel === undefined ? {} : { lmStudioModel: options.lmStudioModel }),
+  });
+}
+
+export function registerProviderBindingRoutes(api: FastifyInstance, options: ProviderBindingRoutesOptions): void {
+  const routeOptions = { bodyLimit: PROVIDER_BODY_LIMIT } as const;
   api.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/provider-binding", async (request, reply) => {
     const binding = readEffectiveRoomBinding(options.database, request.params.roomId);
     if (binding === undefined) return reply.code(404).send({ error: { code: "binding_missing", message: "Room has no provider binding" } });
     const model = readModelProfile(options.database, binding.model.profileId, binding.model.revision);
-    return { binding, modelProfile: model };
+    const connection = model === undefined ? undefined : readConnectionProfile(
+      options.database, model.profile.connection.profileId, model.profile.connection.revision,
+    );
+    return {
+      binding,
+      execution: connection?.profile.target.class === "local-endpoint" ? "lmstudio" : "cloud",
+      modelProfile: model,
+    };
   });
 
   api.post<{ Params: { roomId: string } }>("/api/rooms/:roomId/provider-binding", routeOptions, async (request, reply) => {
     try {
+      if (ordinary(request.body) && Object.hasOwn(request.body, "provider")) {
+        const body = exact(request.body, ["id", "expectedRevision", "provider"]);
+        if (body.provider !== "lmstudio" || options.lmStudioModel === undefined) {
+          throw new ProviderHttpError(409, "provider_unavailable", "LM Studio is not active in this runtime");
+        }
+        const expected = revision(body.expectedRevision, true);
+        const roomId = request.params.roomId;
+        const currentBinding = readEffectiveRoomBinding(options.database, roomId);
+        if ((currentBinding === undefined) !== (expected === 0) ||
+            (currentBinding !== undefined && (currentBinding.revision !== expected || currentBinding.id !== body.id))) {
+          throw new ProviderHttpError(409, "revision_conflict", "Room binding revision is stale");
+        }
+        const suffix = createHash("sha256").update(roomId).digest("hex").slice(0, 16);
+        const connectionId = `lmstudio-${suffix}`;
+        const modelId = `lmstudio-model-${suffix}`;
+        let connection = readCurrentConnectionProfile(options.database, connectionId);
+        if (connection === undefined) {
+          connection = createConnectionProfile(options.database, {
+            id: connectionId, revision: 1, target: { class: "local-endpoint", adapter: "openai-compatible" },
+          });
+        }
+        if (connection.state !== "enabled" || connection.profile.target.class !== "local-endpoint") {
+          throw new ProviderHttpError(409, "revision_conflict", "Local provider profile conflicts with current state");
+        }
+        observeConnection(options.database, {
+          id: `observation-${randomUUID()}`,
+          connection: { profileId: connectionId, revision: connection.profile.revision },
+          health: "ready",
+          capabilityFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ adapter: "lmstudio", modelId: options.lmStudioModel, chat: true })).digest("hex")}`,
+          evidence: { chat: true },
+        });
+        let model = readCurrentModelProfile(options.database, modelId);
+        if (model === undefined) {
+          model = createModelProfile(options.database, {
+            id: modelId, revision: 1,
+            connection: { profileId: connectionId, revision: connection.profile.revision },
+            modelId: options.lmStudioModel, requiredCapabilities: ["chat"],
+            generation: { temperature: 0.4, maxOutputTokens: 256 },
+          });
+        } else if (model.profile.modelId !== options.lmStudioModel) {
+          model = reviseModelProfile(options.database, {
+            ...model.profile,
+            revision: model.profile.revision + 1,
+            modelId: options.lmStudioModel,
+          }, model.profile.revision);
+        }
+        const value = {
+          id: canonicalId(body.id), revision: expected + 1, roomId, purpose: "persona-default" as const,
+          model: { profileId: model.profile.id, revision: model.profile.revision },
+        };
+        const binding = expected === 0 ? bindRoom(options.database, value) : rebindRoom(options.database, value, expected);
+        return reply.code(expected === 0 ? 201 : 200).send({ binding, execution: "lmstudio", modelProfile: model });
+      }
+      if (!options.cloudEnabled) throw new ProviderHttpError(409, "provider_unavailable", "Cloud provider setup is unavailable in this runtime");
       const body = exact(request.body, ["id", "expectedRevision", "modelProfileId", "modelProfileRevision", "acknowledgedConnectionRevision"]);
       const expected = revision(body.expectedRevision, true);
       const modelId = canonicalId(body.modelProfileId);
       const modelRevision = revision(body.modelProfileRevision);
       const model = readCurrentModelProfile(options.database, modelId);
       if (model === undefined || model.profile.revision !== modelRevision || model.state !== "enabled") throw new ProviderHttpError(409, "revision_conflict", "Model profile revision is stale");
+      const connection = readConnectionProfile(
+        options.database, model.profile.connection.profileId, model.profile.connection.revision,
+      );
+      if (connection?.profile.target.class !== "approved-provider") {
+        throw new ProviderHttpError(409, "revision_conflict", "Cloud binding requires an approved-provider model");
+      }
       if (revision(body.acknowledgedConnectionRevision) !== model.profile.connection.revision) throw new ProviderHttpError(400, "acknowledgement_required", "Cloud disclosure acknowledgement must match the connection revision");
       const value = { id: canonicalId(body.id), revision: expected + 1, roomId: request.params.roomId, purpose: "persona-default" as const, model: { profileId: modelId, revision: modelRevision } };
       const binding = expected === 0 ? bindRoom(options.database, value) : rebindRoom(options.database, value, expected);
-      return reply.code(expected === 0 ? 201 : 200).send({ binding });
+      return reply.code(expected === 0 ? 201 : 200).send({ binding, execution: "cloud" });
     } catch (error) { return sendError(reply, error); }
   });
 }

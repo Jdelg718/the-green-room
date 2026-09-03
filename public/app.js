@@ -205,8 +205,11 @@ export function validateCatalogDto(value) {
 export function validateBootstrapDto(value) {
   if (!exactKeys(value, ["capabilities", "csrfToken"]) ||
     !boundedText(value.csrfToken, 512) ||
-    !exactKeys(value.capabilities, ["personaPackInspection"]) ||
-    typeof value.capabilities.personaPackInspection !== "boolean") {
+    !exactKeys(value.capabilities, ["personaPackInspection", "providerSetup"]) ||
+    typeof value.capabilities.personaPackInspection !== "boolean" ||
+    !exactKeys(value.capabilities.providerSetup, ["cloud", "lmStudio"]) ||
+    typeof value.capabilities.providerSetup.cloud !== "boolean" ||
+    typeof value.capabilities.providerSetup.lmStudio !== "boolean") {
     throw new RequestFailure("invalid_response");
   }
   return value;
@@ -1065,6 +1068,7 @@ export function startBrowserApp() {
   let providerConnection = null;
   let providerTestedModel = null;
   let providerBinding = null;
+  let providerCapabilities = Object.freeze({ cloud: false, lmStudio: false });
 
   function selectedProviderPath() {
     return elements.providerForm.elements.namedItem("provider-path")?.value ?? "cloud";
@@ -1077,20 +1081,25 @@ export function startBrowserApp() {
 
   function renderProviderSetup() {
     const cloud = selectedProviderPath() === "cloud";
+    for (const input of elements.providerForm.querySelectorAll('[name="provider-path"]')) {
+      input.disabled = pending.has("provider") ||
+        (input.value === "cloud" ? !providerCapabilities.cloud : !providerCapabilities.lmStudio);
+    }
     elements.providerCloudFields.hidden = !cloud;
-    const ready = cloud && providerConnection?.state === "enabled";
+    const ready = cloud && providerCapabilities.cloud && providerConnection?.state === "enabled";
     const replacing = ready && elements.providerKey.value !== "";
     const revision = ready ? providerConnection.revision + (replacing ? 1 : 0) : 1;
     elements.providerAckRevision.textContent = cloud ? String(revision) : "—";
     elements.providerAck.disabled = !cloud;
-    elements.saveProvider.disabled = !cloud || ready || !elements.providerAck.checked;
+    elements.saveProvider.disabled = !cloud || !providerCapabilities.cloud || ready || !elements.providerAck.checked;
     elements.replaceProvider.disabled = !ready || !replacing || !elements.providerAck.checked;
     elements.loadProviderModels.disabled = !ready;
     elements.disableProvider.disabled = !ready;
-    elements.deleteProvider.disabled = providerConnection === null;
+    elements.deleteProvider.disabled = !providerCapabilities.cloud || providerConnection === null;
     elements.testProvider.disabled = !ready || elements.providerModel.value === "";
     elements.bindProvider.disabled = !ready || providerTestedModel !== elements.providerModel.value ||
-      !elements.providerAck.checked || providerBinding?.connectionRevision === revision;
+      !elements.providerAck.checked || (providerBinding?.execution === "cloud" &&
+        providerBinding?.connectionRevision === revision);
   }
 
   function acceptConnection(connection) {
@@ -1104,6 +1113,14 @@ export function startBrowserApp() {
   }
 
   async function loadCurrentProviderConnection() {
+    if (!providerCapabilities.cloud) {
+      providerConnection = null;
+      setProviderStatus(providerCapabilities.lmStudio
+        ? "Cloud setup is unavailable here. Choose LM Studio to bind this room to the active local model."
+        : "Model setup is unavailable in source mode. Start with GREENROOM_PROVIDER=lmstudio for local replies, or use the packaged macOS app for Keychain-backed cloud setup.");
+      renderProviderSetup();
+      return;
+    }
     const value = await getJson(API_PATHS.providerConnections);
     const connections = Array.isArray(value?.connections) ? value.connections : [];
     const requestedId = elements.providerConnectionId.value;
@@ -1120,9 +1137,16 @@ export function startBrowserApp() {
   }
 
   async function providerAction(action) {
-    if (pending.has("provider")) return;
+    if (pending.has("provider")) {
+      if (action === "local") {
+        elements.providerForm.elements.namedItem("provider-path").value = providerBinding?.execution === "lmstudio" ? "lmstudio" : "cloud";
+        setProviderStatus("Wait for the current model setup action to finish.", "error");
+        renderProviderSetup();
+      }
+      return;
+    }
     pending.add("provider");
-    renderProviderSetup();
+    renderProviderSetup(); renderControls();
     try {
       if (action === "save" || action === "replace") {
         const submittedKey = elements.providerKey.value;
@@ -1162,8 +1186,10 @@ export function startBrowserApp() {
         setProviderStatus(`${value.modelId} tested successfully on connection revision ${value.connectionRevision}.`);
       } else if (action === "bind") {
         if (!elements.providerAck.checked) throw new TypeError("Acknowledge the cloud disclosure for this connection revision.");
-        const currentModel = providerBinding?.modelProfile ?? null;
-        const profileId = currentModel?.profile?.id ?? `${providerConnection.id}-model`;
+        const currentModel = providerBinding?.execution === "cloud" ? providerBinding.modelProfile : null;
+        const nextBindingRevision = (providerBinding?.binding?.revision ?? 0) + 1;
+        const profileId = currentModel?.profile?.id ??
+          `${providerConnection.id.slice(0, 108)}-model-${nextBindingRevision}`;
         const profilePayload = {
           connectionId: providerConnection.id, connectionRevision: providerConnection.revision,
           modelId: elements.providerModel.value, temperature: Number(elements.providerTemperature.value),
@@ -1182,10 +1208,21 @@ export function startBrowserApp() {
         }, csrfToken);
         providerBinding = Object.freeze({
           binding: value.binding,
+          execution: value.execution,
           connectionRevision: providerConnection.revision,
           modelProfile: profile.modelProfile,
         });
         setProviderStatus(`${elements.providerModel.value} is bound to this room at binding revision ${value.binding.revision}.`);
+      } else if (action === "local") {
+        if (!providerCapabilities.lmStudio || room === null) throw new TypeError("LM Studio is not active in this runtime.");
+        const currentBinding = providerBinding?.binding ?? null;
+        const value = await postJson(API_PATHS.providerBinding(room.sessionId), {
+          id: currentBinding?.id ?? `${room.sessionId}-provider`,
+          expectedRevision: currentBinding?.revision ?? 0,
+          provider: "lmstudio",
+        }, csrfToken);
+        providerBinding = Object.freeze({ binding: value.binding, execution: value.execution, modelProfile: value.modelProfile });
+        setProviderStatus(`LM Studio is bound to this room at binding revision ${value.binding.revision}. No cloud provider will be used.`);
       } else if (action === "disable") {
         const value = await postJson(API_PATHS.providerConnection(providerConnection.id, "disable"), { expectedRevision: providerConnection.revision }, csrfToken);
         acceptConnection(value.connection);
@@ -1194,10 +1231,13 @@ export function startBrowserApp() {
         acceptConnection(value.connection);
       }
     } catch (error) {
+      if (action === "local" && providerBinding?.execution !== "lmstudio") {
+        elements.providerForm.elements.namedItem("provider-path").value = "cloud";
+      }
       setProviderStatus(error instanceof TypeError ? error.message : userMessage(error), "error");
     } finally {
       pending.delete("provider");
-      renderProviderSetup();
+      renderProviderSetup(); renderControls();
     }
   }
 
@@ -1715,14 +1755,16 @@ export function startBrowserApp() {
     renderProviderSetup();
     try {
       await loadCurrentProviderConnection();
-      if (room !== null) {
+      if (room !== null && (providerCapabilities.cloud || providerCapabilities.lmStudio)) {
         try {
           const value = await getJson(API_PATHS.providerBinding(room.sessionId));
           providerBinding = Object.freeze({
             binding: value.binding,
+            execution: value.execution,
             connectionRevision: value.modelProfile?.profile?.connection?.revision,
             modelProfile: value.modelProfile,
           });
+          elements.providerForm.elements.namedItem("provider-path").value = value.execution;
         } catch {
           providerBinding = null;
         }
@@ -1745,6 +1787,15 @@ export function startBrowserApp() {
   });
   elements.providerForm.addEventListener("change", (event) => {
     if (event.target.matches('[name="provider-path"]')) {
+      if (event.target.value === "lmstudio") {
+        if (!providerCapabilities.lmStudio) {
+          event.target.checked = false;
+          elements.providerForm.elements.namedItem("provider-path").value = "cloud";
+          setProviderStatus("LM Studio is not active in this runtime.", "error");
+        } else {
+          void providerAction("local");
+        }
+      }
       renderProviderSetup();
       return;
     }
@@ -1862,6 +1913,7 @@ export function startBrowserApp() {
           const bootstrap = await getJson(API_PATHS.bootstrap);
           validateBootstrapDto(bootstrap);
           csrfToken = bootstrap.csrfToken;
+          providerCapabilities = Object.freeze({ ...bootstrap.capabilities.providerSetup });
           humanProfile = Object.freeze(validateHumanProfileDto(await getJson(API_PATHS.humanProfile)));
           const state = validateRoomSelectionStateDto(await getJson(API_PATHS.currentRoom));
           selectionRevision = state.revision;

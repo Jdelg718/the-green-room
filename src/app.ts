@@ -93,6 +93,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ...(options.cloudTransport === undefined
       ? {}
       : { cloudTransport: options.cloudTransport }),
+    ...(options.lmStudioModel === undefined
+      ? {}
+      : { lmStudioModel: options.lmStudioModel }),
     ...(options.personaPackInspectionService === undefined
       ? {}
       : { personaPackInspectionService: options.personaPackInspectionService }),

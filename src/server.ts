@@ -138,6 +138,7 @@ try {
     personaCatalog,
     logger: true,
     provider,
+    ...(config.provider === "lmstudio" ? { lmStudioModel: config.lmStudioModel } : {}),
     ...(providerRuntime ?? {}),
     ...(runtime.service === undefined
       ? {}

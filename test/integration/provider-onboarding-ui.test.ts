@@ -30,5 +30,11 @@ test("provider UI uses same-origin JSON only and has no browser persistence or k
   assert.match(script, /providerKey\.value\s*=\s*""/);
   assert.match(script, /acknowledgedConnectionRevision/);
   assert.match(script, /API_PATHS\.providerConnections/);
+  assert.match(script, /providerCapabilities\.lmStudio/);
+  assert.match(script, /providerAction\("local"\)/);
+  assert.match(script, /provider:\s*"lmstudio"/);
+  assert.match(script, /providerBinding\?\.execution\s*===\s*"cloud"/);
+  assert.match(script, /room\s*!==\s*null\s*&&\s*\(providerCapabilities\.cloud\s*\|\|\s*providerCapabilities\.lmStudio\)/);
+  assert.match(script, /Model setup is unavailable in source mode/);
   assert.doesNotMatch(html, /value="sk-|https?:\/\/openrouter\.ai/);
 });

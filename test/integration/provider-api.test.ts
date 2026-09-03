@@ -16,16 +16,26 @@ const SECRET = "«redacted:sk-…»";
 class MemoryCredentials implements CredentialStore {
   readonly values = new Map<string, Buffer>();
   failPut = false;
+  putThenFail = false;
+  failDeleteFor = new Set<string>();
+  lastRead: Buffer | null = null;
   async put(reference: string, secret: Buffer): Promise<void> {
     try {
       if (this.failPut) throw Object.assign(new Error("helper detail must be hidden"), { code: "credential_unavailable" });
       if (this.values.has(reference)) throw new Error("duplicate");
       this.values.set(reference, Buffer.from(secret));
+      if (this.putThenFail) throw new Error("post-write helper detail must be hidden");
     } finally { secret.fill(0); }
   }
-  async get(reference: string): Promise<Buffer | null> { return this.values.has(reference) ? Buffer.from(this.values.get(reference)!) : null; }
+  async get(reference: string): Promise<Buffer | null> {
+    this.lastRead = this.values.has(reference) ? Buffer.from(this.values.get(reference)!) : null;
+    return this.lastRead;
+  }
   async replace(reference: string, secret: Buffer): Promise<void> { this.values.set(reference, Buffer.from(secret)); secret.fill(0); }
-  async delete(reference: string): Promise<boolean> { return this.values.delete(reference); }
+  async delete(reference: string): Promise<boolean> {
+    if (this.failDeleteFor.has(reference) && this.values.has(reference)) throw new Error("helper deletion detail must be hidden");
+    return this.values.delete(reference);
+  }
 }
 
 class MockOpenRouterTransport implements CloudTransport {
@@ -50,6 +60,7 @@ async function fixture(context: { after(callback: () => void | Promise<void>): v
     provider: new DeterministicMockProvider(),
     providerCredentials: credentials,
     cloudTransport: transport,
+    lmStudioModel: "local-model",
   });
   await app.ready();
   context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
@@ -58,7 +69,7 @@ async function fixture(context: { after(callback: () => void | Promise<void>): v
   const mutate = async (method: "POST" | "DELETE", url: string, payload: Record<string, unknown>) => app.inject({
     method, url, headers: { host: new URL(allowedOrigin).host, origin: allowedOrigin, "x-csrf-token": csrf }, payload,
   });
-  return { app, credentials, transport, mutate, host: new URL(allowedOrigin).host };
+  return { app, credentials, database: store.database, transport, mutate, host: new URL(allowedOrigin).host };
 }
 
 test("provider routes enforce CSRF, exact bodies, caps, loopback mutation, and secret-free DTOs", async (context) => {
@@ -125,6 +136,32 @@ test("replace rollback, stale revisions, bounded models, test/profile/bind, and 
   const effective = await f.app.inject({ method: "GET", url: "/api/rooms/first-playable/provider-binding", headers: { host: f.host } });
   assert.equal(effective.statusCode, 200);
   assert.equal(effective.body.includes("credential"), false);
+  const local = await f.mutate("POST", "/api/rooms/first-playable/provider-binding", {
+    id: "first-playable-provider", expectedRevision: 2, provider: "lmstudio",
+  });
+  assert.equal(local.statusCode, 200, local.body);
+  assert.equal(local.json().execution, "lmstudio");
+  const localEffective = await f.app.inject({ method: "GET", url: "/api/rooms/first-playable/provider-binding", headers: { host: f.host } });
+  assert.equal(localEffective.json().execution, "lmstudio");
+  assert.equal(localEffective.json().binding.revision, 3);
+  const localModelBeforeCloud = f.database.prepare(
+    "SELECT profile_json FROM model_profile_revisions WHERE profile_id LIKE 'lmstudio-model-%' ORDER BY revision DESC LIMIT 1",
+  ).get() as { profile_json: string };
+  const cloudAgain = await f.mutate("POST", "/api/rooms/first-playable/provider-binding", {
+    id: "first-playable-provider", expectedRevision: 3,
+    modelProfileId: "main-model", modelProfileRevision: 2, acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(cloudAgain.statusCode, 200, cloudAgain.body);
+  assert.equal(cloudAgain.json().execution, "cloud");
+  const localModelAfterCloud = f.database.prepare(
+    "SELECT profile_json FROM model_profile_revisions WHERE profile_id LIKE 'lmstudio-model-%' ORDER BY revision DESC LIMIT 1",
+  ).get() as { profile_json: string };
+  assert.equal(localModelAfterCloud.profile_json, localModelBeforeCloud.profile_json);
+  const localAgain = await f.mutate("POST", "/api/rooms/first-playable/provider-binding", {
+    id: "first-playable-provider", expectedRevision: 4, provider: "lmstudio",
+  });
+  assert.equal(localAgain.statusCode, 200, localAgain.body);
+  assert.equal(localAgain.json().execution, "lmstudio");
   const deleted = await f.mutate("DELETE", "/api/providers/connections/openrouter-main", { expectedRevision: 1 });
   assert.equal(deleted.statusCode, 200);
   const requestsBeforeMissing = f.transport.requests.length;
@@ -151,6 +188,7 @@ test("successful replacement creates a new revision, removes the superseded key,
   });
   assert.equal(replaced.statusCode, 200, replaced.body);
   assert.equal(replaced.json().connection.revision, 2);
+  assert.ok(f.credentials.lastRead?.every((byte) => byte === 0));
   assert.equal(f.credentials.values.has("credential:openrouter-main:1"), false);
   assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "replacement-secret");
   const disabled = await f.mutate("POST", "/api/providers/connections/openrouter-main/disable", { expectedRevision: 2 });
@@ -158,4 +196,219 @@ test("successful replacement creates a new revision, removes the superseded key,
   assert.equal(disabled.json().connection.state, "disabled");
   assert.equal(disabled.json().connection.revision, 3);
   assert.equal(f.credentials.values.has("credential:openrouter-main:2"), false);
+});
+
+test("a possibly-written replacement remains deterministically recoverable after cleanup failure", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  const nextReference = "credential:openrouter-main:2";
+  f.credentials.putThenFail = true;
+  f.credentials.failDeleteFor.add(nextReference);
+  const failed = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+    expectedRevision: 1, credential: "possibly-written-replacement", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(failed.statusCode, 503);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
+  assert.equal(f.credentials.values.get(nextReference)?.toString(), "possibly-written-replacement");
+  f.credentials.putThenFail = false;
+  f.credentials.failDeleteFor.delete(nextReference);
+  const retried = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+    expectedRevision: 1, credential: "final-replacement", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(retried.statusCode, 200, retried.body);
+  assert.equal(f.credentials.values.has("credential:openrouter-main:1"), false);
+  assert.equal(f.credentials.values.get(nextReference)?.toString(), "final-replacement");
+});
+
+test("replacement retry promotes the only surviving deterministic next ref after process loss", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  f.credentials.values.delete("credential:openrouter-main:1");
+  f.credentials.values.set("credential:openrouter-main:2", Buffer.from("interrupted-replacement"));
+  const recovered = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+    expectedRevision: 1, credential: "retry", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(recovered.statusCode, 200, recovered.body);
+  assert.equal(recovered.json().connection.revision, 2);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:2")?.toString(), "interrupted-replacement");
+});
+
+test("credential deletion failures fail closed and preserve the current usable revision", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  const reference = "credential:openrouter-main:1";
+  f.credentials.failDeleteFor.add(reference);
+
+  const replaced = await f.mutate("POST", "/api/providers/connections/openrouter-main/replace", {
+    expectedRevision: 1, credential: "replacement-secret", acknowledgedConnectionRevision: 2,
+  });
+  assert.equal(replaced.statusCode, 503);
+  assert.equal(f.credentials.values.get(reference)?.toString(), SECRET);
+  assert.equal(f.credentials.values.has("credential:openrouter-main:2"), false);
+  const listedAfterReplace = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
+  assert.equal(listedAfterReplace.json().connections[0].revision, 1);
+
+  for (const [method, suffix] of [["POST", "/disable"], ["DELETE", ""]] as const) {
+    const response = await f.mutate(method, `/api/providers/connections/openrouter-main${suffix}`, { expectedRevision: 1 });
+    assert.equal(response.statusCode, 503);
+    const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
+    assert.deepEqual(listed.json().connections[0], {
+      id: "openrouter-main", revision: 1, definitionId: "openrouter", state: "enabled", credentialStatus: "stored",
+    });
+    assert.equal(f.credentials.values.get(reference)?.toString(), SECRET);
+  }
+});
+
+test("concurrent destructive mutations cannot restore a superseded credential", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  const [disabled, deleted] = await Promise.all([
+    f.mutate("POST", "/api/providers/connections/openrouter-main/disable", { expectedRevision: 1 }),
+    f.mutate("DELETE", "/api/providers/connections/openrouter-main", { expectedRevision: 1 }),
+  ]);
+  assert.deepEqual([disabled.statusCode, deleted.statusCode].sort(), [200, 409]);
+  assert.equal(f.credentials.values.has("credential:openrouter-main:1"), false);
+  const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
+  assert.equal(listed.json().connections[0].revision, 2);
+  assert.equal(listed.json().connections[0].credentialStatus, "not_stored");
+});
+
+test("create detects conflicts before storing a credential, so failed compensation cannot orphan a key", async (context) => {
+  const f = await fixture(context);
+  assert.equal((await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  })).statusCode, 201);
+  f.credentials.failDeleteFor.add("credential:openrouter-main:1");
+  const duplicate = await f.mutate("POST", "/api/providers/connections", {
+    id: "openrouter-main", definitionId: "openrouter", credential: "unreachable-secret", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(duplicate.statusCode, 409);
+  assert.equal(f.credentials.values.get("credential:openrouter-main:1")?.toString(), SECRET);
+});
+
+test("failed create compensation keeps a possibly-written credential durably reachable for retry", async (context) => {
+  const f = await fixture(context);
+  const reference = "credential:recoverable:1";
+  f.credentials.putThenFail = true;
+  f.credentials.failDeleteFor.add(reference);
+  const failed = await f.mutate("POST", "/api/providers/connections", {
+    id: "recoverable", definitionId: "openrouter", credential: "possibly-written", acknowledgedConnectionRevision: 1,
+  });
+  assert.equal(failed.statusCode, 503);
+  assert.equal(f.credentials.values.get(reference)?.toString(), "possibly-written");
+  const listed = await f.app.inject({ method: "GET", url: "/api/providers/connections", headers: { host: f.host } });
+  assert.deepEqual(listed.json().connections.find(({ id }: { id: string }) => id === "recoverable"), {
+    id: "recoverable", revision: 1, definitionId: "openrouter", state: "enabled", credentialStatus: "stored",
+  });
+  f.credentials.putThenFail = false;
+  f.credentials.failDeleteFor.delete(reference);
+  const cleaned = await f.mutate("DELETE", "/api/providers/connections/recoverable", { expectedRevision: 1 });
+  assert.equal(cleaned.statusCode, 200);
+  assert.equal(f.credentials.values.has(reference), false);
+});
+
+test("LM Studio selection creates an append-only local binding before generation can use it", async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), "green-room-local-binding-"));
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
+  const app = buildApp({
+    allowedOrigin: ORIGIN,
+    database: store.database,
+    provider: new DeterministicMockProvider(),
+    lmStudioModel: "local-model",
+  });
+  await app.ready();
+  context.after(async () => { await app.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+  assert.deepEqual(bootstrap.json().capabilities.providerSetup, { cloud: false, lmStudio: true });
+  const csrf = bootstrap.json().csrfToken as string;
+  const selected = await app.inject({
+    method: "POST", url: "/api/rooms/first-playable/provider-binding",
+    headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": csrf },
+    payload: { id: "first-playable-provider", expectedRevision: 0, provider: "lmstudio" },
+  });
+  assert.equal(selected.statusCode, 201, selected.body);
+  assert.equal(selected.json().execution, "lmstudio");
+  const effective = await app.inject({ method: "GET", url: "/api/rooms/first-playable/provider-binding", headers: { host: new URL(ORIGIN).host } });
+  assert.equal(effective.statusCode, 200);
+  assert.equal(effective.json().execution, "lmstudio");
+  assert.equal(effective.json().modelProfile.profile.modelId, "local-model");
+  const mislabeledCloud = await app.inject({
+    method: "POST", url: "/api/rooms/first-playable/provider-binding",
+    headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": csrf },
+    payload: {
+      id: "first-playable-provider", expectedRevision: 1,
+      modelProfileId: effective.json().modelProfile.profile.id,
+      modelProfileRevision: effective.json().modelProfile.profile.revision,
+      acknowledgedConnectionRevision: effective.json().modelProfile.profile.connection.revision,
+    },
+  });
+  assert.equal(mislabeledCloud.statusCode, 409);
+  const stillLocal = await app.inject({ method: "GET", url: "/api/rooms/first-playable/provider-binding", headers: { host: new URL(ORIGIN).host } });
+  assert.equal(stillLocal.json().execution, "lmstudio");
+});
+
+test("LM Studio binding revises its persisted model when source configuration changes", async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), "green-room-local-model-revision-"));
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
+  const apps: Array<ReturnType<typeof buildApp>> = [];
+  context.after(async () => {
+    await Promise.all(apps.map((app) => app.close()));
+    store.close(); rmSync(dataDir, { recursive: true, force: true });
+  });
+  let expectedRevision = 0;
+  for (const modelId of ["local-model-a", "local-model-b"]) {
+    const app = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: modelId });
+    apps.push(app);
+    await app.ready();
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+    const selected = await app.inject({
+      method: "POST", url: "/api/rooms/first-playable/provider-binding",
+      headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": bootstrap.json().csrfToken },
+      payload: { id: "first-playable-provider", expectedRevision, provider: "lmstudio" },
+    });
+    assert.equal(selected.statusCode, expectedRevision === 0 ? 201 : 200, selected.body);
+    assert.equal(selected.json().modelProfile.profile.modelId, modelId);
+    assert.equal(selected.json().modelProfile.profile.revision, expectedRevision + 1);
+    expectedRevision += 1;
+  }
+});
+
+test("stale persisted LM Studio model fails before the changed runtime provider is called", async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), "green-room-local-model-stale-"));
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
+  const first = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: new DeterministicMockProvider(), lmStudioModel: "local-model-a" });
+  await first.ready();
+  const firstBootstrap = await first.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+  const bound = await first.inject({
+    method: "POST", url: "/api/rooms/first-playable/provider-binding",
+    headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": firstBootstrap.json().csrfToken },
+    payload: { id: "first-playable-provider", expectedRevision: 0, provider: "lmstudio" },
+  });
+  assert.equal(bound.statusCode, 201, bound.body);
+  await first.close();
+
+  let calls = 0;
+  const changedProvider = {
+    async generate() { calls += 1; return { kind: "text" as const, text: "must not run" }; },
+  };
+  const second = buildApp({ allowedOrigin: ORIGIN, database: store.database, provider: changedProvider, lmStudioModel: "local-model-b" });
+  await second.ready();
+  context.after(async () => { await second.close(); store.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const bootstrap = await second.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+  const current = await second.inject({ method: "GET", url: "/api/rooms/current", headers: { host: new URL(ORIGIN).host } });
+  const response = await second.inject({
+    method: "POST", url: "/api/rooms/first-playable/messages",
+    headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": bootstrap.json().csrfToken },
+    payload: { requestId: "stale-local-model", selectionRevision: current.json().revision, text: "Do not generate.", wantsResponse: true },
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(calls, 0);
 });

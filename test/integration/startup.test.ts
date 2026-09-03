@@ -411,6 +411,11 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/catalog/personas`);
   assert.equal(catalogResponse.status, 200);
   assert.equal((await catalogResponse.json() as Array<{ slug: string }>)[12]?.slug, "ff2k");
+  const bootstrap = await fetch(`http://127.0.0.1:${port}/api/bootstrap`);
+  assert.deepEqual((await bootstrap.json() as {
+    capabilities: { providerSetup: { cloud: boolean; lmStudio: boolean } };
+  }).capabilities.providerSetup, { cloud: false, lmStudio: false });
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/providers/connections`)).status, 404);
   const portraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/ff2k.webp`);
   assert.equal(portraitResponse.status, 200);
   assert.equal((await portraitResponse.arrayBuffer()).byteLength, 43_092);

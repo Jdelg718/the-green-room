@@ -29,7 +29,7 @@ import {
   ROOM_SERVICE_LIMITS,
   RoomService,
 } from "../runtime/room-service.js";
-import { registerProviderRoutes } from "./provider-routes.js";
+import { registerProviderBindingRoutes, registerProviderRoutes } from "./provider-routes.js";
 
 const JSON_BODY_LIMIT = 64 * 1024;
 const EVENT_REPLAY_LIMIT = 100;
@@ -113,6 +113,7 @@ export interface ApiRoutesOptions {
   readonly provider?: GenerationProvider;
   readonly providerCredentials?: CredentialStore;
   readonly cloudTransport?: CloudTransport;
+  readonly lmStudioModel?: string;
   readonly personaPackInspectionService?: PersonaPackInspectionHttpService;
   readonly inspectionDeadlineMs?: number;
   readonly sseHeartbeatMs?: number;
@@ -618,6 +619,10 @@ export function registerApiRoutes(
         capabilities: {
           personaPackInspection:
             options.personaPackInspectionService !== undefined,
+          providerSetup: {
+            cloud: options.providerCredentials !== undefined && options.cloudTransport !== undefined,
+            lmStudio: options.lmStudioModel !== undefined,
+          },
         },
       };
     });
@@ -653,6 +658,11 @@ export function registerApiRoutes(
         database,
         credentialStore: options.providerCredentials,
         cloudTransport: options.cloudTransport,
+        ...(options.lmStudioModel === undefined ? {} : { lmStudioModel: options.lmStudioModel }),
+      });
+    } else if (options.lmStudioModel !== undefined) {
+      registerProviderBindingRoutes(api, {
+        cloudEnabled: false, database, lmStudioModel: options.lmStudioModel,
       });
     }
     const service = new RoomService({
@@ -661,10 +671,21 @@ export function registerApiRoutes(
       personaCatalog: options.personaCatalog?.personas ?? [],
       ...(options.providerCredentials !== undefined && options.cloudTransport !== undefined ? {
         providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
-        providerResolver: createBoundProviderResolver({
-          credentialStore: options.providerCredentials,
-          cloudTransport: options.cloudTransport,
-        }),
+        providerResolver: ((cloudResolver) => (decision) =>
+          decision.connection.target.class === "local-endpoint" && options.lmStudioModel !== undefined
+            ? decision.model.modelId === options.lmStudioModel
+              ? options.provider!
+              : (() => { throw new Error("LM Studio binding model is stale"); })()
+            : cloudResolver(decision)
+        )(createBoundProviderResolver({ credentialStore: options.providerCredentials, cloudTransport: options.cloudTransport })),
+      } : {}),
+      ...(options.providerCredentials === undefined && options.lmStudioModel !== undefined ? {
+        providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
+        providerResolver: (decision: import("../providers/profile-contracts.js").DecisionSnapshot) => {
+          if (decision.connection.target.class !== "local-endpoint") throw new Error("Cloud provider setup is unavailable");
+          if (decision.model.modelId !== options.lmStudioModel) throw new Error("LM Studio binding model is stale");
+          return options.provider!;
+        },
       } : {}),
     });
     const streams = new SseClients({
