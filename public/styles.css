@@ -76,8 +76,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .room-history-heading h2, .room-drawer-heading h2 { margin: .2rem 0 0; font: 900 clamp(2rem, 3vw, 3.2rem)/.9 var(--display); text-transform: uppercase; }
 .room-history-rail .kicker { color: var(--acid); }
 .new-room { width: 100%; margin-top: 1rem; }
-.room-history-list { display: grid; gap: .65rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-.room-history-button { width: 100%; min-width: 0; border: 2px solid var(--paper); padding: .7rem; background: transparent; color: var(--paper); text-align: left; }
+.room-history-list { display: grid; min-width: 0; gap: .65rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.room-history-list > li { min-width: 0; }
+.room-history-button { width: 100%; min-width: 0; overflow: hidden; border: 2px solid var(--paper); padding: .7rem; background: transparent; color: var(--paper); text-align: left; }
 .room-history-button[aria-current="page"] { border-color: var(--acid); background: var(--paper); color: var(--ink); box-shadow: 4px 4px 0 var(--acid); }
 .room-history-title { display: block; overflow: hidden; text-overflow: ellipsis; font-weight: 900; white-space: nowrap; }
 .room-history-cast { display: flex; min-width: 0; align-items: center; gap: .3rem; margin-top: .55rem; }
@@ -257,13 +258,14 @@ dialog::backdrop { background: rgb(18 20 17 / 72%); }
 
 @media (max-width: 1100px) {
   .persona-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room-shell { grid-template-columns: minmax(18rem, .8fr) minmax(0, 1.6fr); }
+  .room-history-rail { display: none; }
+  .room-drawer-trigger { display: block; }
 }
 
 @media (max-width: 760px) {
   .masthead { align-items: flex-start; flex-direction: column; gap: .75rem; }
   .room-shell { grid-template-columns: minmax(0, 1fr); }
-  .room-history-rail { display: none; }
-  .room-drawer-trigger { display: block; }
   .call-board { border-right: 0; border-bottom: var(--rule); }
   .stage { min-height: 0; }
   .transcript-panel { min-height: 24rem; max-height: none; }

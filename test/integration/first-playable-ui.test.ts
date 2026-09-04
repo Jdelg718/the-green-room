@@ -213,7 +213,9 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(styles.body, /overflow-wrap/);
   assert.match(styles.body, /min-width:\s*0/);
   assert.match(styles.body, /grid-template-columns:\s*minmax\([^;]+\)\s+minmax\([^;]+\)\s+minmax\(0,/);
-  assert.match(styles.body, /@media\s*\(max-width:\s*760px\)[\s\S]*\.room-history-rail\s*\{[^}]*display:\s*none/);
+  assert.match(styles.body, /@media\s*\(max-width:\s*1100px\)[\s\S]*\.room-history-rail\s*\{[^}]*display:\s*none/);
+  assert.match(styles.body, /\.room-history-list\s*\{[^}]*min-width:\s*0/);
+  assert.match(styles.body, /\.room-history-button\s*\{[^}]*overflow:\s*hidden/);
   assert.match(styles.body, /overflow-x:\s*hidden/);
   assert.doesNotMatch(
     script.body,
