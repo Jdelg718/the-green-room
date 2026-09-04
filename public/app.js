@@ -701,7 +701,8 @@ export function bindRoomChannelLifecycle(channelHolder, target = globalThis) {
   }
   let disposed = false;
   let ready = false;
-  let pageActive = true;
+  const visibilityTarget = target.document?.addEventListener === undefined ? null : target.document;
+  let pageActive = visibilityTarget?.visibilityState !== "hidden";
   let currentStarted = false;
 
   function assertChannel(channel) {
@@ -733,6 +734,7 @@ export function bindRoomChannelLifecycle(channelHolder, target = globalThis) {
     disposed = true;
     target.removeEventListener("pagehide", onPageHide);
     target.removeEventListener("pageshow", onPageShow);
+    visibilityTarget?.removeEventListener("visibilitychange", onVisibilityChange);
   }
 
   function onPageHide(event) {
@@ -743,12 +745,23 @@ export function bindRoomChannelLifecycle(channelHolder, target = globalThis) {
 
   function onPageShow(event) {
     if (!event.persisted || disposed) return;
-    pageActive = true;
+    pageActive = visibilityTarget?.visibilityState !== "hidden";
     if (ready) void startIfActive().catch(() => undefined);
+  }
+
+  function onVisibilityChange() {
+    if (disposed || visibilityTarget === null) return;
+    pageActive = visibilityTarget.visibilityState !== "hidden";
+    if (!pageActive) {
+      stopCurrent();
+    } else if (ready) {
+      void startIfActive().catch(() => undefined);
+    }
   }
 
   target.addEventListener("pagehide", onPageHide);
   target.addEventListener("pageshow", onPageShow);
+  visibilityTarget?.addEventListener("visibilitychange", onVisibilityChange);
 
   return Object.freeze({
     get isActive() { return pageActive && !disposed; },

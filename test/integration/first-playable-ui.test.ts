@@ -82,8 +82,14 @@ interface BrowserContract {
     target: {
       addEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
       removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
+      readonly document?: {
+        visibilityState: "hidden" | "visible";
+        addEventListener(type: string, listener: () => void): void;
+        removeEventListener(type: string, listener: () => void): void;
+      };
     },
   ) => {
+    readonly isActive: boolean;
     activate(): Promise<void>;
     dispose(): void;
   };
@@ -545,6 +551,53 @@ test("first playable UI page lifecycle teardown closes the channel and cancels r
   lifecycle.dispose();
   assert.deepEqual(removed, ["pagehide", "pageshow"]);
   assert.equal(listeners.size, 0);
+});
+
+test("hidden tabs release their room stream and catch up when visible again", async () => {
+  const contract = await browserContract();
+  const pageListeners = new Map<string, (event: { persisted?: boolean }) => void>();
+  const visibilityListeners = new Map<string, () => void>();
+  const closed: number[] = [];
+  let connects = 0;
+  const channel = contract.createRoomEventChannel({
+    commit: () => undefined,
+    fetchCatchUp: async () => [],
+    connect: (after) => {
+      connects += 1;
+      return { close: () => closed.push(after) };
+    },
+  });
+  const document = {
+    visibilityState: "visible" as "visible" | "hidden",
+    addEventListener(type: string, listener: () => void) { visibilityListeners.set(type, listener); },
+    removeEventListener(type: string, listener: () => void) {
+      if (visibilityListeners.get(type) === listener) visibilityListeners.delete(type);
+    },
+  };
+  const target = {
+    document,
+    addEventListener(type: string, listener: (event: { persisted?: boolean }) => void) { pageListeners.set(type, listener); },
+    removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void) {
+      if (pageListeners.get(type) === listener) pageListeners.delete(type);
+    },
+  };
+
+  const lifecycle = contract.bindRoomChannelLifecycle(channel, target);
+  await lifecycle.activate();
+  assert.equal(connects, 1);
+  document.visibilityState = "hidden";
+  visibilityListeners.get("visibilitychange")?.();
+  assert.deepEqual(closed, [0]);
+  assert.equal(lifecycle.isActive, false);
+
+  document.visibilityState = "visible";
+  visibilityListeners.get("visibilitychange")?.();
+  await new Promise((resolveTurn) => setImmediate(resolveTurn));
+  assert.equal(connects, 2);
+  assert.equal(lifecycle.isActive, true);
+
+  lifecycle.dispose();
+  assert.equal(visibilityListeners.size, 0);
 });
 
 test("first playable UI reconnect backoff remains bounded across repeated failures", async () => {
