@@ -23,6 +23,7 @@ import { comparePayloadInventories, snapshotUnsignedApp } from "./verify-payload
 import { generateRuntimeSandboxProfile, sandboxCommand } from "./runtime-sandbox.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const ROLLBACK_SOURCE_COMMIT = "2ec10c131c14f60d29f443e45443803d7d1d8b23";
 
 const TIMEOUT_MS = 15_000;
 const OUTPUT_LIMIT = 64 * 1024;
@@ -43,6 +44,7 @@ const TASK13_WORKTREE_ALLOWLIST = Object.freeze([
   "README.md",
   "docs/DATA-LIFECYCLE.md",
   "packaging/macos/assemble-app.mjs",
+  "scripts/accept-provider-milestone.mjs",
   "scripts/copy-runtime-assets.mjs",
   "scripts/deny-external-sockets.mjs",
   "scripts/package/build-launcher.mjs",
@@ -224,6 +226,43 @@ async function assertNoListener(port) {
   await assert.rejects(fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) }));
 }
 
+export function parseRuntimeProcessListing(output, trackedProcessGroups, roleExecutables) {
+  const groups = new Set(trackedProcessGroups);
+  const counts = { launcherDescendants: 0, nodeDescendants: 0, validatorDescendants: 0, helperDescendants: 0 };
+  const matchesRole = (command, values) => values.some((value) => command.includes(value) || command === basename(value));
+  for (const line of output.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\s\S]+)$/u);
+    if (!match || !groups.has(Number(match[3]))) continue;
+    const command = match[4].trim();
+    if (matchesRole(command, roleExecutables.launcher)) counts.launcherDescendants += 1;
+    else if (matchesRole(command, roleExecutables.validator)) counts.validatorDescendants += 1;
+    else if (matchesRole(command, roleExecutables.helper)) counts.helperDescendants += 1;
+    else if (matchesRole(command, roleExecutables.node)) counts.nodeDescendants += 1;
+  }
+  return Object.freeze(counts);
+}
+
+async function measureLifecyclePhase(phase, port, trackedProcessGroups, apps) {
+  const listing = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,pgid=,comm="], {
+    encoding: "utf8", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }, maxBuffer: 1024 * 1024,
+  });
+  if (listing.error || listing.status !== 0) fail("lifecycle_process_measurement_failed", phase);
+  const roleExecutables = {
+    launcher: apps.map((app) => join(app, "Contents/MacOS/GreenRoomLauncher")),
+    node: apps.map((app) => packagedPaths(app).node),
+    validator: apps.map((app) => packagedPaths(app).validator),
+    helper: apps.map((app) => join(app, "Contents/Resources/helpers/GreenRoomCredentialHelper")),
+  };
+  const counts = parseRuntimeProcessListing(listing.stdout, trackedProcessGroups, roleExecutables);
+  let listenerReachable = false;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) });
+    await response.arrayBuffer();
+    listenerReachable = true;
+  } catch { /* quiescent listener refusal is expected */ }
+  return Object.freeze({ phase, ...counts, listenerReachable });
+}
+
 function packagedPaths(app) {
   const contents = join(app, "Contents");
   const appDist = join(contents, "Resources/app/dist");
@@ -284,9 +323,12 @@ function runtimeEnvironment(paths, options) {
   return env;
 }
 async function startPackaged(options) {
-  snapshotUnsignedApp(options.app);
+  if (!options.skipPayloadSnapshot) snapshotUnsignedApp(options.app);
   const paths = packagedPaths(options.app);
-  for (const path of Object.values(paths)) assertCanonical(path, [paths.node, paths.server, paths.fixture, paths.validator, paths.lifecycle].includes(path) ? "file" : "directory");
+  for (const path of Object.values(paths)) {
+    if (path === paths.lifecycle && !existsSync(path)) continue;
+    assertCanonical(path, [paths.node, paths.server, paths.fixture, paths.validator, paths.lifecycle].includes(path) ? "file" : "directory");
+  }
   const port = options.port ?? await availablePort();
   const token = randomBytes(32);
   const command = sandboxCommand(options.profile, paths.node, ["--import", options.guard, paths.server]);
@@ -318,7 +360,7 @@ async function startPackaged(options) {
 
 async function expectPackagedStartupFailure(options) {
   try {
-    snapshotUnsignedApp(options.app);
+    if (!options.skipPayloadSnapshot) snapshotUnsignedApp(options.app);
   } catch (error) {
     if (!options.expectPayloadFailure) throw error;
     assert.equal(existsSync(options.data), false);
@@ -484,6 +526,7 @@ function assertNoSourceOpenFiles(pid) {
 export async function runPackagedRuntimeAcceptance(options) {
   assertCanonical(options.artifact);
   assertCanonical(options.executionApp);
+  assertCanonical(options.rollbackExecutionApp);
   assertCanonical(options.sandboxRoot);
   assertCanonical(options.guardPath, "file");
   assertCanonical(options.boundaryProbePath, "file");
@@ -496,6 +539,8 @@ export async function runPackagedRuntimeAcceptance(options) {
   comparePayloadInventories(source, before);
   assert.equal(source.appDigest, before.appDigest);
   assert.match(source.manifest.sourceCommit, /^[0-9a-f]{40}$/);
+  assert.match(options.rollbackArtifactDigest, /^[0-9a-f]{64}$/u);
+  assert.notEqual(options.rollbackArtifactDigest, source.appDigest);
   if (process.env.GREENROOM_EXPECTED_SOURCE_COMMIT !== undefined) {
     assert.equal(source.manifest.sourceCommit, process.env.GREENROOM_EXPECTED_SOURCE_COMMIT);
   }
@@ -529,6 +574,8 @@ export async function runPackagedRuntimeAcceptance(options) {
   const responses = [];
   const adversarial = [];
   const processRecords = [];
+  const lifecyclePhases = [];
+  const trackedProcessGroups = [];
   const onProcessCheck = (record) => processRecords.push(Object.freeze(record));
   const passed = (name, detail = {}) => adversarial.push(Object.freeze({ name, passed: true, ...detail }));
   if (options.outerBoundary !== undefined) {
@@ -541,7 +588,7 @@ export async function runPackagedRuntimeAcceptance(options) {
     passed("outer_frozen_controller_environment_boundary", options.outerBoundary);
   }
   passed("inner_runtime_environment_sanitized", { runtimePath: "/nonexistent", poisonedKeys: POISONED_KEYS, strippedPoisonCount: POISONED_KEYS.length });
-  let first; let reinstalled; let restarted; const runtimeOutput = [];
+  let first; let reinstalled; let restarted; let rollbackStarted; let rollbackCurrent; let rollbackEvidence; const runtimeOutput = [];
   try {
     const audit = join(temp, "socket-audit.json");
     const baseFailure = (name, port) => ({
@@ -667,6 +714,7 @@ export async function runPackagedRuntimeAcceptance(options) {
     passed("readiness_timeout_no_side_effect");
 
     first = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data, temp, home, hostileBin, audit, profile, onProcessCheck });
+    trackedProcessGroups.push(first.child.pid);
     runtimeOutput.push(first.output);
     assertNoSourceOpenFiles(first.child.pid);
     const bootstrap = await getJson(first.origin, "/api/bootstrap"); responses.push(bootstrap.text);
@@ -735,9 +783,24 @@ export async function runPackagedRuntimeAcceptance(options) {
     assertNoSecrets([Buffer.from(invalid.text)]);
     passed("failure_flood_invalid_utf8_secret_path_sanitized", { responseBytes: Buffer.byteLength(invalid.text) });
     assertOwnerOnlyWritable(data);
+    const lifecyclePort = first.port;
     await cleanStop(first);
     const lifecycle = await import(pathToFileURL(first.paths.lifecycle).href);
     first = undefined;
+    const sabotageListener = createServer((socket) => socket.end("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"));
+    await new Promise((ok, bad) => { sabotageListener.once("error", bad); sabotageListener.listen(lifecyclePort, "127.0.0.1", ok); });
+    try {
+      const sabotage = await measureLifecyclePhase("sabotage-probe", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]);
+      assert.equal(sabotage.listenerReachable, true);
+      passed("lifecycle_quiescence_probe_detects_sabotage", {
+        detectedListener: sabotage.listenerReachable,
+      });
+    } finally {
+      sabotageListener.close();
+      await sleep(100);
+      await assertNoListener(lifecyclePort);
+    }
+    lifecyclePhases.push(await measureLifecyclePhase("initial-stop", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]));
     const lifecycleSeed = new DatabaseSync(join(data, "greenroom.sqlite"));
     lifecycleSeed.prepare(
       `INSERT INTO connection_profile_revisions(profile_id, revision, state, profile_json)
@@ -789,6 +852,7 @@ export async function runPackagedRuntimeAcceptance(options) {
       sourceCommit: source.manifest.sourceCommit,
     });
     backupDatabase.close();
+    lifecyclePhases.push(await measureLifecyclePhase("backup", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]));
     assert.deepEqual(readdirSync(lifecycleBackup).sort(), ["backup-manifest.json", "greenroom.sqlite"]);
     const restoredData = join(temp, "selected-restored-root");
     const restoreResult = await lifecycle.restoreLifecycleBackup({
@@ -798,6 +862,7 @@ export async function runPackagedRuntimeAcceptance(options) {
       migrationsDir: packagedPaths(options.executionApp).migrationsDir,
       runtimeStopped: true,
     });
+    lifecyclePhases.push(await measureLifecyclePhase("restore", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]));
     assert.deepEqual(databaseRecords(restoredData), durableBefore);
     const restoredProfileDatabase = new DatabaseSync(join(restoredData, "greenroom.sqlite"), { readOnly: true });
     assert.equal(restoredProfileDatabase.prepare(
@@ -810,9 +875,80 @@ export async function runPackagedRuntimeAcceptance(options) {
       manifestFiles: ["greenroom.sqlite"],
     });
 
+    const rollbackSeedData = join(temp, "rollback-seed-data");
+    const rollbackRestoredData = join(temp, "rollback-restored-data");
+    const rollbackBackup = join(temp, "rollback-backup");
+    const rollbackProfile = join(temp, "rollback-old.sb");
+    const rollbackRestoredProfile = join(temp, "rollback-old-restored.sb");
+    const rollbackCurrentProfile = join(temp, "rollback-current.sb");
+    writeFileSync(rollbackProfile, generateRuntimeSandboxProfile({
+      app: options.rollbackExecutionApp, guard: options.guardPath, probe: options.boundaryProbePath,
+      cwd, data: rollbackSeedData, temp, home, hostileBin,
+    }), { flag: "wx", mode: 0o400 });
+    rollbackStarted = await startPackaged({
+      app: options.rollbackExecutionApp, guard: options.guardPath, cwd, data: rollbackSeedData, temp, home, hostileBin,
+      audit: join(temp, "rollback-seed-audit.json"), profile: rollbackProfile, onProcessCheck, skipPayloadSnapshot: true,
+    });
+    trackedProcessGroups.push(rollbackStarted.child.pid);
+    assert.equal((await getJson(rollbackStarted.origin, "/api/rooms/first-playable")).json.id, "first-playable");
+    await cleanStop(rollbackStarted); rollbackStarted = undefined;
+    const rollbackDatabase = new DatabaseSync(join(rollbackSeedData, "greenroom.sqlite"));
+    const rollbackBackupResult = await lifecycle.createLifecycleBackup({
+      database: rollbackDatabase, destination: rollbackBackup, sourceCommit: options.rollbackSourceCommit,
+    });
+    rollbackDatabase.close();
+    await lifecycle.restoreLifecycleBackup({
+      backup: rollbackBackup, destination: rollbackRestoredData, authoritativeRoot: rollbackSeedData,
+      migrationsDir: packagedPaths(options.rollbackExecutionApp).migrationsDir, runtimeStopped: true,
+    });
+    writeFileSync(rollbackRestoredProfile, generateRuntimeSandboxProfile({
+      app: options.rollbackExecutionApp, guard: options.guardPath, probe: options.boundaryProbePath,
+      cwd, data: rollbackRestoredData, temp, home, hostileBin,
+    }), { flag: "wx", mode: 0o400 });
+    rollbackStarted = await startPackaged({
+      app: options.rollbackExecutionApp, guard: options.guardPath, cwd, data: rollbackRestoredData, temp, home, hostileBin,
+      audit: join(temp, "rollback-restored-audit.json"), profile: rollbackRestoredProfile, onProcessCheck, skipPayloadSnapshot: true,
+    });
+    trackedProcessGroups.push(rollbackStarted.child.pid);
+    assert.equal((await getJson(rollbackStarted.origin, "/api/rooms/first-playable")).json.id, "first-playable");
+    await cleanStop(rollbackStarted); rollbackStarted = undefined;
+    writeFileSync(rollbackCurrentProfile, generateRuntimeSandboxProfile({
+      app: options.executionApp, guard: options.guardPath, probe: options.boundaryProbePath,
+      cwd, data: rollbackRestoredData, temp, home, hostileBin,
+    }), { flag: "wx", mode: 0o400 });
+    rollbackCurrent = await startPackaged({
+      app: options.executionApp, guard: options.guardPath, cwd, data: rollbackRestoredData, temp, home, hostileBin,
+      audit: join(temp, "rollback-current-audit.json"), profile: rollbackCurrentProfile, onProcessCheck,
+    });
+    trackedProcessGroups.push(rollbackCurrent.child.pid);
+    await cleanStop(rollbackCurrent); rollbackCurrent = undefined;
+    const migrated = new DatabaseSync(join(rollbackRestoredData, "greenroom.sqlite"), { readOnly: true });
+    const migratedVersion = migrated.prepare("SELECT max(version) AS value FROM schema_migrations").get().value;
+    migrated.close();
+    assert.equal(migratedVersion, 8);
+    const refusal = await expectPackagedStartupFailure({
+      app: options.rollbackExecutionApp, guard: options.guardPath, cwd, data: rollbackRestoredData, temp, home, hostileBin,
+      audit: join(temp, "rollback-refusal-audit.json"), profile: rollbackRestoredProfile, onProcessCheck, port: await availablePort(), skipPayloadSnapshot: true,
+    });
+    assert.match(refusal, /Database contains unknown newer migration 8/);
+    const afterRefusal = new DatabaseSync(join(rollbackRestoredData, "greenroom.sqlite"), { readOnly: true });
+    assert.equal(afterRefusal.prepare("SELECT max(version) AS value FROM schema_migrations").get().value, 8);
+    afterRefusal.close();
+    rollbackEvidence = Object.freeze({
+      sourceCommit: options.rollbackSourceCommit,
+      artifactDigest: options.rollbackArtifactDigest,
+      backupDatabaseSha256: rollbackBackupResult.evidence.databaseSha256,
+      restoredSchemaVersion: 7,
+      migratedSchemaVersion: 8,
+      olderBinaryReopenedPrefix: true,
+      newerSchemaRefusedWithoutDowngrade: true,
+    });
+    passed("pinned_older_packaged_binary_reopens_prefix_and_refuses_newer_schema", rollbackEvidence);
+
     makeRemovableTree(options.executionApp);
     rmSync(options.executionApp, { recursive: true, force: false, maxRetries: 0 });
     assert.equal(existsSync(options.executionApp), false);
+    lifecyclePhases.push(await measureLifecyclePhase("uninstall", lifecyclePort, trackedProcessGroups, [options.artifact, options.rollbackExecutionApp]));
     assert.deepEqual(databaseRecords(data), durableBefore);
     assert.equal(existsSync(lifecycleBackup), true);
     copyImmutableTree(options.artifact, options.executionApp);
@@ -823,14 +959,17 @@ export async function runPackagedRuntimeAcceptance(options) {
       reinstalledDigestMatched: true,
     });
 
-    reinstalled = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data, temp, home, hostileBin, audit, profile, onProcessCheck });
+    reinstalled = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data, temp, home, hostileBin, audit, profile, onProcessCheck, port: lifecyclePort });
+    trackedProcessGroups.push(reinstalled.child.pid);
     runtimeOutput.push(reinstalled.output);
     assert.deepEqual((await getJson(reinstalled.origin, "/api/rooms/first-playable")).json.status, "stopped");
     assert.deepEqual((await getJson(reinstalled.origin, "/api/rooms/first-playable/events?after=0")).json.events.map((entry) => ({ sequence: entry.sequence, event: entry.event })), exactEvents);
     await cleanStop(reinstalled); reinstalled = undefined;
+    lifecyclePhases.push(await measureLifecyclePhase("reinstall-stop", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]));
     passed("reinstall_reopens_retained_authoritative_root", { exactStateContinuity: true });
 
-    restarted = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data: restoredData, temp, home, hostileBin, audit, profile, onProcessCheck });
+    restarted = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data: restoredData, temp, home, hostileBin, audit, profile, onProcessCheck, port: lifecyclePort });
+    trackedProcessGroups.push(restarted.child.pid);
     runtimeOutput.push(restarted.output);
     assertNoSourceOpenFiles(restarted.child.pid);
     const restartRoom = await getJson(restarted.origin, "/api/rooms/first-playable");
@@ -876,6 +1015,7 @@ export async function runPackagedRuntimeAcceptance(options) {
     assert.equal(existsSync(data), false);
     assert.equal(existsSync(lifecycleBackup), true);
     assert.deepEqual(deletedCredentialReferences, ["credential:task141-disposable:1"]);
+    lifecyclePhases.push(await measureLifecyclePhase("purge", lifecyclePort, trackedProcessGroups, [options.executionApp, options.rollbackExecutionApp]));
     passed("marker_owned_purge_preserves_external_backup", { purge: purgeResult, externalBackupRetained: true });
 
     const auditJson = JSON.parse(readFileSync(audit, "utf8"));
@@ -983,12 +1123,25 @@ export async function runPackagedRuntimeAcceptance(options) {
     const sensitivePathCount = sensitiveForms(options.forbiddenSourceRoot).filter((form) => secretAuditBuffers.some((bytes) => bytes.includes(Buffer.from(form)))).length;
     assert.equal(sensitivePathCount, 0);
     const escapedWriteProbeCount = boundaryEvidence.filter((entry) => ["write", "overwrite"].includes(entry.mode) && !entry.denied).length;
+    assert.equal(lifecyclePhases.length, 6);
+    for (const observation of lifecyclePhases) {
+      assert.deepEqual({
+        launcherDescendants: observation.launcherDescendants,
+        nodeDescendants: observation.nodeDescendants,
+        validatorDescendants: observation.validatorDescendants,
+        helperDescendants: observation.helperDescendants,
+        listenerReachable: observation.listenerReachable,
+      }, {
+        launcherDescendants: 0, nodeDescendants: 0, validatorDescendants: 0, helperDescendants: 0, listenerReachable: false,
+      }, `${observation.phase} was not quiescent`);
+    }
 
     return Object.freeze({
       code: "packaged_runtime_acceptance_ok", schemaVersion: 1,
       sourceCommit: source.manifest.sourceCommit, artifactDigest: source.appDigest,
       executionDigest: after.appDigest, platform: `${platform()}-${arch()}`, osRelease: release(),
       boundary: "packaged-node-direct-authenticated-fd3; GUI launcher independently gated by Task10/11",
+      evidencePath: options.evidencePath ?? "not-requested",
       outerBoundary: options.outerBoundary,
       readinessAuthenticated: true, mockConversation: true,
       staleOrDuplicateCommits: durableAfter.events.length - durableBefore.events.length,
@@ -1004,15 +1157,16 @@ export async function runPackagedRuntimeAcceptance(options) {
         backup: backupResult.evidence,
         restore: restoreResult.evidence,
         purge: purgeResult,
+        compatibleRollback: rollbackEvidence,
         uninstallPayloadOnly: true,
         reinstallContinuity: true,
         externalBackupRetained: existsSync(lifecycleBackup),
-        phases: ["initial-stop", "backup", "restore", "uninstall", "reinstall-stop", "purge"]
-          .map((phase) => ({ phase, orphanDescendants: 0 })),
+        phases: lifecyclePhases,
       },
     });
   } finally {
     await forceStop(first); await forceStop(reinstalled); await forceStop(restarted);
+    await forceStop(rollbackStarted); await forceStop(rollbackCurrent);
     try { rmSync(sentinel); } catch { /* retained only on harness interruption */ }
   }
 }
@@ -1129,9 +1283,35 @@ async function main() {
   const artifactRoot = join(outer, "fresh-artifact"); mkdirSync(artifactRoot, { mode: 0o700 });
   runChecked(process.execPath, ["packaging/macos/assemble-app.mjs", "--output-parent", artifactRoot, "--launcher", join(packagingRoot, "launcher/GreenRoomLauncher"), "--node-archive", realpathSync(archive), "--validator-root", join(packagingRoot, "validator/greenroom-persona")], repositoryRoot, buildEnvironment);
   const artifact = join(artifactRoot, "The Green Room.app");
+  const rollbackSource = join(outer, "rollback-source");
+  runChecked("/usr/bin/git", ["clone", "--local", "--no-hardlinks", "--no-checkout", repositoryRoot, rollbackSource]);
+  runChecked("/usr/bin/git", ["checkout", "--detach", ROLLBACK_SOURCE_COMMIT], rollbackSource);
+  const npmCliCandidate = process.env.npm_execpath ?? join(dirname(dirname(process.execPath)), "lib/node_modules/npm/bin/npm-cli.js");
+  const npmCli = realpathSync(npmCliCandidate);
+  assertCanonical(npmCli, "file");
+  runChecked(process.execPath, [npmCli, "ci", "--offline", "--strict-allow-scripts=true"], rollbackSource, process.env);
+  const rollbackDistRoot = join(outer, "rollback-dist");
+  const rollbackPackagingRoot = join(outer, "rollback-packaging");
+  mkdirSync(rollbackPackagingRoot, { mode: 0o700 });
+  const rollbackEnvironment = { ...process.env, GREENROOM_DIST_ROOT: rollbackDistRoot, GREENROOM_PACKAGING_ROOT: rollbackPackagingRoot };
+  runChecked(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "tsconfig.json", "--outDir", rollbackDistRoot], rollbackSource, rollbackEnvironment);
+  runChecked(process.execPath, ["scripts/copy-runtime-assets.mjs"], rollbackSource, rollbackEnvironment);
+  runChecked(process.execPath, ["scripts/package/build-launcher.mjs"], rollbackSource, rollbackEnvironment);
+  runChecked(process.execPath, ["scripts/package/build-validator.mjs"], rollbackSource, rollbackEnvironment);
+  const rollbackArtifactRoot = join(outer, "rollback-artifact"); mkdirSync(rollbackArtifactRoot, { mode: 0o700 });
+  runChecked(process.execPath, ["packaging/macos/assemble-app.mjs", "--output-parent", rollbackArtifactRoot, "--launcher", join(rollbackPackagingRoot, "launcher/GreenRoomLauncher"), "--node-archive", realpathSync(archive), "--validator-root", join(rollbackPackagingRoot, "validator/greenroom-persona")], rollbackSource, rollbackEnvironment);
+  const rollbackArtifact = join(rollbackArtifactRoot, "The Green Room.app");
+  const rollbackVerification = JSON.parse(runChecked(process.execPath, ["scripts/package/verify-payload.mjs", "--artifact", rollbackArtifact], rollbackSource, rollbackEnvironment));
+  const rollbackManifest = JSON.parse(readFileSync(join(rollbackArtifact, "Contents/Resources/release-manifest.json"), "utf8"));
+  assert.equal(rollbackVerification.code, "unsigned_app_payload_verified");
+  assert.match(rollbackVerification.appDigest, /^[0-9a-f]{64}$/u);
+  assert.equal(rollbackManifest.sourceCommit, ROLLBACK_SOURCE_COMMIT);
   const sandbox = join(outer, "isolated-sandbox"); mkdirSync(sandbox, { mode: 0o700 });
   const executionParent = join(sandbox, "Green Room α Test"); mkdirSync(executionParent, { mode: 0o700 });
   const executionApp = join(executionParent, "The Green Room.app"); copyImmutableTree(artifact, executionApp);
+  const rollbackExecutionApp = join(sandbox, "Pinned rollback", "The Green Room.app");
+  mkdirSync(dirname(rollbackExecutionApp), { recursive: true, mode: 0o700 });
+  copyImmutableTree(rollbackArtifact, rollbackExecutionApp);
   const controllerRoot = join(outer, "frozen-controller"); mkdirSync(controllerRoot, { mode: 0o700 });
   const controller = copyController(repositoryRoot, controllerRoot);
   const harness = join(sandbox, "harness"); mkdirSync(harness, { mode: 0o700 });
@@ -1139,7 +1319,8 @@ async function main() {
   const evidencePath = process.env.GREENROOM_PACKAGED_RUNTIME_EVIDENCE ?? join(outer, "packaged-runtime.evidence.json");
   const controllerConfig = join(outer, "controller.json");
   writeFileSync(controllerConfig, `${JSON.stringify({
-    artifact, executionApp, sandboxRoot: sandbox, guardPath: guard,
+    artifact, executionApp, rollbackExecutionApp, rollbackSourceCommit: ROLLBACK_SOURCE_COMMIT,
+    rollbackArtifactDigest: rollbackVerification.appDigest, sandboxRoot: sandbox, guardPath: guard,
     boundaryProbePath: controller.boundaryProbe, networkProbePath: controller.networkProbe, sourceProbePaths: [
       join(repositoryRoot, "package.json"), join(distRoot, "src/server.js"), join(repositoryRoot, ".venv/bin/greenroom-persona"),
     ],
@@ -1172,6 +1353,7 @@ async function main() {
     sanitizeFailureOutput(`${test.stdout ?? ""}${test.stderr ?? ""}`, [repositoryRoot, outer], true),
   );
   for (const marker of outerMarkers) if (existsSync(marker)) fail("host_executable_trap_triggered", basename(marker));
+  if (!existsSync(evidencePath)) fail("packaged_runtime_evidence_missing", sanitizeFailureOutput(`${test.stdout ?? ""}${test.stderr ?? ""}`, [repositoryRoot, outer], true));
   const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
   assert.equal(evidence.outerBoundary.hostilePathInheritedByController, true);
   assert.equal(evidence.outerBoundary.runtimePath, "/nonexistent");
@@ -1182,10 +1364,13 @@ async function main() {
 }
 
 const invoked = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
-if (invoked === import.meta.url) (process.argv[2] === "--controller" ? controllerMain(process.argv[3]) : main()).catch((error) => {
+const entrypoint = process.argv[2] === "--controller"
+  ? controllerMain(process.argv[3])
+  : invoked === import.meta.url ? main() : null;
+if (entrypoint !== null) entrypoint.catch((error) => {
   process.stderr.write(`${JSON.stringify({
     code: error?.code ?? "packaged_runtime_failed",
-    message: sanitizeFailureOutput(error instanceof Error ? error.message : String(error), [repositoryRoot], false),
+    message: sanitizeFailureOutput(error instanceof Error ? (error.stack ?? error.message) : String(error), [repositoryRoot], false),
   })}\n`);
   process.exitCode = 1;
 });

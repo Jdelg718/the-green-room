@@ -448,20 +448,33 @@ export async function purgeDisposableDataRoot(options: {
     if (!sameIdentity(options.allowedParent, parentIdentity) || !sameIdentity(options.root, rootIdentity) || !sameIdentity(markerPath, markerIdentity)) {
       fail("purge_root_rebound");
     }
-    for (const reference of references) {
-      // Missing is success: absence is the postcondition, and this keeps a
-      // retry safe after an earlier partial deletion.
-      await options.credentialStore.delete(reference);
-      if (!sameIdentity(options.root, rootIdentity) || !sameIdentity(markerPath, markerIdentity)) fail("purge_root_rebound");
-    }
     const quarantine = join(options.allowedParent, `.greenroom-purge-${randomBytes(16).toString("hex")}`);
     if (existsSync(quarantine)) fail("purge_quarantine_exists");
     renameSync(options.root, quarantine);
-    if (!sameIdentity(quarantine, rootIdentity)) fail("purge_root_rebound");
-    options.hooks?.beforeRemove?.(quarantine);
-    if (!sameIdentity(options.allowedParent, parentIdentity) || !sameIdentity(quarantine, rootIdentity)) fail("purge_root_rebound");
-    removeIdentityCheckedTree(quarantine, rootIdentity);
-    syncPath(options.allowedParent);
+    try {
+      if (!sameIdentity(quarantine, rootIdentity)) fail("purge_root_rebound");
+      options.hooks?.beforeRemove?.(quarantine);
+      if (!sameIdentity(options.allowedParent, parentIdentity) || !sameIdentity(quarantine, rootIdentity)) fail("purge_root_rebound");
+      // Repeat the complete tree validation after the caller's last race hook.
+      // Credential deletion is intentionally deferred until every filesystem
+      // operation that can reject the purge has completed.
+      validatePurgeTree(quarantine);
+      removeIdentityCheckedTree(quarantine, rootIdentity);
+      syncPath(options.allowedParent);
+    } catch (error) {
+      // Restore the authoritative name only when the exact quarantined inode is
+      // still ours and an attacker has not occupied the original path.
+      if (sameIdentity(quarantine, rootIdentity) && !existsSync(options.root) && sameIdentity(options.allowedParent, parentIdentity)) {
+        renameSync(quarantine, options.root);
+        syncPath(options.allowedParent);
+      }
+      throw error;
+    }
+    for (const reference of references) {
+      // Missing is success: absence is the postcondition, and this keeps a
+      // retry safe after an earlier completed credential deletion.
+      await options.credentialStore.delete(reference);
+    }
     return Object.freeze({
       code: "lifecycle_purge_ok", schemaVersion: 1,
       credentialReferenceCount: references.length, externalPathsTouched: 0,

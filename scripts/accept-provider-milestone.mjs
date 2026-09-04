@@ -31,7 +31,10 @@ const EXPECTED_TASK13_ADVERSARIAL_CASES = Object.freeze([
   "validator_symlink_rejected_by_prelaunch_payload_gate", "validator_mutated_override_runtime_startup_failure",
   "validator_symlink_override_runtime_startup_failure", "symlink_data_root_startup", "invalid_provider_startup", "readiness_timeout_no_side_effect",
   "pause_mute_unmute_resume_stop_exact_results", "exact_ordered_event_contract", "failure_flood_invalid_utf8_secret_path_sanitized",
-  "sqlite_exact_room_participants_events_and_commands", "restart_exact_room_and_participant_order", "restart_request_id_exact_replay",
+  "lifecycle_quiescence_probe_detects_sabotage", "sqlite_exact_room_participants_events_and_commands",
+  "wal_safe_allowlisted_backup_and_staged_atomic_restore", "pinned_older_packaged_binary_reopens_prefix_and_refuses_newer_schema",
+  "unsigned_payload_uninstall_retains_data_and_exact_reinstall", "reinstall_reopens_retained_authoritative_root",
+  "marker_owned_purge_preserves_external_backup", "restart_exact_room_and_participant_order", "restart_request_id_exact_replay",
   "restart_request_id_mismatched_digest_rejected", "real_loopback_packaged_api_verified", "node_network_exact_installed_api_matrix_denied",
   "kernel_sandbox_write_read_exec_network_denied", "write_policy_removal_regression_detected", "network_policy_mutation_regression_detected",
   "process_exec_policy_mutation_regression_detected", "inner_host_path_environment_traps_untriggered",
@@ -384,9 +387,32 @@ function validateTask13Evidence(task13, head) {
     "readinessAuthenticated", "mockConversation", "staleOrDuplicateCommits", "adversarialCases", "adversarial", "personaInspection",
     "restartContinuity", "networkDeniedProbe", "processLeakCount", "externalRequests", "outOfRootWriteCount", "payloadMutationCount",
     "hostDiscoveryCount", "hostExecutableDiscoveryCount", "secretSentinelCount", "sensitivePathCount", "evidencePath", "controller",
+    "lifecycle",
   ], "task13_evidence_invalid");
   exactKeys(task13.personaInspection, ["validAccepted", "hostileRejected", "validatorPath"], "task13_evidence_invalid");
   exactKeys(task13.outerBoundary, ["hostilePathInheritedByController", "runtimePath", "poisonedKeys", "strippedPoisonCount", "inheritedPoisonedKeys", "encodedOnlyPoisonedKeys", "executableInventory", "hostDiscoveryCount"], "task13_evidence_invalid");
+  exactKeys(task13.lifecycle, ["backup", "restore", "purge", "compatibleRollback", "uninstallPayloadOnly", "reinstallContinuity", "externalBackupRetained", "phases"], "task13_evidence_invalid");
+  exactKeys(task13.lifecycle.backup, ["code", "schemaVersion", "fileCount", "migrationCount", "databaseSha256", "externalPathsTouched"], "task13_evidence_invalid");
+  exactKeys(task13.lifecycle.restore, ["code", "schemaVersion", "fileCount", "migrationCount", "databaseSha256", "externalPathsTouched"], "task13_evidence_invalid");
+  exactKeys(task13.lifecycle.purge, ["code", "schemaVersion", "credentialReferenceCount", "externalPathsTouched"], "task13_evidence_invalid");
+  exactKeys(task13.lifecycle.compatibleRollback, ["sourceCommit", "artifactDigest", "backupDatabaseSha256", "restoredSchemaVersion", "migratedSchemaVersion", "olderBinaryReopenedPrefix", "newerSchemaRefusedWithoutDowngrade"], "task13_evidence_invalid");
+  const expectedLifecyclePhases = ["initial-stop", "backup", "restore", "uninstall", "reinstall-stop", "purge"];
+  if (!Array.isArray(task13.lifecycle.phases) || task13.lifecycle.phases.length !== expectedLifecyclePhases.length ||
+      task13.lifecycle.phases.some((phase, index) => {
+        try { exactKeys(phase, ["phase", "launcherDescendants", "nodeDescendants", "validatorDescendants", "helperDescendants", "listenerReachable"], "task13_evidence_invalid"); } catch { return true; }
+        return phase.phase !== expectedLifecyclePhases[index] || phase.listenerReachable !== false ||
+          ["launcherDescendants", "nodeDescendants", "validatorDescendants", "helperDescendants"].some((name) => phase[name] !== 0);
+      }) || task13.lifecycle.backup.code !== "lifecycle_backup_ok" || task13.lifecycle.restore.code !== "lifecycle_restore_ok" ||
+      task13.lifecycle.purge.code !== "lifecycle_purge_ok" || task13.lifecycle.backup.schemaVersion !== 1 ||
+      task13.lifecycle.restore.schemaVersion !== 1 || task13.lifecycle.purge.schemaVersion !== 1 ||
+      !/^[0-9a-f]{40}$/u.test(task13.lifecycle.compatibleRollback.sourceCommit) ||
+      !/^[0-9a-f]{64}$/u.test(task13.lifecycle.compatibleRollback.artifactDigest) ||
+      !/^[0-9a-f]{64}$/u.test(task13.lifecycle.compatibleRollback.backupDatabaseSha256) ||
+      task13.lifecycle.compatibleRollback.restoredSchemaVersion !== 7 || task13.lifecycle.compatibleRollback.migratedSchemaVersion !== 8 ||
+      task13.lifecycle.compatibleRollback.olderBinaryReopenedPrefix !== true ||
+      task13.lifecycle.compatibleRollback.newerSchemaRefusedWithoutDowngrade !== true ||
+      task13.lifecycle.uninstallPayloadOnly !== true || task13.lifecycle.reinstallContinuity !== true ||
+      task13.lifecycle.externalBackupRetained !== true) fail("task13_evidence_invalid", "Task13 lifecycle evidence failed exact validation");
   const counters = ["staleOrDuplicateCommits", "adversarialCases", "processLeakCount", "externalRequests", "outOfRootWriteCount", "payloadMutationCount", "hostDiscoveryCount", "hostExecutableDiscoveryCount", "secretSentinelCount", "sensitivePathCount"];
   if (task13.code !== "packaged_runtime_acceptance_ok" || task13.schemaVersion !== 1 || task13.sourceCommit !== head ||
       !/^[0-9a-f]{64}$/u.test(task13.artifactDigest) || !/^[0-9a-f]{64}$/u.test(task13.executionDigest) ||
@@ -426,6 +452,7 @@ function exactCandidate(root, head) {
   const packageEnvironment = { GREENROOM_PACKAGING_ROOT: packagingRoot };
   const task13Output = runNpm("authoritative-task13-package-evidence", ["run", "test:packaging"], {
     GREENROOM_NODE_ARCHIVE: archive, GREENROOM_EXPECTED_SOURCE_COMMIT: head,
+    npm_config_cache: trustedNpmCache(), npm_config_devdir: trustedNodeGypCache(),
   }, true, sourceRoot);
   const task13 = exactJsonRecord(task13Output, "packaged_runtime_acceptance_ok");
   validateTask13Evidence(task13, head);

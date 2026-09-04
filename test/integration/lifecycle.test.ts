@@ -137,6 +137,15 @@ test("backup and restore reject corruption, stale manifests, interruption, and l
   writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
   await assert.rejects(restoreLifecycleBackup({ backup, destination: join(root, "stale-restore"), authoritativeRoot: data, migrationsDir, runtimeStopped: true }), /backup_manifest_invalid/);
   manifest.files.pop(); writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const staleManifest = structuredClone(manifest);
+  staleManifest.sourceCommit = "9".repeat(40);
+  staleManifest.databaseUserVersion -= 1;
+  writeFileSync(manifestPath, `${JSON.stringify(staleManifest)}\n`);
+  await assert.rejects(
+    restoreLifecycleBackup({ backup, destination: join(root, "identity-stale-restore"), authoritativeRoot: data, migrationsDir, runtimeStopped: true }),
+    /backup_manifest_stale/,
+  );
+  writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
   await assert.rejects(restoreLifecycleBackup({ backup, destination: join(root, "live-restore"), authoritativeRoot: data, migrationsDir, runtimeStopped: false }), /runtime_must_be_stopped/);
   const interrupted = join(root, "interrupted-restore");
   await assert.rejects(restoreLifecycleBackup({ backup, destination: interrupted, authoritativeRoot: data, migrationsDir, runtimeStopped: true, hooks: { beforePublish: () => { throw new Error("interrupted restore"); } } }), /interrupted restore/);
@@ -246,16 +255,33 @@ test("purge rejects symlink, hardlink, rebound, outside-root, and over-delete pr
   assert.equal(readFileSync(join(outside, "keep"), "utf8"), "keep");
 
   const removeRace = join(root, "remove-race"); mkdirSync(removeRace); writeFileSync(join(removeRace, "owned"), "owned");
+  const removeRaceStore = openGreenRoomDatabase({ dataDir: removeRace, migrationsDir });
+  removeRaceStore.database.prepare(
+    `INSERT INTO connection_profile_revisions(profile_id, revision, state, profile_json)
+     VALUES ('remove-race-provider', 1, 'enabled', ?)`,
+  ).run(JSON.stringify({ id: "remove-race-provider", revision: 1, kind: "openrouter", credentialRef: "credential:remove-race-provider:1" }));
+  removeRaceStore.close();
   markDisposableDataRoot(removeRace, "4".repeat(32));
+  const removeRaceCredentials = fakeCredentials(["credential:remove-race-provider:1"]);
   let competitor = "";
+  let removeRaceParked = "";
   await assert.rejects(purgeDisposableDataRoot({
-    root: removeRace, allowedParent: root, markerId: "4".repeat(32), credentialStore: credentials,
+    root: removeRace, allowedParent: root, markerId: "4".repeat(32), credentialStore: removeRaceCredentials,
     hooks: { beforeRemove: (quarantine) => {
-      renameSync(quarantine, `${quarantine}-parked`);
+      removeRaceParked = `${quarantine}-parked`;
+      renameSync(quarantine, removeRaceParked);
       mkdirSync(quarantine);
       competitor = join(quarantine, "operator");
       writeFileSync(competitor, "operator");
     } },
   }), /purge_root_rebound/);
+  assert.deepEqual(removeRaceCredentials.deleted, []);
+  assert.equal(existsSync(removeRace), false);
+  assert.equal(existsSync(removeRaceParked), true);
+  const parkedDatabase = new DatabaseSync(join(removeRaceParked, "greenroom.sqlite"), { readOnly: true });
+  assert.equal(parkedDatabase.prepare(
+    "SELECT count(*) AS value FROM connection_profile_revisions WHERE profile_json LIKE '%credential:remove-race-provider:1%'",
+  ).get()!.value, 1);
+  parkedDatabase.close();
   assert.equal(readFileSync(competitor, "utf8"), "operator");
 });

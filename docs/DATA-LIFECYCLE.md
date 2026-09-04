@@ -47,8 +47,11 @@ parent, and the exact credential references derived from the marked database.
 Before quarantine it
 rechecks parent, root, and marker identities and rejects symlinks, hardlinks,
 special files, rebound paths, outside-parent roots, duplicate references, and
-invalid markers. External backups and exports are outside the marked root and
-are not touched.
+invalid markers. Credential deletion begins only after the quarantined tree is
+validated and removed; a filesystem race or removal failure therefore preserves
+the credential references and restores the authoritative root name when the
+original identity can be restored safely. External backups and exports are
+outside the marked root and are not touched.
 
 The lifecycle APIs return bounded machine-readable evidence containing counts,
 status, and database digests only. They do not emit local paths, credential
