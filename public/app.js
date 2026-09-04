@@ -1085,7 +1085,7 @@ export function startBrowserApp() {
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"), targetPersona: byId("target-persona"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
-    callBoard: document.querySelector(".call-board"), stage: document.querySelector(".stage"),
+    callBoard: document.querySelector(".call-board"), castHeading: byId("cast-heading"), stage: document.querySelector(".stage"), roomTitle: byId("room-title"),
     providerDialog: byId("provider-setup"), openProvider: byId("open-provider-setup"), closeProvider: byId("close-provider-setup"),
     providerForm: byId("provider-setup-form"), providerCloudFields: byId("cloud-provider-fields"), providerDefinition: byId("provider-definition"),
     providerConnectionId: byId("provider-connection-id"), providerKey: byId("provider-key"), providerModel: byId("provider-model"),
@@ -1589,7 +1589,13 @@ export function startBrowserApp() {
   });
 
   async function switchRoom(roomId) {
-    if (!ROOM_ID.test(roomId) || roomId === room?.sessionId) { elements.roomDrawer.close(); return; }
+    if (!ROOM_ID.test(roomId)) { elements.roomDrawer.close(); return; }
+    if (roomId === room?.sessionId) {
+      elements.roomDrawer.close();
+      showLive(false);
+      elements.messageText.focus();
+      return;
+    }
     try {
       await roomSelectionFence.select(roomId);
     } catch (error) { setActionStatus(userMessage(error), "error"); }
@@ -2006,8 +2012,8 @@ export function startBrowserApp() {
     if (action === "rooms") elements.openRoomDrawer.click();
     else if (action === "new-room") showSetup();
     else if (action === "model-setup") elements.openProvider.click();
-    else if (action === "cast") { showLive(false); elements.callBoard.scrollIntoView({ block: "start" }); }
-    else if (action === "conversation") { showLive(false); elements.stage.scrollIntoView({ block: "start" }); }
+    else if (action === "cast") { showLive(false); elements.callBoard.scrollIntoView({ block: "start" }); elements.castHeading.focus({ preventScroll: true }); }
+    else if (action === "conversation") { showLive(false); elements.stage.scrollIntoView({ block: "start" }); elements.roomTitle.focus({ preventScroll: true }); }
   });
   document.addEventListener("click", (event) => { if (!elements.floatingNav.contains(event.target)) closeFloatingNav(); });
   const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button && !button.disabled) void switchRoom(button.dataset.roomId); };
