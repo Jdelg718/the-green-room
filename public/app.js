@@ -1078,12 +1078,14 @@ export function startBrowserApp() {
     filters: byId("gallery-filters"), form: byId("message-form"), galleryHeading: byId("gallery-heading"),
     galleryResults: byId("gallery-results"), grid: byId("persona-grid"), horizon: byId("horizon-filter"),
     identityRoster: byId("room-identity-roster"), liveView: byId("live-view"), messageText: byId("message-text"), mobileAction: byId("mobile-room-action"),
+    floatingNav: byId("floating-nav"), floatingNavMenu: byId("floating-nav-menu"), floatingNavToggle: byId("floating-nav-toggle"),
     openSetup: byId("open-cast-setup"), openRoomDrawer: byId("open-room-drawer"), pauseResume: byId("pause-resume"), search: byId("persona-search"),
     roomDrawer: byId("room-drawer"), roomDrawerList: byId("room-drawer-list"), roomHistoryList: byId("room-history-list"),
     closeRoomDrawer: byId("close-room-drawer"), newRoom: byId("new-room"), newRoomDrawer: byId("new-room-drawer"),
     sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"), targetPersona: byId("target-persona"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
+    callBoard: document.querySelector(".call-board"), castHeading: byId("cast-heading"), stage: document.querySelector(".stage"), roomTitle: byId("room-title"),
     providerDialog: byId("provider-setup"), openProvider: byId("open-provider-setup"), closeProvider: byId("close-provider-setup"),
     providerForm: byId("provider-setup-form"), providerCloudFields: byId("cloud-provider-fields"), providerDefinition: byId("provider-definition"),
     providerConnectionId: byId("provider-connection-id"), providerKey: byId("provider-key"), providerModel: byId("provider-model"),
@@ -1574,6 +1576,7 @@ export function startBrowserApp() {
       await refreshRoomLibrary(signal);
       await lifecycle.startIfActive();
       if (!signal.aborted) {
+        showLive(false);
         elements.roomDrawer.close();
         elements.messageText.focus();
       }
@@ -1586,7 +1589,13 @@ export function startBrowserApp() {
   });
 
   async function switchRoom(roomId) {
-    if (!ROOM_ID.test(roomId) || roomId === room?.sessionId) { elements.roomDrawer.close(); return; }
+    if (!ROOM_ID.test(roomId)) { elements.roomDrawer.close(); return; }
+    if (roomId === room?.sessionId) {
+      elements.roomDrawer.close();
+      showLive(false);
+      elements.messageText.focus();
+      return;
+    }
     try {
       await roomSelectionFence.select(roomId);
     } catch (error) { setActionStatus(userMessage(error), "error"); }
@@ -1737,6 +1746,7 @@ export function startBrowserApp() {
 
   function showSetup() {
     if (room === null || pending.size !== 0) return;
+    closeFloatingNav();
     selection = newRoomSelection();
     elements.liveView.hidden = true; elements.setupView.hidden = false; elements.builderError.textContent = "";
     elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to bundled candidates";
@@ -1744,6 +1754,7 @@ export function startBrowserApp() {
   }
 
   function showLive(focus = true) {
+    closeFloatingNav();
     elements.setupView.hidden = true; elements.liveView.hidden = false; elements.mobileAction.hidden = true;
     elements.skipLink.href = "#message-text"; elements.skipLink.textContent = "Skip to message composer";
     document.body.classList.remove("has-mobile-room-action"); if (focus) elements.openSetup.focus();
@@ -1982,6 +1993,29 @@ export function startBrowserApp() {
   elements.closeRoomDrawer.addEventListener("click", () => elements.roomDrawer.close());
   elements.roomDrawer.addEventListener("cancel", () => elements.openRoomDrawer.setAttribute("aria-expanded", "false"));
   elements.roomDrawer.addEventListener("close", () => { elements.openRoomDrawer.setAttribute("aria-expanded", "false"); elements.openRoomDrawer.focus(); });
+  function closeFloatingNav() {
+    elements.floatingNavMenu.hidden = true;
+    elements.floatingNavToggle.setAttribute("aria-expanded", "false");
+    elements.floatingNavToggle.setAttribute("aria-label", "Open quick navigation");
+  }
+  elements.floatingNavToggle.addEventListener("click", () => {
+    const opening = elements.floatingNavMenu.hidden;
+    elements.floatingNavMenu.hidden = !opening;
+    elements.floatingNavToggle.setAttribute("aria-expanded", String(opening));
+    elements.floatingNavToggle.setAttribute("aria-label", opening ? "Close quick navigation" : "Open quick navigation");
+  });
+  elements.floatingNavMenu.addEventListener("click", (event) => {
+    const control = event.target.closest("[data-nav-action]");
+    if (control === null) return;
+    const action = control.dataset.navAction;
+    closeFloatingNav();
+    if (action === "rooms") elements.openRoomDrawer.click();
+    else if (action === "new-room") showSetup();
+    else if (action === "model-setup") elements.openProvider.click();
+    else if (action === "cast") { showLive(false); elements.callBoard.scrollIntoView({ block: "start" }); elements.castHeading.focus({ preventScroll: true }); }
+    else if (action === "conversation") { showLive(false); elements.stage.scrollIntoView({ block: "start" }); elements.roomTitle.focus({ preventScroll: true }); }
+  });
+  document.addEventListener("click", (event) => { if (!elements.floatingNav.contains(event.target)) closeFloatingNav(); });
   const chooseRoom = (event) => { const button = event.target.closest("[data-room-id]"); if (button && !button.disabled) void switchRoom(button.dataset.roomId); };
   elements.roomHistoryList.addEventListener("click", chooseRoom); elements.roomDrawerList.addEventListener("click", chooseRoom);
   elements.filters.addEventListener("submit", (event) => event.preventDefault());

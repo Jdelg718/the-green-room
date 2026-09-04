@@ -203,6 +203,10 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(page.body, /<button[^>]+id="new-room"[^>]*>New room/);
   assert.match(page.body, /<dialog[^>]+id="room-drawer"[^>]+aria-labelledby="room-drawer-title"/);
   assert.match(page.body, /<button[^>]+id="open-room-drawer"[^>]+aria-controls="room-drawer"/);
+  assert.match(page.body, /<button[^>]+id="floating-nav-toggle"[^>]+aria-controls="floating-nav-menu"[^>]+aria-expanded="false"/);
+  assert.match(page.body, /<nav[^>]+id="floating-nav-menu"[^>]+aria-label="Quick navigation"[^>]+hidden/);
+  assert.match(page.body, /<h2 id="cast-heading" tabindex="-1">/);
+  assert.match(page.body, /<h1 id="room-title" tabindex="-1">/);
   assert.match(page.body, /<button[^>]+id="pause-resume"/);
   assert.match(page.body, /<button[^>]+id="stop-room"/);
   assert.match(page.body, /<dialog[^>]+id="stop-dialog"/);
@@ -217,6 +221,17 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(styles.body, /\.room-history-list\s*\{[^}]*min-width:\s*0/);
   assert.match(styles.body, /\.room-history-button\s*\{[^}]*overflow:\s*hidden/);
   assert.match(styles.body, /overflow-x:\s*hidden/);
+  assert.match(styles.body, /@media\s*\(max-width:\s*760px\)[\s\S]*\.floating-nav\s*\{[^}]*position:\s*fixed/);
+  assert.match(styles.body, /\.floating-nav-toggle\s*\{[^}]*backdrop-filter:\s*blur/);
+  assert.match(script.body, /data-nav-action/);
+  assert.match(script.body, /if \(roomId === room\?\.sessionId\)[\s\S]*?showLive\(false\);[\s\S]*?elements\.messageText\.focus\(\);/);
+  assert.match(script.body, /elements\.castHeading\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(script.body, /elements\.roomTitle\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(
+    script.body,
+    /async commitRoom\(nextRoom, signal\)[\s\S]*?if \(!signal\.aborted\)\s*\{\s*showLive\(false\);\s*elements\.roomDrawer\.close\(\);/,
+    "selecting a saved room must leave the new-room builder and reveal the live room",
+  );
   assert.doesNotMatch(
     script.body,
     /localStorage|sessionStorage|indexedDB|serviceWorker|WebSocket|XMLHttpRequest|BroadcastChannel|SharedWorker|Worker\s*\(|sendBeacon|eval\s*\(|new Function|https?:\/\//,
