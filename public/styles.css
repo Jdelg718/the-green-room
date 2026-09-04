@@ -17,9 +17,10 @@
   font: 16px/1.4 var(--sans);
 }
 
-.provider-setup-panel { width: min(92vw, 760px); max-width: 760px; max-height: min(90vh, 920px); overflow: auto; padding: clamp(1rem, 3vw, 2rem); background: var(--paper, #f4efe4); color: var(--ink, #17231d); }
-.provider-setup-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.provider-setup-heading h2 { margin: 0; }
+#provider-setup { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; border: 0; padding: 0; overflow: auto; background: var(--paper, #f4efe4); box-shadow: none; }
+.provider-setup-panel { width: min(100%, 1100px); max-width: none; min-height: 100dvh; max-height: none; margin: 0 auto; overflow: visible; padding: clamp(1.25rem, 4vw, 3.5rem); background: var(--paper, #f4efe4); color: var(--ink, #17231d); }
+.provider-setup-heading { position: sticky; z-index: 2; top: 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 6px solid var(--ink, #17231d); padding: 1rem 0; background: var(--paper, #f4efe4); }
+.provider-setup-heading h2 { max-width: 18ch; margin: 0; font: 900 clamp(2.4rem, 6vw, 5.5rem)/.88 var(--display); letter-spacing: -.035em; text-transform: uppercase; }
 .provider-setup-panel fieldset { min-width: 0; border: 1px solid currentColor; padding: 1rem; }
 .provider-paths { display: grid; gap: .75rem; margin-bottom: 1rem; }
 .provider-choice { display: flex; align-items: start; gap: .75rem; padding: .75rem; border: 1px solid rgba(23, 35, 29, .3); cursor: pointer; }
@@ -34,7 +35,7 @@
 .provider-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
 
 @media (max-width: 760px) {
-  .provider-setup-panel { width: calc(100vw - 1rem); max-height: calc(100vh - 1rem); padding: 1rem; }
+  .provider-setup-panel { width: 100%; min-height: 100dvh; max-height: none; padding: 1rem; }
   .provider-field-grid { grid-template-columns: minmax(0, 1fr); }
   .provider-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .provider-actions .button { width: 100%; }

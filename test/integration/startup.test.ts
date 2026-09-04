@@ -421,7 +421,7 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   assert.equal((await portraitResponse.arrayBuffer()).byteLength, 43_092);
   const promotedPortraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/hal-finney.webp`);
   assert.equal(promotedPortraitResponse.status, 200);
-  assert.equal((await promotedPortraitResponse.arrayBuffer()).byteLength, 33_868);
+  assert.equal((await promotedPortraitResponse.arrayBuffer()).byteLength, 52_462);
 });
 
 test("local-source launcher inspects a real pack from a foreign cwd and cleans up on SIGTERM", async () => {

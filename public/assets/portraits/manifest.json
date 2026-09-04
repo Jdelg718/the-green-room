@@ -247,13 +247,13 @@
       "assetPath": "/assets/portraits/hal-finney.webp",
       "altText": "Creative historical portrait of Hal Finney with short graying hair and glasses in a dim engineering workspace.",
       "objectPosition": "50% 31%",
-      "sha256": "4afda0586162e6c7dbf71cee0e3af3006f7bfc4058e3175435aa78248c2fc6bb",
-      "bytes": 33868,
+      "sha256": "c7fbba95125c66f95704c6a7105865a2f3caef5946188bc6388759655d4ba8bd",
+      "bytes": 52462,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     },
@@ -262,13 +262,13 @@
       "assetPath": "/assets/portraits/timothy-c-may.webp",
       "altText": "Creative historical portrait of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop.",
       "objectPosition": "50% 31%",
-      "sha256": "4117c268e92d8dfad6c9fed65b678ef0522b820a10d9f5794742e87a2fb0d46d",
-      "bytes": 61126,
+      "sha256": "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34",
+      "bytes": 80556,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     },
@@ -277,13 +277,13 @@
       "assetPath": "/assets/portraits/len-sassaman.webp",
       "altText": "Creative historical portrait of Len Sassaman with short dark hair, a beard, and glasses in a dim research workspace.",
       "objectPosition": "50% 30%",
-      "sha256": "7b126b0569ca82a19075b124158f64c593221699ae5b11158ba6c73db95c6b03",
-      "bytes": 31662,
+      "sha256": "03d11b0b62d26621d3f975585ac264785efb2cf68076e91a727f1b62f12a924c",
+      "bytes": 46302,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     },
@@ -292,13 +292,13 @@
       "assetPath": "/assets/portraits/ludwig-von-mises.webp",
       "altText": "Creative historical portrait of Ludwig von Mises in a dark suit and round glasses at a dim seminar desk.",
       "objectPosition": "50% 33%",
-      "sha256": "90bdf9fe2d1e9a6b1f5926e197f1c5cf80dc7ee25d101fc2605dbc418d9d6170",
-      "bytes": 37780,
+      "sha256": "3f23a8fa49a200610be7267ab00f98223de86a148345f0f9e3f875ab7fe3bb75",
+      "bytes": 55918,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     },
@@ -307,13 +307,13 @@
       "assetPath": "/assets/portraits/milton-friedman.webp",
       "altText": "Creative historical portrait of Milton Friedman in a dark suit and large glasses before an abstract economics chalkboard.",
       "objectPosition": "50% 30%",
-      "sha256": "90e95dfffcdc20693fc06f169ca5efeba18a135b0ea873872c3844bbd359c554",
-      "bytes": 62460,
+      "sha256": "9d3eccbd3e702d1877fe9302f0c6515774204bf73a81c37e330483e6c5b4b2f6",
+      "bytes": 86876,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     },
@@ -322,13 +322,13 @@
       "assetPath": "/assets/portraits/john-maynard-keynes.webp",
       "altText": "Creative historical portrait of John Maynard Keynes in a dark 1940s suit and bow tie beside an unmarked world map.",
       "objectPosition": "50% 27%",
-      "sha256": "c9a98d99cd6de58c5d8b5189111cb4d4898f8b567d49ed1935e5ac1d4d8290a1",
-      "bytes": 38190,
+      "sha256": "d3acbd1029883d596528f4afa93cac219d59248fe16353992c31b4e0e867ca80",
+      "bytes": 49504,
       "provenance": {
         "assetStatus": "reused",
         "sourceReference": "Issue #83 exact reviewed public-site portrait · local-app presentation promotion 2026-09-02",
-        "creativeInterpretation": "Original AI-generated historical interpretation; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
-        "visualReviewDate": "2026-09-01",
+        "creativeInterpretation": "Original AI-generated historical interpretation; deterministically exposure-corrected for legibility at local-app card sizes; no third-party source image was supplied, bundled, or claimed in this asset record. This provenance statement is not a legal guarantee.",
+        "visualReviewDate": "2026-09-04",
         "catalogAdmission": false
       }
     }
