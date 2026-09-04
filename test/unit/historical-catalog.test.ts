@@ -77,8 +77,29 @@ function replaceManifest(root: string, pattern: string | RegExp, value: string):
   writeFileSync(path, changed);
 }
 
-test("loads all twelve built-ins in stable order with exact independent prompt bytes", () => {
+test("loads all eighteen built-ins in stable website call order with exact independent prompt bytes", () => {
   const catalog = loadHistoricalCatalog(SOURCE_ROOT);
+
+  assert.deepEqual(catalog.personas.map(({ slug }) => slug), [
+    "ada-lovelace",
+    "benjamin-franklin",
+    "elizabeth-i",
+    "frederick-douglass",
+    "galileo-galilei",
+    "george-washington",
+    "isaac-newton",
+    "jane-austen",
+    "leonardo-da-vinci",
+    "mary-shelley",
+    "nicolaus-copernicus",
+    "thomas-jefferson",
+    "hal-finney",
+    "timothy-c-may",
+    "len-sassaman",
+    "ludwig-von-mises",
+    "milton-friedman",
+    "john-maynard-keynes",
+  ]);
 
   assert.deepEqual(
     catalog.personas.map(({ slug, manifestId, name }) => ({

@@ -94,6 +94,36 @@ export const EXPECTED_HISTORICAL_PERSONAS = Object.freeze([
     manifestId: "org.greenroom.historical.thomas-jefferson",
     name: "Thomas Jefferson",
   }),
+  Object.freeze({
+    slug: "hal-finney",
+    manifestId: "org.greenroom.historical.hal-finney",
+    name: "Hal Finney",
+  }),
+  Object.freeze({
+    slug: "timothy-c-may",
+    manifestId: "org.greenroom.historical.timothy-c-may",
+    name: "Timothy C. May",
+  }),
+  Object.freeze({
+    slug: "len-sassaman",
+    manifestId: "org.greenroom.historical.len-sassaman",
+    name: "Len Sassaman",
+  }),
+  Object.freeze({
+    slug: "ludwig-von-mises",
+    manifestId: "org.greenroom.historical.ludwig-von-mises",
+    name: "Ludwig von Mises",
+  }),
+  Object.freeze({
+    slug: "milton-friedman",
+    manifestId: "org.greenroom.historical.milton-friedman",
+    name: "Milton Friedman",
+  }),
+  Object.freeze({
+    slug: "john-maynard-keynes",
+    manifestId: "org.greenroom.historical.john-maynard-keynes",
+    name: "John Maynard Keynes",
+  }),
 ] as const);
 
 export const EDUCATIONAL_NOTICE =

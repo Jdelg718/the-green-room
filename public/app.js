@@ -78,7 +78,7 @@ export const API_PATHS = Object.freeze({
 
 export const EDUCATIONAL_NOTICE = "Educational creative interpretation. This AI persona is an original, source-informed interpretation of a historical person. It is not the person, an authoritative reconstruction, or an endorsed representative. Generated dialogue is not a historical quotation. Consult the cited sources for the record.";
 export const CREATOR_AUTHORIZED_NOTICE = "Creator-authorized pseudonymous interpretation. This AI persona is an original, source-informed interpretation of FF2K. It is not the person, a literal consciousness, an authentic quotation, or a live representative. Generated dialogue is interpretive and is never presented as FF2K's actual words.";
-const CATALOG_SIZE = 13;
+const CATALOG_SIZE = 19;
 const ROOM_LIBRARY_LIMIT = 100;
 const EXACT_CATALOG_KEYS = Object.freeze(["behavior", "catalogKind", "educationalNotice", "identity", "knowledge", "name", "slug", "summary"]);
 const EXACT_IDENTITY_KEYS = Object.freeze(["ageBand", "setting", "type"]);
@@ -121,6 +121,12 @@ export const TRUSTED_CHARACTER_PORTRAITS = Object.freeze({
   "mary-shelley": Object.freeze({ src: "/assets/portraits/mary-shelley.webp", alt: "Creative historical portrait of Mary Shelley in a black period dress at a storm-lit writing desk.", objectPosition: "50% 32%" }),
   "nicolaus-copernicus": Object.freeze({ src: "/assets/portraits/nicolaus-copernicus.webp", alt: "Creative historical portrait of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes.", objectPosition: "50% 29%" }),
   "thomas-jefferson": Object.freeze({ src: "/assets/portraits/thomas-jefferson.webp", alt: "Creative historical portrait of Thomas Jefferson in a dark period coat in an architectural study.", objectPosition: "50% 31%" }),
+  "hal-finney": Object.freeze({ src: "/assets/portraits/hal-finney.webp", alt: "Creative historical portrait of Hal Finney with short graying hair and glasses in a dim engineering workspace.", objectPosition: "50% 31%" }),
+  "timothy-c-may": Object.freeze({ src: "/assets/portraits/timothy-c-may.webp", alt: "Creative historical portrait of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop.", objectPosition: "50% 31%" }),
+  "len-sassaman": Object.freeze({ src: "/assets/portraits/len-sassaman.webp", alt: "Creative historical portrait of Len Sassaman with short dark hair, a beard, and glasses in a dim research workspace.", objectPosition: "50% 30%" }),
+  "ludwig-von-mises": Object.freeze({ src: "/assets/portraits/ludwig-von-mises.webp", alt: "Creative historical portrait of Ludwig von Mises in a dark suit and round glasses at a dim seminar desk.", objectPosition: "50% 33%" }),
+  "milton-friedman": Object.freeze({ src: "/assets/portraits/milton-friedman.webp", alt: "Creative historical portrait of Milton Friedman in a dark suit and large glasses before an abstract economics chalkboard.", objectPosition: "50% 30%" }),
+  "john-maynard-keynes": Object.freeze({ src: "/assets/portraits/john-maynard-keynes.webp", alt: "Creative historical portrait of John Maynard Keynes in a dark 1940s suit and bow tie beside an unmarked world map.", objectPosition: "50% 27%" }),
 });
 
 function characterMonogram(displayName) {
@@ -275,6 +281,10 @@ export function createSelectionState(slugs = []) {
     throw new TypeError("Invalid selection state");
   }
   return Object.freeze({ slugs: Object.freeze([...slugs]) });
+}
+
+export function newRoomSelection() {
+  return createSelectionState();
 }
 
 export function historicalSelectionFromRoom(room, catalog) {
@@ -1319,8 +1329,7 @@ export function startBrowserApp() {
     elements.pauseResume.disabled = !availability.canPauseResume;
     elements.stopRoom.disabled = !availability.canStop;
     elements.openSetup.disabled = pending.size !== 0;
-    elements.openSetup.textContent = room.status === "stopped" ? "Start a new bundled room" :
-      room.participants.some(({ kind }) => kind === "persona") ? "Change cast" : "Build bundled room";
+    elements.openSetup.textContent = "New room";
     elements.pauseResume.textContent = isPaused ? "Resume room" : "Pause room";
     elements.composerNote.textContent = room.status === "stopped" ? "This room has stopped permanently. The transcript remains available." :
       isPaused ? "Resume the room before sending another message." : pending.has("message") ? "The room is considering this cue." :
@@ -1612,7 +1621,7 @@ export function startBrowserApp() {
 
   function renderGallery() {
     if (catalog === null) {
-      elements.galleryResults.textContent = catalogError ? "Catalog unavailable" : "Loading 13 candidates…";
+      elements.galleryResults.textContent = catalogError ? "Catalog unavailable" : "Loading 19 candidates…";
       elements.grid.setAttribute("aria-busy", String(!catalogError));
       renderGalleryState(catalogError ? "Bundled catalog unavailable" : "Loading bundled candidates…", catalogError || "The safe local catalog is being checked.", Boolean(catalogError));
       return;
@@ -1703,7 +1712,7 @@ export function startBrowserApp() {
 
   function showSetup() {
     if (room === null || pending.size !== 0) return;
-    selection = catalog === null ? createSelectionState() : historicalSelectionFromRoom(room, catalog);
+    selection = newRoomSelection();
     elements.liveView.hidden = true; elements.setupView.hidden = false; elements.builderError.textContent = "";
     elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to bundled candidates";
     renderGallery(); renderBuilder(); elements.galleryHeading.focus();

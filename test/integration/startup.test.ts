@@ -399,18 +399,18 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
     new URL("../../personas/historical", import.meta.url),
   );
   assert.equal(existsSync(packagedHistoricalRoot), true);
-  assert.equal(loadHistoricalCatalog(packagedHistoricalRoot).personas.length, 12);
+  assert.equal(loadHistoricalCatalog(packagedHistoricalRoot).personas.length, 18);
   const packagedOriginalRoot = fileURLToPath(new URL("../../personas/original", import.meta.url));
   assert.equal(existsSync(packagedOriginalRoot), true);
   const bundled = loadBundledPersonaCatalog({
     historicalRoot: packagedHistoricalRoot,
     originalRoot: packagedOriginalRoot,
   });
-  assert.equal(bundled.personas.length, 13);
-  assert.equal(bundled.personas[12]?.slug, "ff2k");
+  assert.equal(bundled.personas.length, 19);
+  assert.equal(bundled.personas[18]?.slug, "ff2k");
   const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/catalog/personas`);
   assert.equal(catalogResponse.status, 200);
-  assert.equal((await catalogResponse.json() as Array<{ slug: string }>)[12]?.slug, "ff2k");
+  assert.equal((await catalogResponse.json() as Array<{ slug: string }>)[18]?.slug, "ff2k");
   const bootstrap = await fetch(`http://127.0.0.1:${port}/api/bootstrap`);
   assert.deepEqual((await bootstrap.json() as {
     capabilities: { providerSetup: { cloud: boolean; lmStudio: boolean } };
@@ -419,6 +419,9 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   const portraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/ff2k.webp`);
   assert.equal(portraitResponse.status, 200);
   assert.equal((await portraitResponse.arrayBuffer()).byteLength, 43_092);
+  const promotedPortraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/hal-finney.webp`);
+  assert.equal(promotedPortraitResponse.status, 200);
+  assert.equal((await promotedPortraitResponse.arrayBuffer()).byteLength, 33_868);
 });
 
 test("local-source launcher inspects a real pack from a foreign cwd and cleans up on SIGTERM", async () => {

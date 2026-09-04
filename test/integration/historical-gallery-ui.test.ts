@@ -60,8 +60,10 @@ test("bundled gallery HTML exposes two accessible views, generalized copy, dialo
   assert.match(html, /Request one persona reply/);
   assert.match(html, /id="room-identity-roster"[^>]*aria-label="Character identities"/);
   assert.match(html, /Unchecked saves your line without an AI response\./);
-  assert.match(html, /Bundled room builder/);
-  assert.match(html, /twelve historical interpretations and one creator-authorized pseudonymous original/);
+  assert.match(html, /New saved room/);
+  assert.match(html, /Existing rooms stay saved/);
+  assert.match(html, /Characters can be reused across rooms/);
+  assert.match(html, /eighteen historical interpretations and one creator-authorized pseudonymous original/);
   assert.doesNotMatch(html, /<style\b|<script(?![^>]*\bsrc=)|https?:|src="\/\/|href="\/\//i);
 });
 
@@ -70,7 +72,7 @@ test("real Fastify serves all trusted portraits locally with verified bytes", as
   const manifestResponse = await app.inject({ method: "GET", url: "/assets/portraits/manifest.json", headers: { host: HOST } });
   assert.equal(manifestResponse.statusCode, 200);
   const manifest = manifestResponse.json<{ assets: Array<{ assetPath: string; sha256: string; altText: string }> }>();
-  assert.equal(manifest.assets.length, 16);
+  assert.equal(manifest.assets.length, 22);
   for (const asset of manifest.assets) {
     assert.match(asset.assetPath, /^\/assets\/portraits\/[a-z0-9-]+\.webp$/);
     assert.match(asset.altText, /^(?:Creative historical portrait of |Original portrait of |Stylized cartoon figure )/);
@@ -82,14 +84,14 @@ test("real Fastify serves all trusted portraits locally with verified bytes", as
   assert.doesNotMatch(manifestResponse.body, /https?:|(?:^|["'])\/\/|portraitUrl|sourcePath|prompt/i);
 });
 
-test("real Fastify catalog supplies twelve historical and one FF2K original safe candidate DTO", async (context) => {
+test("real Fastify catalog supplies eighteen historical and one final FF2K original safe candidate DTO", async (context) => {
   const app = appFor(context);
   const response = await app.inject({ method: "GET", url: "/api/catalog/personas", headers: { host: HOST } });
   assert.equal(response.statusCode, 200);
   const ui = await contract();
   const catalog = ui.validateCatalogDto(response.json());
-  assert.equal(catalog.length, 13);
-  assert.equal(new Set(catalog.map((persona: any) => persona.slug)).size, 13);
+  assert.equal(catalog.length, 19);
+  assert.equal(new Set(catalog.map((persona: any) => persona.slug)).size, 19);
   assert.ok(catalog.every((persona: any) => persona.status === "candidate · draft"));
   assert.ok(catalog.filter((persona: any) => persona.catalogKind === "historical").every((persona: any) => persona.educationalNotice === NOTICE));
   const ff2k = catalog.find((persona: any) => persona.slug === "ff2k");
@@ -102,7 +104,7 @@ test("real Fastify catalog supplies twelve historical and one FF2K original safe
   const invalid = structuredClone(response.json());
   invalid[0].knowledge.domains = [];
   assert.throws(() => ui.validateCatalogDto(invalid), /invalid catalog/i);
-  assert.throws(() => ui.validateCatalogDto(response.json().slice(0, 12)), /invalid catalog/i);
+  assert.throws(() => ui.validateCatalogDto(response.json().slice(0, 18)), /invalid catalog/i);
 });
 
 test("browser accepts the complete bootstrap capability contract", async (context) => {
@@ -181,6 +183,7 @@ test("behavior labels and selection capacity are deterministic and ordered", asy
     { kind: "persona", personaSlug: "ada-lovelace" },
   ] }, [{ slug: "ada-lovelace" }]);
   assert.deepEqual(roomSelection.slugs, ["ada-lovelace"]);
+  assert.deepEqual(ui.newRoomSelection().slugs, []);
 });
 
 test("duplicate cast starts are rejected and dialog focus returns only to a live trigger", async () => {

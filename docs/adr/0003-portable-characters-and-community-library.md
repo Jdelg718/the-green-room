@@ -6,7 +6,7 @@
 
 ## Context
 
-The verified local alpha contains twelve source-informed historical character directories plus the creator-authorized pseudonymous FF2K original candidate and can place one to three bundled candidates in a durable room. Product direction now requires three connected experiences:
+The verified local alpha contains eighteen source-informed historical character directories plus the creator-authorized pseudonymous FF2K original candidate and can place one to three bundled candidates in a durable room. Product direction now requires three connected experiences:
 
 1. researched historical characters ship prebuilt with the local application;
 2. a guided Character Wizard lets users create original characters without editing YAML or Markdown by hand; and
@@ -38,13 +38,13 @@ The canonical portable character artifact is the bounded, declarative `.greenroo
 
 ### Installed historical cast
 
-The local application ships with twelve repository-controlled historical candidate packs:
+The local application ships with eighteen repository-controlled historical candidate packs:
 
-Ada Lovelace, Benjamin Franklin, Elizabeth I, Frederick Douglass, Galileo Galilei, George Washington, Isaac Newton, Jane Austen, Leonardo da Vinci, Mary Shelley, Nicolaus Copernicus, and Thomas Jefferson.
+Ada Lovelace, Benjamin Franklin, Elizabeth I, Frederick Douglass, Galileo Galilei, George Washington, Isaac Newton, Jane Austen, Leonardo da Vinci, Mary Shelley, Nicolaus Copernicus, Thomas Jefferson, Hal Finney, Timothy C. May, Len Sassaman, Ludwig von Mises, Milton Friedman, and John Maynard Keynes.
 
 It also ships the FF2K creator-authorized pseudonymous original as a separately labeled bundled candidate/draft. Its direct authorization, exact asset grant, content/privacy review, pseudonym-only runtime boundary, and revocation route do not make it an Official Catalog entry or create a precedent for celebrities, franchises, estates, or unreviewed likenesses.
 
-They are source-informed educational interpretations, not literal simulations. The verified alpha may include and run exact repository versions while public release still fails closed on the Official Catalog Manifest gate. Public packaging requires version-and-digest-specific catalog admission, complete provenance, historical/content review, provenance/rights review, and the required educational interpretation label. The 12 approved pinned AI-generated portraits may ship as website and local-app presentation assets with accessible fallbacks and honest labeling, but that use does not admit a pack or asset to the Official Catalog; portrait redistribution inside downloadable packs remains held for its exact asset-manifest and catalog gates.
+They are source-informed educational interpretations, not literal simulations. The verified alpha may include and run exact repository versions while Official Catalog admission still fails closed on the version-and-digest-specific manifest gate. Preinstallation is a separate product state and does not imply catalog admission. The 18 approved pinned AI-generated portraits may be used as website and local-app presentation assets with accessible fallbacks and honest labeling, but that use does not admit a pack or asset to the Official Catalog; portrait redistribution inside downloadable packs remains held for its exact asset-manifest and catalog gates.
 
 Neither the preinstalled/default cast nor a project-operated catalog may use copyrighted entertainment-franchise packs, copied scripts, actor images, cloned voices, or unreviewed likenesses. Community provenance or a compatible license does not create an exception to the separately accepted content and rights policy.
 
@@ -148,7 +148,7 @@ Maintainers can hold, delist, revoke, or tombstone exact versions. The catalog k
 - The programmable-character contract includes a schema and deterministic projection oracle, but runtime state work remains future work and the design does not itself install or execute packs.
 - Community review is maintainer-intensive and deliberately slower than anonymous publishing.
 - Static search and GitHub submission are less convenient than a marketplace but materially reduce account, moderation, storage, and abuse risk.
-- The twelve historical candidates cannot be labeled Official Catalog entries until the existing manifest/review gate passes.
+- The eighteen historical candidates cannot be labeled Official Catalog entries until the existing manifest/review gate passes.
 
 ## Rejected alternatives
 

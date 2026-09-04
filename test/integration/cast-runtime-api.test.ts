@@ -397,7 +397,7 @@ test("catalog and cast APIs are closed, safe, and move every fixed façade route
   });
   assert.equal(catalogResponse.statusCode, 200);
   const catalog = catalogResponse.json<Array<Record<string, unknown>>>();
-  assert.equal(catalog.length, 13);
+  assert.equal(catalog.length, 19);
   assert.deepEqual(catalog.map(({ slug }) => slug), personaCatalog.personas.map(({ slug }) => slug));
   assert.deepEqual(Object.keys(catalog[0] ?? {}).sort(), [
     "behavior", "catalogKind", "educationalNotice", "identity", "knowledge", "name", "slug", "summary",

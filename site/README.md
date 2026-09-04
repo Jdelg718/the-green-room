@@ -28,7 +28,7 @@ The validator uses only the Python standard library. It checks required pages an
 - `download/index.html` — honest forthcoming-release state
 - `contribute/index.html` — contribution and security guidance
 - `assets/site.css` — shared Backstage Electric styles using system fonts
-- `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations; six remain website-only non-runtime holds; originals and generation metadata are not web assets
+- `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations also used as local-app presentation assets; originals and generation metadata are not web assets
 - `assets/favicon.svg` — local CSS-style GR slash mark
 - `assets/social-card.png` — approved 1200 × 630 Backstage Electric Open Graph/Twitter image
 - `../design/social-card/backstage-electric.svg` — editable source for the approved social card

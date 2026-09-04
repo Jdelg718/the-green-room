@@ -12,8 +12,8 @@ inspection contract for a future validator and persona loader. The words
 The repository has two intentionally distinct validation roles:
 
 1. The built-in runtime validator is a deliberately narrower directory loader
-   for exactly the twelve bundled directories under `personas/historical/`. It
-   requires that exact twelve-directory catalog, the exact nine-file/no-assets
+   for exactly the eighteen bundled directories under `personas/historical/`. It
+   requires that exact eighteen-directory catalog, the exact nine-file/no-assets
    layout, strict closed 0.1 manifests, bounded runtime text, and the prompt
    assembly rules below before LM Studio submission.
 2. `greenroom-persona` is the sole general, non-extracting validation and

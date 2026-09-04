@@ -12,7 +12,7 @@ The current executable baseline provides:
 - a bounded deterministic director that selects zero or one speaker;
 - durable events, pause/resume/stop and mute controls, cancellation, replay, and exact restart continuity;
 - a fixed-loopback LM Studio private provider plus deterministic test providers;
-- 12 strictly validated historical candidate packs, the FF2K creator-authorized pseudonymous original candidate, and a mixed cast gallery; and
+- 18 strictly validated historical candidate packs, the FF2K creator-authorized pseudonymous original candidate, and a mixed cast gallery; and
 - the integrated release gate covering the Node and Python suites, TypeScript typecheck/build, Ruff formatting/lint, mypy, and private first-playable acceptance; exact totals are recorded with release evidence rather than this roadmap.
 
 This establishes technical viability. It does not approve historical candidates or portraits for an Official Catalog release.
@@ -82,18 +82,18 @@ The current packaging boundary and executable spike sequence are defined in the 
 **Outcome:** ship the researched historical cast prebuilt, let users create portable characters through a local wizard, safely import the same pack format, and admit only reviewed content and assets to public catalogs.
 
 - Retain the integrated strict, non-extracting validator and inspection flow; installation remains a separate, explicit action after successful inspection.
-- Keep the exact twelve historical candidate packs plus the FF2K bundled original candidate available in the local application; admit public release versions only through the Official Catalog Manifest gate.
+- Keep the exact eighteen historical candidate packs plus the FF2K bundled original candidate available in the local application; admit Official Catalog versions only through the Official Catalog Manifest gate.
 - Build the local Character Wizard against the same `.greenroom` contract used by validation, import, and community distribution.
 - Persist wizard drafts in the local runtime rather than browser storage or `greenroomai.net`.
 - Maintain portrait asset records binding exact bytes to provenance, generation/source basis, attribution, and review evidence.
 - Preserve text/monogram fallbacks wherever a portrait is unavailable or fails to load.
-- Treat the 12 approved AI-generated portraits as website and local-app presentation assets with explicit creative-interpretation labeling; that publication does not admit the associated packs or artwork to the Official Catalog.
-- Keep the six additional cypherpunk/economist packs in the non-runtime candidate hold even though their exact public profiles and portraits are approved and live on the website.
+- Treat the 18 approved AI-generated portraits as website and local-app presentation assets with explicit creative-interpretation labeling; that publication does not admit the associated packs or artwork to the Official Catalog.
+- Keep all eighteen historical packs preinstalled while preserving their candidate/draft status and the separate Official Catalog admission gate.
 - Hold portrait inclusion in downloadable packs and catalog distribution until exact-version asset-manifest review and Official Catalog admission.
 
-**Acceptance criteria:** a fresh local installation exposes all twelve exact historical candidate packs without a network request; identical wizard input exports deterministic bytes accepted by the strict validator; malformed or executable imports fail closed; inspection has no install side effect; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
+**Acceptance criteria:** a fresh local installation exposes all eighteen exact historical candidate packs plus FF2K without a network request; identical wizard input exports deterministic bytes accepted by the strict validator; malformed or executable imports fail closed; inspection has no install side effect; exact pack and asset digests are reviewable; no candidate is shown as official without the manifest gate; public/local presentation uses only approved pinned portrait bytes with accessible fallbacks and honest AI-art labeling; website publication is not represented as pack/catalog admission; and pack or catalog redistribution remains blocked until its separate asset-manifest gate passes.
 
-**Verified website state:** `greenroomai.net` now serves 18 historical profiles: the original twelve presentation profiles plus six approved website-only profiles for Hal Finney, Timothy C. May, Len Sassaman, Ludwig von Mises, Milton Friedman, and John Maynard Keynes. All six remain non-runtime holds and outside the Official Catalog.
+**Verified website state:** `greenroomai.net` serves the same 18 historical profiles now preinstalled by the local runtime. All remain candidates outside the Official Catalog.
 
 ## R5 — greenroomai.net and community release
 

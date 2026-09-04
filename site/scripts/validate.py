@@ -34,7 +34,7 @@ CHARACTER_PROFILES = {
     "thomas-jefferson": "Thomas Jefferson",
     "timothy-c-may": "Timothy C. May",
 }
-HELD_PROFILE_SLUGS = frozenset(
+PROMOTED_PROFILE_SLUGS = frozenset(
     {
         "hal-finney",
         "john-maynard-keynes",
@@ -105,44 +105,44 @@ PORTRAIT_ASSETS = {
     "timothy-c-may": ("4117c268e92d8dfad6c9fed65b678ef0522b820a10d9f5794742e87a2fb0d46d", 768, 1024, "AI-generated creative historical interpretation of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop."),
 }
 PROFILE_MAIN_TEXT_SHA256 = {
-    "ada-lovelace": "29c6d82d8f3b8909bbf69f768e7f90338cd2bf78dd4bc9d14072c14aec4cd09e",
-    "benjamin-franklin": "5bfb46cb1310184a1a24ee4c760cd4daf84f725330dca4616d06a9a6db126fec",
-    "elizabeth-i": "dbf4324ad6f0548a1811a0b63e3b0846fa0dfba38d3c65dee6ac3021fe52c088",
-    "frederick-douglass": "c5d7114bfa6549adcb9edc6082797bc799591730b24925cc8d0e154299ef8782",
-    "galileo-galilei": "664407b46d2b37f6d6c208a1f69960015dde338b0fec4161d35326c0ba69c4b3",
-    "george-washington": "1553d0aafc79076f46b31bc9b01f56b4b0620a10c3d6bf0fda773168a89d97b8",
-    "hal-finney": "74a36411f98e50372df579273263ec9cab28afd3634346b04df918fdb1772702",
-    "isaac-newton": "3ada6b152e241449bc82f9987440e0dd04f556ce2bb498365eb21999d6a35c39",
-    "jane-austen": "feeac97a84bc4423ad365179a5063f00ca98c427d0824d73cf43ce6c2402d59d",
-    "john-maynard-keynes": "0637c97aaad183a06a4a475c59e96abaa615fd17aa19c0bbc79552ebb580402c",
-    "leonardo-da-vinci": "b0505daf7550c832e07d9f4eda3e6779ff54bdbd5ee8efc0d30e965a8a5f64d1",
-    "len-sassaman": "9a09deb2372617d512012bb7b2c980efcd62a7fade46d669beab4c3c43e51bb1",
-    "ludwig-von-mises": "e11eac2aec8a447c90c6ad7b361ba2ab68b93765b639f679a56d9cfd7331c0e4",
-    "mary-shelley": "1778fd5051111634dd487e01365d6eceea369a685f5f10209ee9aeac433c675e",
-    "milton-friedman": "301be702d02c1cae560337f0a09a70d7018d43ce8e55816e8df56cd70bb07e5a",
-    "nicolaus-copernicus": "aae6dcbee4fa011c50b76099b3b41b236a2132f916d1232a458a19993417a652",
-    "thomas-jefferson": "13fe4c9bc0a9ddbfab10d22928bf7266e1cbcacb1088bf8add56ddb1cf821d18",
-    "timothy-c-may": "4919a7962b6d40168cdcb08d6f140e06ef13e95a2813134506d1998c13c0f861",
+    "ada-lovelace": "89e691f39800b9364e90782f802f9cd6918895c3844e909a070f55531bb3fa48",
+    "benjamin-franklin": "50b11fe160a001e960ebf4c147d6408204500bc7e28bea0888a3872ec2080909",
+    "elizabeth-i": "d154d2e768ab3cf2eb9b5ecf4b79c06d8144b48d44dbaf51ee9d5e1d44e841b0",
+    "frederick-douglass": "2f2e56729dcee90adae9ea84be9e50640f1d46f5fbaceca470434bcca8baf202",
+    "galileo-galilei": "45e81e01f03ddd83283aca70a9fbe073ec6377e24347932987cbe978f4015eda",
+    "george-washington": "797e7308d8224f198aacd80335a7d4d2a08ef9a53e51f07e7c64160cc13ac1ae",
+    "hal-finney": "97cc6d43476ba68abfc9142c337c59563f93d59113ac237b6cfa719644772bf5",
+    "isaac-newton": "0d7190ab9c46e8358bd874c0cc472cf8cc418425797a4b3fb50e318f080c21a8",
+    "jane-austen": "db729155c9e0e8d425dd94be5d0aaafb993e2338eba93eef063135e923a02036",
+    "john-maynard-keynes": "a38a0a83d26cf162304962e9a328e3b175cc336f5cdb288e0ffa7c5bab3b8e42",
+    "leonardo-da-vinci": "c1a34ad863224e4d59e09018511060f9b49a6f8913bf4ea0999e99159c2982f6",
+    "len-sassaman": "ce948b7492a80c8d02866a299c1115cd700066fddc5e42d0ee33e52efa3ad909",
+    "ludwig-von-mises": "ecd96a0fd4e476969a17fcb942ea8e4c80a5a282d07425394c32a57a4ee97a0c",
+    "mary-shelley": "f4f2b218f6526a7c764cf05fe6d9f82817f9953de4cb22ee36c0d6cd0cf81b90",
+    "milton-friedman": "2dc24660568b6c317e3bf8c2d3cb680d8e2d34f3a67ded239e1f05880fca6158",
+    "nicolaus-copernicus": "a8cd34a7414afba70e5532562f425993343962df0afe78b3a092733718f5c2c1",
+    "thomas-jefferson": "09f327748551040e4ea937ce2d9de1263148fe099fceeb90413786c7dd6e7906",
+    "timothy-c-may": "224aa335b6900547b8b9b10e00ae4c642f5b66a679da51e2a2c7183fec9e91ab",
 }
 PROFILE_SOURCE_SHA256 = {
-    "ada-lovelace": "e7c2c276f1ab868ab688f2922719a971ae47cd6b1d25dbdc5f85663301f2f943",
-    "benjamin-franklin": "8abd2fddfe3c5d66a968aafd962983a528a7bc092f0480b1ae318fdd82054c40",
-    "elizabeth-i": "9ffe1fb9c03c415ab61604d3266908bd0b2b4f4673d4f8a78bcbefb3bc4bed37",
-    "frederick-douglass": "d1bc0f2b61eddf5fc3e79e9d13cdd18e1f6316e38e623759a78413e382834145",
-    "galileo-galilei": "4bdca32485ab42f380fe15350cfd6c2014f6c2ea626cd7ad3f7dd6f350d9e33d",
-    "george-washington": "9adb7ce455ee77bdbebf373baa9f4beb1bb514e1b3229baef3263fd5c112caef",
-    "hal-finney": "d16baa32003161b4a174857ae9431c4f88feab0644633ae74046da81ab59ac75",
-    "isaac-newton": "6524eb5de2a3d1eda7639e51128a25f63ece4c60d7c00cf84fb4d02bdca56b29",
-    "jane-austen": "12eae66cb852bb0235d6cbbf44cfebdc6c98dd0b58b43f4d5aaf9e5cebb09a1f",
-    "john-maynard-keynes": "4eff7ff3e66249a995b4a796b41d9650b034bf8352134c318ea1f5efa53fc1af",
-    "leonardo-da-vinci": "dc1a192fb19214358d24ee3650c9036c32e345ca109ada3eed84623d210509fb",
-    "len-sassaman": "3cd18fa90e0e70150113fb4e7f317155de14c5994c3d26a357ab5fb8fd252934",
-    "ludwig-von-mises": "45efc6d14a7d2c10dd93d374dc0f601c9a5ecac4a31b558490d8aa58dd133bcf",
-    "mary-shelley": "24591ac096c21b0306c7c2846c88b76b13c2016ab99b75cc5b7caea71a474e97",
-    "milton-friedman": "bdb23ef0ffae1a650f9ab42ef72d48c50ea548b6a27ed04d97cbc2067a50d9ee",
-    "nicolaus-copernicus": "08c8205630525ff437373eebd260a0215dc4cab22a42cdf213bf2fe0436a34f7",
-    "thomas-jefferson": "19a8dfe761f40f8f5fc5e450a51d70042ff3390b43c52cd931ffe681f8e8ba3d",
-    "timothy-c-may": "be8ba6dfc40540feeb9f3552ce71063d4e64dd311845165cd5da38685e3db9e0",
+    "ada-lovelace": "3547f8ec0b86ee4f083c04e1ce31d5b8fff2a19fa82fbd0caa64c56250772cbe",
+    "benjamin-franklin": "6fa9d040e874b5f5fcea5f5e2114c592917ae0e6587883d27a8c232a5428f457",
+    "elizabeth-i": "0b0ff59bfb49eb0cf50c4d78c9bf63bb046437a908817da0327cc66e5b5b7e11",
+    "frederick-douglass": "454af42aa07d51d0ef91655bc95dcf2a5535cce639febe11f65ecbeb194ae629",
+    "galileo-galilei": "216b17b7eb5382584f1b7835f9923a190dbf925d8b8a4e471e1bb49211279383",
+    "george-washington": "29f75e11bcbd2c5e3c266e77c83f14252b08792497e523ad655880dda25f2e92",
+    "hal-finney": "afc08a5bcf170d51b343d59aba379ed6f540bb55762788dae166c2b65de3e112",
+    "isaac-newton": "13bc1c2b530c4f2712d8f5f62682da81164cf3beecd27d3e4ddec4e4065107d5",
+    "jane-austen": "74a40a4546874f61a66f8cce16c827fa36b0aee935ba86bdc1b9506679b571ea",
+    "john-maynard-keynes": "febbb594d3b745feb662388ebd42b34ee4f23e03121d6ff7968013d96c0f3487",
+    "leonardo-da-vinci": "b9d1d3c307b29655f8629a0a80ca118bea624d45d0539ee7425c7d9d05b1a68d",
+    "len-sassaman": "685fec7064e4bbbeeb05487b8aed92fde697d615191c58e2596f885503cd125c",
+    "ludwig-von-mises": "36998ed346d023fb6994966154c26979e5ff3aa7aeb72353ea4c670cd02390f0",
+    "mary-shelley": "41ad62a14394a6797c26122bce676e664be30ff3dfdd58674b1df579939d038d",
+    "milton-friedman": "5f2f2c8bcf005095c2fbc04a252c2e3ae9db0e42a1ec3c7201cff8e9c5141d0b",
+    "nicolaus-copernicus": "01bcccfc02c4abde1f05843d8c783f67274a09584283a924741457218043a79a",
+    "thomas-jefferson": "fe0455dfc95e7b95d40899eae4b7438839cbdb252751b3440ffb14aa83388b37",
+    "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
 }
 PROFILE_STYLESHEET_SHA256 = "e3dadfd5cc5907fbb36f48a0b926fba5e387bf289eb2dcdfadcdf66764ce4560"
 SOCIAL_CARD_SHA256 = "ab01167634803a5478c3c76d5b1d925e03ea3857b8143041d7edf422c1b8dc87"
@@ -180,17 +180,15 @@ REQUIRED_LANGUAGE = {
         "your own local or cloud LLM",
         "bounded context",
         "forthcoming",
-        "twelve source-informed historical character packs",
+        "eighteen source-informed historical character packs",
         "Character Wizard",
         "community library",
     ),
     "characters/index.html": (
         "eighteen public historical profiles",
-        "twelve local-alpha candidates",
-        "six additional profiles are approved for website presentation",
-        "candidate packs—not approved Official Catalog releases",
-        "after exact-version catalog admission",
-        "Public preinstallation requires exact-version approval",
+        "all eighteen researched historical character packs",
+        "candidate packs are preinstalled but are not approved Official Catalog releases",
+        "Official Catalog admission requires exact-version approval",
         "source-informed educational interpretation",
         "Character Wizard",
         "community library",
@@ -218,8 +216,8 @@ REQUIRED_LANGUAGE = {
         "not Official Catalog admission",
         "remain in development",
         "no Official Catalog Manifest exists yet",
-        "approved for website presentation",
-        "Website presentation is not runtime activation",
+        "approved website and local-app presentation assets",
+        "runtime preinstallation remain separate from Official Catalog admission",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
     "download/index.html": ("forthcoming", "no downloadable release"),
@@ -655,16 +653,16 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         ]
         if len(matching_cards) != 1:
             fail(errors, f"characters/index.html: expected one cast card for {name}")
-        elif slug in HELD_PROFILE_SLUGS:
+        elif slug in PROMOTED_PROFILE_SLUGS:
             status_labels = [
                 index
                 for index, element in scoped_elements(parser, "small", matching_cards[0])
-                if normalized_text(element) == "Website presentation approved · non-runtime hold"
+                if normalized_text(element) == "Preinstalled candidate · not Official Catalog admitted"
             ]
             if len(status_labels) != 1:
-                fail(errors, f"characters/index.html: missing held status label for {name}")
+                fail(errors, f"characters/index.html: missing promoted status label for {name}")
             elif not is_visible(parser, status_labels[0]):
-                fail(errors, f"characters/index.html: missing visible held status label for {name}")
+                fail(errors, f"characters/index.html: missing visible promoted status label for {name}")
 
         _, width, height, alt = PORTRAIT_ASSETS[slug]
         expected_image = {
@@ -738,20 +736,12 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         fields: dict[str, str] = {}
     else:
         fields = definition_fields(parser, fact_asides[0], errors, relative)
-    if slug in HELD_PROFILE_SLUGS:
-        expected_fields = {
-            "Historical horizon": PROFILE_HORIZONS[slug],
-            "Catalog status": "Website presentation approved under non-runtime hold",
-            "Preinstallation": "Not activated, built in, preinstalled, redistributed, or catalog-admitted",
-            "Portrait": "Approved AI-generated creative historical interpretation for website presentation; not authentic, and no endorsement is claimed",
-        }
-    else:
-        expected_fields = {
-            "Historical horizon": PROFILE_HORIZONS[slug],
-            "Catalog status": "Candidate pack in the verified local alpha",
-            "Preinstallation": "Intended only after exact-version Official Catalog approval",
-            "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
-        }
+    expected_fields = {
+        "Historical horizon": PROFILE_HORIZONS[slug],
+        "Catalog status": "Candidate pack in the verified local alpha",
+        "Preinstallation": "Preinstalled separately from Official Catalog admission",
+        "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
+    }
     field_errors = {
         "Historical horizon": "historical horizon field",
         "Catalog status": "candidate status field",
@@ -797,7 +787,7 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         ("/characters/", "Back to all profiles"): "back link to Characters",
         ("/characters/#community-title", "community library roadmap"): "community roadmap link",
     }
-    if slug in HELD_PROFILE_SLUGS:
+    if slug in PROMOTED_PROFILE_SLUGS:
         required_links[("/characters/#review-title", "Artwork review boundary")] = "artwork review link"
     else:
         required_links[("/characters/#make-title", "Character Wizard roadmap")] = "Wizard roadmap link"

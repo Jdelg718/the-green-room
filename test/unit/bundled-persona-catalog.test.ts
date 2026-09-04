@@ -108,11 +108,11 @@ test("original prompt excludes manifest, provenance, sources, license, and priva
   for (const sentinel of sentinels) assert.equal(prompt.includes(sentinel), false);
 });
 
-test("combined bundled catalog is twelve historical plus FF2K and rejects duplicate IDs or slugs", () => {
+test("combined bundled catalog is eighteen historical plus final FF2K and rejects duplicate IDs or slugs", () => {
   const catalog = loadBundledPersonaCatalog({ historicalRoot: HISTORICAL_ROOT, originalRoot: ORIGINAL_ROOT });
-  assert.equal(catalog.personas.length, 13);
+  assert.equal(catalog.personas.length, 19);
   assert.deepEqual(catalog.personas.map(({ slug }) => slug), [...EXPECTED_HISTORICAL_PERSONAS.map(({ slug }) => slug), "ff2k"]);
-  assert.deepEqual(catalog.personas.map(({ catalogKind }) => catalogKind), [...Array(12).fill("historical"), "original"]);
+  assert.deepEqual(catalog.personas.map(({ catalogKind }) => catalogKind), [...Array(18).fill("historical"), "original"]);
   assert.equal(catalog.resolvePrompt("ff2k"), loadOriginalCatalog(ORIGINAL_ROOT).resolvePrompt("ff2k"));
 
   const historical = loadHistoricalCatalog(HISTORICAL_ROOT);

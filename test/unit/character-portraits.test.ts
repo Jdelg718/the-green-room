@@ -90,5 +90,5 @@ test("unknown, custom, and URL-shaped IDs always use a textual monogram fallback
 test("portrait manifest contains no remote URL, source-system path, or private prompt data", () => {
   const source = readFileSync(resolve("public/assets/portraits/manifest.json"), "utf8");
   assert.doesNotMatch(source, /https?:|(?:^|["'])\/\/|handoff_path|sourcePath|generation|prompt/i);
-  assert.equal((source.match(/\.webp/g) ?? []).length, 16);
+  assert.equal((source.match(/\.webp/g) ?? []).length, 22);
 });
