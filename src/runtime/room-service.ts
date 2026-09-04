@@ -51,6 +51,7 @@ export interface RoomCommand {
 export interface SendMessageCommand extends RoomCommand {
   readonly text: string;
   readonly wantsResponse?: boolean;
+  readonly targetPersonaId?: string;
 }
 
 export interface PauseCommand extends RoomCommand {}
@@ -406,9 +407,15 @@ export class RoomService {
       selectionRevision: canonicalSelectionRevision(command.selectionRevision),
       text: messageText(command.text),
       wantsResponse: command.wantsResponse ?? true,
+      ...(command.targetPersonaId === undefined ? {} : {
+        targetPersonaId: canonicalIdentifier(command.targetPersonaId, "targetPersonaId"),
+      }),
     };
     if (typeof normalized.wantsResponse !== "boolean") {
       throw new TypeError("wantsResponse must be a boolean");
+    }
+    if (!normalized.wantsResponse && normalized.targetPersonaId !== undefined) {
+      throw new TypeError("targetPersonaId requires wantsResponse");
     }
     const requestDigest = digest(normalized);
     const key = canonicalJson([normalized.roomId, normalized.requestId]);
@@ -540,6 +547,7 @@ export class RoomService {
       readonly selectionRevision: number;
       readonly text: string;
       readonly wantsResponse: boolean;
+      readonly targetPersonaId?: string;
     },
     requestDigest: string,
   ): Promise<SendMessageResult> {
@@ -606,6 +614,7 @@ export class RoomService {
       readonly selectionRevision: number;
       readonly text: string;
       readonly wantsResponse: boolean;
+      readonly targetPersonaId?: string;
     },
     requestDigest: string,
     claimOwner: string,
@@ -662,7 +671,12 @@ export class RoomService {
         participantId: humanParticipant.id,
         text: command.text,
       });
-      const decision = this.#decide(command.roomId, state, command.wantsResponse);
+      const decision = this.#decide(
+        command.roomId,
+        state,
+        command.wantsResponse,
+        command.targetPersonaId,
+      );
       const director = appendEventInTransaction(this.#database, command.roomId, {
         type: "director_decision",
         sourceEventSequence: human.sequence,
@@ -737,19 +751,30 @@ export class RoomService {
     roomId: string,
     state: DirectorStateRow,
     wantsResponse: boolean,
+    targetPersonaId?: string,
   ): DirectorDecision {
-    if (state.autonomous_turns >= this.#maxAutonomousTurns) {
-      return { speaker: null, reason: DIRECTOR_REASON.BUDGET_EXHAUSTED };
-    }
-    if (!wantsResponse) {
-      return { speaker: null, reason: DIRECTOR_REASON.DELIBERATE_SILENCE };
-    }
     const personas = this.#database
       .prepare(
         `SELECT id, muted, persona_slug, sort_order FROM participants
          WHERE room_id = ? AND kind = 'persona' ORDER BY sort_order`,
       )
       .all(roomId) as unknown as PersonaRow[];
+    if (targetPersonaId !== undefined) {
+      const target = personas.find(({ id }) => id === targetPersonaId);
+      if (target === undefined) {
+        throw new Error("Unknown persona for directed question");
+      }
+      if (target.muted !== 0) {
+        throw new Error("Target persona is muted");
+      }
+      return { speaker: target.id, reason: DIRECTOR_REASON.DIRECTED };
+    }
+    if (state.autonomous_turns >= this.#maxAutonomousTurns) {
+      return { speaker: null, reason: DIRECTOR_REASON.BUDGET_EXHAUSTED };
+    }
+    if (!wantsResponse) {
+      return { speaker: null, reason: DIRECTOR_REASON.DELIBERATE_SILENCE };
+    }
     if (personas.length === 0) {
       return { speaker: null, reason: DIRECTOR_REASON.NO_PERSONA };
     }

@@ -191,6 +191,7 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.doesNotMatch(page.body, /<script(?![^>]*\bsrc=)[^>]*>/i);
   assert.match(page.body, /<script type="module" src="\/app\.js"><\/script>/);
   assert.match(page.body, /<form[^>]+id="message-form"/);
+  assert.match(page.body, /<select[^>]+id="target-persona"[^>]*><option value="">Room decides<\/option>/);
   assert.match(page.body, /<ol[^>]+id="transcript"/);
   assert.match(page.body, /<aside[^>]+id="room-history"[^>]+aria-label="Room history"/);
   assert.match(page.body, /<button[^>]+id="new-room"[^>]*>New room/);

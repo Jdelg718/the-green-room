@@ -56,7 +56,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .skip-link:focus { top: 1rem; }
 .topline { height: .7rem; border-bottom: var(--rule); background: var(--acid); }
 .masthead { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1rem clamp(1rem, 3vw, 2.5rem); border-bottom: var(--rule); }
-.brand-lockup, .connection, .stage-heading, .room-status, .composer-footer, .response-choice { display: flex; align-items: center; }
+.brand-lockup, .connection, .stage-heading, .room-status, .composer-footer, .director-controls, .director-choice, .response-choice { display: flex; align-items: center; }
 .brand-lockup { min-width: 0; gap: .9rem; }
 .mark { display: grid; flex: 0 0 3.25rem; width: 3.25rem; height: 3.25rem; place-items: center; background: var(--ink); color: var(--acid); font: 700 1.1rem/1 var(--mono); transform: rotate(-2deg); }
 .mark span { color: var(--paper); }
@@ -165,6 +165,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .composer > label { display: block; margin-bottom: .5rem; color: var(--acid); font: 800 .7rem var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 .composer textarea { display: block; width: 100%; max-width: 100%; min-height: 3.6rem; resize: vertical; border: 3px solid var(--paper); border-radius: 0; padding: .65rem .8rem; background: var(--paper); color: var(--ink); line-height: 1.4; }
 .composer-footer { justify-content: space-between; gap: 1rem; margin-top: .75rem; }
+.director-controls { min-width: 0; flex-wrap: wrap; gap: .75rem 1rem; }
+.director-choice { gap: .5rem; color: var(--acid); font: 800 .72rem var(--mono); text-transform: uppercase; }
+.director-choice select { min-height: 2.4rem; max-width: min(18rem, 48vw); border: 2px solid var(--paper); padding: .35rem .55rem; background: var(--paper); color: var(--ink); }
 .response-choice { gap: .5rem; font-size: .8rem; }
 .response-choice input { width: 1.1rem; height: 1.1rem; accent-color: var(--acid); }
 .form-note, .action-status { min-height: 1.2em; font-size: .68rem; line-height: 1.4; }

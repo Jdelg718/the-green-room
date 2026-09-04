@@ -78,6 +78,7 @@ interface ParsedMessageBody {
   readonly selectionRevision: number;
   readonly text: string;
   readonly wantsResponse?: boolean;
+  readonly targetPersonaId?: string;
 }
 
 interface ParsedControlBody {
@@ -228,26 +229,25 @@ function parseControlBody(value: unknown): ParsedControlBody | undefined {
 function parseMessageBody(value: unknown): ParsedMessageBody | undefined {
   if (
     !isPlainRecord(value) ||
-    !hasExactlyKeys(value, ["requestId", "selectionRevision", "text"], ["wantsResponse"]) ||
+    !hasExactlyKeys(value, ["requestId", "selectionRevision", "text"], ["wantsResponse", "targetPersonaId"]) ||
     !validIdentifier(value.requestId) ||
     !validSelectionRevision(value.selectionRevision) ||
     typeof value.text !== "string" ||
     value.text.trim().length === 0 ||
     value.text.length > ROOM_SERVICE_LIMITS.MAX_MESSAGE_LENGTH ||
-    (Object.hasOwn(value, "wantsResponse") &&
-      typeof value.wantsResponse !== "boolean")
+    (Object.hasOwn(value, "wantsResponse") && typeof value.wantsResponse !== "boolean") ||
+    (Object.hasOwn(value, "targetPersonaId") && !validIdentifier(value.targetPersonaId)) ||
+    (value.targetPersonaId !== undefined && value.wantsResponse === false)
   ) {
     return undefined;
   }
-  if (typeof value.wantsResponse === "boolean") {
-    return {
-      requestId: value.requestId,
-      selectionRevision: value.selectionRevision,
-      text: value.text,
-      wantsResponse: value.wantsResponse,
-    };
-  }
-  return { requestId: value.requestId, selectionRevision: value.selectionRevision, text: value.text };
+  return {
+    requestId: value.requestId,
+    selectionRevision: value.selectionRevision,
+    text: value.text,
+    ...(typeof value.wantsResponse === "boolean" ? { wantsResponse: value.wantsResponse } : {}),
+    ...(typeof value.targetPersonaId === "string" ? { targetPersonaId: value.targetPersonaId } : {}),
+  };
 }
 
 function parseCastBody(
@@ -379,7 +379,7 @@ function readEvents(
 
 function sendServiceError(reply: FastifyReply, error: unknown): FastifyReply {
   const message = error instanceof Error ? error.message : "";
-  if (/already used|room is|room selection|room library|unknown room|unknown persona/i.test(message)) {
+  if (/already used|room is|room selection|room library|unknown room|unknown persona|target persona/i.test(message)) {
     return reply.code(409).send(ERROR_RESPONSES.conflict);
   }
   return reply.code(503).send(ERROR_RESPONSES.generation);
@@ -845,6 +845,7 @@ export function registerApiRoutes(
             selectionRevision: body.selectionRevision,
             text: body.text,
             ...(body.wantsResponse === undefined ? {} : { wantsResponse: body.wantsResponse }),
+            ...(body.targetPersonaId === undefined ? {} : { targetPersonaId: body.targetPersonaId }),
           });
         } catch (error) {
           return sendServiceError(reply, error);

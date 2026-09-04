@@ -265,6 +265,51 @@ test("room service commits scheduling before provider work and one persona resul
   });
 });
 
+test("directed questions force an unmuted cast member and reject invalid targets atomically", async (context) => {
+  const dataDir = temporaryDirectory(context);
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir });
+  context.after(() => store.close());
+  const provider = new DeterministicMockProvider({
+    "first-playable:0:1:optimist": { kind: "text", text: "A practical opening." },
+  });
+  const service = new RoomService({
+    database: store.database,
+    provider,
+    maxAutonomousTurns: 0,
+  });
+
+  const directed = await service.sendMessage({
+    selectionRevision: 0,
+    roomId: "first-playable",
+    requestId: "directed-optimist",
+    text: "What do you see?",
+    targetPersonaId: "optimist",
+  });
+  assert.deepEqual(directed.decision, { speaker: "optimist", reason: "directed" });
+  assert.equal(directed.outcome, "text");
+
+  const beforeUnknown = { events: count(store.database, "events"), commands: count(store.database, "commands") };
+  await assert.rejects(service.sendMessage({
+    selectionRevision: 0, roomId: "first-playable", requestId: "directed-unknown",
+    text: "Answer this.", targetPersonaId: "unknown",
+  }), /unknown persona/i);
+  assert.deepEqual(
+    { events: count(store.database, "events"), commands: count(store.database, "commands") },
+    beforeUnknown,
+  );
+
+  store.database.prepare("UPDATE participants SET muted = 1 WHERE room_id = ? AND id = ?").run("first-playable", "fixer");
+  const beforeMuted = { events: count(store.database, "events"), commands: count(store.database, "commands") };
+  await assert.rejects(service.sendMessage({
+    selectionRevision: 0, roomId: "first-playable", requestId: "directed-muted",
+    text: "Answer this.", targetPersonaId: "fixer",
+  }), /target persona is muted/i);
+  assert.deepEqual(
+    { events: count(store.database, "events"), commands: count(store.database, "commands") },
+    beforeMuted,
+  );
+});
+
 test("room service rolls back the human event when the director decision cannot commit", async (context) => {
   const dataDir = temporaryDirectory(context);
   const store = openGreenRoomDatabase({ dataDir, migrationsDir });
