@@ -57,7 +57,10 @@
           <label for="message-text">Your line</label>
           <textarea id="message-text" name="message" rows="2" maxlength="16384" placeholder="Say something to the room…" aria-describedby="composer-shortcut response-note composer-note" required disabled></textarea>
           <div class="composer-footer">
-            <label class="response-choice" for="wants-response"><input id="wants-response" type="checkbox" checked disabled> Request one persona reply</label>
+            <div class="director-controls">
+              <label class="director-choice" for="target-persona">Ask <select id="target-persona" disabled><option value="">Room decides</option></select></label>
+              <label class="response-choice" for="wants-response"><input id="wants-response" type="checkbox" checked disabled> Request one persona reply</label>
+            </div>
             <button class="button button-primary" id="send-message" type="submit" disabled>Send to room <span aria-hidden="true">→</span></button>
           </div>
           <p class="form-note composer-shortcut" id="composer-shortcut"><strong>Enter sends</strong> · Shift+Enter starts a new line.</p>

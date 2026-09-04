@@ -381,6 +381,7 @@ test("room api exposes the room library and routes room-scoped mutations through
   const store = temporaryStore(context);
   const provider = new DeterministicMockProvider({
     [`${ROOM_ID}:0:1:detective`]: { kind: "text", text: "I see a broken alibi." },
+    [`${ROOM_ID}:0:4:optimist`]: { kind: "text", text: "I see a practical opening." },
   });
   const app = apiApp({ allowedOrigin: ORIGIN, database: store.database, provider });
   context.after(() => app.close());
@@ -434,6 +435,23 @@ test("room api exposes the room library and routes room-scoped mutations through
     decision: { speaker: "detective", reason: "selected" },
     outcome: "text",
     generation: 0,
+  });
+
+  const directed = await app.inject({
+    method: "POST",
+    url: `/api/rooms/${ROOM_ID}/messages`,
+    headers: mutationHeaders(token),
+    payload: {
+      requestId: "message-directed", selectionRevision: 0,
+      text: "Optimist, what do you see?", targetPersonaId: "optimist",
+    },
+  });
+  assert.equal(directed.statusCode, 200, directed.body);
+  assert.deepEqual(directed.json(), {
+    kind: "message", requestId: "message-directed", humanEventSequence: 4,
+    directorEventSequence: 5, personaEventSequence: 6,
+    decision: { speaker: "optimist", reason: "directed" },
+    outcome: "text", generation: 0,
   });
 
   for (const [path, requestId, kind] of [

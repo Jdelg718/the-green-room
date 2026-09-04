@@ -1068,7 +1068,7 @@ export function startBrowserApp() {
     openSetup: byId("open-cast-setup"), openRoomDrawer: byId("open-room-drawer"), pauseResume: byId("pause-resume"), search: byId("persona-search"),
     roomDrawer: byId("room-drawer"), roomDrawerList: byId("room-drawer-list"), roomHistoryList: byId("room-history-list"),
     closeRoomDrawer: byId("close-room-drawer"), newRoom: byId("new-room"), newRoomDrawer: byId("new-room-drawer"),
-    sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"),
+    sendMessage: byId("send-message"), setupView: byId("cast-setup-view"), startRoom: byId("start-historical-room"), targetPersona: byId("target-persona"),
     stopDialog: byId("stop-dialog"), stopRoom: byId("stop-room"), skipLink: byId("skip-link"), transcript: byId("transcript"),
     transcriptPanel: byId("transcript-panel"), viewRoom: byId("view-room"), wantsResponse: byId("wants-response"),
     providerDialog: byId("provider-setup"), openProvider: byId("open-provider-setup"), closeProvider: byId("close-provider-setup"),
@@ -1325,6 +1325,7 @@ export function startBrowserApp() {
     const isPaused = room.status === "paused";
     elements.messageText.disabled = !availability.canCompose;
     elements.wantsResponse.disabled = !availability.canCompose;
+    elements.targetPersona.disabled = !availability.canCompose || !elements.wantsResponse.checked;
     elements.sendMessage.disabled = !availability.canCompose;
     elements.pauseResume.disabled = !availability.canPauseResume;
     elements.stopRoom.disabled = !availability.canStop;
@@ -1340,7 +1341,7 @@ export function startBrowserApp() {
     for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = pending.size !== 0;
     for (const control of elements.castList.querySelectorAll("[data-human-avatar-upload], [data-human-avatar-remove]")) control.disabled = pending.size !== 0;
     if (roomStatusUnknown) {
-      elements.messageText.disabled = true; elements.wantsResponse.disabled = true; elements.sendMessage.disabled = true;
+      elements.messageText.disabled = true; elements.wantsResponse.disabled = true; elements.targetPersona.disabled = true; elements.sendMessage.disabled = true;
       elements.pauseResume.disabled = true; elements.stopRoom.disabled = true; elements.openSetup.disabled = true;
       for (const button of elements.castList.querySelectorAll("[data-persona-control]")) button.disabled = true;
       for (const select of elements.castList.querySelectorAll("[data-human-emoji]")) select.disabled = true;
@@ -1356,6 +1357,10 @@ export function startBrowserApp() {
     elements.liveView.dataset.roomStatus = room.status;
     elements.castList.replaceChildren();
     elements.identityRoster.replaceChildren();
+    const priorTarget = elements.targetPersona.value;
+    const automaticTarget = node("option", "", "Room decides");
+    automaticTarget.value = "";
+    elements.targetPersona.replaceChildren(automaticTarget);
     for (const [index, participant] of room.participants.entries()) {
       const item = node("li", `cast-member${participant.muted ? " is-muted" : ""}`);
       const customAvatarSrc = participant.kind === "human" && humanProfile.hasCustomAvatar ? `${API_PATHS.humanAvatar}?v=${humanProfile.avatarVersion}` : null;
@@ -1365,6 +1370,10 @@ export function startBrowserApp() {
       const presentation = participant.kind === "persona" ? activePersonaPresentation(participant.personaSlug, catalog) : null;
       identity.append(node("p", "persona-role", participant.kind === "human" ? "Human participant" : presentation.role));
       if (participant.kind === "persona") {
+        const targetOption = node("option", "", participant.displayName);
+        targetOption.value = participant.id;
+        targetOption.disabled = participant.muted;
+        elements.targetPersona.append(targetOption);
         identity.append(node("p", "persona-temperament", presentation.temperament));
         identity.append(node("p", "persona-state", participant.muted ? "Muted" : "Ready"));
       }
@@ -1409,6 +1418,9 @@ export function startBrowserApp() {
         elements.identityRoster.append(summary);
       }
     }
+    elements.targetPersona.value = [...elements.targetPersona.options].some(
+      ({ value, disabled }) => value === priorTarget && !disabled,
+    ) ? priorTarget : "";
     elements.castList.setAttribute("aria-busy", "false");
     renderControls();
   }
@@ -1880,13 +1892,22 @@ export function startBrowserApp() {
     event.preventDefault(); const text = elements.messageText.value;
     if (!canSubmitMessage(room?.status, pending, text, elements.sendMessage.disabled)) return;
     const submittedRoomId = room.sessionId;
-    const result = await mutate("message", API_PATHS.messages(submittedRoomId), { requestId: createRequestId("message"), selectionRevision, text, wantsResponse: elements.wantsResponse.checked }, "The director is considering the cue…");
+    const targetPersonaId = elements.targetPersona.value;
+    const result = await mutate("message", API_PATHS.messages(submittedRoomId), {
+      requestId: createRequestId("message"), selectionRevision, text,
+      wantsResponse: elements.wantsResponse.checked,
+      ...(targetPersonaId === "" ? {} : { targetPersonaId }),
+    }, targetPersonaId === "" ? "The room is considering the cue…" : "The selected cast member is considering your question…");
     if (result !== null && room?.sessionId === submittedRoomId) { elements.messageText.value = ""; markGeneratedSilence(result); elements.messageText.focus(); }
   });
   elements.messageText.addEventListener("keydown", (event) => {
     if (!shouldSubmitComposerKey(event)) return;
     event.preventDefault();
     elements.form.requestSubmit();
+  });
+  elements.wantsResponse.addEventListener("change", () => {
+    if (!elements.wantsResponse.checked) elements.targetPersona.value = "";
+    renderControls();
   });
   elements.pauseResume.addEventListener("click", async () => {
     if (room === null || room.status === "stopped" || pending.size !== 0) return;

@@ -38,6 +38,7 @@ test("director selects zero or one speaker with deterministic fallback", () => {
 test("director exposes stable reason codes", () => {
   assert.deepEqual(DIRECTOR_REASON, {
     SELECTED: "selected",
+    DIRECTED: "directed",
     CANCELLED: "cancelled",
     UNVERIFIED_EVENT: "unverified_event",
     DUPLICATE: "duplicate",

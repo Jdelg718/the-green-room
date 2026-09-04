@@ -10,6 +10,7 @@ export const DIRECTOR_LIMITS = Object.freeze({
 
 export const DIRECTOR_REASON = Object.freeze({
   SELECTED: "selected",
+  DIRECTED: "directed",
   CANCELLED: "cancelled",
   UNVERIFIED_EVENT: "unverified_event",
   DUPLICATE: "duplicate",
