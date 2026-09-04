@@ -279,6 +279,20 @@ URL_BEARING_HTML_ATTRS = frozenset(
     {"href", "src", "srcset", "poster", "cite", "background", "action", "formaction", "data"}
 )
 ALLOWED_NAVIGATION_HOST = "github.com"
+ALPHA_DOWNLOAD_LINKS = (
+    (
+        "Get Alpha 1 for macOS",
+        "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/The-Green-Room-0.1.0-alpha.1-macos-arm64.zip",
+    ),
+    (
+        "Download the checksum file",
+        "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/SHA256SUMS.txt",
+    ),
+    (
+        "Read the prerelease notes",
+        "https://github.com/Jdelg718/the-green-room/releases/tag/v0.1.0-alpha.1",
+    ),
+)
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 SVG_ATTRS: dict[str, frozenset[str]] = {
@@ -890,6 +904,13 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
     for phrase in FORBIDDEN_TEXT:
         if phrase in lower:
             fail(errors, f"{relative}: forbidden claim or collection language: {phrase!r}")
+
+    if relative == "download/index.html":
+        page_links = semantic_links(parser)
+        for expected_label, expected_url in ALPHA_DOWNLOAD_LINKS:
+            matches = [(url, label) for url, label in page_links if url == expected_url and label == expected_label]
+            if len(matches) != 1:
+                fail(errors, f"{relative}: missing unique exact Alpha 1 link: {expected_label}")
 
     if relative == "characters/index.html":
         validate_character_index(parser, errors)

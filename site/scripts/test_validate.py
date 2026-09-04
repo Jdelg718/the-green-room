@@ -44,6 +44,20 @@ class StaticPolicyTests(unittest.TestCase):
     def test_current_site_passes(self) -> None:
         self.assertEqual(validate.collect_errors(), [])
 
+    def test_alpha_download_links_are_exactly_pinned(self) -> None:
+        for label, expected_url in validate.ALPHA_DOWNLOAD_LINKS:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "download" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(expected_url, source)
+                page.write_text(
+                    source.replace(expected_url, "https://github.com/Jdelg718/the-green-room", 1),
+                    encoding="utf-8",
+                )
+                self.assert_rejected(validate.collect_errors(site), f"exact Alpha 1 link: {label}")
+
     def test_readme_requires_no_redeploy_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
