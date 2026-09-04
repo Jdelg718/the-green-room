@@ -20,7 +20,9 @@ test("provider onboarding is accessible, responsive, and contains the required d
   assert.match(html, /<select[^>]+id="provider-model"[^>]+required/);
   assert.match(html, /<input[^>]+id="provider-disclosure-ack"[^>]+type="checkbox"[^>]+required/);
   assert.match(html, /id="provider-revision-status"[^>]+aria-live="polite"/);
-  assert.match(styles, /\.provider-setup-panel[\s\S]*max-width/);
+  assert.match(styles, /#provider-setup\s*\{[^}]*width:\s*100vw;[^}]*height:\s*100dvh;[^}]*max-width:\s*none;/);
+  assert.match(styles, /\.provider-setup-panel\s*\{[^}]*width:\s*min\(100%,\s*1100px\);[^}]*min-height:\s*100dvh;/);
+  assert.match(styles, /\.provider-setup-heading\s*\{[^}]*position:\s*sticky;/);
   assert.match(styles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.provider-actions/);
 });
 
