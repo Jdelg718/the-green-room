@@ -217,6 +217,11 @@ test("first playable UI serves CSP-safe local assets with an accessible real con
   assert.match(styles.body, /\.room-history-list\s*\{[^}]*min-width:\s*0/);
   assert.match(styles.body, /\.room-history-button\s*\{[^}]*overflow:\s*hidden/);
   assert.match(styles.body, /overflow-x:\s*hidden/);
+  assert.match(
+    script.body,
+    /async commitRoom\(nextRoom, signal\)[\s\S]*?if \(!signal\.aborted\)\s*\{\s*showLive\(false\);\s*elements\.roomDrawer\.close\(\);/,
+    "selecting a saved room must leave the new-room builder and reveal the live room",
+  );
   assert.doesNotMatch(
     script.body,
     /localStorage|sessionStorage|indexedDB|serviceWorker|WebSocket|XMLHttpRequest|BroadcastChannel|SharedWorker|Worker\s*\(|sendBeacon|eval\s*\(|new Function|https?:\/\//,

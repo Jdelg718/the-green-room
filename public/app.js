@@ -1574,6 +1574,7 @@ export function startBrowserApp() {
       await refreshRoomLibrary(signal);
       await lifecycle.startIfActive();
       if (!signal.aborted) {
+        showLive(false);
         elements.roomDrawer.close();
         elements.messageText.focus();
       }
