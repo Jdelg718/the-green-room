@@ -16,6 +16,8 @@ This remains an alpha rather than a downloadable general release. Provider setup
 
 See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md) and [community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md).
 
+The macOS arm64 release path preserves the deterministic unsigned manifest-v1 app, signs only a private copy with the one locked Developer ID identity, and uses an exact manifest-v2 payload inventory before outer sealing. Notarization is Keychain-profile-only and produces a deterministic, mode-preserving ZIP only after exact acceptance, stapling, Gatekeeper, and clean-extraction verification. See [ADR 0005](docs/adr/0005-macos-developer-id-signing-and-notarization.md). These commands do not create credentials or publish artifacts.
+
 Native iPhone/iPad clients and secure invitations for additional human participants are future roadmap pillars, not current alpha capabilities. Both remain downstream of the first-playable and community-release foundations and must preserve the local companion's authority unless a reviewed ADR changes it. See the [future-track plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md).
 
 ## Run the first-playable acceptance

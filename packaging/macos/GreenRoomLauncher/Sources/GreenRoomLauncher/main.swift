@@ -8,10 +8,23 @@ struct ReleaseManifest: Equatable {
     struct FileRecord: Equatable {
         let path: String
         let sha256: String
+        let mode: Int?
+        let bytes: Int?
     }
 
+    struct CodeObject: Equatable {
+        let path: String
+        let identifier: String
+        let requirement: String
+    }
+
+    let schemaVersion: Int
     let files: [FileRecord]
+    let signatureOwnedFiles: Set<String>
+    let codeObjects: [CodeObject]
 }
+
+enum ReleaseSignatureState: Equatable { case unsigned, developerID }
 
 enum LauncherError: Error, Equatable, CustomStringConvertible {
     case invalidBundleLayout
@@ -144,9 +157,24 @@ struct LauncherPreflight {
         "schemaVersion", "bundleIdentifier", "appVersion", "sourceCommit", "buildEpoch",
         "targetTriple", "runtimes", "databaseSchema", "files",
     ]
+    private static let signedManifestKeys: Set<String> = [
+        "schemaVersion", "bundleIdentifier", "appVersion", "sourceCommit", "buildEpoch",
+        "targetTriple", "runtimes", "databaseSchema", "unsignedPayloadDigest", "payloadFiles",
+        "signatureOwnedFiles", "signingPolicy",
+    ]
     private static let runtimeKeys: Set<String> = ["nodeVersion", "pythonVersion", "validatorVersion"]
     private static let databaseKeys: Set<String> = ["minimum", "maximum"]
     private static let fileKeys: Set<String> = ["path", "sha256"]
+    private static let signedFileKeys: Set<String> = ["path", "mode", "bytes", "sha256"]
+    // codesign creates the resource seal; stapler later adds the ticket. The
+    // signed manifest closes both exact names and permits no wildcard paths.
+    private static let signatureOwnedPaths: Set<String> = [
+        "Contents/CodeResources", "Contents/MacOS/GreenRoomLauncher",
+        "Contents/_CodeSignature/CodeResources",
+    ]
+    private static let appIdentifier = "net.greenroomai.GreenRoom"
+    private static let teamID = "JZ233HBW3Z"
+    private static let codeObjectKeys: Set<String> = ["path", "identifier", "requirement"]
     private static let semanticVersionPattern = "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
     private static let filePathPattern = "^Contents/(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))(?!.*//)[A-Za-z0-9._ +@-]+(?:/[A-Za-z0-9._ +@-]+)*$"
 
@@ -167,13 +195,19 @@ struct LauncherPreflight {
         return root
     }
 
-    static func validate(bundleRoot: URL) throws -> ReleaseManifest {
+    static func validate(
+        bundleRoot: URL,
+        signatureState: ((URL) throws -> ReleaseSignatureState)? = nil
+    ) throws -> ReleaseManifest {
         guard bundleRoot.isFileURL, bundleRoot.standardizedFileURL.path == bundleRoot.path,
               bundleRoot.pathExtension == "app"
         else {
             throw LauncherError.invalidBundleLayout
         }
 
+        // This runs before even locating or opening the manifest. A Developer ID
+        // launcher may never fall back to the separately supported unsigned-v1 path.
+        let trust = try (signatureState ?? containingSignatureState)(bundleRoot)
         let canonicalRoot = bundleRoot.resolvingSymlinksInPath().standardizedFileURL
         let manifestURL = bundleRoot.appendingPathComponent(manifestRelativePath).standardizedFileURL
         guard isStrictRegularFile(manifestURL, bundleRoot: bundleRoot, canonicalRoot: canonicalRoot) else {
@@ -200,13 +234,40 @@ struct LauncherPreflight {
             throw LauncherError.manifestInvalid("malformed_json")
         }
         let manifest = try parseManifest(object)
-        try validatePayload(manifest.files, bundleRoot: bundleRoot, canonicalRoot: canonicalRoot)
+        guard (trust == .developerID) == (manifest.schemaVersion == 2) else {
+            throw LauncherError.manifestInvalid("signature_schema_mismatch")
+        }
+        try validatePayload(manifest, bundleRoot: bundleRoot, canonicalRoot: canonicalRoot)
         return manifest
     }
 
+    private static func containingSignatureState(_ bundleRoot: URL) throws -> ReleaseSignatureState {
+        let requirementText = designatedRequirement(appIdentifier)
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(requirementText as CFString, SecCSFlags(), &requirement) == errSecSuccess,
+              let requirement else { throw LauncherError.manifestInvalid("signature_requirement") }
+        var current: SecCode?
+        guard SecCodeCopySelf(SecCSFlags(), &current) == errSecSuccess, let current else {
+            throw LauncherError.manifestInvalid("launcher_signature_unavailable")
+        }
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate)
+        guard SecCodeCheckValidity(current, flags, requirement) == errSecSuccess else { return .unsigned }
+        var application: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(bundleRoot as CFURL, SecCSFlags(), &application) == errSecSuccess,
+              let application,
+              SecStaticCodeCheckValidity(application, flags, requirement) == errSecSuccess else {
+            throw LauncherError.manifestInvalid("app_signature_invalid")
+        }
+        return .developerID
+    }
+
     private static func parseManifest(_ object: Any) throws -> ReleaseManifest {
-        let root = try dictionary(object, keys: manifestKeys, code: "root_shape")
-        try requireInteger(root["schemaVersion"], equalTo: 1, code: "schema_version")
+        guard let raw = object as? [String: Any], let version = raw["schemaVersion"] as? NSNumber,
+              CFGetTypeID(version) != CFBooleanGetTypeID(), [1, 2].contains(version.intValue)
+        else { throw LauncherError.manifestInvalid("schema_version") }
+        let schemaVersion = version.intValue
+        let root = try dictionary(object, keys: schemaVersion == 1 ? manifestKeys : signedManifestKeys, code: "root_shape")
+        try requireInteger(root["schemaVersion"], equalTo: schemaVersion, code: "schema_version")
         try requireString(root["bundleIdentifier"], pattern: "^net\\.greenroomai\\.GreenRoom$", code: "bundle_identifier")
         try requireString(root["appVersion"], pattern: semanticVersionPattern, code: "app_version")
         try requireString(root["sourceCommit"], pattern: "^[0-9a-f]{40}$", code: "source_commit")
@@ -222,28 +283,137 @@ struct LauncherPreflight {
         try requireInteger(database["minimum"], equalTo: 1, code: "database_minimum")
         try requireInteger(database["maximum"], equalTo: 8, code: "database_maximum")
 
-        guard let rawFiles = root["files"] as? [Any], !rawFiles.isEmpty else {
+        if schemaVersion == 2 {
+            try requireString(root["unsignedPayloadDigest"], pattern: "^[0-9a-f]{64}$", code: "unsigned_payload_digest")
+            try validateSigningPolicy(root["signingPolicy"])
+        }
+        let rawFileValue = schemaVersion == 1 ? root["files"] : root["payloadFiles"]
+        guard let rawFiles = rawFileValue as? [Any], !rawFiles.isEmpty else {
             throw LauncherError.manifestInvalid("files_shape")
         }
         var seen = Set<String>()
         var files: [ReleaseManifest.FileRecord] = []
+        var previousPath = ""
         for rawFile in rawFiles {
-            let file = try dictionary(rawFile, keys: fileKeys, code: "file_shape")
+            let file = try dictionary(rawFile, keys: schemaVersion == 1 ? fileKeys : signedFileKeys, code: "file_shape")
             let path = try requiredString(file["path"], pattern: filePathPattern, code: "file_path")
             let digest = try requiredString(file["sha256"], pattern: "^[0-9a-f]{64}$", code: "file_digest")
-            guard seen.insert(path).inserted else {
+            guard seen.insert(path).inserted, schemaVersion == 1 || path > previousPath else {
                 throw LauncherError.manifestInvalid("duplicate_path:\(path)")
             }
-            files.append(.init(path: path, sha256: digest))
+            previousPath = path
+            var mode: Int? = nil
+            var bytes: Int? = nil
+            if schemaVersion == 2 {
+                guard let rawMode = file["mode"] as? NSNumber, CFGetTypeID(rawMode) != CFBooleanGetTypeID(), [292, 365].contains(rawMode.intValue),
+                      let rawBytes = file["bytes"] as? NSNumber, CFGetTypeID(rawBytes) != CFBooleanGetTypeID(), rawBytes.intValue >= 0
+                else { throw LauncherError.manifestInvalid("file_metadata") }
+                mode = rawMode.intValue; bytes = rawBytes.intValue
+            }
+            files.append(.init(path: path, sha256: digest, mode: mode, bytes: bytes))
         }
-        return ReleaseManifest(files: files)
+        var signatureFiles = Set<String>()
+        if schemaVersion == 2 {
+            guard let rawSignatureFiles = root["signatureOwnedFiles"] as? [String], Set(rawSignatureFiles) == signatureOwnedPaths,
+                  rawSignatureFiles.count == signatureOwnedPaths.count else {
+                throw LauncherError.manifestInvalid("signature_owned_files")
+            }
+            signatureFiles = signatureOwnedPaths
+        }
+        let codeObjects = schemaVersion == 2 ? try parseCodeObjects(root["signingPolicy"], payloadFiles: files, signatureFiles: signatureFiles) : []
+        return ReleaseManifest(schemaVersion: schemaVersion, files: files, signatureOwnedFiles: signatureFiles, codeObjects: codeObjects)
+    }
+
+    private static func validateSigningPolicy(_ object: Any?) throws {
+        let keys: Set<String> = ["teamId", "identity", "hardenedRuntime", "secureTimestamp", "identifiers", "requirements", "codeObjects"]
+        let policy = try dictionary(object, keys: keys, code: "signing_policy_shape")
+        try requireString(policy["teamId"], pattern: "^JZ233HBW3Z$", code: "signing_team")
+        try requireString(policy["identity"], pattern: "^Developer ID Application: James DelGuercio \\(JZ233HBW3Z\\)$", code: "signing_identity")
+        guard policy["hardenedRuntime"] as? Bool == true, policy["secureTimestamp"] as? Bool == true,
+              let codeObjects = policy["codeObjects"] as? [Any], !codeObjects.isEmpty
+        else { throw LauncherError.manifestInvalid("signing_policy") }
+        let identifiers = try dictionary(policy["identifiers"], keys: ["app", "credentialHelper"], code: "signing_identifiers")
+        let requirements = try dictionary(policy["requirements"], keys: ["app", "credentialHelper"], code: "signing_requirements")
+        let suffix = " and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"JZ233HBW3Z\""
+        let app = "net.greenroomai.GreenRoom"
+        let helper = "net.greenroomai.GreenRoom.credential-helper"
+        guard identifiers["app"] as? String == app, identifiers["credentialHelper"] as? String == helper,
+              requirements["app"] as? String == "identifier \"\(app)\"\(suffix)",
+              requirements["credentialHelper"] as? String == "identifier \"\(helper)\"\(suffix)" else {
+            throw LauncherError.manifestInvalid("helper_requirement")
+        }
+    }
+
+    private static func parseCodeObjects(_ object: Any?, payloadFiles: [ReleaseManifest.FileRecord], signatureFiles: Set<String>) throws -> [ReleaseManifest.CodeObject] {
+        guard let policy = object as? [String: Any], let rawObjects = policy["codeObjects"] as? [Any] else {
+            throw LauncherError.manifestInvalid("code_objects_shape")
+        }
+        let payload = Dictionary(uniqueKeysWithValues: payloadFiles.map { ($0.path, $0) })
+        var result: [ReleaseManifest.CodeObject] = []
+        var previous = ""
+        for raw in rawObjects {
+            let value = try dictionary(raw, keys: codeObjectKeys, code: "code_object_shape")
+            let path = try requiredString(value["path"], pattern: filePathPattern, code: "code_object_path")
+            let expectedIdentifier = identifier(for: path)
+            let identifier = try requiredString(value["identifier"], pattern: "^net\\.greenroomai\\.GreenRoom(?:\\.[a-z0-9-]+)*$", code: "code_object_identifier")
+            let requirement = try requiredString(value["requirement"], pattern: ".+", code: "code_object_requirement")
+            guard path > previous, identifier == expectedIdentifier,
+                  requirement == designatedRequirement(identifier),
+                  payload[path]?.mode == 365 || path == "Contents/MacOS/GreenRoomLauncher" && signatureFiles.contains(path) else {
+                throw LauncherError.manifestInvalid("code_object_policy")
+            }
+            previous = path
+            result.append(.init(path: path, identifier: identifier, requirement: requirement))
+        }
+        return result
+    }
+
+    private static func designatedRequirement(_ identifier: String) -> String {
+        "identifier \"\(identifier)\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"\(teamID)\""
+    }
+
+    private static func identifier(for path: String) -> String {
+        let known = [
+            "Contents/MacOS/GreenRoomLauncher": appIdentifier,
+            "Contents/Resources/helpers/GreenRoomCredentialHelper": "\(appIdentifier).credential-helper",
+            "Contents/Resources/runtime/node/bin/node": "\(appIdentifier).node",
+            "Contents/Resources/validator/greenroom-persona": "\(appIdentifier).validator",
+        ]
+        if let value = known[path] { return value }
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return "\(appIdentifier).component.\(digest)"
+    }
+
+    private static func isClassifiedMachO(_ path: String) -> Bool {
+        [
+            "Contents/MacOS/GreenRoomLauncher",
+            "Contents/Resources/helpers/GreenRoomCredentialHelper",
+            "Contents/Resources/runtime/node/bin/node",
+            "Contents/Resources/validator/greenroom-persona",
+        ].contains(path) || path.hasPrefix("Contents/Resources/validator/") ||
+            (path.hasPrefix("Contents/Resources/app/node_modules/") && path.hasSuffix(".node"))
+    }
+
+    private static func isMachO(_ url: URL) throws -> Bool {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let bytes = try handle.read(upToCount: 4) ?? Data()
+        guard bytes.count == 4 else { return false }
+        let magic = Array(bytes)
+        return [
+            [0xfe, 0xed, 0xfa, 0xce], [0xce, 0xfa, 0xed, 0xfe],
+            [0xfe, 0xed, 0xfa, 0xcf], [0xcf, 0xfa, 0xed, 0xfe],
+            [0xca, 0xfe, 0xba, 0xbe], [0xbe, 0xba, 0xfe, 0xca],
+            [0xca, 0xfe, 0xba, 0xbf], [0xbf, 0xba, 0xfe, 0xca],
+        ].contains(magic)
     }
 
     private static func validatePayload(
-        _ files: [ReleaseManifest.FileRecord],
+        _ manifest: ReleaseManifest,
         bundleRoot: URL,
         canonicalRoot: URL
     ) throws {
+        let files = manifest.files
         for file in files {
             let url = bundleRoot.appendingPathComponent(file.path).standardizedFileURL
             guard isStrictRegularFile(url, bundleRoot: bundleRoot, canonicalRoot: canonicalRoot) else {
@@ -257,6 +427,76 @@ struct LauncherPreflight {
             }
             guard actual == file.sha256 else {
                 throw LauncherError.payloadInvalid("digest_mismatch:\(file.path)")
+            }
+            if let expectedMode = file.mode, let expectedBytes = file.bytes {
+                let attributes = try fileAttributes(url, manifest: false)
+                let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue
+                let bytes = (attributes[.size] as? NSNumber)?.intValue
+                guard mode == expectedMode, bytes == expectedBytes else {
+                    throw LauncherError.payloadInvalid("metadata_mismatch:\(file.path)")
+                }
+            }
+        }
+        if manifest.schemaVersion == 2 {
+            let declared = Set(files.map(\.path))
+            let required = declared.union([manifestRelativePath, "Contents/MacOS/GreenRoomLauncher", "Contents/_CodeSignature/CodeResources"])
+            let allowed = required.union(["Contents/CodeResources"])
+            var actualFiles = Set<String>()
+            var actualCode = Set<String>()
+            var enumerationError = false
+            guard let resolvedPointer = realpath(bundleRoot.path, nil) else {
+                throw LauncherError.payloadInvalid("inventory_unreadable")
+            }
+            let inventoryRoot = URL(fileURLWithPath: String(cString: resolvedPointer), isDirectory: true)
+            free(resolvedPointer)
+            guard (try fileAttributes(bundleRoot, manifest: false)[.posixPermissions] as? NSNumber)?.intValue == 365 else {
+                throw LauncherError.payloadInvalid("directory_mode")
+            }
+            guard let enumerator = FileManager.default.enumerator(
+                at: inventoryRoot, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
+                options: [], errorHandler: { _, _ in enumerationError = true; return false }
+            ) else { throw LauncherError.payloadInvalid("inventory_unreadable") }
+            while let url = enumerator.nextObject() as? URL {
+                let rootPrefix = inventoryRoot.path + "/"
+                guard url.path.hasPrefix(rootPrefix) else { throw LauncherError.payloadInvalid("inventory_escape") }
+                let relative = String(url.path.dropFirst(rootPrefix.count))
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
+                if values.isSymbolicLink == true || values.isRegularFile != true && values.isDirectory != true {
+                    throw LauncherError.payloadInvalid("inventory_type:\(relative)")
+                }
+                let attributes = try fileAttributes(url, manifest: false)
+                if values.isDirectory == true && (attributes[.posixPermissions] as? NSNumber)?.intValue != 365 {
+                    throw LauncherError.payloadInvalid("directory_mode:\(relative)")
+                }
+                if [".DS_Store", "Thumbs.db", "__MACOSX"].contains(where: { relative.split(separator: "/").contains(Substring($0)) }) {
+                    throw LauncherError.payloadInvalid("inventory_junk:\(relative)")
+                }
+                if values.isRegularFile == true {
+                    guard (attributes[.referenceCount] as? NSNumber)?.intValue == 1 else {
+                        throw LauncherError.payloadInvalid("inventory_hardlink:\(relative)")
+                    }
+                    guard allowed.contains(relative), actualFiles.insert(relative).inserted else {
+                        throw LauncherError.payloadInvalid("undeclared:\(relative)")
+                    }
+                    let protectedMode = relative == "Contents/MacOS/GreenRoomLauncher" ? 365 : 292
+                    if (relative == manifestRelativePath || manifest.signatureOwnedFiles.contains(relative)),
+                       (attributes[.posixPermissions] as? NSNumber)?.intValue != protectedMode {
+                        throw LauncherError.payloadInvalid("metadata_mismatch:\(relative)")
+                    }
+                    if try isMachO(url) {
+                        guard isClassifiedMachO(relative) else { throw LauncherError.payloadInvalid("unclassified_macho:\(relative)") }
+                        actualCode.insert(relative)
+                    } else if (attributes[.posixPermissions] as? NSNumber)?.intValue == 365 {
+                        throw LauncherError.payloadInvalid("executable_non_macho:\(relative)")
+                    }
+                }
+            }
+            if enumerationError { throw LauncherError.payloadInvalid("inventory_unreadable") }
+            guard required.isSubset(of: actualFiles), actualFiles.isSubset(of: allowed) else {
+                throw LauncherError.payloadInvalid("inventory_incomplete")
+            }
+            guard actualCode == Set(manifest.codeObjects.map(\.path)) else {
+                throw LauncherError.payloadInvalid("code_object_inventory")
             }
         }
     }

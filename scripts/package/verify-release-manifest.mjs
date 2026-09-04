@@ -9,18 +9,29 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const schema = JSON.parse(
   readFileSync(resolve(repositoryRoot, "packaging/release-manifest.schema.json"), "utf8"),
 );
-const validateSchema = new Ajv2020Module.default({ allErrors: true, strict: true }).compile(schema);
+const signedSchema = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "packaging/signed-release-manifest.schema.json"), "utf8"),
+);
+const ajv = new Ajv2020Module.default({ allErrors: true, strict: true });
+const validateSchema = ajv.compile(schema);
+const validateSignedSchema = ajv.compile(signedSchema);
 
 export function validateReleaseManifest(candidate) {
-  if (!validateSchema(candidate)) {
-    throw new Error(`release_manifest_schema_invalid: ${JSON.stringify(validateSchema.errors)}`);
+  const validator = candidate?.schemaVersion === 2 ? validateSignedSchema : validateSchema;
+  if (!validator(candidate)) {
+    throw new Error(`release_manifest_schema_invalid: ${JSON.stringify(validator.errors)}`);
   }
   const paths = new Set();
-  for (const file of candidate.files) {
+  for (const file of candidate.schemaVersion === 2 ? candidate.payloadFiles : candidate.files) {
     if (paths.has(file.path)) {
       throw new Error(`release_manifest_duplicate_path: ${file.path}`);
     }
     paths.add(file.path);
+  }
+  if (candidate.schemaVersion === 2) {
+    const helper = candidate.signingPolicy.requirements.credentialHelper;
+    const expected = 'identifier "net.greenroomai.GreenRoom.credential-helper" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "JZ233HBW3Z"';
+    if (helper !== expected) throw new Error("release_manifest_signing_policy_invalid");
   }
   return candidate;
 }

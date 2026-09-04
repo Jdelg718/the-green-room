@@ -14,6 +14,15 @@ function strictChild(root: string, path: string): boolean {
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
+function ordinary(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function exactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return ordinary(value) && Reflect.ownKeys(value).length === keys.length &&
+    Reflect.ownKeys(value).every((key) => typeof key === "string" && keys.includes(key));
+}
+
 async function rejectWritable(path: string, label: string): Promise<void> {
   try {
     await access(path, constants.W_OK);
@@ -111,7 +120,7 @@ export async function verifyPackagedRuntimeAssets(
 
 export async function credentialHelperTrust(
   assets: RuntimeAssets,
-  signaturePolicy: HelperSignaturePolicy = Object.freeze({ kind: "adhoc" }),
+  signaturePolicy?: HelperSignaturePolicy,
 ): Promise<Pick<KeychainHelperClientOptions, "executablePath" | "payloadRoot" | "expectedSha256" | "signaturePolicy">> {
   if (assets.payloadRoot === null || assets.credentialHelperExecutable === null || assets.releaseManifestPath === null) {
     throw failure("credential helper is unavailable outside packaged macOS mode");
@@ -119,23 +128,55 @@ export async function credentialHelperTrust(
   let manifest: unknown;
   try { manifest = JSON.parse(await readFile(assets.releaseManifestPath, "utf8")); }
   catch { throw failure("release manifest is invalid"); }
-  if (manifest === null || typeof manifest !== "object" || !Array.isArray((manifest as { files?: unknown }).files)) {
+  if (!ordinary(manifest) || ![1, 2].includes(manifest.schemaVersion as number)) {
     throw failure("release manifest is invalid");
   }
+  const recordKey = (manifest as { schemaVersion?: unknown }).schemaVersion === 2 ? "payloadFiles" : "files";
+  const records = (manifest as Record<string, unknown>)[recordKey];
+  if (!Array.isArray(records)) throw failure("release manifest is invalid");
   const relativePath = "Contents/Resources/helpers/GreenRoomCredentialHelper";
-  const matching = (manifest as { files: unknown[] }).files.filter((entry) =>
+  const matching = records.filter((entry) =>
     entry !== null && typeof entry === "object" && (entry as { path?: unknown }).path === relativePath);
-  if (matching.length !== 1 || Reflect.ownKeys(matching[0] as object).length !== 2 ||
-      !Reflect.ownKeys(matching[0] as object).every((key) => key === "path" || key === "sha256") ||
+  const expectedKeys = recordKey === "payloadFiles" ? ["path", "mode", "bytes", "sha256"] : ["path", "sha256"];
+  if (matching.length !== 1 || Reflect.ownKeys(matching[0] as object).length !== expectedKeys.length ||
+      !Reflect.ownKeys(matching[0] as object).every((key) => typeof key === "string" && expectedKeys.includes(key)) ||
       typeof (matching[0] as { sha256?: unknown }).sha256 !== "string" ||
       !/^[0-9a-f]{64}$/u.test((matching[0] as { sha256: string }).sha256)) {
     throw failure("credential helper manifest record is invalid");
+  }
+  let resolvedPolicy: HelperSignaturePolicy;
+  if (recordKey === "payloadFiles") {
+    const policy = manifest.signingPolicy;
+    const rootKeys = ["schemaVersion", "bundleIdentifier", "appVersion", "sourceCommit", "buildEpoch", "targetTriple", "runtimes", "databaseSchema", "unsignedPayloadDigest", "payloadFiles", "signatureOwnedFiles", "signingPolicy"];
+    const policyKeys = ["teamId", "identity", "hardenedRuntime", "secureTimestamp", "identifiers", "requirements", "codeObjects"];
+    const requirements = ordinary(policy) ? policy.requirements : undefined;
+    const requirement = ordinary(requirements) ? requirements.credentialHelper : undefined;
+    const expected = 'identifier "net.greenroomai.GreenRoom.credential-helper" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "JZ233HBW3Z"';
+    const identifiers = ordinary(policy) ? policy.identifiers : undefined;
+    const codeObjects = ordinary(policy) ? policy.codeObjects : undefined;
+    const helperCode = Array.isArray(codeObjects) ? codeObjects.filter((item) => ordinary(item) && item.path === relativePath) : [];
+    if (!exactKeys(manifest, rootKeys) || manifest.bundleIdentifier !== "net.greenroomai.GreenRoom" || manifest.targetTriple !== "arm64-apple-darwin" ||
+        !Array.isArray(manifest.signatureOwnedFiles) || manifest.signatureOwnedFiles.length !== 3 ||
+        manifest.signatureOwnedFiles[0] !== "Contents/CodeResources" || manifest.signatureOwnedFiles[1] !== "Contents/MacOS/GreenRoomLauncher" ||
+        manifest.signatureOwnedFiles[2] !== "Contents/_CodeSignature/CodeResources" ||
+        !exactKeys(policy, policyKeys) || policy.teamId !== "JZ233HBW3Z" || policy.identity !== "Developer ID Application: James DelGuercio (JZ233HBW3Z)" ||
+        policy.hardenedRuntime !== true || policy.secureTimestamp !== true || !exactKeys(identifiers, ["app", "credentialHelper"]) ||
+        identifiers.app !== "net.greenroomai.GreenRoom" || identifiers.credentialHelper !== "net.greenroomai.GreenRoom.credential-helper" ||
+        !exactKeys(requirements, ["app", "credentialHelper"]) || requirement !== expected || helperCode.length !== 1 ||
+        !exactKeys(helperCode[0], ["path", "identifier", "requirement"]) || helperCode[0].identifier !== "net.greenroomai.GreenRoom.credential-helper" || helperCode[0].requirement !== expected ||
+        (matching[0] as { mode?: unknown }).mode !== 0o555 || !Number.isSafeInteger((matching[0] as { bytes?: unknown }).bytes) ||
+        signaturePolicy?.kind === "adhoc" || signaturePolicy?.kind === "designated" && signaturePolicy.requirement !== expected) {
+      throw failure("credential helper signed requirement is invalid");
+    }
+    resolvedPolicy = Object.freeze({ kind: "designated", requirement: expected });
+  } else {
+    resolvedPolicy = signaturePolicy ?? Object.freeze({ kind: "adhoc" });
   }
   const record = matching[0] as { path: string; sha256: string };
   return Object.freeze({
     executablePath: assets.credentialHelperExecutable,
     payloadRoot: assets.payloadRoot,
     expectedSha256: record.sha256,
-    signaturePolicy,
+    signaturePolicy: resolvedPolicy,
   });
 }

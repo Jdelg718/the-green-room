@@ -4,7 +4,8 @@ export interface ReleaseManifestFile {
 }
 
 export interface ReleaseManifestLike {
-  readonly files: readonly ReleaseManifestFile[];
+  readonly files?: readonly ReleaseManifestFile[];
+  readonly payloadFiles?: readonly ReleaseManifestFile[];
   readonly [key: string]: unknown;
 }
 

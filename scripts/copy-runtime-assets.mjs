@@ -38,8 +38,13 @@ cpSync(resolve(repositoryRoot, "scripts/source-clean-host.mjs"), scriptDestinati
 for (const relativePath of [
   "scripts/package/verify-release-manifest.mjs",
   "scripts/package/macos-binary.mjs",
+  "scripts/package/macos-signing.mjs",
+  "scripts/package/macos-notarize.mjs",
+  "scripts/package/verify-macos-signed.mjs",
+  "scripts/package/deterministic_app_zip.py",
   "scripts/package/atomic_directory.py",
   "packaging/release-manifest.schema.json",
+  "packaging/signed-release-manifest.schema.json",
   "packaging/macos/assemble-app.mjs",
 ]) {
   const destination = resolve(distRoot, relativePath);
