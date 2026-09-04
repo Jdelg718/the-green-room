@@ -34,6 +34,9 @@ const { parseRuntimeProcessListing, runPackagedRuntimeAcceptance, sanitizePackag
 const { generateRuntimeSandboxProfile } = await import(
   new URL("../../../scripts/package/runtime-sandbox.mjs", import.meta.url).href
 ) as { generateRuntimeSandboxProfile(options: Record<string, string>): string };
+const { isSafePackagedRuntimeEvidencePath, PACKAGED_RUNTIME_EVIDENCE_PATH } = await import(
+  new URL("../../../scripts/package/runtime-evidence-path.mjs", import.meta.url).href
+) as { isSafePackagedRuntimeEvidencePath(value: unknown): boolean; PACKAGED_RUNTIME_EVIDENCE_PATH: string };
 
 test("packaged runtime environment is an explicit hostile-input-resistant allowlist", () => {
   const clean = sanitizePackagedEnvironment({
@@ -67,6 +70,18 @@ test("Task13 porcelain validation includes staged and untracked records and reje
     () => validateTask13Porcelain("R  scripts/package/runtime-sandbox.mjs\0old-name.mjs\0", ["scripts/package/runtime-sandbox.mjs"]),
     /source_tree_rename_forbidden/,
   );
+});
+
+test("Task13 exported evidence uses one path-free token and rejects private, absolute, and traversal paths", () => {
+  assert.equal(PACKAGED_RUNTIME_EVIDENCE_PATH, "packaged-runtime.evidence.json");
+  assert.equal(isSafePackagedRuntimeEvidencePath(PACKAGED_RUNTIME_EVIDENCE_PATH), true);
+  for (const unsafe of [
+    "/private/tmp/greenroom-task13/packaged-runtime.evidence.json",
+    "/tmp/packaged-runtime.evidence.json",
+    "../packaged-runtime.evidence.json",
+    "nested/packaged-runtime.evidence.json",
+    "C:\\private\\packaged-runtime.evidence.json",
+  ]) assert.equal(isSafePackagedRuntimeEvidencePath(unsafe), false, unsafe);
 });
 
 test("lifecycle quiescence parser detects role processes only in tracked process groups", () => {

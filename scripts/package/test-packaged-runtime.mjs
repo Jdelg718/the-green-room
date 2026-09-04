@@ -19,6 +19,7 @@ import { arch, platform, release, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { PACKAGED_RUNTIME_EVIDENCE_PATH } from "./runtime-evidence-path.mjs";
 import { comparePayloadInventories, snapshotUnsignedApp } from "./verify-payload.mjs";
 import { generateRuntimeSandboxProfile, sandboxCommand } from "./runtime-sandbox.mjs";
 
@@ -50,6 +51,7 @@ const TASK13_WORKTREE_ALLOWLIST = Object.freeze([
   "scripts/package/build-launcher.mjs",
   "scripts/package/build-validator.mjs",
   "scripts/package/network-policy-probe.mjs",
+  "scripts/package/runtime-evidence-path.mjs",
   "scripts/package/runtime-boundary-probe.mjs",
   "scripts/package/runtime-sandbox.mjs",
   "scripts/package/test-packaged-validator.mjs",
@@ -1141,7 +1143,7 @@ export async function runPackagedRuntimeAcceptance(options) {
       sourceCommit: source.manifest.sourceCommit, artifactDigest: source.appDigest,
       executionDigest: after.appDigest, platform: `${platform()}-${arch()}`, osRelease: release(),
       boundary: "packaged-node-direct-authenticated-fd3; GUI launcher independently gated by Task10/11",
-      evidencePath: options.evidencePath ?? "not-requested",
+      evidencePath: PACKAGED_RUNTIME_EVIDENCE_PATH,
       outerBoundary: options.outerBoundary,
       readinessAuthenticated: true, mockConversation: true,
       staleOrDuplicateCommits: durableAfter.events.length - durableBefore.events.length,
@@ -1206,6 +1208,7 @@ function runChecked(executable, args, cwd = repositoryRoot, env = process.env) {
 export function copyController(sourceRoot, controllerRoot) {
   const files = [
     "scripts/package/test-packaged-runtime.mjs", "scripts/package/verify-payload.mjs",
+    "scripts/package/runtime-evidence-path.mjs",
     "scripts/package/runtime-sandbox.mjs", "scripts/package/runtime-boundary-probe.mjs", "scripts/package/network-policy-probe.mjs",
     "scripts/package/verify-release-manifest.mjs", "scripts/package/macos-binary.mjs",
     "packaging/macos/assemble-app.mjs", "packaging/release-manifest.schema.json", "package.json",

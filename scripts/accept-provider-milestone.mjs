@@ -8,6 +8,8 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isSafePackagedRuntimeEvidencePath } from "./package/runtime-evidence-path.mjs";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedArchive = "/private/tmp/node-v24.20.0-darwin-arm64.tar.gz";
 const packageMetadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
@@ -417,7 +419,7 @@ function validateTask13Evidence(task13, head) {
   if (task13.code !== "packaged_runtime_acceptance_ok" || task13.schemaVersion !== 1 || task13.sourceCommit !== head ||
       !/^[0-9a-f]{64}$/u.test(task13.artifactDigest) || !/^[0-9a-f]{64}$/u.test(task13.executionDigest) ||
       task13.artifactDigest !== task13.executionDigest || !boundedString(task13.platform) || !boundedString(task13.osRelease) ||
-      !boundedString(task13.boundary, 1024) || !boundedString(task13.evidencePath, 4096) || task13.controller !== "external-frozen-copy" ||
+      !boundedString(task13.boundary, 1024) || !isSafePackagedRuntimeEvidencePath(task13.evidencePath) || task13.controller !== "external-frozen-copy" ||
       task13.readinessAuthenticated !== true || task13.mockConversation !== true || task13.restartContinuity !== true || task13.networkDeniedProbe !== true ||
       counters.some((name) => !nonnegativeInteger(task13[name])) || task13.staleOrDuplicateCommits !== 0 || task13.processLeakCount !== 0 ||
       task13.externalRequests !== 0 || task13.outOfRootWriteCount !== 0 || task13.payloadMutationCount !== 0 || task13.hostDiscoveryCount !== 0 ||
