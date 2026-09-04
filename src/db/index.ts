@@ -11,6 +11,14 @@ export {
 } from "./open.js";
 export { withImmediateTransaction } from "./transaction.js";
 export {
+  createLifecycleBackup,
+  markDisposableDataRoot,
+  purgeDisposableDataRoot,
+  restoreLifecycleBackup,
+  type LifecycleEvidence,
+  type LifecycleHooks,
+} from "./lifecycle.js";
+export {
   createConnectionProfile,
   createModelProfile,
   deleteConnectionProfile,

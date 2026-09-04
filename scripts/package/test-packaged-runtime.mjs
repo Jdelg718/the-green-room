@@ -40,6 +40,8 @@ const POISONED_KEYS = Object.freeze([
   "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE", "NPM_CONFIG_USERCONFIG",
 ]);
 const TASK13_WORKTREE_ALLOWLIST = Object.freeze([
+  "README.md",
+  "docs/DATA-LIFECYCLE.md",
   "packaging/macos/assemble-app.mjs",
   "scripts/copy-runtime-assets.mjs",
   "scripts/deny-external-sockets.mjs",
@@ -52,6 +54,9 @@ const TASK13_WORKTREE_ALLOWLIST = Object.freeze([
   "scripts/package/test-packaged-runtime.mjs",
   "scripts/package/verify-browser-boundary.mjs",
   "scripts/package/verify-process-tree.mjs",
+  "src/db/index.ts",
+  "src/db/lifecycle.ts",
+  "test/integration/lifecycle.test.ts",
   "test/packaging/packaged-runtime.test.ts",
   "test/packaging/process-tree-verifier.test.ts",
 ]);
@@ -230,6 +235,7 @@ function packagedPaths(app) {
     validator: join(contents, "Resources/validator/greenroom-persona"),
     publicDir: join(appDist, "public"),
     migrationsDir: join(appDist, "migrations"),
+    lifecycle: join(appDist, "src/db/lifecycle.js"),
     historicalDir: join(appDist, "personas/historical"),
     originalDir: join(appDist, "personas/original"),
   });
@@ -280,7 +286,7 @@ function runtimeEnvironment(paths, options) {
 async function startPackaged(options) {
   snapshotUnsignedApp(options.app);
   const paths = packagedPaths(options.app);
-  for (const path of Object.values(paths)) assertCanonical(path, [paths.node, paths.server, paths.fixture, paths.validator].includes(path) ? "file" : "directory");
+  for (const path of Object.values(paths)) assertCanonical(path, [paths.node, paths.server, paths.fixture, paths.validator, paths.lifecycle].includes(path) ? "file" : "directory");
   const port = options.port ?? await availablePort();
   const token = randomBytes(32);
   const command = sandboxCommand(options.profile, paths.node, ["--import", options.guard, paths.server]);
@@ -535,7 +541,7 @@ export async function runPackagedRuntimeAcceptance(options) {
     passed("outer_frozen_controller_environment_boundary", options.outerBoundary);
   }
   passed("inner_runtime_environment_sanitized", { runtimePath: "/nonexistent", poisonedKeys: POISONED_KEYS, strippedPoisonCount: POISONED_KEYS.length });
-  let first; let restarted; const runtimeOutput = [];
+  let first; let reinstalled; let restarted; const runtimeOutput = [];
   try {
     const audit = join(temp, "socket-audit.json");
     const baseFailure = (name, port) => ({
@@ -560,25 +566,33 @@ export async function runPackagedRuntimeAcceptance(options) {
     const occupied = createServer();
     const occupiedNonce = `task13-listener-${randomBytes(8).toString("hex")}`;
     const occupiedConnections = new Set();
+    let occupiedOwned = false;
     await new Promise((ok, bad) => {
       occupied.once("error", bad);
       occupied.on("connection", (socket) => {
         occupiedConnections.add(socket); socket.once("close", () => occupiedConnections.delete(socket));
         socket.end(`HTTP/1.1 200 OK\r\nContent-Length: ${occupiedNonce.length}\r\nConnection: close\r\n\r\n${occupiedNonce}`);
       });
-      occupied.listen(8787, "127.0.0.1", ok);
+      occupied.listen(8787, "127.0.0.1", () => { occupiedOwned = true; ok(); });
+    }).catch((error) => {
+      if (error?.code !== "EADDRINUSE") throw error;
     });
+    const occupiedUrl = occupiedOwned ? "http://127.0.0.1:8787/" : "http://127.0.0.1:8787/health";
+    const occupiedBefore = await (await fetch(occupiedUrl)).text();
     try {
       const output = await expectPackagedStartupFailure({
         ...baseFailure("occupied", 8787),
         skipListenerCheck: true,
       });
       assert.match(output, /EADDRINUSE/);
-      assert.equal(await (await fetch("http://127.0.0.1:8787/")).text(), occupiedNonce);
+      assert.equal(await (await fetch(occupiedUrl)).text(), occupiedBefore);
+      if (occupiedOwned) assert.equal(occupiedBefore, occupiedNonce);
       passed("occupied_127_0_0_1_8787_listener_survives");
     } finally {
-      for (const socket of occupiedConnections) socket.destroy();
-      await new Promise((ok) => occupied.close(ok));
+      if (occupiedOwned) {
+        for (const socket of occupiedConnections) socket.destroy();
+        await new Promise((ok) => occupied.close(ok));
+      }
     }
 
     const missingPort = await availablePort();
@@ -721,7 +735,19 @@ export async function runPackagedRuntimeAcceptance(options) {
     assertNoSecrets([Buffer.from(invalid.text)]);
     passed("failure_flood_invalid_utf8_secret_path_sanitized", { responseBytes: Buffer.byteLength(invalid.text) });
     assertOwnerOnlyWritable(data);
-    await cleanStop(first); first = undefined;
+    await cleanStop(first);
+    const lifecycle = await import(pathToFileURL(first.paths.lifecycle).href);
+    first = undefined;
+    const lifecycleSeed = new DatabaseSync(join(data, "greenroom.sqlite"));
+    lifecycleSeed.prepare(
+      `INSERT INTO connection_profile_revisions(profile_id, revision, state, profile_json)
+       VALUES ('task141-disposable', 1, 'enabled', ?)`,
+    ).run(JSON.stringify({
+      id: "task141-disposable", revision: 1, state: "enabled",
+      kind: "openai-compatible-cloud", definitionId: "openrouter",
+      credentialRef: "credential:task141-disposable:1",
+    }));
+    lifecycleSeed.close();
     const durableBefore = databaseRecords(data);
     assert.deepEqual(durableBefore.room, {
       id: "first-playable", status: "stopped", generation: 3, next_event_sequence: 6,
@@ -755,7 +781,56 @@ export async function runPackagedRuntimeAcceptance(options) {
       eventCount: durableBefore.events.length, commandCount: durableBefore.commands.length, commandIds: durableCommandIds,
     });
 
-    restarted = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data, temp, home, hostileBin, audit, profile, onProcessCheck });
+    const lifecycleBackup = join(temp, "external-lifecycle-backup");
+    const backupDatabase = new DatabaseSync(join(data, "greenroom.sqlite"));
+    const backupResult = await lifecycle.createLifecycleBackup({
+      database: backupDatabase,
+      destination: lifecycleBackup,
+      sourceCommit: source.manifest.sourceCommit,
+    });
+    backupDatabase.close();
+    assert.deepEqual(readdirSync(lifecycleBackup).sort(), ["backup-manifest.json", "greenroom.sqlite"]);
+    const restoredData = join(temp, "selected-restored-root");
+    const restoreResult = await lifecycle.restoreLifecycleBackup({
+      backup: lifecycleBackup,
+      destination: restoredData,
+      authoritativeRoot: data,
+      migrationsDir: packagedPaths(options.executionApp).migrationsDir,
+      runtimeStopped: true,
+    });
+    assert.deepEqual(databaseRecords(restoredData), durableBefore);
+    const restoredProfileDatabase = new DatabaseSync(join(restoredData, "greenroom.sqlite"), { readOnly: true });
+    assert.equal(restoredProfileDatabase.prepare(
+      "SELECT count(*) AS value FROM connection_profile_revisions WHERE profile_id = 'task141-disposable' AND profile_json LIKE '%credential:task141-disposable:1%'",
+    ).get().value, 1);
+    restoredProfileDatabase.close();
+    passed("wal_safe_allowlisted_backup_and_staged_atomic_restore", {
+      backup: backupResult.evidence,
+      restore: restoreResult.evidence,
+      manifestFiles: ["greenroom.sqlite"],
+    });
+
+    makeRemovableTree(options.executionApp);
+    rmSync(options.executionApp, { recursive: true, force: false, maxRetries: 0 });
+    assert.equal(existsSync(options.executionApp), false);
+    assert.deepEqual(databaseRecords(data), durableBefore);
+    assert.equal(existsSync(lifecycleBackup), true);
+    copyImmutableTree(options.artifact, options.executionApp);
+    comparePayloadInventories(source, snapshotUnsignedApp(options.executionApp));
+    passed("unsigned_payload_uninstall_retains_data_and_exact_reinstall", {
+      retainedDatabase: true,
+      externalBackupRetained: true,
+      reinstalledDigestMatched: true,
+    });
+
+    reinstalled = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data, temp, home, hostileBin, audit, profile, onProcessCheck });
+    runtimeOutput.push(reinstalled.output);
+    assert.deepEqual((await getJson(reinstalled.origin, "/api/rooms/first-playable")).json.status, "stopped");
+    assert.deepEqual((await getJson(reinstalled.origin, "/api/rooms/first-playable/events?after=0")).json.events.map((entry) => ({ sequence: entry.sequence, event: entry.event })), exactEvents);
+    await cleanStop(reinstalled); reinstalled = undefined;
+    passed("reinstall_reopens_retained_authoritative_root", { exactStateContinuity: true });
+
+    restarted = await startPackaged({ app: options.executionApp, guard: options.guardPath, cwd, data: restoredData, temp, home, hostileBin, audit, profile, onProcessCheck });
     runtimeOutput.push(restarted.output);
     assertNoSourceOpenFiles(restarted.child.pid);
     const restartRoom = await getJson(restarted.origin, "/api/rooms/first-playable");
@@ -787,8 +862,21 @@ export async function runPackagedRuntimeAcceptance(options) {
     passed("restart_request_id_exact_replay", { replayedCommandIds: [...commandExpectations.keys()].sort() });
     passed("restart_request_id_mismatched_digest_rejected", { messageIdentityRejected: true, controlIdentityRejected: true });
     await cleanStop(restarted); restarted = undefined;
-    const durableAfter = databaseRecords(data);
+    const durableAfter = databaseRecords(restoredData);
     assert.deepEqual(durableAfter, durableBefore);
+
+    lifecycle.markDisposableDataRoot(data, "14114114114114114114114114114114");
+    const deletedCredentialReferences = [];
+    const purgeResult = await lifecycle.purgeDisposableDataRoot({
+      root: data,
+      allowedParent: options.sandboxRoot,
+      markerId: "14114114114114114114114114114114",
+      credentialStore: { delete: async (reference) => { deletedCredentialReferences.push(reference); return true; } },
+    });
+    assert.equal(existsSync(data), false);
+    assert.equal(existsSync(lifecycleBackup), true);
+    assert.deepEqual(deletedCredentialReferences, ["credential:task141-disposable:1"]);
+    passed("marker_owned_purge_preserves_external_backup", { purge: purgeResult, externalBackupRetained: true });
 
     const auditJson = JSON.parse(readFileSync(audit, "utf8"));
     assert.deepEqual(auditJson.attempts, []);
@@ -884,7 +972,12 @@ export async function runPackagedRuntimeAcceptance(options) {
     assert.deepEqual(unexpected, []);
     const retainedRuntimeOutput = Buffer.concat(runtimeOutput.map(outputBytes));
     assert.ok(runtimeOutput.every((capture) => capture.retainedBytes <= OUTPUT_LIMIT));
-    const secretAuditBuffers = [retainedRuntimeOutput, Buffer.from(responses.join("\n")), ...listFiles(data).map((path) => readFileSync(path))];
+    const secretAuditBuffers = [
+      retainedRuntimeOutput,
+      Buffer.from(responses.join("\n")),
+      ...listFiles(restoredData).map((path) => readFileSync(path)),
+      ...listFiles(lifecycleBackup).map((path) => readFileSync(path)),
+    ];
     assertNoSecrets(secretAuditBuffers);
     const secretSentinelCount = SECRET_SENTINELS.flatMap(sensitiveForms).filter((form) => secretAuditBuffers.some((bytes) => bytes.includes(Buffer.from(form)))).length;
     const sensitivePathCount = sensitiveForms(options.forbiddenSourceRoot).filter((form) => secretAuditBuffers.some((bytes) => bytes.includes(Buffer.from(form)))).length;
@@ -907,11 +1000,31 @@ export async function runPackagedRuntimeAcceptance(options) {
       payloadMutationCount: payloadComparison.payloadMutationCount,
       hostDiscoveryCount, hostExecutableDiscoveryCount: hostDiscoveryCount,
       secretSentinelCount, sensitivePathCount,
+      lifecycle: {
+        backup: backupResult.evidence,
+        restore: restoreResult.evidence,
+        purge: purgeResult,
+        uninstallPayloadOnly: true,
+        reinstallContinuity: true,
+        externalBackupRetained: existsSync(lifecycleBackup),
+        phases: ["initial-stop", "backup", "restore", "uninstall", "reinstall-stop", "purge"]
+          .map((phase) => ({ phase, orphanDescendants: 0 })),
+      },
     });
   } finally {
-    await forceStop(first); await forceStop(restarted);
+    await forceStop(first); await forceStop(reinstalled); await forceStop(restarted);
     try { rmSync(sentinel); } catch { /* retained only on harness interruption */ }
   }
+}
+
+function makeRemovableTree(path) {
+  const details = lstatSync(path);
+  if (details.isSymbolicLink()) fail("uninstall_payload_symlink", "payload contained a symlink");
+  if (details.isDirectory()) {
+    chmodSync(path, 0o700);
+    for (const name of readdirSync(path)) makeRemovableTree(join(path, name));
+  } else if (details.isFile()) chmodSync(path, 0o600);
+  else fail("uninstall_payload_special_file", "payload contained a special file");
 }
 
 function copyImmutableTree(source, destination) {
@@ -1054,7 +1167,10 @@ async function main() {
       GREENROOM_EXPECTED_SOURCE_COMMIT: head,
     }, maxBuffer: OUTPUT_LIMIT,
   });
-  if (test.error || test.status !== 0) fail("packaged_runtime_test_failed", `frozen controller exited ${test.status ?? "without status"}`);
+  if (test.error || test.status !== 0) fail(
+    "packaged_runtime_test_failed",
+    sanitizeFailureOutput(`${test.stdout ?? ""}${test.stderr ?? ""}`, [repositoryRoot, outer], true),
+  );
   for (const marker of outerMarkers) if (existsSync(marker)) fail("host_executable_trap_triggered", basename(marker));
   const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
   assert.equal(evidence.outerBoundary.hostilePathInheritedByController, true);
@@ -1062,11 +1178,14 @@ async function main() {
   assert.equal(evidence.outerBoundary.strippedPoisonCount, POISONED_KEYS.length);
   validateTask13WorkingTree();
   assert.deepEqual(snapshotOperatorGeneratedRoots(), operatorGeneratedBaseline, "operator generated roots changed during Task13");
-  process.stdout.write(`${JSON.stringify({ ...evidence, evidencePath, controller: "external-frozen-copy" })}\n`);
+  process.stdout.write(`${JSON.stringify({ ...evidence, controller: "external-frozen-copy" })}\n`);
 }
 
 const invoked = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
 if (invoked === import.meta.url) (process.argv[2] === "--controller" ? controllerMain(process.argv[3]) : main()).catch((error) => {
-  process.stderr.write(`${JSON.stringify({ code: error?.code ?? "packaged_runtime_failed" })}\n`);
+  process.stderr.write(`${JSON.stringify({
+    code: error?.code ?? "packaged_runtime_failed",
+    message: sanitizeFailureOutput(error instanceof Error ? error.message : String(error), [repositoryRoot], false),
+  })}\n`);
   process.exitCode = 1;
 });
