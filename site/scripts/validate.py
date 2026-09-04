@@ -179,7 +179,7 @@ REQUIRED_LANGUAGE = {
         "local-first",
         "your own local or cloud LLM",
         "bounded context",
-        "forthcoming",
+        "macOS Alpha 1 evaluation build",
         "eighteen source-informed historical character packs",
         "Character Wizard",
         "community library",
@@ -220,7 +220,14 @@ REQUIRED_LANGUAGE = {
         "runtime preinstallation remain separate from Official Catalog admission",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
-    "download/index.html": ("forthcoming", "no downloadable release"),
+    "download/index.html": (
+        "macOS Apple-silicon evaluation build",
+        "not Developer ID signed or notarized",
+        "2b730738cc36de3eb2a899cb99e2c8f0e6a9ae104b3a475bb0ad462ddedf7c51",
+        "98963168accff8b289b7cc2e65fa429fcab8d240",
+        "19 preinstalled characters",
+        "Official Catalog admission",
+    ),
     "contribute/index.html": ("GitHub", "content and legal boundaries"),
 }
 FORBIDDEN_TEXT = (
