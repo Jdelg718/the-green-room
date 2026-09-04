@@ -22,17 +22,21 @@ type RuntimeModule = {
   sanitizePackagedEnvironment(hostile?: Readonly<Record<string, string>>): Readonly<Record<string, string | undefined>>;
   sanitizeFailureOutput(value: Buffer | string, forbiddenPaths?: readonly string[], wasTruncated?: boolean): string;
   validateTask13Porcelain(output: string, allowlist?: readonly string[]): readonly { status: string; path: string }[];
+  parseRuntimeProcessListing(output: string, groups: readonly number[], roles: Readonly<Record<"launcher" | "node" | "validator" | "helper", readonly string[]>>): Readonly<Record<string, number>>;
   runPackagedRuntimeAcceptance(options: {
     artifact: string; executionApp: string; sandboxRoot: string; guardPath: string;
     boundaryProbePath: string; networkProbePath: string; sourceProbePaths: string[]; forbiddenSourceRoot: string;
   }): Promise<RuntimeEvidence>;
 };
-const { runPackagedRuntimeAcceptance, sanitizePackagedEnvironment, sanitizeFailureOutput, validateTask13Porcelain } = await import(
+const { parseRuntimeProcessListing, runPackagedRuntimeAcceptance, sanitizePackagedEnvironment, sanitizeFailureOutput, validateTask13Porcelain } = await import(
   new URL("../../../scripts/package/test-packaged-runtime.mjs", import.meta.url).href
 ) as RuntimeModule;
 const { generateRuntimeSandboxProfile } = await import(
   new URL("../../../scripts/package/runtime-sandbox.mjs", import.meta.url).href
 ) as { generateRuntimeSandboxProfile(options: Record<string, string>): string };
+const { isSafePackagedRuntimeEvidencePath, PACKAGED_RUNTIME_EVIDENCE_PATH } = await import(
+  new URL("../../../scripts/package/runtime-evidence-path.mjs", import.meta.url).href
+) as { isSafePackagedRuntimeEvidencePath(value: unknown): boolean; PACKAGED_RUNTIME_EVIDENCE_PATH: string };
 
 test("packaged runtime environment is an explicit hostile-input-resistant allowlist", () => {
   const clean = sanitizePackagedEnvironment({
@@ -66,6 +70,40 @@ test("Task13 porcelain validation includes staged and untracked records and reje
     () => validateTask13Porcelain("R  scripts/package/runtime-sandbox.mjs\0old-name.mjs\0", ["scripts/package/runtime-sandbox.mjs"]),
     /source_tree_rename_forbidden/,
   );
+});
+
+test("Task13 exported evidence uses one path-free token and rejects private, absolute, and traversal paths", () => {
+  assert.equal(PACKAGED_RUNTIME_EVIDENCE_PATH, "packaged-runtime.evidence.json");
+  assert.equal(isSafePackagedRuntimeEvidencePath(PACKAGED_RUNTIME_EVIDENCE_PATH), true);
+  for (const unsafe of [
+    "/private/tmp/greenroom-task13/packaged-runtime.evidence.json",
+    "/tmp/packaged-runtime.evidence.json",
+    "../packaged-runtime.evidence.json",
+    "nested/packaged-runtime.evidence.json",
+    "C:\\private\\packaged-runtime.evidence.json",
+  ]) assert.equal(isSafePackagedRuntimeEvidencePath(unsafe), false, unsafe);
+});
+
+test("lifecycle quiescence parser detects role processes only in tracked process groups", () => {
+  const roles = {
+    launcher: ["/artifact/Contents/MacOS/GreenRoomLauncher"],
+    node: ["/artifact/Contents/Resources/runtime/node/bin/node"],
+    validator: ["/artifact/Contents/Resources/validator/greenroom-persona"],
+    helper: ["/artifact/Contents/Resources/helpers/GreenRoomCredentialHelper"],
+  };
+  const listing = [
+    " 101 1 101 /artifact/Contents/MacOS/GreenRoomLauncher",
+    " 102 101 101 /artifact/Contents/Resources/runtime/node/bin/node server.js",
+    " 103 102 101 /artifact/Contents/Resources/validator/greenroom-persona inspect",
+    " 104 102 101 /artifact/Contents/Resources/helpers/GreenRoomCredentialHelper",
+    " 201 1 201 /artifact/Contents/Resources/runtime/node/bin/node unrelated.js",
+  ].join("\n");
+  assert.deepEqual(parseRuntimeProcessListing(listing, [101], roles), {
+    launcherDescendants: 1, nodeDescendants: 1, validatorDescendants: 1, helperDescendants: 1,
+  });
+  assert.deepEqual(parseRuntimeProcessListing(listing, [], roles), {
+    launcherDescendants: 0, nodeDescendants: 0, validatorDescendants: 0, helperDescendants: 0,
+  });
 });
 
 test("Task13 harness rejects operator entries before cleanup and preserves their exact identities", {
