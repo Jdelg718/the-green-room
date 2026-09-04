@@ -283,6 +283,10 @@ export function createSelectionState(slugs = []) {
   return Object.freeze({ slugs: Object.freeze([...slugs]) });
 }
 
+export function newRoomSelection() {
+  return createSelectionState();
+}
+
 export function historicalSelectionFromRoom(room, catalog) {
   const known = new Set(catalog.map(({ slug }) => slug));
   return createSelectionState(room.participants
@@ -1325,8 +1329,7 @@ export function startBrowserApp() {
     elements.pauseResume.disabled = !availability.canPauseResume;
     elements.stopRoom.disabled = !availability.canStop;
     elements.openSetup.disabled = pending.size !== 0;
-    elements.openSetup.textContent = room.status === "stopped" ? "Start a new bundled room" :
-      room.participants.some(({ kind }) => kind === "persona") ? "Change cast" : "Build bundled room";
+    elements.openSetup.textContent = "New room";
     elements.pauseResume.textContent = isPaused ? "Resume room" : "Pause room";
     elements.composerNote.textContent = room.status === "stopped" ? "This room has stopped permanently. The transcript remains available." :
       isPaused ? "Resume the room before sending another message." : pending.has("message") ? "The room is considering this cue." :
@@ -1709,7 +1712,7 @@ export function startBrowserApp() {
 
   function showSetup() {
     if (room === null || pending.size !== 0) return;
-    selection = catalog === null ? createSelectionState() : historicalSelectionFromRoom(room, catalog);
+    selection = newRoomSelection();
     elements.liveView.hidden = true; elements.setupView.hidden = false; elements.builderError.textContent = "";
     elements.skipLink.href = "#gallery-heading"; elements.skipLink.textContent = "Skip to bundled candidates";
     renderGallery(); renderBuilder(); elements.galleryHeading.focus();

@@ -60,7 +60,9 @@ test("bundled gallery HTML exposes two accessible views, generalized copy, dialo
   assert.match(html, /Request one persona reply/);
   assert.match(html, /id="room-identity-roster"[^>]*aria-label="Character identities"/);
   assert.match(html, /Unchecked saves your line without an AI response\./);
-  assert.match(html, /Bundled room builder/);
+  assert.match(html, /New saved room/);
+  assert.match(html, /Existing rooms stay saved/);
+  assert.match(html, /Characters can be reused across rooms/);
   assert.match(html, /eighteen historical interpretations and one creator-authorized pseudonymous original/);
   assert.doesNotMatch(html, /<style\b|<script(?![^>]*\bsrc=)|https?:|src="\/\/|href="\/\//i);
 });
@@ -181,6 +183,7 @@ test("behavior labels and selection capacity are deterministic and ordered", asy
     { kind: "persona", personaSlug: "ada-lovelace" },
   ] }, [{ slug: "ada-lovelace" }]);
   assert.deepEqual(roomSelection.slugs, ["ada-lovelace"]);
+  assert.deepEqual(ui.newRoomSelection().slugs, []);
 });
 
 test("duplicate cast starts are rejected and dialog focus returns only to a live trigger", async () => {
