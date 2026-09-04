@@ -103,6 +103,19 @@
 
     <div class="mobile-room-action" id="mobile-room-action" hidden><button class="button button-primary" id="view-room" type="button" aria-controls="cast-builder">View room (0 of 3)</button></div>
 
+    <div class="floating-nav" id="floating-nav">
+      <nav class="floating-nav-menu" id="floating-nav-menu" aria-label="Quick navigation" hidden>
+        <button type="button" data-nav-action="rooms">Rooms</button>
+        <button type="button" data-nav-action="cast">Cast</button>
+        <button type="button" data-nav-action="conversation">Conversation</button>
+        <button type="button" data-nav-action="new-room">New room</button>
+        <button type="button" data-nav-action="model-setup">Model setup</button>
+      </nav>
+      <button class="floating-nav-toggle" id="floating-nav-toggle" type="button" aria-label="Open quick navigation" aria-controls="floating-nav-menu" aria-expanded="false">
+        <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+      </button>
+    </div>
+
     <dialog class="room-drawer" id="room-drawer" aria-labelledby="room-drawer-title">
       <section class="room-drawer-panel">
         <header class="room-drawer-heading"><div><p class="kicker">Room library</p><h2 id="room-drawer-title">Your rooms</h2></div><button class="button" id="close-room-drawer" type="button">Close</button></header>

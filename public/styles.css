@@ -239,6 +239,7 @@ dialog::backdrop { background: rgb(18 20 17 / 72%); }
 .builder-error { min-height: 1.45em; color: #a92115; }
 .start-room { width: 100%; min-height: 3.25rem; margin-top: 1rem; }
 .mobile-room-action { display: none; }
+.floating-nav { display: none; }
 
 #persona-details { width: min(46rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .details-panel { padding: 1.25rem; }
@@ -282,6 +283,16 @@ dialog::backdrop { background: rgb(18 20 17 / 72%); }
   .mobile-room-action { position: fixed; z-index: 15; right: .75rem; bottom: calc(.75rem + env(safe-area-inset-bottom)); left: .75rem; display: block; border: var(--rule); padding: .4rem; background: var(--ink); }
   .mobile-room-action .button { width: 100%; min-height: 3.25rem; }
   body.has-mobile-room-action { padding-bottom: calc(4.8rem + env(safe-area-inset-bottom)); }
+  .floating-nav { position: fixed; z-index: 18; right: max(.75rem, env(safe-area-inset-right)); bottom: calc(.75rem + env(safe-area-inset-bottom)); display: grid; justify-items: end; gap: .5rem; }
+  body.has-mobile-room-action .floating-nav { bottom: calc(5.4rem + env(safe-area-inset-bottom)); }
+  .floating-nav-toggle { display: grid; width: 3.4rem; height: 3.4rem; place-content: center; gap: .28rem; border: 2px solid rgba(20, 24, 20, .78); border-radius: 50%; background: rgba(248, 244, 226, .72); box-shadow: 0 .35rem 1.2rem rgba(20, 24, 20, .2); backdrop-filter: blur(.8rem); -webkit-backdrop-filter: blur(.8rem); }
+  .floating-nav-toggle span { display: block; width: 1.35rem; height: 2px; background: var(--ink); }
+  .floating-nav-toggle[aria-expanded="true"] { background: rgba(210, 255, 50, .82); }
+  .floating-nav-menu { display: grid; min-width: 11rem; overflow: hidden; border: 2px solid rgba(20, 24, 20, .78); background: rgba(20, 24, 20, .82); box-shadow: 0 .5rem 1.5rem rgba(20, 24, 20, .24); backdrop-filter: blur(1rem); -webkit-backdrop-filter: blur(1rem); }
+  .floating-nav-menu[hidden] { display: none; }
+  .floating-nav-menu button { min-height: 2.75rem; border: 0; border-bottom: 1px solid rgba(248, 244, 226, .28); padding: .65rem .85rem; background: transparent; color: var(--paper); font: 800 .7rem/1 var(--mono); letter-spacing: .06em; text-align: left; text-transform: uppercase; }
+  .floating-nav-menu button:last-child { border-bottom: 0; }
+  .floating-nav-menu button:focus-visible, .floating-nav-menu button:hover { background: var(--acid); color: var(--ink); }
 }
 
 @media (max-width: 480px) {
