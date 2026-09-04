@@ -7,4 +7,10 @@ export function notarizeSignedApp(options: {
   appPath: string; outputZip: string; keychainProfile: string;
   runner?: (tool: string, args: string[], options?: { timeout?: number; fd3?: number }) => string;
   verifier?: (path: string, options?: Record<string, unknown>) => unknown;
+  hooks?: {
+    beforePublish?: (paths: { stage: string; destination: string }) => void;
+    beforeSourcePreflight?: (paths: { stage: string; destination: string }) => void;
+    afterSourcePreflight?: (paths: { stage: string; destination: string }) => void;
+    afterRenameBeforeVerify?: (paths: { stage: string; destination: string }) => void;
+  };
 }): { id: string; status: string; outputZip: string };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -31,11 +31,14 @@ test("identity resolution requires exactly one valid exact Developer ID Applicat
   const valid = `  1) ABCDEF0123456789ABCDEF0123456789ABCDEF01 \"${EXPECTED_SIGNING_IDENTITY}\"\n     1 valid identities found\n`;
   assert.deepEqual(parseSigningIdentities(valid), [{ hash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01", name: EXPECTED_SIGNING_IDENTITY }]);
   assert.equal(resolveSigningIdentity(valid, EXPECTED_SIGNING_IDENTITY).teamId, TEAM_ID);
-  assert.equal(resolveSigningIdentity(valid.replace("     1 valid", "  2) 2222222222222222222222222222222222222222 \"Apple Development: Example (JZ233HBW3Z)\"\n     2 valid"), EXPECTED_SIGNING_IDENTITY).teamId, TEAM_ID);
+  assert.throws(() => resolveSigningIdentity(valid.replace("     1 valid", "  2) 2222222222222222222222222222222222222222 \"Apple Development: Example (JZ233HBW3Z)\"\n     2 valid"), EXPECTED_SIGNING_IDENTITY), /signing_identity_ambiguous/);
+  assert.throws(() => resolveSigningIdentity(valid.replace("     1 valid", "  2) 3333333333333333333333333333333333333333 \"Mac Developer: Other Valid Identity\"\n     2 valid"), EXPECTED_SIGNING_IDENTITY), /signing_identity_ambiguous/);
   for (const output of [
     "     0 valid identities found\n",
     valid.replace(EXPECTED_SIGNING_IDENTITY, "Developer ID Application: Wrong Person (ZZZZZZZZZZ)"),
     valid.replace("     1 valid", `  2) 1111111111111111111111111111111111111111 \"${EXPECTED_SIGNING_IDENTITY}\"\n     2 valid`),
+    valid.replace("     1 valid identities found", "  2) malformed-valid-identity-line\n     2 valid identities found"),
+    valid.replace("     1 valid identities found", "     2 valid identities found"),
   ]) assert.throws(() => resolveSigningIdentity(output, EXPECTED_SIGNING_IDENTITY), /signing_identity_/);
 });
 
@@ -198,4 +201,25 @@ test("signing commands time out and exclusive publication preserves a competitor
   writeFileSync(join(root, "final"), "competitor");
   assert.throws(() => publishNoReplace(root, "stage", "final"), /signed_destination_exists/);
   assert.equal(readFileSync(join(root, "final"), "utf8"), "competitor");
+}));
+
+test("signed publication rejects parent rebound and retains the staged inode in the authoritative parent", () => temporary((root) => {
+  const output = join(root, "output"); const parked = join(root, "parked");
+  mkdirSync(output); mkdirSync(join(output, "stage")); writeFileSync(join(output, "stage/payload"), "ours");
+  assert.throws(() => publishNoReplace(output, "stage", "final", { beforePublish: () => {
+    renameSync(output, parked); mkdirSync(output); writeFileSync(join(output, "operator"), "competitor");
+  } }), /signed_output_parent_changed/);
+  assert.equal(readFileSync(join(output, "operator"), "utf8"), "competitor");
+  assert.equal(readFileSync(join(parked, "stage/payload"), "utf8"), "ours");
+}));
+
+test("signed publication removes a rebound destination and preserves competitor bytes", () => temporary((root) => {
+  const ownedAside = join(root, "owned-aside");
+  mkdirSync(join(root, "stage")); writeFileSync(join(root, "stage/payload"), "ours");
+  assert.throws(() => publishNoReplace(root, "stage", "final", { afterRenameBeforeVerify: () => {
+    renameSync(join(root, "final"), ownedAside); mkdirSync(join(root, "final")); writeFileSync(join(root, "final/operator"), "competitor");
+  } }), /signed_published_identity_mismatch/);
+  assert.equal(readFileSync(join(root, "stage/operator"), "utf8"), "competitor");
+  assert.equal(readFileSync(join(ownedAside, "payload"), "utf8"), "ours");
+  assert.equal(existsSync(join(root, "final")), false);
 }));

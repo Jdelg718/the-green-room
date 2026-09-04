@@ -338,7 +338,7 @@ function appDigest(inventory) {
   return sha256Bytes(inventory.map((entry) => `${entry.path}\0${entry.mode.toString(8)}\0${entry.bytes}\0${entry.mtimeMs}\0${entry.sha256}\n`).join(""));
 }
 
-function atomicDirectoryOperation(parentFd, args) {
+export function atomicDirectoryOperation(parentFd, args) {
   const helper = join(repositoryRoot, "scripts/package/atomic_directory.py");
   const result = spawnSync("/usr/bin/python3", [helper, ...args], {
     encoding: "utf8", stdio: ["ignore", "pipe", "pipe", parentFd],
@@ -348,31 +348,51 @@ function atomicDirectoryOperation(parentFd, args) {
   try { return JSON.parse(result.stdout); } catch { fail("atomic_helper_failed", "invalid structured result"); }
 }
 
-function bindingIdentity(parentFd, name) {
+export function copyDirectoryFromDescriptor(sourceFd, destinationParentFd, destinationName) {
+  const helper = join(repositoryRoot, "scripts/package/atomic_directory.py");
+  const result = spawnSync("/usr/bin/python3", [helper, "copy-tree", destinationName], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe", destinationParentFd, sourceFd],
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", PYTHONHASHSEED: "0" },
+  });
+  if (result.error || result.status !== 0) fail("atomic_helper_failed", (result.stderr ?? "").trim());
+  try { return JSON.parse(result.stdout); } catch { fail("atomic_helper_failed", "invalid structured result"); }
+}
+
+export function copyFileFromDescriptor(sourceFd, destinationParentFd, destinationName) {
+  const helper = join(repositoryRoot, "scripts/package/atomic_directory.py");
+  const result = spawnSync("/usr/bin/python3", [helper, "copy-file", destinationName], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe", destinationParentFd, sourceFd],
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", PYTHONHASHSEED: "0" },
+  });
+  if (result.error || result.status !== 0) fail("atomic_helper_failed", (result.stderr ?? "").trim());
+  try { return JSON.parse(result.stdout); } catch { fail("atomic_helper_failed", "invalid structured result"); }
+}
+
+export function bindingIdentity(parentFd, name) {
   const result = atomicDirectoryOperation(parentFd, ["stat", name]);
   if (result.status === "ok") return result;
   if (result.status === "absent") return null;
   fail("atomic_binding_failed", `${name}: errno ${result.errno}`);
 }
 
-function assertBindingIdentity(parentFd, name, identity, code) {
+export function assertBindingIdentity(parentFd, name, identity, code) {
   const current = bindingIdentity(parentFd, name);
   if (current === null || current.dev !== identity.dev || current.ino !== identity.ino) fail(code, name);
   return current;
 }
 
-function renameNoReplace(parentFd, sourceName, destinationName) {
+export function renameNoReplace(parentFd, sourceName, destinationName) {
   const result = atomicDirectoryOperation(parentFd, ["rename", sourceName, destinationName]);
   if (result.status === "ok") return;
   if (result.errno === 17) fail("destination_exists", destinationName);
   fail("atomic_publication_failed", `${sourceName} -> ${destinationName}: errno ${result.errno}`);
 }
 
-function quarantineBinding(parentFd, name, restoreName, identity, cleanupExpected) {
+export function quarantineBinding(parentFd, name, restoreName, identity, cleanupExpected) {
   const quarantine = `.greenroom-quarantine-${randomBytes(12).toString("hex")}`;
   return atomicDirectoryOperation(parentFd, [
     "quarantine", name, quarantine, restoreName,
-    String(identity.dev), String(identity.ino), cleanupExpected ? "cleanup" : "retain",
+    String(identity.dev), String(identity.ino), cleanupExpected === "retain-owned" ? "retain-owned" : cleanupExpected ? "cleanup" : "retain",
   ]);
 }
 

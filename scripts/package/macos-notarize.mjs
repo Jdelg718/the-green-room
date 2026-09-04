@@ -2,12 +2,15 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
-  chmodSync, closeSync, cpSync, existsSync, lstatSync, mkdtempSync, openSync,
-  readdirSync, rmSync,
+  chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync,
+  readdirSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  assertBindingIdentity, bindingIdentity, copyDirectoryFromDescriptor, copyFileFromDescriptor, quarantineBinding, renameNoReplace,
+} from "../../packaging/macos/assemble-app.mjs";
 import { verifySignedApp } from "./macos-signing.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -97,33 +100,76 @@ function chmodDirectories(root, mode) {
   }
 }
 
-function publishNoReplace(stage, output, runner) {
-  const parent = dirname(output); const parentFd = openSync(parent, "r");
-  try {
-    const helper = join(repositoryRoot, "scripts/package/atomic_directory.py");
-    const response = runner("/usr/bin/python3", [helper, "rename", basename(stage), basename(output)], { timeout: 10_000, fd3: parentFd });
-    let result;
-    try { result = JSON.parse(response.split("\n").find((line) => line.startsWith("{")) ?? ""); } catch { fail("notary_publication_failed"); }
-    if (result.status !== "ok") fail(result.errno === 17 ? "notary_output_exists" : "notary_publication_failed");
-  } finally { closeSync(parentFd); }
+function pathStillBinds(path, identity) {
+  try { const current = lstatSync(path); return current.dev === identity.dev && current.ino === identity.ino; }
+  catch { return false; }
 }
 
-export function notarizeSignedApp({ appPath, outputZip, keychainProfile, runner = runNotaryCommand, verifier = verifySignedApp }) {
+function cleanupNotaryBinding(parentFd, name, identity) {
+  const result = quarantineBinding(parentFd, name, name, identity, "retain-owned");
+  if (result.status === "absent" || result.status === "retained" && result.reason === "owned_quarantine") return;
+  if (result.status === "competitor_restored") fail("notary_staging_identity_changed");
+  fail("notary_staging_cleanup_failed");
+}
+
+function cleanupScratchBinding(parentFd, name, identity) {
+  const result = quarantineBinding(parentFd, name, name, identity, true);
+  if (result.status === "absent" || result.status === "owned_cleaned") return;
+  if (result.status === "competitor_restored") fail("notary_scratch_identity_changed");
+  fail("notary_scratch_cleanup_failed");
+}
+
+export function notarizeSignedApp({ appPath, outputZip, keychainProfile, runner = runNotaryCommand, verifier = verifySignedApp, hooks = {} }) {
   if (process.platform !== "darwin" || !isAbsolute(appPath) || resolve(appPath) !== appPath || !isAbsolute(outputZip) || resolve(outputZip) !== outputZip ||
       typeof keychainProfile !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(keychainProfile) || !outputZip.endsWith(".zip")) fail("notary_configuration_invalid");
   rejectCredentialSurfaces([], process.env);
-  if (existsSync(outputZip)) fail("notary_output_exists");
   const outputParent = dirname(outputZip);
-  if (!existsSync(outputParent) || !lstatSync(outputParent).isDirectory()) fail("notary_output_parent_invalid");
-  const preflight = verifier(appPath, { assessGatekeeper: false });
+  if (!existsSync(outputParent) || !lstatSync(outputParent).isDirectory() || !lstatSync(appPath).isDirectory()) fail("notary_output_parent_invalid");
+  const sourceParentFd = openSync(dirname(appPath), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  let outputParentFd;
+  try { outputParentFd = openSync(outputParent, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0)); }
+  catch (error) { closeSync(sourceParentFd); throw error; }
+  let sourceRootFd;
+  try { sourceRootFd = openSync(appPath, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0)); }
+  catch (error) { closeSync(outputParentFd); closeSync(sourceParentFd); throw error; }
+  let sourceIdentity; let sourceParentIdentity; let outputParentIdentity;
+  try {
+    sourceIdentity = bindingIdentity(sourceParentFd, basename(appPath));
+    sourceParentIdentity = fstatSync(sourceParentFd);
+    outputParentIdentity = fstatSync(outputParentFd);
+    const sourceRootIdentity = fstatSync(sourceRootFd);
+    if (sourceIdentity === null || sourceIdentity.dev !== sourceRootIdentity.dev || sourceIdentity.ino !== sourceRootIdentity.ino ||
+        !pathStillBinds(dirname(appPath), sourceParentIdentity)) fail("notary_source_identity_changed");
+    if (!pathStillBinds(outputParent, outputParentIdentity)) fail("notary_output_parent_changed");
+    if (bindingIdentity(outputParentFd, basename(outputZip)) !== null) fail("notary_output_exists");
+  } catch (error) {
+    closeSync(sourceRootFd); closeSync(outputParentFd); closeSync(sourceParentFd); throw error;
+  }
 
-  const scratch = mkdtempSync("/private/tmp/greenroom-notary-");
+  let scratch;
+  try { scratch = mkdtempSync("/private/tmp/greenroom-notary-"); }
+  catch (error) { closeSync(sourceRootFd); closeSync(outputParentFd); closeSync(sourceParentFd); throw error; }
+  const scratchParentFd = openSync(dirname(scratch), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  const scratchIdentity = bindingIdentity(scratchParentFd, basename(scratch));
+  if (scratchIdentity === null) {
+    closeSync(scratchParentFd); closeSync(sourceRootFd); closeSync(outputParentFd); closeSync(sourceParentFd);
+    fail("notary_scratch_identity_changed");
+  }
   const privateApp = join(scratch, "The Green Room.app");
   const submission = join(scratch, "submission.zip");
   const extraction = join(scratch, "extract");
+  const workingZip = join(scratch, "final.zip");
   const finalTemporary = join(outputParent, `.greenroom-final-${randomBytes(12).toString("hex")}.zip`);
+  let finalIdentity;
+  let finalOwned = false;
+  let published = false;
   try {
-    cpSync(appPath, privateApp, { recursive: true, dereference: false, errorOnExist: true, force: false, preserveTimestamps: true });
+    const scratchFd = openSync(scratch, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    let privateCopy;
+    try { privateCopy = copyDirectoryFromDescriptor(sourceRootFd, scratchFd, basename(privateApp)); }
+    finally { closeSync(scratchFd); }
+    if (privateCopy.status !== "ok") fail("notary_source_copy_failed");
+    const preflight = verifier(privateApp, { assessGatekeeper: false });
     runner("/usr/bin/ditto", ["-c", "-k", "--keepParent", "--norsrc", "--", privateApp, submission]);
     const result = parseNotaryResult(runner("/usr/bin/xcrun", ["notarytool", "submit", submission, "--keychain-profile", keychainProfile, "--wait", "--output-format", "json"]));
     const codePaths = preflight?.manifest?.signingPolicy?.codeObjects?.map((item) => item.path) ?? [];
@@ -138,14 +184,52 @@ export function notarizeSignedApp({ appPath, outputZip, keychainProfile, runner 
     runner("/usr/bin/xcrun", ["stapler", "validate", "--", privateApp]);
     verifier(privateApp, { requireStaple: true });
     const zipper = join(repositoryRoot, "scripts/package/deterministic_app_zip.py");
-    runner("/usr/bin/python3", [zipper, "create", privateApp, finalTemporary]);
-    runner("/usr/bin/python3", [zipper, "extract", finalTemporary, extraction]);
+    runner("/usr/bin/python3", [zipper, "create", privateApp, workingZip]);
+    runner("/usr/bin/python3", [zipper, "extract", workingZip, extraction]);
     verifier(join(extraction, "The Green Room.app"), { requireStaple: true });
-    publishNoReplace(finalTemporary, outputZip, runner);
+    const workingZipFd = openSync(workingZip, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let stagedCopy;
+    try { stagedCopy = copyFileFromDescriptor(workingZipFd, outputParentFd, basename(finalTemporary)); }
+    finally { closeSync(workingZipFd); }
+    finalIdentity = bindingIdentity(outputParentFd, basename(finalTemporary));
+    finalOwned = finalIdentity !== null;
+    if (stagedCopy.status !== "ok" || finalIdentity === null || stagedCopy.dev !== finalIdentity.dev || stagedCopy.ino !== finalIdentity.ino) fail("notary_output_parent_changed");
+
+    hooks.beforePublish?.({ stage: finalTemporary, destination: outputZip });
+    hooks.beforeSourcePreflight?.({ stage: finalTemporary, destination: outputZip });
+    if (!pathStillBinds(dirname(appPath), sourceParentIdentity)) fail("notary_source_identity_changed");
+    assertBindingIdentity(sourceParentFd, basename(appPath), sourceIdentity, "notary_source_identity_changed");
+    assertBindingIdentity(outputParentFd, basename(finalTemporary), finalIdentity, "notary_staging_identity_changed");
+    hooks.afterSourcePreflight?.({ stage: finalTemporary, destination: outputZip });
+    if (!pathStillBinds(outputParent, outputParentIdentity)) fail("notary_output_parent_changed");
+    if (!pathStillBinds(dirname(appPath), sourceParentIdentity)) fail("notary_source_identity_changed");
+    assertBindingIdentity(sourceParentFd, basename(appPath), sourceIdentity, "notary_source_identity_changed");
+    assertBindingIdentity(outputParentFd, basename(finalTemporary), finalIdentity, "notary_staging_identity_changed");
+    if (bindingIdentity(outputParentFd, basename(outputZip)) !== null) fail("notary_output_exists");
+    try { renameNoReplace(outputParentFd, basename(finalTemporary), basename(outputZip)); }
+    catch (error) {
+      if (error?.code === "destination_exists") fail("notary_output_exists");
+      throw error;
+    }
+    finalOwned = false;
+    hooks.afterRenameBeforeVerify?.({ stage: finalTemporary, destination: outputZip });
+    const publishedIdentity = bindingIdentity(outputParentFd, basename(outputZip));
+    if (!pathStillBinds(outputParent, outputParentIdentity) || publishedIdentity === null || publishedIdentity.dev !== finalIdentity.dev || publishedIdentity.ino !== finalIdentity.ino) {
+      quarantineBinding(outputParentFd, basename(outputZip), basename(finalTemporary), finalIdentity, "retain-owned");
+      fail(!pathStillBinds(outputParent, outputParentIdentity) ? "notary_output_parent_changed" : "notary_published_identity_mismatch");
+    }
+    published = true;
     return Object.freeze({ ...sanitizedNotaryEvidence(result), outputZip });
   } finally {
-    if (existsSync(finalTemporary)) rmSync(finalTemporary, { force: true });
-    rmSync(scratch, { recursive: true, force: true });
+    try {
+      if (!published && finalOwned && finalIdentity !== undefined) cleanupNotaryBinding(outputParentFd, basename(finalTemporary), finalIdentity);
+      cleanupScratchBinding(scratchParentFd, basename(scratch), scratchIdentity);
+    } finally {
+      closeSync(scratchParentFd);
+      closeSync(sourceRootFd);
+      closeSync(outputParentFd);
+      closeSync(sourceParentFd);
+    }
   }
 }
 

@@ -142,6 +142,47 @@ final class LauncherTests: XCTestCase {
         }
     }
 
+    func testSecurityClassificationAllowsOnlyAdHocV1AndExactDeveloperIDV2() throws {
+        XCTAssertEqual(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecCSReqFailed,
+            developerIDRequirementStatus: errSecCSReqFailed,
+            adHocOrUnsigned: true
+        ), .unsigned)
+        XCTAssertEqual(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecSuccess,
+            developerIDRequirementStatus: errSecSuccess,
+            adHocOrUnsigned: false
+        ), .developerID)
+
+        for schema in [1, 2] {
+            let bundle = try makeBundle()
+            if schema == 1 {
+                let payload = bundle.appendingPathComponent("Contents/Resources/runtime/node")
+                let bytes = Data("payload".utf8)
+                try write(bytes, to: payload)
+                try writeManifest(to: bundle, files: [["path": "Contents/Resources/runtime/node", "sha256": sha256(bytes)]])
+            } else {
+                try writeSignedManifest(to: bundle)
+            }
+            XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in
+                try LauncherPreflight.classifySignature(
+                    exactRequirementStatus: errSecCSReqFailed,
+                    developerIDRequirementStatus: errSecSuccess,
+                    adHocOrUnsigned: false
+                )
+            }) { error in
+                XCTAssertEqual(error as? LauncherError, .manifestInvalid("launcher_signer_identity_mismatch"))
+            }
+        }
+        XCTAssertThrowsError(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecCSReqFailed,
+            developerIDRequirementStatus: errSecCSReqFailed,
+            adHocOrUnsigned: false
+        )) { error in
+            XCTAssertEqual(error as? LauncherError, .manifestInvalid("launcher_signer_identity_mismatch"))
+        }
+    }
+
     func testSignedManifestHasExactExhaustiveInventoryAndCodeObjectPolicy() throws {
         let bundle = try makeBundle()
         try writeSignedManifest(to: bundle)

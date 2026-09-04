@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -96,4 +96,74 @@ test("notarizer rejects raw credential flags and environment surfaces", () => {
   for (const key of ["APPLE_ID", "APPLE_PASSWORD", "ASC_PROVIDER", "ASC_KEY_ID", "ASC_ISSUER_ID", "AC_USERNAME", "AC_PASSWORD", "AC_TEAMID", "NOTARYTOOL_PASSWORD"]) {
     assert.throws(() => rejectCredentialSurfaces([], { [key]: "SECRET" }), /notary_raw_credentials_forbidden/);
   }
+});
+
+function successfulFixtureRunner() {
+  const id = "123e4567-e89b-12d3-a456-426614174000";
+  return (_tool: string, args: string[]) => {
+    if (args.includes("submit")) return JSON.stringify({ id, status: "Accepted" });
+    if (args.includes("log")) return JSON.stringify({
+      jobId: id, status: "Accepted", statusCode: 0, issues: null,
+      ticketContents: [{ path: "submission.zip/The Green Room.app", digestAlgorithm: "SHA-256", cdhash: "a".repeat(40), arch: "arm64" }],
+    });
+    if (args.includes("staple")) {
+      const app = args.at(-1)!;
+      mkdirSync(join(app, "Contents"), { recursive: true });
+      writeFileSync(join(app, "Contents/CodeResources"), "ticket");
+    }
+    if (args[1] === "create") writeFileSync(args[3]!, "our notarized zip");
+    if (args[1] === "extract") mkdirSync(join(args[3]!, "The Green Room.app"), { recursive: true });
+    return "";
+  };
+}
+
+test("notary publication rejects output-parent rebound and quarantines its inode in the retained parent", { skip: process.platform !== "darwin" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-notary-parent-race-"));
+  try {
+    const sourceParent = join(root, "source"); const outputParent = join(root, "output"); const parked = join(root, "parked");
+    const app = join(sourceParent, "The Green Room.app"); const output = join(outputParent, "final.zip");
+    mkdirSync(app, { recursive: true }); mkdirSync(outputParent); writeFileSync(join(app, "marker"), "source");
+    assert.throws(() => notarizeSignedApp({
+      appPath: app, outputZip: output, keychainProfile: "greenroom", runner: successfulFixtureRunner(), verifier: () => ({}),
+      hooks: { beforePublish: () => { renameSync(outputParent, parked); mkdirSync(outputParent); writeFileSync(join(outputParent, "operator"), "competitor"); } },
+    }), /notary_output_parent_changed/);
+    assert.equal(readFileSync(join(outputParent, "operator"), "utf8"), "competitor");
+    const retained = readdirSync(parked);
+    assert.equal(retained.length, 1); assert.match(retained[0]!, /^\.greenroom-quarantine-/);
+    assert.equal(readFileSync(join(parked, retained[0]!), "utf8"), "our notarized zip");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("notary publication preserves a concurrent destination and quarantines only its owned temporary", { skip: process.platform !== "darwin" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-notary-destination-race-"));
+  try {
+    const app = join(root, "source/The Green Room.app"); const outputParent = join(root, "output"); const output = join(outputParent, "final.zip");
+    mkdirSync(app, { recursive: true }); mkdirSync(outputParent); writeFileSync(join(app, "marker"), "source");
+    assert.throws(() => notarizeSignedApp({
+      appPath: app, outputZip: output, keychainProfile: "greenroom", runner: successfulFixtureRunner(), verifier: () => ({}),
+      hooks: { beforePublish: () => writeFileSync(output, "competitor") },
+    }), /notary_output_exists/);
+    assert.equal(readFileSync(output, "utf8"), "competitor");
+    const retained = readdirSync(outputParent).filter((name) => name !== "final.zip");
+    assert.equal(retained.length, 1); assert.match(retained[0]!, /^\.greenroom-quarantine-/);
+    assert.equal(readFileSync(join(outputParent, retained[0]!), "utf8"), "our notarized zip");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("notary publication rejects a rebound source root before publishing", { skip: process.platform !== "darwin" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-notary-source-race-"));
+  try {
+    const sourceParent = join(root, "source"); const parked = join(root, "parked-source");
+    const app = join(sourceParent, "The Green Room.app"); const outputParent = join(root, "output"); const output = join(outputParent, "final.zip");
+    mkdirSync(app, { recursive: true }); mkdirSync(outputParent); writeFileSync(join(app, "marker"), "source");
+    assert.throws(() => notarizeSignedApp({
+      appPath: app, outputZip: output, keychainProfile: "greenroom", runner: successfulFixtureRunner(), verifier: () => ({}),
+      hooks: { beforePublish: () => { renameSync(sourceParent, parked); mkdirSync(app, { recursive: true }); writeFileSync(join(app, "marker"), "competitor"); } },
+    }), /notary_source_identity_changed/);
+    assert.equal(readFileSync(join(app, "marker"), "utf8"), "competitor");
+    assert.equal(readFileSync(join(parked, "The Green Room.app/marker"), "utf8"), "source");
+    const retained = readdirSync(outputParent);
+    assert.equal(retained.length, 1); assert.match(retained[0]!, /^\.greenroom-quarantine-/);
+    assert.equal(readFileSync(join(outputParent, retained[0]!), "utf8"), "our notarized zip");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

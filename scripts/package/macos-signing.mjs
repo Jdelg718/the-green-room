@@ -2,13 +2,15 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
-  chmodSync, closeSync, cpSync, existsSync, lstatSync, openSync,
-  readFileSync, readdirSync, rmSync, writeFileSync,
+  chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync,
+  readFileSync, readdirSync, writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { verifyUnsignedApp } from "../../packaging/macos/assemble-app.mjs";
+import {
+  assertBindingIdentity, bindingIdentity, copyDirectoryFromDescriptor, quarantineBinding, renameNoReplace, verifyUnsignedApp,
+} from "../../packaging/macos/assemble-app.mjs";
 
 export const TEAM_ID = "JZ233HBW3Z";
 export const APP_IDENTIFIER = "net.greenroomai.GreenRoom";
@@ -58,17 +60,22 @@ export function designatedRequirement(identifier) {
 
 export function parseSigningIdentities(output) {
   if (typeof output !== "string") fail("signing_identity_output_invalid");
-  return [...output.matchAll(/^\s*\d+\)\s+([0-9A-F]{40})\s+"([^"]+)"\s*$/gm)].map((match) => ({ hash: match[1], name: match[2] }));
+  const summaries = [...output.matchAll(/^\s*(\d+) valid identities found\s*$/gm)];
+  const numbered = [...output.matchAll(/^\s*\d+\)\s+.*$/gm)];
+  const parsed = [...output.matchAll(/^\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"]+)"\s*$/gm)]
+    .map((match) => ({ hash: match[1], name: match[2] }));
+  if (summaries.length !== 1 || !Number.isSafeInteger(Number(summaries[0][1])) ||
+      Number(summaries[0][1]) !== numbered.length || numbered.length !== parsed.length) fail("signing_identity_output_invalid");
+  return parsed;
 }
 
 export function resolveSigningIdentity(output, requested = EXPECTED_SIGNING_IDENTITY) {
   if (requested !== EXPECTED_SIGNING_IDENTITY) fail("signing_identity_wrong", "identity must be the locked Developer ID identity");
   const all = parseSigningIdentities(output);
-  const developerID = all.filter((identity) => identity.name.startsWith("Developer ID Application:"));
-  if (developerID.length === 0) fail("signing_identity_missing");
-  if (developerID.length !== 1) fail("signing_identity_ambiguous");
-  if (developerID[0].name !== requested) fail("signing_identity_wrong");
-  return Object.freeze({ ...developerID[0], teamId: TEAM_ID });
+  if (all.length === 0) fail("signing_identity_missing");
+  if (all.length !== 1) fail("signing_identity_ambiguous");
+  if (all[0].name !== requested) fail("signing_identity_wrong");
+  return Object.freeze({ ...all[0], teamId: TEAM_ID });
 }
 
 function isMachoBytes(bytes) {
@@ -269,31 +276,101 @@ export function verifySignedApp(appPath, { runner = runSigningCommand, requireSt
   return Object.freeze({ manifest, machoCount: classified.machoFiles.length });
 }
 
-export function publishNoReplace(outputParent, stageName, destinationName) {
-  const parentFd = openSync(outputParent, "r");
+function pathStillBinds(path, identity) {
   try {
-    const helper = join(dirname(fileURLToPath(import.meta.url)), "atomic_directory.py");
-    const output = runSigningCommand("/usr/bin/python3", [helper, "rename", stageName, destinationName], { timeout: 10_000, fd3: parentFd });
-    let result;
-    try { result = JSON.parse(output.split("\n").find((line) => line.startsWith("{")) ?? ""); } catch { fail("signed_publication_failed"); }
-    if (result.status !== "ok") fail(result.errno === 17 ? "signed_destination_exists" : "signed_publication_failed");
+    const current = lstatSync(path);
+    return current.dev === identity.dev && current.ino === identity.ino;
+  } catch { return false; }
+}
+
+function cleanupSignedBinding(parentFd, name, identity) {
+  const result = quarantineBinding(parentFd, name, name, identity, "retain-owned");
+  if (result.status === "absent" || result.status === "retained" && result.reason === "owned_quarantine") return;
+  if (result.status === "competitor_restored") fail("signed_staging_identity_changed");
+  fail("signed_staging_cleanup_failed", result.quarantine ?? `errno ${result.errno}`);
+}
+
+function cleanupSigningScratch(parentFd, name, identity) {
+  const result = quarantineBinding(parentFd, name, name, identity, true);
+  if (result.status === "absent" || result.status === "owned_cleaned") return;
+  if (result.status === "competitor_restored") fail("signing_scratch_identity_changed");
+  fail("signing_scratch_cleanup_failed");
+}
+
+function recoverSignedPublication(parentFd, stageName, destinationName, identity) {
+  return quarantineBinding(parentFd, destinationName, stageName, identity, "retain-owned");
+}
+
+export function publishNoReplace(outputParent, stageName, destinationName, hooks = {}) {
+  const parentFd = openSync(outputParent, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const parentIdentity = fstatSync(parentFd);
+    const stageIdentity = bindingIdentity(parentFd, stageName);
+    if (stageIdentity === null) fail("signed_staging_identity_changed");
+    hooks.beforePublish?.();
+    if (!pathStillBinds(outputParent, parentIdentity)) fail("signed_output_parent_changed");
+    try { renameNoReplace(parentFd, stageName, destinationName); }
+    catch (error) {
+      if (error?.code === "destination_exists") fail("signed_destination_exists");
+      throw error;
+    }
+    hooks.afterRenameBeforeVerify?.();
+    const published = bindingIdentity(parentFd, destinationName);
+    if (!pathStillBinds(outputParent, parentIdentity) || published === null || published.dev !== stageIdentity.dev || published.ino !== stageIdentity.ino) {
+      recoverSignedPublication(parentFd, stageName, destinationName, stageIdentity);
+      fail("signed_published_identity_mismatch");
+    }
   } finally { closeSync(parentFd); }
 }
 
 export function signUnsignedApp({ unsignedApp, outputParent, identity = EXPECTED_SIGNING_IDENTITY, runner = runSigningCommand, hooks = {} }) {
   assertAbsolute(unsignedApp, "unsigned_app_path_noncanonical"); assertAbsolute(outputParent, "signed_output_parent_noncanonical");
   if (process.platform !== "darwin" || process.arch !== "arm64") fail("signing_host_unsupported");
-  if (!existsSync(outputParent) || !lstatSync(outputParent).isDirectory()) fail("signed_output_parent_missing");
+  if (!existsSync(outputParent) || !lstatSync(outputParent).isDirectory() || !lstatSync(unsignedApp).isDirectory()) fail("signed_output_parent_missing");
   if (readdirSync(outputParent).length !== 0) fail("signed_output_parent_not_empty");
   const identityOutput = runner("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], { timeout: IDENTITY_TIMEOUT_MS });
   resolveSigningIdentity(identityOutput, identity); // Must precede verification/copy/mutation.
-  const unsigned = verifyUnsignedApp(unsignedApp);
+  const sourceParentFd = openSync(dirname(unsignedApp), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  let outputParentFd;
+  try { outputParentFd = openSync(outputParent, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0)); }
+  catch (error) { closeSync(sourceParentFd); throw error; }
+  let sourceRootFd;
+  try { sourceRootFd = openSync(unsignedApp, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0)); }
+  catch (error) { closeSync(outputParentFd); closeSync(sourceParentFd); throw error; }
+  let sourceIdentity; let sourceParentIdentity; let outputParentIdentity; let unsigned;
+  try {
+    sourceIdentity = bindingIdentity(sourceParentFd, basename(unsignedApp));
+    sourceParentIdentity = fstatSync(sourceParentFd);
+    outputParentIdentity = fstatSync(outputParentFd);
+    const sourceRootIdentity = fstatSync(sourceRootFd);
+    if (sourceIdentity === null || sourceIdentity.dev !== sourceRootIdentity.dev || sourceIdentity.ino !== sourceRootIdentity.ino ||
+        !pathStillBinds(dirname(unsignedApp), sourceParentIdentity)) fail("signing_source_identity_changed");
+    if (!pathStillBinds(outputParent, outputParentIdentity)) fail("signed_output_parent_changed");
+  } catch (error) {
+    closeSync(sourceRootFd); closeSync(outputParentFd); closeSync(sourceParentFd); throw error;
+  }
+  const scratch = mkdtempSync("/private/tmp/greenroom-signing-");
+  const scratchParentFd = openSync(dirname(scratch), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  const scratchIdentity = bindingIdentity(scratchParentFd, basename(scratch));
+  if (scratchIdentity === null) {
+    closeSync(scratchParentFd); closeSync(sourceRootFd); closeSync(outputParentFd); closeSync(sourceParentFd);
+    fail("signing_scratch_identity_changed");
+  }
+  const privateStage = join(scratch, APP_NAME);
   const stage = join(outputParent, `.greenroom-signed-${randomBytes(12).toString("hex")}.app`);
   const destination = join(outputParent, APP_NAME);
+  let stageIdentity;
+  let stageOwned = false;
+  let published = false;
   try {
-    cpSync(unsignedApp, stage, { recursive: true, dereference: false, errorOnExist: true, force: false, preserveTimestamps: true });
-    makeWritable(stage);
-    const classified = classifyPayload(stage);
+    const scratchFd = openSync(scratch, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    let privateCopy;
+    try { privateCopy = copyDirectoryFromDescriptor(sourceRootFd, scratchFd, basename(privateStage)); }
+    finally { closeSync(scratchFd); }
+    if (privateCopy.status !== "ok") fail("signed_source_copy_failed");
+    unsigned = verifyUnsignedApp(privateStage);
+    makeWritable(privateStage);
+    const classified = classifyPayload(privateStage);
     // Read-only Mach-O libraries (notably fs_ext.node in the accepted unsigned
     // payload) are still nested code. Normalize every nested code object to the
     // manifest's executable 0555 policy before signing; makeImmutable freezes
@@ -303,8 +380,8 @@ export function signUnsignedApp({ unsignedApp, outputParent, identity = EXPECTED
       runner("/usr/bin/codesign", ["--force", "--sign", identity, "--options", "runtime", "--timestamp", "--identifier", code.identifier, "--requirements", `=designated => ${code.requirement}`, "--", code.absolute]);
       verifyCode(code.absolute, code.identifier, code.requirement, runner);
     }
-    makeImmutable(stage);
-    makeSigningWorkspace(stage);
+    makeImmutable(privateStage);
+    makeSigningWorkspace(privateStage);
     const old = unsigned.manifest;
     const policy = {
       teamId: TEAM_ID, identity, hardenedRuntime: true, secureTimestamp: true,
@@ -315,18 +392,55 @@ export function signUnsignedApp({ unsignedApp, outputParent, identity = EXPECTED
     const manifest = validateSignedManifest({
       schemaVersion: 2, bundleIdentifier: old.bundleIdentifier, appVersion: old.appVersion, sourceCommit: old.sourceCommit,
       buildEpoch: old.buildEpoch, targetTriple: old.targetTriple, runtimes: old.runtimes, databaseSchema: old.databaseSchema,
-      unsignedPayloadDigest: unsigned.appDigest, payloadFiles: v2PayloadFiles(stage), signatureOwnedFiles: [...SIGNATURE_OWNED_FILES], signingPolicy: policy,
+      unsignedPayloadDigest: unsigned.appDigest, payloadFiles: v2PayloadFiles(privateStage), signatureOwnedFiles: [...SIGNATURE_OWNED_FILES], signingPolicy: policy,
     });
-    writeFileSync(join(stage, SIGNED_MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "w", mode: 0o444 });
-    runner("/usr/bin/codesign", ["--force", "--sign", identity, "--options", "runtime", "--timestamp", "--identifier", APP_IDENTIFIER, "--requirements", `=designated => ${designatedRequirement(APP_IDENTIFIER)}`, "--", stage]);
-    makeImmutable(stage);
+    writeFileSync(join(privateStage, SIGNED_MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "w", mode: 0o444 });
+    runner("/usr/bin/codesign", ["--force", "--sign", identity, "--options", "runtime", "--timestamp", "--identifier", APP_IDENTIFIER, "--requirements", `=designated => ${designatedRequirement(APP_IDENTIFIER)}`, "--", privateStage]);
+    makeImmutable(privateStage);
+    verifySignedApp(privateStage, { runner, assessGatekeeper: false });
+    const privateStageFd = openSync(privateStage, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    let stagedCopy;
+    try { stagedCopy = copyDirectoryFromDescriptor(privateStageFd, outputParentFd, basename(stage)); }
+    finally { closeSync(privateStageFd); }
+    stageIdentity = bindingIdentity(outputParentFd, basename(stage));
+    stageOwned = stageIdentity !== null;
+    if (stagedCopy.status !== "ok" || stageIdentity === null || stagedCopy.dev !== stageIdentity.dev || stagedCopy.ino !== stageIdentity.ino) fail("signed_output_parent_changed");
     verifySignedApp(stage, { runner, assessGatekeeper: false });
     hooks.beforePublish?.({ stage, destination });
-    publishNoReplace(outputParent, basename(stage), basename(destination));
+    hooks.beforeSourcePreflight?.({ stage, destination });
+    if (!pathStillBinds(dirname(unsignedApp), sourceParentIdentity)) fail("signing_source_identity_changed");
+    assertBindingIdentity(sourceParentFd, basename(unsignedApp), sourceIdentity, "signing_source_identity_changed");
+    assertBindingIdentity(outputParentFd, basename(stage), stageIdentity, "signed_staging_identity_changed");
+    hooks.afterSourcePreflight?.({ stage, destination });
+    if (!pathStillBinds(outputParent, outputParentIdentity)) fail("signed_output_parent_changed");
+    if (!pathStillBinds(dirname(unsignedApp), sourceParentIdentity)) fail("signing_source_identity_changed");
+    assertBindingIdentity(sourceParentFd, basename(unsignedApp), sourceIdentity, "signing_source_identity_changed");
+    assertBindingIdentity(outputParentFd, basename(stage), stageIdentity, "signed_staging_identity_changed");
+    if (bindingIdentity(outputParentFd, basename(destination)) !== null) fail("signed_destination_exists");
+    try { renameNoReplace(outputParentFd, basename(stage), basename(destination)); }
+    catch (error) {
+      if (error?.code === "destination_exists") fail("signed_destination_exists");
+      throw error;
+    }
+    stageOwned = false;
+    hooks.afterRenameBeforeVerify?.({ stage, destination });
+    const finalIdentity = bindingIdentity(outputParentFd, basename(destination));
+    if (!pathStillBinds(outputParent, outputParentIdentity) || finalIdentity === null || finalIdentity.dev !== stageIdentity.dev || finalIdentity.ino !== stageIdentity.ino) {
+      recoverSignedPublication(outputParentFd, basename(stage), basename(destination), stageIdentity);
+      fail(!pathStillBinds(outputParent, outputParentIdentity) ? "signed_output_parent_changed" : "signed_published_identity_mismatch");
+    }
+    published = true;
     return Object.freeze({ appPath: destination, manifest });
-  } catch (error) {
-    if (existsSync(stage)) { makeWritable(stage); rmSync(stage, { recursive: true, force: false }); }
-    throw error;
+  } finally {
+    try {
+      if (!published && stageOwned && stageIdentity !== undefined) cleanupSignedBinding(outputParentFd, basename(stage), stageIdentity);
+      cleanupSigningScratch(scratchParentFd, basename(scratch), scratchIdentity);
+    } finally {
+      closeSync(scratchParentFd);
+      closeSync(sourceRootFd);
+      closeSync(outputParentFd);
+      closeSync(sourceParentFd);
+    }
   }
 }
 

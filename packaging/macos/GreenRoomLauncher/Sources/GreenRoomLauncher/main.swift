@@ -251,7 +251,35 @@ struct LauncherPreflight {
             throw LauncherError.manifestInvalid("launcher_signature_unavailable")
         }
         let flags = SecCSFlags(rawValue: kSecCSStrictValidate)
-        guard SecCodeCheckValidity(current, flags, requirement) == errSecSuccess else { return .unsigned }
+        let exactStatus = SecCodeCheckValidity(current, flags, requirement)
+        var developerIDRequirement: SecRequirement?
+        let developerIDRequirementText = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+        guard SecRequirementCreateWithString(developerIDRequirementText as CFString, SecCSFlags(), &developerIDRequirement) == errSecSuccess,
+              let developerIDRequirement else { throw LauncherError.manifestInvalid("signature_requirement") }
+        let developerIDStatus = exactStatus == errSecSuccess
+            ? errSecSuccess
+            : SecCodeCheckValidity(current, flags, developerIDRequirement)
+        var signingInformation: CFDictionary?
+        var currentStaticCode: SecStaticCode?
+        let staticCodeStatus = SecCodeCopyStaticCode(current, SecCSFlags(), &currentStaticCode)
+        let signingInformationStatus = staticCodeStatus == errSecSuccess && currentStaticCode != nil
+            ? SecCodeCopySigningInformation(
+                currentStaticCode!, SecCSFlags(rawValue: kSecCSSigningInformation), &signingInformation
+            )
+            : staticCodeStatus
+        let signatureFlags = (signingInformation as? [String: Any])?[kSecCodeInfoFlags as String] as? NSNumber
+        // CS_ADHOC is the stable Code Signing Services flag value; Swift's
+        // Security overlay does not expose the C macro on every SDK.
+        let adHocSignatureFlag: UInt32 = 0x00000002
+        let adHocOrUnsigned = signingInformationStatus == errSecCSUnsigned ||
+            signingInformationStatus == errSecSuccess &&
+            (signatureFlags?.uint32Value ?? 0) & adHocSignatureFlag != 0
+        let state = try classifySignature(
+            exactRequirementStatus: exactStatus,
+            developerIDRequirementStatus: developerIDStatus,
+            adHocOrUnsigned: adHocOrUnsigned
+        )
+        guard state == .developerID else { return state }
         var application: SecStaticCode?
         guard SecStaticCodeCreateWithPath(bundleRoot as CFURL, SecCSFlags(), &application) == errSecSuccess,
               let application,
@@ -259,6 +287,18 @@ struct LauncherPreflight {
             throw LauncherError.manifestInvalid("app_signature_invalid")
         }
         return .developerID
+    }
+
+    static func classifySignature(
+        exactRequirementStatus: OSStatus,
+        developerIDRequirementStatus: OSStatus,
+        adHocOrUnsigned: Bool
+    ) throws -> ReleaseSignatureState {
+        if exactRequirementStatus == errSecSuccess { return .developerID }
+        if developerIDRequirementStatus == errSecSuccess || !adHocOrUnsigned {
+            throw LauncherError.manifestInvalid("launcher_signer_identity_mismatch")
+        }
+        return .unsigned
     }
 
     private static func parseManifest(_ object: Any) throws -> ReleaseManifest {

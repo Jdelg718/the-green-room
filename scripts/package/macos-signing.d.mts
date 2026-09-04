@@ -13,4 +13,4 @@ export function runSigningCommand(tool: string, args: string[], options?: { time
 export function makeSigningWorkspace(root: string): void;
 export function makeNestedCodeWritable(codeObjects: readonly { path: string; absolute: string }[]): void;
 export function v2PayloadFiles(appPath: string): readonly SignedManifestFile[];
-export function publishNoReplace(outputParent: string, stageName: string, destinationName: string): void;
+export function publishNoReplace(outputParent: string, stageName: string, destinationName: string, hooks?: { beforePublish?: () => void; afterRenameBeforeVerify?: () => void }): void;
