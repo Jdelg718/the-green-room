@@ -59,7 +59,7 @@ test("deterministic app ZIP rejects links, junk, and executable data", () => {
   } finally { cleanup(root); }
 });
 
-test("ZIP creation rejects existing output, hardlinks, unsafe modes, and extended attributes", { skip: process.platform !== "darwin" }, () => {
+test("ZIP creation rejects existing output, hardlinks, and unsafe modes", () => {
   const root = mkdtempSync(join(tmpdir(), "greenroom-zip-source-negative-"));
   try {
     const app = join(root, "The Green Room.app"); const data = join(app, "Contents/data");
@@ -71,9 +71,19 @@ test("ZIP creation rejects existing output, hardlinks, unsafe modes, and extende
     assert.notEqual(run(["create", app, join(root, "hardlink.zip")]).status, 0);
     chmodSync(join(app, "Contents"), 0o755); rmSync(join(app, "Contents/hardlink")); chmodSync(data, 0o644); chmodSync(join(app, "Contents"), 0o555);
     assert.notEqual(run(["create", app, join(root, "mode.zip")]).status, 0);
-    chmodSync(data, 0o644);
-    assert.equal(spawnSync("/usr/bin/xattr", ["-w", "com.greenroom.test", "value", data]).status, 0);
-    chmodSync(data, 0o444);
+  } finally { cleanup(root); }
+});
+
+test("ZIP creation rejects extended attributes through the Python filesystem API", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-zip-xattr-negative-"));
+  try {
+    const app = join(root, "The Green Room.app"); const data = join(app, "Contents/data");
+    mkdirSync(join(app, "Contents"), { recursive: true }); writeFileSync(data, "data");
+    const setter = process.platform === "darwin"
+      ? spawnSync("/usr/bin/xattr", ["-w", "com.greenroom.test", "value", data], { encoding: "utf8" })
+      : spawnSync("/usr/bin/python3", ["-c", "import os,sys; os.setxattr(sys.argv[1], b'user.com.greenroom.test', b'value', follow_symlinks=False)", data], { encoding: "utf8" });
+    if (setter.status !== 0) { context.skip("test filesystem does not support extended attributes"); return; }
+    chmodSync(app, 0o555); chmodSync(join(app, "Contents"), 0o555); chmodSync(data, 0o444);
     assert.notEqual(run(["create", app, join(root, "xattr.zip")]).status, 0);
   } finally { cleanup(root); }
 });

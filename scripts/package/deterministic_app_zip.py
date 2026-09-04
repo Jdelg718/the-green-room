@@ -48,6 +48,18 @@ def safe_parts(name: str) -> tuple[str, ...]:
 
 
 def xattrs(path: pathlib.Path) -> None:
+    list_attributes = getattr(os, "listxattr", None)
+    if list_attributes is not None:
+        attributes: list[str] = []
+        try:
+            attributes = list_attributes(path, follow_symlinks=False)
+        except OSError:
+            fail("zip_xattr_forbidden", str(path))
+        if attributes:
+            fail("zip_xattr_forbidden", str(path))
+        return
+    if sys.platform != "darwin":
+        fail("zip_xattr_forbidden", str(path))
     result = subprocess.run(
         ["/usr/bin/xattr", str(path)], check=False, capture_output=True, text=True, timeout=5
     )
