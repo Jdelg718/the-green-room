@@ -323,7 +323,13 @@ class PageParser(HTMLParser):
         self.tags.append((normalized_tag, normalized_attrs))
         parent = self.open_elements[-1] if self.open_elements else None
         self.elements.append(
-            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+            {
+                "tag": normalized_tag,
+                "attrs": dict(normalized_attrs),
+                "text": [],
+                "direct_text": [],
+                "parent": parent,
+            }
         )
         if normalized_tag not in {"meta", "link"}:
             self.open_elements.append(len(self.elements) - 1)
@@ -337,7 +343,13 @@ class PageParser(HTMLParser):
         self.tags.append((normalized_tag, normalized_attrs))
         parent = self.open_elements[-1] if self.open_elements else None
         self.elements.append(
-            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+            {
+                "tag": normalized_tag,
+                "attrs": dict(normalized_attrs),
+                "text": [],
+                "direct_text": [],
+                "parent": parent,
+            }
         )
 
     def handle_endtag(self, tag: str) -> None:
@@ -350,6 +362,11 @@ class PageParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         self.text.append(data)
+        if self.open_elements:
+            direct_text = self.elements[self.open_elements[-1]]["direct_text"]
+            if not isinstance(direct_text, list):
+                raise TypeError("parser element direct-text invariant failed")
+            direct_text.append(data)
         for element_index in self.open_elements:
             element_text = self.elements[element_index]["text"]
             if not isinstance(element_text, list):
@@ -548,6 +565,20 @@ def normalized_text(element: dict[str, object]) -> str:
     return " ".join(" ".join(text).split())
 
 
+def normalized_visible_text(parser: PageParser, ancestor: int) -> str:
+    parts: list[str] = []
+    for index, element in enumerate(parser.elements):
+        if index != ancestor and not is_descendant(parser, index, ancestor):
+            continue
+        if not is_visible(parser, index):
+            continue
+        direct_text = element["direct_text"]
+        if not isinstance(direct_text, list):
+            raise TypeError("parser element direct-text invariant failed")
+        parts.extend(direct_text)
+    return " ".join(" ".join(parts).split())
+
+
 def element_attrs(element: dict[str, object]) -> dict[str, str]:
     attrs = element["attrs"]
     if not isinstance(attrs, dict):
@@ -599,7 +630,7 @@ def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tupl
 
 def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
     links = [
-        (element_attrs(element).get("href", ""), normalized_text(element))
+        (element_attrs(element).get("href", ""), normalized_visible_text(parser, index))
         for index, element in scoped_elements(parser, "a")
         if is_visible(parser, index)
     ]
@@ -615,7 +646,7 @@ def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
         if matches != [(href, label)]:
             fail(errors, f"download/index.html: missing unique exact {label} link")
     visible = " ".join(
-        normalized_text(element)
+        normalized_visible_text(parser, index)
         for index, element in scoped_elements(parser, "p")
         if is_visible(parser, index)
     )

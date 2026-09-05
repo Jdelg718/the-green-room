@@ -90,12 +90,45 @@ class StaticPolicyTests(unittest.TestCase):
             shutil.copytree(validate.SITE, site)
             page = site / "download" / "index.html"
             source = page.read_text(encoding="utf-8")
+            exact_link = (
+                f'<a class="button" href="{validate.ALPHA_DOWNLOAD_URL}">'
+                "Download Alpha 1 for Apple silicon</a>"
+            )
+            nested_hidden_link = (
+                f'<a class="button" href="{validate.ALPHA_DOWNLOAD_URL}">'
+                '<span aria-hidden="true">Download Alpha 1 for Apple silicon</span></a>'
+            )
+            page.write_text(source.replace(exact_link, nested_hidden_link, 1), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "Download Alpha 1 for Apple silicon")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "download" / "index.html"
+            source = page.read_text(encoding="utf-8")
             exact_checksum = f'<p class="checksum"><code>{validate.ALPHA_SHA256}</code></p>'
             hidden_checksum = f'<div aria-hidden="true">{exact_checksum}</div>'
             visible_decoy = f'<p class="checksum"><code>{"0" * 64}</code></p>'
             self.assertIn(exact_checksum, source)
             page.write_text(
                 source.replace(exact_checksum, hidden_checksum + visible_decoy, 1),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "exact release checksum")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "download" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            exact_checksum = f'<p class="checksum"><code>{validate.ALPHA_SHA256}</code></p>'
+            nested_hidden_checksum = (
+                '<p class="checksum"><span aria-hidden="true">'
+                f"<code>{validate.ALPHA_SHA256}</code></span>"
+                f'<code>{"0" * 64}</code></p>'
+            )
+            page.write_text(
+                source.replace(exact_checksum, nested_hidden_checksum, 1),
                 encoding="utf-8",
             )
             self.assert_rejected(validate.collect_errors(site), "exact release checksum")
