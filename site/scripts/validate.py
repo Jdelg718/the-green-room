@@ -154,11 +154,11 @@ PROFILE_SOURCE_SHA256 = {
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
 }
 PROFILE_STYLESHEET_SHA256 = "7d5dd86d18dfd291c1df677169402c0868784ff3d8355cd6173012633569310c"
-SOCIAL_CARD_SHA256 = "ab01167634803a5478c3c76d5b1d925e03ea3857b8143041d7edf422c1b8dc87"
+SOCIAL_CARD_SHA256 = "d2225b49812612f048d697134c8b3d01171eca328751794fc7f81028eb133897"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
-    "Backstage Electric Green Room project card with the GR slash mark, "
-    "early-development status, and release-forthcoming call sheet."
+    "Backstage Electric Green Room project card announcing the Alpha 1 "
+    "Apple-silicon macOS prerelease."
 )
 SOCIAL_CARD_PAGES = frozenset(
     {
@@ -232,12 +232,14 @@ REQUIRED_LANGUAGE = {
     "download/index.html": (
         "Alpha 1",
         "Apple-silicon macOS",
+        "macOS 13 or later",
         "19 preinstalled characters",
         "local or cloud model",
         "No iPhone or iPad app",
         "early alpha software",
         ALPHA_SHA256,
-        "Move The Green Room.app to Applications",
+        "Move The Green Room.app to your personal Applications folder",
+        "~/Applications",
     ),
     "contribute/index.html": ("GitHub", "content and legal boundaries"),
 }
