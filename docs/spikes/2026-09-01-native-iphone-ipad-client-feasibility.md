@@ -1,6 +1,6 @@
 # Native iPhone/iPad client feasibility spike
 
-- **Status:** Recommendation ready; no product implementation authorized
+- **Status:** Historical feasibility evidence; companion-client recommendation superseded for issue #160 standalone iPhone rooms by [ADR 0006](../adr/0006-standalone-iphone-capacitor-runtime.md)
 - **Date:** 2026-09-01
 - **Research cutoff:** 2026-09-01
 - **Scope:** Native client feasibility only; human invitation cryptography, relay design, and production app implementation remain separate work

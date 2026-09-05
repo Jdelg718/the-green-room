@@ -127,23 +127,17 @@ Produce a short captioned, accessible, tweet/X-ready demo showing the local-firs
 
 **Acceptance criteria:** every shown feature runs in the downloadable release; captions and essential visual context are understandable without audio; portrait/candidate/catalog distinctions remain truthful; local versus selected-provider data flow is clear; no secret or private-data surface appears; feedback links resolve to the reviewed GitHub channel; and publication receives separate human approval.
 
-## Future pillar — native Apple clients
+## Active pillar — standalone iPhone Alpha (issue #160)
 
-**Sequence:** this starts only after the first-playable reconciliation, stable local API/provider contracts, packaging/onboarding, multi-room lifecycle, and release foundations above. It is not part of R0–R5.
+**Sequence:** issue #160 explicitly authorizes the standalone iPhone Alpha after the desktop release foundations. It does not authorize an iPad client, App Store submission, human invitations, accounts, relay, synchronization, or local-model inference.
 
-**Outcome:** provide a properly native SwiftUI client for iPhone and iPad without moving room authority, provider credentials, or inference into project-operated infrastructure.
+**Outcome:** ship a signed iPhone app that needs no Mac companion: 19 bundled characters, local multi-room SQLite/events, the bounded director, direct approved cloud-provider calls, Keychain-only provider secrets, and terminate/relaunch persistence.
 
-- First decide, through an ADR and compatibility spike, which room/event/provider contracts form the shared client API and whether the local companion remains the authoritative writer and scheduler. The default assumption is **yes** until an accepted ADR says otherwise.
-- Build a SwiftUI shell against versioned contracts rather than duplicating director, memory, provider, or event-ordering logic in the app.
-- Design distinct iPhone compact and iPad regular-width/multicolumn layouts, including Dynamic Type, VoiceOver, keyboard and switch-control paths, reduced motion, contrast, and accessible speaker identity.
-- Define foreground/background lifecycle, cancellation, reconnect, local-network permission and discovery behavior, and explicit recovery when iOS suspends or terminates the client.
-- Keep provider secrets on the authoritative local companion where possible. If any client-held credential is approved, store it only in Keychain with the narrowest practical accessibility/synchronization class; never place it in app preferences, logs, events, exports, or `greenroomai.net`.
-- Specify offline/read-only degradation: previously synchronized material may remain viewable under an explicit stale/offline label, but the client must not imply that a message, moderation action, or model turn was committed while authority is unreachable.
-- Complete App Store review, privacy-manifest, data-use disclosure, local-network usage-description, export/compliance, and account-deletion analysis before distribution.
+[ADR 0006](docs/adr/0006-standalone-iphone-capacitor-runtime.md) accepts the fastest safe implementation: a Capacitor 8/`WKWebView` shell with all executable JavaScript in the signed bundle, a shared pure TypeScript core extracted under desktop parity tests, and narrow Swift bridges for SQLite, Keychain, and fixed-definition `URLSession` providers. Desktop and iPhone rooms are separate authorities with no Alpha synchronization. The [native bridge contract](docs/contracts/iphone-alpha-native-bridge.md) keeps key bytes and provider networking out of JavaScript, and the [implementation plan](docs/plans/2026-09-05-standalone-iphone-alpha.md) breaks delivery into independently reviewable phases.
 
-**Acceptance criteria:** an accepted Apple-client ADR fixes authority and API-versioning boundaries; contract tests prove event compatibility with the local companion; supported iPhone and iPad layouts pass accessibility review; suspension, termination, reconnect, and authority-unreachable cases do not lose or falsely acknowledge actions; local-network prompts are contextual and least-privilege; credential sentinels are absent outside an explicitly approved Keychain item and transient use and never appear in diagnostics; offline state is unmistakable and read-only; and App Store/privacy disclosures match measured data flows.
+**Acceptance criteria:** exactly 19 bundled and honestly labeled characters load offline; one human plus one-to-three AI characters is enforced; room/event/director/command behavior survives forced termination; provider traffic reaches only selected approved HTTPS definitions; credential sentinels remain confined to Keychain and transient native request memory; offline existing rooms are read-only with no false acknowledgement; the exact archive has no Node/Python server, downloaded-code mechanism, broad ATS/background entitlement, account/relay/invite/local-LLM/iPad-specialization path, or undeclared SDK; iPhone accessibility/privacy/device gates pass; and the installed TestFlight build is read back and exercised before issue acceptance.
 
-Phase A fixture evidence and the provisional compatibility recommendation are recorded in the [shared Node/Swift client contract fixture spike](docs/spikes/2026-09-01-shared-node-swift-client-contract-fixtures.md). That spike does not authorize production client or API implementation.
+The earlier [native iPhone/iPad feasibility](docs/spikes/2026-09-01-native-iphone-ipad-client-feasibility.md) and [shared Node/Swift client contract](docs/spikes/2026-09-01-shared-node-swift-client-contract-fixtures.md) reports remain historical evidence for a thin companion client and future synchronization. Their companion-authority recommendation is superseded only for standalone iPhone-local rooms by ADR 0006.
 
 ## Future pillar — invited human participants
 

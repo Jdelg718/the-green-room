@@ -1,6 +1,8 @@
 # Apple client and human room invitations plan
 
-> **For Hermes:** Use subagent-driven-development to execute this plan only after the named release gates and ADRs are accepted. This document authorizes architecture work and bounded spikes, not product implementation, deployment, or an App Store submission.
+> **Status update (2026-09-05):** Issue #160 and [ADR 0006](../adr/0006-standalone-iphone-capacitor-runtime.md) supersede this document's companion-authority and no-product-implementation posture only for standalone iPhone-local rooms. Use the [standalone iPhone Alpha plan](2026-09-05-standalone-iphone-alpha.md) for authorized iPhone work. This older plan continues to govern future iPad, synchronization, and invited-human work.
+
+> **For Hermes:** Use subagent-driven-development to execute this plan only for the remaining future tracks after the named release gates and ADRs are accepted. This document does not authorize invited-human implementation, deployment, or an App Store submission.
 
 **Goal:** Add two future Green Room pillars: a native iPhone/iPad client and secure invitations for real human room participants.
 

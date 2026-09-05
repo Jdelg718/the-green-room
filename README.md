@@ -22,7 +22,7 @@ Final evidence assembly is external, deterministic, atomic, and no-clobber. It i
 
 Clean standard-user macOS acceptance is a separate, not-yet-executed gate. Its strict schema and independent verifier keep signed automated reports separate from hash-bound human screenshots and reject local/share acquisition, missing quarantine, contaminated targets, stale evidence, and incomplete core launch/persistence checks. See the [clean standard-user macOS acceptance guide](docs/release/clean-standard-user-macos-acceptance.md).
 
-Native iPhone/iPad clients and secure invitations for additional human participants are future roadmap pillars, not current alpha capabilities. Both remain downstream of the first-playable and community-release foundations and must preserve the local companion's authority unless a reviewed ADR changes it. See the [future-track plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md).
+A standalone iPhone Alpha is now authorized by issue #160 with no Mac companion. [ADR 0006](docs/adr/0006-standalone-iphone-capacitor-runtime.md) selects a bundled Capacitor/`WKWebView` app plus a pure TypeScript core and narrow native SQLite, Keychain, and provider bridges; it downloads no executable code and does not synchronize with desktop rooms. See the [standalone iPhone implementation plan](docs/plans/2026-09-05-standalone-iphone-alpha.md). iPad specialization and secure invitations for additional humans remain deferred future pillars.
 
 ## Run the first-playable acceptance
 
@@ -113,6 +113,9 @@ The override accepts only a canonical `https://…ts.net` origin. Keep
 - [Data lifecycle and recovery](docs/DATA-LIFECYCLE.md)
 - [Local-first BYO-LLM and Buzz boundary](docs/adr/0002-local-first-byo-llm-and-buzz-boundary.md)
 - [Community-release implementation plan](docs/plans/2026-08-31-local-first-byo-llm-community-release.md)
+- [Standalone iPhone runtime decision](docs/adr/0006-standalone-iphone-capacitor-runtime.md)
+- [Standalone iPhone Alpha implementation plan](docs/plans/2026-09-05-standalone-iphone-alpha.md)
+- [iPhone Alpha native bridge contract](docs/contracts/iphone-alpha-native-bridge.md)
 - [Apple client and human room invitations plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md)
 - [Persona pack specification](docs/PERSONA-PACK-SPEC.md)
 - [Persona validator and inspection CLI](docs/PERSONA-VALIDATOR.md)
