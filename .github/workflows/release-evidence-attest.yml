@@ -1,0 +1,101 @@
+name: Attest reviewed macOS release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact 40-character protected-main commit reviewed for attestation
+        required: true
+        type: string
+      evidence_directory:
+        description: Absolute canonical path to the already assembled, independently reviewed evidence directory on Mothership
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: macos-alpha-release-evidence-attestation
+  cancel-in-progress: false
+
+jobs:
+  attest-reviewed-evidence:
+    if: github.ref == 'refs/heads/main' && github.repository == 'Jdelg718/the-green-room'
+    runs-on: [self-hosted, macOS, ARM64, mothership]
+    environment: macos-release
+    timeout-minutes: 20
+    steps:
+      - name: Check out the dispatched protected-main commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Verify exact reviewed evidence and dispatch lineage
+        env:
+          EVIDENCE_DIRECTORY: ${{ inputs.evidence_directory }}
+          DISPATCH_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$EVIDENCE_DIRECTORY" in
+            /*) ;;
+            *) echo 'evidence_directory must be absolute' >&2; exit 1 ;;
+          esac
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'expected_sha must be a lowercase 40-character commit' >&2; exit 1; }
+          test "$DISPATCH_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git symbolic-ref --short HEAD)" = "main"
+          test -z "$(git status --porcelain)"
+          python3 scripts/package/verify_release_evidence.py "$EVIDENCE_DIRECTORY"
+          python3 - "$EVIDENCE_DIRECTORY/release-evidence.json" "$EXPECTED_SHA" <<'PY'
+          import json, pathlib, sys
+          evidence = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+          implementation = evidence["source"]["evidenceImplementation"]
+          if implementation != {"baseCommit": "6171a2736886f899e5221cc734444934e5cfa0fb", "commit": sys.argv[2], "state": "committed"}:
+              raise SystemExit("release evidence does not bind this protected-main dispatch")
+          PY
+          python3 - "$EVIDENCE_DIRECTORY/provenance.intoto.jsonl" "$RUNNER_TEMP/release-evidence-predicate.json" <<'PY'
+          import json, pathlib, sys
+          statement = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(statement["predicate"], sort_keys=True, separators=(",", ":")) + "\n")
+          PY
+
+      - name: Attest the exact notarized ZIP bytes
+        id: provenance-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ inputs.evidence_directory }}/The-Green-Room-0.1.0-alpha.1-macos-arm64.zip
+          predicate-type: https://greenroomai.net/attestations/release-evidence-assembly/v1
+          predicate-path: ${{ runner.temp }}/release-evidence-predicate.json
+
+      - name: Attest the SPDX SBOM to the exact notarized ZIP bytes
+        id: sbom-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ inputs.evidence_directory }}/The-Green-Room-0.1.0-alpha.1-macos-arm64.zip
+          sbom-path: ${{ inputs.evidence_directory }}/The-Green-Room-0.1.0-alpha.1.spdx.json
+
+      - name: Stage the generated Sigstore bundles for reviewer download
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance-attestation.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom-attestation.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/reviewed-sigstore-bundles"
+          install -m 600 "$PROVENANCE_BUNDLE" "$RUNNER_TEMP/reviewed-sigstore-bundles/release-evidence.sigstore.json"
+          install -m 600 "$SBOM_BUNDLE" "$RUNNER_TEMP/reviewed-sigstore-bundles/sbom.sigstore.json"
+
+      - name: Emit immutable downloadable Sigstore bundles
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sigstore-bundles-${{ github.sha }}
+          path: ${{ runner.temp }}/reviewed-sigstore-bundles/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false

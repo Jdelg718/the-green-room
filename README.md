@@ -18,6 +18,8 @@ See the accepted [local-first BYO-LLM decision](docs/adr/0002-local-first-byo-ll
 
 The macOS arm64 release path preserves the deterministic unsigned manifest-v1 app, signs only a private copy with the one locked Developer ID identity, and uses an exact manifest-v2 payload inventory before outer sealing. Notarization is Keychain-profile-only and produces a deterministic, mode-preserving ZIP only after exact acceptance, stapling, Gatekeeper, and clean-extraction verification. See [ADR 0005](docs/adr/0005-macos-developer-id-signing-and-notarization.md). These commands do not create credentials or publish artifacts.
 
+Final evidence assembly is external, deterministic, atomic, and no-clobber. It inventories the exact notarized ZIP, generates complete notices, an SPDX 2.3 final-payload SBOM, a strict release manifest, custom local-assembly in-toto provenance, and an exact `SHA256SUMS` allowlist. See the [downloadable Alpha release-evidence checklist](docs/release/downloadable-alpha-checklist.md). The protected manual attestation workflow is a separate environment approval and never publishes release assets.
+
 Native iPhone/iPad clients and secure invitations for additional human participants are future roadmap pillars, not current alpha capabilities. Both remain downstream of the first-playable and community-release foundations and must preserve the local companion's authority unless a reviewed ADR changes it. See the [future-track plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md).
 
 ## Run the first-playable acceptance
@@ -59,10 +61,10 @@ the source/development default `GREENROOM_PERSONA_INSPECTION=optional`; with no
 explicit absolute `GREENROOM_PERSONA_VALIDATOR_EXECUTABLE`, the inspection API
 returns the fixed `503 inspection_unavailable` response.
 
-This is a verified **POSIX local-source workflow**, not a downloadable
-production package. A relocatable Python/Node distribution, clean-host installer, signing,
-notarization, SBOM, Windows user-only ACLs, and Windows Job Object descendant
-cleanup remain explicit release gates. The repository virtual environment is
+This is a verified **POSIX local-source workflow**, not the downloadable
+production-package acceptance path. Clean-standard-user macOS acceptance, Windows user-only
+ACLs, and Windows Job Object descendant cleanup remain explicit release gates. The repository
+virtual environment is
 never copied into Node runtime assets or represented as relocatable.
 
 ## Real local persona replies with LM Studio
