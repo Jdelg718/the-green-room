@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
 
 import {
   appendEvent,
@@ -13,6 +14,11 @@ import {
 } from "../../src/db/index.js";
 
 const migrationsDir = resolve("migrations");
+const replaceCastProcessPath = fileURLToPath(
+  new URL("../helpers/replace-cast-process.js", import.meta.url),
+);
+const CHILD_OUTPUT_LIMIT = 8 * 1024;
+const CHILD_TIMEOUT_MS = 10_000;
 
 function temporaryDirectory(context: { after(callback: () => void): void }): string {
   const directory = mkdtempSync(join(tmpdir(), "green-room-cast-db-"));
@@ -25,39 +31,76 @@ const HAL = Object.freeze({ slug: "hal-finney", name: "Hal Finney" });
 const NEWTON = Object.freeze({ slug: "isaac-newton", name: "Isaac Newton" });
 const DOUGLASS = Object.freeze({ slug: "frederick-douglass", name: "Frederick Douglass" });
 
-function replaceCastInWorker(
+type CastProcessResult =
+  | Readonly<{ ok: true; sessionId: string }>
+  | Readonly<{ ok: false; error: "selection revision conflict" | "cast replacement failed" }>;
+
+function replaceCastInProcess(
   dataDir: string,
   requestId: string,
   persona: Readonly<{ slug: string; name: string }>,
-): Promise<{ sessionId: string }> {
-  const moduleUrl = new URL("../../src/db/index.js", import.meta.url).href;
-  return new Promise((resolveWorker, reject) => {
-    const worker = new Worker(`
-      const { parentPort, workerData } = require("node:worker_threads");
-      void import(workerData.moduleUrl).then(({ openGreenRoomDatabase, replaceCurrentRoomCast }) => {
-        const store = openGreenRoomDatabase({
-          dataDir: workerData.dataDir,
-          migrationsDir: workerData.migrationsDir,
-        });
-        try {
-          const result = replaceCurrentRoomCast(store.database, {
-            expectedRevision: 0,
-            requestId: workerData.requestId,
-            personas: [workerData.persona],
-          });
-          parentPort.postMessage({ sessionId: result.sessionId });
-        } finally {
-          store.close();
-        }
-      }).catch((error) => { throw error; });
-    `, {
-      eval: true,
-      workerData: { dataDir, migrationsDir, moduleUrl, persona, requestId },
+): Promise<CastProcessResult> {
+  return new Promise((resolveProcess, reject) => {
+    const child = spawn(process.execPath, [
+      replaceCastProcessPath,
+      dataDir,
+      requestId,
+      persona.slug,
+      persona.name,
+    ], {
+      cwd: resolve("."),
+      env: { NODE_ENV: "test" },
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    worker.once("message", resolveWorker);
-    worker.once("error", reject);
-    worker.once("exit", (code) => {
-      if (code !== 0) reject(new Error(`cast replacement worker exited ${code}`));
+    let stdout = "";
+    let stderr = "";
+    let outputOverflow = false;
+    let timedOut = false;
+    let spawnError: Error | undefined;
+    const appendBounded = (current: string, chunk: Buffer): string => {
+      const combined = current + chunk.toString("utf8");
+      if (Buffer.byteLength(combined) > CHILD_OUTPUT_LIMIT) {
+        outputOverflow = true;
+        child.kill("SIGKILL");
+        return combined.slice(0, CHILD_OUTPUT_LIMIT);
+      }
+      return combined;
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout = appendBounded(stdout, chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = appendBounded(stderr, chunk);
+    });
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, CHILD_TIMEOUT_MS);
+    child.once("close", (code, signal) => {
+      clearTimeout(timeout);
+      try {
+        if (spawnError !== undefined) throw spawnError;
+        assert.equal(timedOut, false, "cast replacement process timed out");
+        assert.equal(outputOverflow, false, "cast replacement process exceeded its output limit");
+        assert.equal(signal, null, "cast replacement process exited from a signal");
+        assert.equal(code, 0, "cast replacement process exited unsuccessfully");
+        assert.equal(stderr, "", "cast replacement process wrote to stderr");
+        const parsed: unknown = JSON.parse(stdout);
+        assert.ok(parsed !== null && typeof parsed === "object");
+        if ((parsed as { ok?: unknown }).ok === true) {
+          assert.equal(typeof (parsed as { sessionId?: unknown }).sessionId, "string");
+          resolveProcess(parsed as CastProcessResult);
+          return;
+        }
+        assert.equal((parsed as { ok?: unknown }).ok, false);
+        assert.match(String((parsed as { error?: unknown }).error), /^(selection revision conflict|cast replacement failed)$/);
+        resolveProcess(parsed as CastProcessResult);
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }
@@ -238,29 +281,33 @@ test("cast replacement is atomic, durable, idempotent, and preserves prior rooms
   ]);
 });
 
-test("two database handles serialize room creation with exactly one selected room", async (context) => {
-  const dataDir = temporaryDirectory(context);
-  const observer = openGreenRoomDatabase({ dataDir, migrationsDir });
-  context.after(() => observer.close());
-  const attempts = await Promise.allSettled([
-    replaceCastInWorker(dataDir, "concurrent-left", ADA),
-    replaceCastInWorker(dataDir, "concurrent-right", NEWTON),
-  ]);
-  const fulfilled = attempts.filter((result): result is PromiseFulfilledResult<{ sessionId: string }> =>
-    result.status === "fulfilled");
-  const rejected = attempts.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-  assert.equal(fulfilled.length, 1);
-  assert.equal(rejected.length, 1);
-  assert.match(String(rejected[0]?.reason), /selection revision conflict/i);
-  const winner = fulfilled[0]?.value;
-  assert.ok(winner);
-  assert.equal(currentRoomId(observer.database), winner.sessionId);
-  assert.equal(observer.database.prepare(
-    "SELECT count(*) AS count FROM rooms WHERE status = 'active'",
-  ).get()?.count, 2);
-  assert.equal(observer.database.prepare(
-    "SELECT count(*) AS count FROM current_room WHERE singleton = 1 AND room_id = ?",
-  ).get(winner.sessionId)?.count, 1);
+test("two database processes serialize room creation with exactly one selected room", async (context) => {
+  for (let iteration = 0; iteration < 12; iteration += 1) {
+    const dataDir = temporaryDirectory(context);
+    const observer = openGreenRoomDatabase({ dataDir, migrationsDir });
+    try {
+      const attempts = await Promise.all([
+        replaceCastInProcess(dataDir, `concurrent-left-${iteration}`, ADA),
+        replaceCastInProcess(dataDir, `concurrent-right-${iteration}`, NEWTON),
+      ]);
+      const winners = attempts.filter((result): result is Extract<CastProcessResult, { ok: true }> => result.ok);
+      const conflicts = attempts.filter((result): result is Extract<CastProcessResult, { ok: false }> => !result.ok);
+      assert.equal(winners.length, 1);
+      assert.equal(conflicts.length, 1);
+      assert.equal(conflicts[0]?.error, "selection revision conflict");
+      const winner = winners[0];
+      assert.ok(winner);
+      assert.equal(currentRoomId(observer.database), winner.sessionId);
+      assert.equal(observer.database.prepare(
+        "SELECT count(*) AS count FROM rooms WHERE status = 'active'",
+      ).get()?.count, 2);
+      assert.equal(observer.database.prepare(
+        "SELECT count(*) AS count FROM current_room WHERE singleton = 1 AND room_id = ?",
+      ).get(winner.sessionId)?.count, 1);
+    } finally {
+      observer.close();
+    }
+  }
 });
 
 test("a failed 0003 upgrade rolls back its ALTER, indexes, triggers, and migration record", (context) => {
