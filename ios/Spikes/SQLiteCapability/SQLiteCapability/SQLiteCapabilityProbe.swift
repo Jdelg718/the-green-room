@@ -40,6 +40,8 @@ struct SQLiteQualificationEvidence: Codable {
     var lockedRawReadDenied: Bool?
     var lockedSQLiteOpenDenied: Bool?
     var lockedSQLiteOpenCode: Int32?
+    var lockedUnprotectedControlRawReadSucceeded: Bool?
+    var lockedUnprotectedControlSQLiteOpenSucceeded: Bool?
     var unlockedProtectedDataAvailable: Bool?
     var reopenAfterUnlock: Bool?
     var failure: String?
@@ -102,21 +104,32 @@ enum SQLiteCapabilityProbe {
     private static var retainedConnections: [CheckedSQLiteConnection] = []
     private static var failedCleanupQuarantine: [CheckedSQLiteConnection] = []
 
-    private static var controlDirectory: URL {
+    private static let unprotectedControlDatabaseName = "control.sqlite"
+
+    // Intentionally unprotected evidence transport. Its locked readability is
+    // transport behavior, not the independent unprotected control proof.
+    private static var evidenceTransportDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent(directoryName, isDirectory: true)
     }
 
     private static var databaseDirectory: URL {
-        controlDirectory.appendingPathComponent("ProtectedDatabase", isDirectory: true)
+        evidenceTransportDirectory.appendingPathComponent("ProtectedDatabase", isDirectory: true)
+    }
+
+    private static var unprotectedControlDirectory: URL {
+        evidenceTransportDirectory.appendingPathComponent("UnprotectedControl", isDirectory: true)
     }
 
     private static var databaseURL: URL { databaseDirectory.appendingPathComponent(databaseName) }
-    private static var evidenceURL: URL { controlDirectory.appendingPathComponent(evidenceName) }
+    private static var unprotectedControlDatabaseURL: URL {
+        unprotectedControlDirectory.appendingPathComponent(unprotectedControlDatabaseName)
+    }
+    private static var evidenceURL: URL { evidenceTransportDirectory.appendingPathComponent(evidenceName) }
 
     static func run() throws -> SQLiteQualificationEvidence {
         try FileManager.default.createDirectory(
-            at: controlDirectory,
+            at: evidenceTransportDirectory,
             withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.none]
         )
@@ -124,6 +137,11 @@ enum SQLiteCapabilityProbe {
             at: databaseDirectory,
             withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        try FileManager.default.createDirectory(
+            at: unprotectedControlDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.none]
         )
 
         if FileManager.default.fileExists(atPath: evidenceURL.path) {
@@ -167,7 +185,7 @@ enum SQLiteCapabilityProbe {
 
     static func recordFailure(_ error: Error) {
         try? FileManager.default.createDirectory(
-            at: controlDirectory,
+            at: evidenceTransportDirectory,
             withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.none]
         )
@@ -229,6 +247,7 @@ enum SQLiteCapabilityProbe {
         if FileManager.default.fileExists(atPath: databaseURL.path) {
             try FileManager.default.removeItem(at: databaseURL)
         }
+        try initializeUnprotectedControl()
 
         var active: [CheckedSQLiteConnection] = []
         do {
@@ -355,6 +374,8 @@ enum SQLiteCapabilityProbe {
                 lockedRawReadDenied: nil,
                 lockedSQLiteOpenDenied: nil,
                 lockedSQLiteOpenCode: nil,
+                lockedUnprotectedControlRawReadSucceeded: nil,
+                lockedUnprotectedControlSQLiteOpenSucceeded: nil,
                 unlockedProtectedDataAvailable: nil,
                 reopenAfterUnlock: nil,
                 failure: nil
@@ -495,6 +516,30 @@ enum SQLiteCapabilityProbe {
         }
     }
 
+    private static func initializeUnprotectedControl() throws {
+        if FileManager.default.fileExists(atPath: unprotectedControlDatabaseURL.path) {
+            try FileManager.default.removeItem(at: unprotectedControlDatabaseURL)
+        }
+        let connection = try openDatabase(unprotectedControlDatabaseURL.path)
+        do {
+            let db = try connection.requireHandle()
+            try exec(db, "CREATE TABLE control(value INTEGER NOT NULL)")
+            try exec(db, "INSERT INTO control(value) VALUES (4242)")
+            try connection.checkedClose("unprotected control initialization")
+        } catch {
+            throw cleanup([connection], after: error)
+        }
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.none], ofItemAtPath: unprotectedControlDatabaseURL.path
+        )
+#if !targetEnvironment(simulator)
+        let attributes = try FileManager.default.attributesOfItem(atPath: unprotectedControlDatabaseURL.path)
+        guard String(describing: attributes[.protectionKey] ?? "") == "NSFileProtectionNone" else {
+            throw ProbeFailure.assertion("unprotected control did not verify NSFileProtectionNone")
+        }
+#endif
+    }
+
     private static func inspectFiles() -> [String: FileCapabilityEvidence] {
         Dictionary(uniqueKeysWithValues: sqliteFiles().map { name, url in
             let exists = FileManager.default.fileExists(atPath: url.path)
@@ -559,10 +604,44 @@ enum SQLiteCapabilityProbe {
                 "protected database remained accessible while locked (rawDenied=\(rawReadDenied), sqliteCode=\(openCode))"
             )
         }
+
+        let controlData = try Data(contentsOf: unprotectedControlDatabaseURL)
+        guard !controlData.isEmpty else {
+            throw ProbeFailure.assertion("unprotected control raw read returned no bytes while locked")
+        }
+        var controlHandle: OpaquePointer?
+        let controlOpenCode = sqlite3_open_v2(
+            unprotectedControlDatabaseURL.path,
+            &controlHandle,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard controlOpenCode == SQLITE_OK, let controlHandle else {
+            if let controlHandle {
+                try CheckedSQLiteConnection(handle: controlHandle).checkedClose(
+                    "failed locked unprotected control open cleanup"
+                )
+            }
+            throw ProbeFailure.assertion(
+                "unprotected control SQLite open failed while locked (rc=\(controlOpenCode))"
+            )
+        }
+        let controlConnection = CheckedSQLiteConnection(handle: controlHandle)
+        do {
+            let marker = try scalarInt(controlHandle, "SELECT count(*) FROM control WHERE value = 4242")
+            guard marker == 1 else {
+                throw ProbeFailure.assertion("unprotected control marker missing while locked")
+            }
+            try controlConnection.checkedClose("locked unprotected control read")
+        } catch {
+            throw cleanup([controlConnection], after: error)
+        }
         prior.lockedProtectedDataUnavailable = true
         prior.lockedRawReadDenied = true
         prior.lockedSQLiteOpenDenied = true
         prior.lockedSQLiteOpenCode = openCode
+        prior.lockedUnprotectedControlRawReadSucceeded = true
+        prior.lockedUnprotectedControlSQLiteOpenSucceeded = true
         prior.status = "awaiting_unlock"
         try writeEvidence(prior)
         return prior
@@ -572,8 +651,10 @@ enum SQLiteCapabilityProbe {
         guard prior.qualificationPlatform == "physical",
               prior.lockedProtectedDataUnavailable == true,
               prior.lockedRawReadDenied == true,
-              prior.lockedSQLiteOpenDenied == true else {
-            throw ProbeFailure.assertion("unlock proof lacks a successful locked-data denial")
+              prior.lockedSQLiteOpenDenied == true,
+              prior.lockedUnprotectedControlRawReadSucceeded == true,
+              prior.lockedUnprotectedControlSQLiteOpenSucceeded == true else {
+            throw ProbeFailure.assertion("unlock proof lacks locked denial and unprotected control success")
         }
         guard UIApplication.shared.isProtectedDataAvailable else {
             throw ProbeFailure.assertion("protected data is still unavailable after unlock")

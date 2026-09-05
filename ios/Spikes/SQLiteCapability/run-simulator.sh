@@ -147,7 +147,7 @@ if actual_files != expected_files or actual_directories != expected_directories:
 expected_hashes = {
     "SQLiteCapability/AppDelegate.swift": "c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
     "SQLiteCapability/Info.plist": "09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-    "SQLiteCapability/SQLiteCapabilityProbe.swift": "50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
+    "SQLiteCapability/SQLiteCapabilityProbe.swift": "1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
     "SQLiteCapability.xcodeproj/project.pbxproj": "af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
     "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme": "5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19",
 }
@@ -200,7 +200,7 @@ if actual != expected:
 for relative, expected_hash in {
     "SQLiteCapability/AppDelegate.swift": "c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
     "SQLiteCapability/Info.plist": "09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-    "SQLiteCapability/SQLiteCapabilityProbe.swift": "50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
+    "SQLiteCapability/SQLiteCapabilityProbe.swift": "1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
     "SQLiteCapability.xcodeproj/project.pbxproj": "af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
     "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme": "5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19",
 }.items():

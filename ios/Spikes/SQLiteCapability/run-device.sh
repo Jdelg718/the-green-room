@@ -5,8 +5,8 @@ ROOT="$(cd "$(/usr/bin/dirname "$0")" && pwd)"
 ACTION="${1:-prepare}"
 BUNDLE_ID=net.greenroomai.spike.SQLiteCapability
 TEAM_ID=JZ233HBW3Z
-DEVICE_UDID="${DEVICE_UDID:-00008130-001851DE2E01001C}"
-CORE_DEVICE_ID="${CORE_DEVICE_ID:-879884A5-DCE2-517D-9323-C0D474C515AD}"
+DEVICE_UDID="${DEVICE_UDID:-}"
+CORE_DEVICE_ID="${CORE_DEVICE_ID:-}"
 OUTPUT="${SQLITE_CAPABILITY_DEVICE_EVIDENCE:-${TMPDIR:-/tmp}/greenroom-sqlite-capability-device-evidence.json}"
 SYSTEM_PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
@@ -47,9 +47,22 @@ collect)
 import json, os, re, stat, sys
 path=os.path.abspath(sys.argv[1])
 if sys.platform == "darwin" and (path == "/tmp" or path.startswith("/tmp/") or path == "/var" or path.startswith("/var/")): path="/private"+path
-mode=os.lstat(path).st_mode
-if not stat.S_ISREG(mode): raise SystemExit("collect requires regular awaiting-lock host evidence")
-with open(path, encoding="utf-8") as f: evidence=json.load(f)
+parent,name=os.path.split(path)
+if not name: raise SystemExit("collect evidence path must name a file")
+directory_flags=os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0)
+parent_fd=os.open("/",directory_flags)
+evidence_fd=-1
+try:
+    for part in [part for part in parent.split("/") if part]:
+        next_fd=os.open(part,directory_flags,dir_fd=parent_fd); os.close(parent_fd); parent_fd=next_fd
+    evidence_fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0),dir_fd=parent_fd)
+    if not stat.S_ISREG(os.fstat(evidence_fd).st_mode): raise SystemExit("collect requires regular awaiting-lock host evidence")
+    with os.fdopen(evidence_fd,encoding="utf-8") as f:
+        evidence_fd=-1
+        evidence=json.load(f)
+finally:
+    if evidence_fd >= 0: os.close(evidence_fd)
+    os.close(parent_fd)
 run_id=evidence.get("runIdentifier", "")
 if evidence.get("status") != "awaiting_lock" or evidence.get("qualificationPlatform") != "physical" or re.fullmatch(r"[a-f0-9]{32}", run_id) is None:
     raise SystemExit("collect requires physical awaiting-lock evidence from prepare")
@@ -64,6 +77,15 @@ PY
 *) echo >&2 "usage: $0 [prepare|collect]"; exit 2 ;;
 esac
 
+[[ "$DEVICE_UDID" =~ ^([[:xdigit:]]{8}-[[:xdigit:]]{16}|[[:xdigit:]]{8}-([[:xdigit:]]{4}-){3}[[:xdigit:]]{12})$ ]] || {
+  echo >&2 "DEVICE_UDID must be supplied exactly through the environment in an Apple device-UDID format"
+  exit 2
+}
+[[ "$CORE_DEVICE_ID" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || {
+  echo >&2 "CORE_DEVICE_ID must be supplied exactly through the environment as a UUID"
+  exit 2
+}
+
 APPLE_TMPDIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/greenroom-device-tools.XXXXXX")"
 trap '/bin/rm -rf "$APPLE_TMPDIR"' EXIT
 ACTIVE_DEVELOPER_DIR="$(/usr/bin/env -i PATH="$SYSTEM_PATH" HOME=/var/empty TMPDIR="$APPLE_TMPDIR" /usr/bin/xcode-select -p)"
@@ -75,9 +97,19 @@ run_apple_tool() {
   # excluded; only this validated home is admitted to the Apple-tool boundary.
   /usr/bin/env -i PATH="$SYSTEM_PATH" HOME="$ACCOUNT_HOME" TMPDIR="$APPLE_TMPDIR" DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" /usr/bin/xcrun "$@"
 }
-for tool in devicectl xcodebuild otool codesign; do
+for tool in devicectl xcodebuild otool codesign security; do
+  case "$tool" in
+    devicectl) trusted="$ACTIVE_DEVELOPER_DIR/usr/bin/devicectl" ;;
+    xcodebuild) trusted="$ACTIVE_DEVELOPER_DIR/usr/bin/xcodebuild" ;;
+    otool) trusted="$ACTIVE_DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/otool" ;;
+    codesign) trusted="/usr/bin/codesign" ;;
+    security) trusted="/usr/bin/security" ;;
+  esac
   resolved="$(run_apple_tool --find "$tool")"
-  [[ "$resolved" = "$ACTIVE_DEVELOPER_DIR"/* || "$resolved" = /usr/bin/codesign ]] || { echo >&2 "unsafe $tool resolution: $resolved"; exit 2; }
+  [[ "$resolved" = "$trusted" && -x "$resolved" ]] || {
+    echo >&2 "unsafe $tool resolution: $resolved"
+    exit 2
+  }
 done
 
 copy_evidence() {
@@ -93,16 +125,18 @@ copy_evidence() {
 }
 
 publish_validated() {
-  local source="$1" expected="$2" device_json="$3" expected_run_id="$4" prepared="$APPLE_TMPDIR/prepared.json"
-  run_python - "$source" "$expected" "$device_json" "$prepared" "$expected_run_id" <<'PY'
+  local source="$1" expected="$2" device_json="$3" expected_run_id="$4" expected_core_id="$5" expected_udid="$6" prepared="$APPLE_TMPDIR/prepared.json"
+  run_python - "$source" "$expected" "$device_json" "$prepared" "$expected_run_id" "$expected_core_id" "$expected_udid" <<'PY'
 import hashlib, json, os, sys
-source, expected, device_path, prepared, expected_run_id = sys.argv[1:]
+source, expected, device_path, prepared, expected_run_id, expected_core_id, expected_udid = sys.argv[1:]
 with open(source, encoding="utf-8") as f: evidence = json.load(f)
 with open(device_path, encoding="utf-8") as f: envelope = json.load(f)
 devices = envelope.get("result", {}).get("devices", [])
 if len(devices) != 1: raise SystemExit("selected physical device metadata is missing or ambiguous")
 device = devices[0]
 props, hardware = device.get("deviceProperties", {}), device.get("hardwareProperties", {})
+if device.get("identifier") != expected_core_id or hardware.get("udid") != expected_udid:
+    raise SystemExit("selected device identifiers do not exactly match supplied identifiers")
 if hardware.get("platform") != "iOS" or hardware.get("reality") != "physical": raise SystemExit("selected device is not a physical iPhone")
 if not isinstance(device.get("identifier"), str) or not device["identifier"]: raise SystemExit("physical device identifier is missing")
 if not isinstance(hardware.get("marketingName"), str) or not hardware["marketingName"].startswith("iPhone "): raise SystemExit("selected physical device is not an identified iPhone model")
@@ -129,12 +163,16 @@ for phase in ("firstLaunchFiles", "filesAfterRelaunch"):
         item = files.get(name) or {}
         if not (item.get("exists") and item.get("protectionVerified") and item.get("observedProtection") == "NSFileProtectionComplete" and item.get("excludedFromBackup") is True):
             raise SystemExit(f"{phase}.{name} lacks physical protection/backup proof")
-if expected == "awaiting_lock":
-    if evidence.get("forcedTerminationRelaunch") is not True or evidence.get("allSQLiteHandlesClosedBeforeLock") is not True:
-        raise SystemExit("manual lock gate lacks relaunch/closed-handle proof")
+if expected in ("awaiting_lock", "complete"):
+    for key in ("forcedTerminationRelaunch", "allSQLiteHandlesClosedBeforeLock", "protectedDataAvailableBeforeLock"):
+        if evidence.get(key) is not True: raise SystemExit(f"manual lock gate lacks required proof: {key}")
 if expected == "complete":
-    for key in ("lockedProtectedDataUnavailable", "lockedRawReadDenied", "lockedSQLiteOpenDenied", "unlockedProtectedDataAvailable", "reopenAfterUnlock"):
-        if evidence.get(key) is not True: raise SystemExit(f"missing final protected-data proof: {key}")
+    for key in (
+        "lockedProtectedDataUnavailable", "lockedRawReadDenied", "lockedSQLiteOpenDenied",
+        "lockedUnprotectedControlRawReadSucceeded", "lockedUnprotectedControlSQLiteOpenSucceeded",
+        "unlockedProtectedDataAvailable", "reopenAfterUnlock",
+    ):
+        if evidence.get(key) is not True: raise SystemExit(f"missing final protected-data/control proof: {key}")
 with open(prepared, "x", encoding="utf-8") as f:
     json.dump(evidence, f, indent=2, sort_keys=True); f.write("\n"); f.flush(); os.fsync(f.fileno())
 PY
@@ -171,7 +209,7 @@ collect)
   DEVICE_JSON="$APPLE_TMPDIR/device.json"
   run_apple_tool devicectl list devices --filter "identifier == '$CORE_DEVICE_ID'" --json-output "$DEVICE_JSON" >/dev/null
   copied="$(copy_evidence)"
-  publish_validated "$copied" complete "$DEVICE_JSON" "$EXPECTED_RUN_ID"
+  publish_validated "$copied" complete "$DEVICE_JSON" "$EXPECTED_RUN_ID" "$CORE_DEVICE_ID" "$DEVICE_UDID"
   /bin/cat "$OUTPUT"
   printf '\nPhysical evidence: %s\n' "$OUTPUT"
   exit 0
@@ -204,7 +242,7 @@ if af != files or ad != dirs: raise SystemExit(f"spike inventory mismatch; unexp
 hashes={
 "SQLiteCapability/AppDelegate.swift":"c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
 "SQLiteCapability/Info.plist":"09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-"SQLiteCapability/SQLiteCapabilityProbe.swift":"50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
+"SQLiteCapability/SQLiteCapabilityProbe.swift":"1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
 "SQLiteCapability.xcodeproj/project.pbxproj":"af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
 "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme":"5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19"}
 for rel,want in hashes.items():
@@ -218,7 +256,7 @@ root=sys.argv[1]
 hashes={
 "SQLiteCapability/AppDelegate.swift":"c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
 "SQLiteCapability/Info.plist":"09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-"SQLiteCapability/SQLiteCapabilityProbe.swift":"50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
+"SQLiteCapability/SQLiteCapabilityProbe.swift":"1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
 "SQLiteCapability.xcodeproj/project.pbxproj":"af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
 "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme":"5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19"}
 actual=set()
@@ -237,13 +275,14 @@ PY
 
 DEVICE_JSON="$WORK_ROOT/device.json"
 run_apple_tool devicectl list devices --filter "identifier == '$CORE_DEVICE_ID'" --json-output "$DEVICE_JSON" >/dev/null
-run_python - "$DEVICE_JSON" "$DEVICE_UDID" <<'PY'
+run_python - "$DEVICE_JSON" "$CORE_DEVICE_ID" "$DEVICE_UDID" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1])); devices=d.get("result",{}).get("devices",[])
 if len(devices)!=1: raise SystemExit("physical device unavailable or ambiguous")
 x=devices[0]
+if x.get("identifier")!=sys.argv[2]: raise SystemExit("CoreDevice identifier did not exactly match supplied CORE_DEVICE_ID")
 if x.get("hardwareProperties",{}).get("reality")!="physical": raise SystemExit("selected device is not physical")
-if x.get("hardwareProperties",{}).get("udid")!=sys.argv[2]: raise SystemExit("CoreDevice and Xcode destination identifiers disagree")
+if x.get("hardwareProperties",{}).get("udid")!=sys.argv[3]: raise SystemExit("CoreDevice and Xcode destination identifiers disagree")
 if x.get("deviceProperties",{}).get("developerModeStatus")!="enabled" or x.get("deviceProperties",{}).get("ddiServicesAvailable") is not True: raise SystemExit("Developer Mode or DDI unavailable")
 PY
 
@@ -253,18 +292,43 @@ run_apple_tool xcodebuild build -quiet -project "$PROJECT" -scheme SQLiteCapabil
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration
 APP="$DERIVED_DATA/Build/Products/Debug-iphoneos/SQLiteCapability.app"
 BINARY="$APP/SQLiteCapability.debug.dylib"; [[ -f "$BINARY" ]] || BINARY="$APP/SQLiteCapability"
-run_apple_tool otool -L "$BINARY" | /usr/bin/grep -q '/usr/lib/libsqlite3.dylib' || { echo >&2 "device build lacks exact system SQLite linkage"; exit 3; }
-/usr/bin/codesign -dvv "$APP" 2>"$WORK_ROOT/codesign.txt"
-/usr/bin/codesign --verify --deep --strict "$APP"
-/usr/bin/codesign -d --entitlements :- "$APP" >"$WORK_ROOT/entitlements.plist" 2>/dev/null
-/usr/bin/security cms -D -i "$APP/embedded.mobileprovision" >"$WORK_ROOT/profile.plist"
-run_python - "$WORK_ROOT/codesign.txt" "$WORK_ROOT/entitlements.plist" "$WORK_ROOT/profile.plist" "$BUNDLE_ID" "$TEAM_ID" <<'PY'
-import plistlib,sys
-text=open(sys.argv[1]).read(); ent=plistlib.load(open(sys.argv[2],"rb")); profile=plistlib.load(open(sys.argv[3],"rb")); bundle,team=sys.argv[4:]
-if f"Identifier={bundle}" not in text or f"TeamIdentifier={team}" not in text: raise SystemExit("signed bundle identity/team mismatch")
-if ent.get("application-identifier") != f"{team}.{bundle}" or ent.get("com.apple.developer.team-identifier") != team: raise SystemExit("signed entitlements mismatch")
+OTOOL_OUTPUT="$WORK_ROOT/otool.txt"
+run_apple_tool otool -L "$BINARY" >"$OTOOL_OUTPUT"
+run_apple_tool codesign -dvv "$APP" 2>"$WORK_ROOT/codesign.txt"
+run_apple_tool codesign --verify --deep --strict "$APP"
+run_apple_tool codesign -d --entitlements :- "$APP" >"$WORK_ROOT/entitlements.plist" 2>/dev/null
+run_apple_tool security cms -D -i "$APP/embedded.mobileprovision" >"$WORK_ROOT/profile.plist"
+run_python - "$OTOOL_OUTPUT" "$WORK_ROOT/codesign.txt" "$WORK_ROOT/entitlements.plist" "$WORK_ROOT/profile.plist" "$BUNDLE_ID" "$TEAM_ID" <<'PY'
+import plistlib,re,sys
+otool_path,text_path,ent_path,profile_path,bundle,team=sys.argv[1:]
+otool_lines=open(otool_path,encoding="utf-8").read().splitlines()
+install_names=[]
+for line in otool_lines[1:]:
+    match=re.fullmatch(r"\s+(\S+) \(compatibility version [^)]+, current version [^)]+\)",line)
+    if match is None: raise SystemExit(f"unparseable otool install-name line: {line}")
+    install_names.append(match.group(1))
+if install_names.count("/usr/lib/libsqlite3.dylib") != 1:
+    raise SystemExit("device build lacks exactly one system SQLite install name")
+if any("libsqlite3.dylib" in name and name != "/usr/lib/libsqlite3.dylib" for name in install_names):
+    raise SystemExit("device build contains a deceptive SQLite install name")
+fields={}
+for line in open(text_path,encoding="utf-8").read().splitlines():
+    if "=" not in line: continue
+    key,value=line.split("=",1)
+    if key in ("Identifier","TeamIdentifier"):
+        if key in fields: raise SystemExit(f"duplicate codesign field: {key}")
+        fields[key]=value
+if fields != {"Identifier":bundle,"TeamIdentifier":team}:
+    raise SystemExit("signed bundle identity/team mismatch")
+ent=plistlib.load(open(ent_path,"rb")); profile=plistlib.load(open(profile_path,"rb"))
+application_identifier=f"{team}.{bundle}"
+if ent.get("application-identifier") != application_identifier or ent.get("com.apple.developer.team-identifier") != team:
+    raise SystemExit("signed entitlements mismatch")
 pent=profile.get("Entitlements",{})
-if pent.get("application-identifier") != f"{team}.{bundle}" or team not in profile.get("TeamIdentifier",[]): raise SystemExit("provisioning profile identity/team mismatch")
+if pent.get("application-identifier") != application_identifier or pent.get("com.apple.developer.team-identifier") != team:
+    raise SystemExit("provisioning profile entitlements mismatch")
+if profile.get("TeamIdentifier") != [team] or profile.get("ApplicationIdentifierPrefix") != [team]:
+    raise SystemExit("provisioning profile exact team/application prefix mismatch")
 PY
 
 APPS_JSON="$WORK_ROOT/apps.json"
@@ -301,7 +365,7 @@ run_apple_tool devicectl device process terminate --device "$CORE_DEVICE_ID" --p
 run_apple_tool devicectl device process launch --device "$CORE_DEVICE_ID" -e "$LAUNCH_ENV" "$BUNDLE_ID" --json-output "$WORK_ROOT/launch2.json" >/dev/null
 /bin/sleep 2
 second="$(copy_evidence)"
-publish_validated "$second" awaiting_lock "$DEVICE_JSON" "$RUN_ID"
+publish_validated "$second" awaiting_lock "$DEVICE_JSON" "$RUN_ID" "$CORE_DEVICE_ID" "$DEVICE_UDID"
 /bin/cat "$OUTPUT"
 printf '\nPrepared physical evidence: %s\n' "$OUTPUT"
-printf 'MANUAL GATE: lock the iPhone now, leave it locked for at least 10 seconds, then unlock it. After unlock run:\n  SQLITE_CAPABILITY_DEVICE_EVIDENCE=%q DEVICE_UDID=%q CORE_DEVICE_ID=%q %q collect\n' "$OUTPUT" "$DEVICE_UDID" "$CORE_DEVICE_ID" "$ROOT/run-device.sh"
+printf 'MANUAL GATE: lock the iPhone now, leave it locked for at least 10 seconds, then unlock it. After unlock, supply DEVICE_UDID and CORE_DEVICE_ID again through the environment and run:\n  SQLITE_CAPABILITY_DEVICE_EVIDENCE=%q %q collect\n' "$OUTPUT" "$ROOT/run-device.sh"

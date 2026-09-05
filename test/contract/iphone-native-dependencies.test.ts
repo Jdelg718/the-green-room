@@ -533,7 +533,7 @@ test("runner ignores Python and Apple toolchain injection while invalidating sta
 test("physical evidence validator rejects stale phases and Simulator evidence", (context) => {
   const runner = read(join(SPIKE_ROOT, "run-device.sh"));
   const match = runner.match(
-    /run_python - "\$source" "\$expected" "\$device_json" "\$prepared" "\$expected_run_id" <<'PY'\n(?<source>[\s\S]*?)\nPY\n  run_python - "\$prepared"/u,
+    /run_python - "\$source" "\$expected" "\$device_json" "\$prepared" "\$expected_run_id" "\$expected_core_id" "\$expected_udid" <<'PY'\n(?<source>[\s\S]*?)\nPY\n  run_python - "\$prepared"/u,
   );
   assert.ok(match?.groups?.source, "missing physical evidence validation helper");
   const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-device-validator-"));
@@ -543,11 +543,13 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
   const devicePath = join(fixtureRoot, "device.json");
   writeFileSync(validator, match.groups.source);
   writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
-    identifier: "safe-test-identifier",
+    identifier: "879884A5-DCE2-517D-9323-C0D474C515AD",
     deviceProperties: {
       osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
     },
-    hardwareProperties: { marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical" },
+    hardwareProperties: {
+      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+    },
   }] } }));
   const fileEvidence = {
     exists: true, observedProtection: "NSFileProtectionComplete", protectionVerified: true, excludedFromBackup: true,
@@ -560,40 +562,74 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
     deviceReportedSystemVersion: "26.6",
     forcedTerminationRelaunch: true,
     allSQLiteHandlesClosedBeforeLock: true,
+    protectedDataAvailableBeforeLock: true,
     lockedProtectedDataUnavailable: true,
     lockedRawReadDenied: true,
     lockedSQLiteOpenDenied: true,
+    lockedUnprotectedControlRawReadSucceeded: true,
+    lockedUnprotectedControlSQLiteOpenSucceeded: true,
     unlockedProtectedDataAvailable: true,
     reopenAfterUnlock: true,
     firstLaunchFiles: { database: fileEvidence, wal: fileEvidence, shm: fileEvidence },
     filesAfterRelaunch: { database: fileEvidence, wal: fileEvidence, shm: fileEvidence },
   };
-  const run = (evidence: object, expected = "complete"): void => {
+  const run = (
+    evidence: object,
+    expected = "complete",
+    expectedCoreID = "879884A5-DCE2-517D-9323-C0D474C515AD",
+    expectedUDID = "00008130-001851DE2E01001C",
+  ): void => {
     writeFileSync(evidencePath, JSON.stringify(evidence));
     const prepared = join(fixtureRoot, `prepared-${Math.random()}.json`);
     execFileSync("/usr/bin/python3", [
       "-I", validator, evidencePath, expected, devicePath, prepared, "0123456789abcdef0123456789abcdef",
+      expectedCoreID, expectedUDID,
     ]);
   };
   assert.doesNotThrow(() => run(valid));
+  assert.throws(
+    () => run(valid, "complete", "879884a5-dce2-517d-9323-c0d474c515ad"),
+    /identifiers do not exactly match/u,
+    "identifier comparison must not normalize case",
+  );
+  assert.throws(
+    () => run(valid, "complete", "879884A5-DCE2-517D-9323-C0D474C515AD", "00008130-001851DE2E01001D"),
+    /identifiers do not exactly match/u,
+  );
   assert.throws(() => run({ ...valid, qualificationPlatform: "simulator" }), /non-physical evidence/u);
   assert.throws(() => run({ ...valid, status: "awaiting_lock" }), /expected device status/u);
   assert.throws(() => run({ ...valid, runIdentifier: "fedcba9876543210fedcba9876543210" }), /run identifier mismatch/u);
   assert.throws(() => run({ ...valid, lockedRawReadDenied: false }), /lockedRawReadDenied/u);
+  for (const field of [
+    "forcedTerminationRelaunch",
+    "allSQLiteHandlesClosedBeforeLock",
+    "protectedDataAvailableBeforeLock",
+    "lockedUnprotectedControlRawReadSucceeded",
+    "lockedUnprotectedControlSQLiteOpenSucceeded",
+  ]) {
+    assert.throws(() => run({ ...valid, [field]: false }), new RegExp(field, "u"), `${field}=false`);
+    const missing = { ...valid } as Record<string, unknown>;
+    delete missing[field];
+    assert.throws(() => run(missing), new RegExp(field, "u"), `${field} missing`);
+  }
   assert.throws(() => run({ ...valid, filesAfterRelaunch: { database: fileEvidence, wal: fileEvidence } }), /filesAfterRelaunch\.shm/u);
   const invalidDevice = JSON.parse(read(devicePath)) as { result: { devices: Array<Record<string, unknown>> } };
   invalidDevice.result.devices[0] = {
     ...invalidDevice.result.devices[0],
-    hardwareProperties: { marketingName: "Mac", platform: "iOS", reality: "physical" },
+    hardwareProperties: {
+      marketingName: "Mac", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+    },
   };
   writeFileSync(devicePath, JSON.stringify(invalidDevice));
   assert.throws(() => run(valid), /not an identified iPhone model/u);
   writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
-    identifier: "safe-test-identifier",
+    identifier: "879884A5-DCE2-517D-9323-C0D474C515AD",
     deviceProperties: {
       osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
     },
-    hardwareProperties: { marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical" },
+    hardwareProperties: {
+      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+    },
   }] } }));
   const missingVersionDevice = JSON.parse(read(devicePath)) as { result: { devices: Array<Record<string, any>> } };
   missingVersionDevice.result.devices[0]!.deviceProperties.osVersionNumber = "";
@@ -614,6 +650,124 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
     stdio: "pipe",
   }));
   assert.equal(existsSync(staleSimulatorOutput), false, "failed collect must invalidate stale Simulator evidence");
+
+  const awaitingTarget = join(fixtureRoot, "awaiting-target.json");
+  const awaitingLink = join(fixtureRoot, "awaiting-link.json");
+  writeFileSync(awaitingTarget, JSON.stringify({ ...valid, status: "awaiting_lock" }));
+  symlinkSync(awaitingTarget, awaitingLink);
+  assert.throws(() => execFileSync(join(SPIKE_ROOT, "run-device.sh"), ["collect"], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      SQLITE_CAPABILITY_DEVICE_EVIDENCE: awaitingLink,
+      DEVICE_UDID: "00008130-001851DE2E01001C",
+      CORE_DEVICE_ID: "879884A5-DCE2-517D-9323-C0D474C515AD",
+    },
+    stdio: "pipe",
+  }));
+  assert.equal(existsSync(awaitingLink), false, "failed collect must unlink only the symlink entry");
+  assert.equal(JSON.parse(read(awaitingTarget)).status, "awaiting_lock", "collect must not follow the symlink target");
+});
+
+test("physical runner keeps identifiers private and routes exact trusted Apple tools", (context) => {
+  const runner = read(join(SPIKE_ROOT, "run-device.sh"));
+  assert.match(runner, /DEVICE_UDID="\$\{DEVICE_UDID:-\}"/u);
+  assert.match(runner, /CORE_DEVICE_ID="\$\{CORE_DEVICE_ID:-\}"/u);
+  assert.doesNotMatch(runner, /00008130-001851DE2E01001C|879884A5-DCE2-517D-9323-C0D474C515AD/u);
+  assert.match(runner, /for tool in devicectl xcodebuild otool codesign security/u);
+  assert.match(runner, /codesign\) trusted="\/usr\/bin\/codesign"/u);
+  assert.match(runner, /security\) trusted="\/usr\/bin\/security"/u);
+  for (const line of runner.split("\n").filter((candidate) => {
+    if (/trusted=/u.test(candidate)) return false;
+    return /^\s*(?:\/usr\/bin\/)?(?:codesign|security)\b|^\s*run_apple_tool (?:codesign|security)\b/u.test(candidate);
+  })) {
+    assert.match(line, /run_apple_tool (?:codesign|security)\b/u, `unsanitized signing tool invocation: ${line}`);
+  }
+  assert.doesNotMatch(runner, /DEVICE_UDID=%q|CORE_DEVICE_ID=%q/u);
+  assert.match(runner, /os\.open\(name,os\.O_RDONLY\|getattr\(os,"O_NOFOLLOW",0\),dir_fd=parent_fd\)/u);
+  assert.match(runner, /os\.fstat\(evidence_fd\)/u);
+  assert.doesNotMatch(runner, /mode=os\.lstat\(path\)/u);
+
+  const boundary = runner.match(/(?<source>ACTIVE_DEVELOPER_DIR="[\s\S]*?\nfor tool in devicectl xcodebuild otool codesign security; do[\s\S]*?\ndone)/u);
+  assert.ok(boundary?.groups?.source, "missing extractable trusted Apple-tool resolution boundary");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-physical-tool-boundary-"));
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const fakeBin = join(fixtureRoot, "bin");
+  const sentinel = join(fixtureRoot, "fake-ran");
+  mkdirSync(fakeBin);
+  for (const tool of ["xcode-select", "xcrun", "codesign", "security"]) {
+    const fake = join(fakeBin, tool);
+    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' '${tool}' >> '${sentinel}'\nexit 91\n`);
+    chmodSync(fake, 0o755);
+  }
+  const harness = join(fixtureRoot, "boundary.sh");
+  writeFileSync(harness, `#!/bin/bash\nset -euo pipefail\nSYSTEM_PATH=/usr/bin:/bin:/usr/sbin:/sbin\nAPPLE_TMPDIR='${fixtureRoot}'\n${boundary.groups.source}\n`);
+  chmodSync(harness, 0o755);
+  execFileSync("/bin/bash", [harness], {
+    env: { ...process.env, PATH: fakeBin, DEVELOPER_DIR: join(fixtureRoot, "FakeXcode"), TOOLCHAINS: "attacker" },
+  });
+  assert.equal(existsSync(sentinel), false, "caller fakes must not run at the physical Apple-tool boundary");
+});
+
+test("physical binary/signature validator rejects substring and profile identity attacks", (context) => {
+  const runner = read(join(SPIKE_ROOT, "run-device.sh"));
+  const match = runner.match(
+    /run_python - "\$OTOOL_OUTPUT" "\$WORK_ROOT\/codesign\.txt" "\$WORK_ROOT\/entitlements\.plist" "\$WORK_ROOT\/profile\.plist" "\$BUNDLE_ID" "\$TEAM_ID" <<'PY'\n(?<source>[\s\S]*?)\nPY/u,
+  );
+  assert.ok(match?.groups?.source, "missing extracted binary/signature validator");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-signature-validator-"));
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const validator = join(fixtureRoot, "validator.py");
+  const otool = join(fixtureRoot, "otool.txt");
+  const codesign = join(fixtureRoot, "codesign.txt");
+  const entitlements = join(fixtureRoot, "entitlements.plist");
+  const profile = join(fixtureRoot, "profile.plist");
+  writeFileSync(validator, match.groups.source);
+  const team = "JZ233HBW3Z";
+  const bundle = "net.greenroomai.spike.SQLiteCapability";
+  const appID = `${team}.${bundle}`;
+  const plist = (body: string): string => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>${body}</dict></plist>`;
+  const string = (value: string): string => `<string>${value}</string>`;
+  const writeFixtures = (changes: {
+    otool?: string;
+    codesign?: string;
+    entApp?: string;
+    entTeam?: string;
+    profileApp?: string;
+    profileEntTeam?: string;
+    profileTeamArray?: string;
+    profilePrefixArray?: string;
+  } = {}): void => {
+    writeFileSync(otool, changes.otool ?? `/tmp/app:\n\t/usr/lib/libsqlite3.dylib (compatibility version 9.0.0, current version 382.0.0)\n`);
+    writeFileSync(codesign, changes.codesign ?? `Identifier=${bundle}\nTeamIdentifier=${team}\n`);
+    writeFileSync(entitlements, plist(`<key>application-identifier</key>${string(changes.entApp ?? appID)}<key>com.apple.developer.team-identifier</key>${string(changes.entTeam ?? team)}`));
+    writeFileSync(profile, plist(`<key>Entitlements</key><dict><key>application-identifier</key>${string(changes.profileApp ?? appID)}<key>com.apple.developer.team-identifier</key>${string(changes.profileEntTeam ?? team)}</dict><key>TeamIdentifier</key><array>${changes.profileTeamArray ?? string(team)}</array><key>ApplicationIdentifierPrefix</key><array>${changes.profilePrefixArray ?? string(team)}</array>`));
+  };
+  const run = (): void => {
+    execFileSync("/usr/bin/python3", ["-I", validator, otool, codesign, entitlements, profile, bundle, team]);
+  };
+  writeFixtures();
+  assert.doesNotThrow(run);
+  writeFixtures({ otool: `/tmp/app:\n\t/usr/lib/libsqlite3.dylib.evil (compatibility version 9.0.0, current version 382.0.0)\n` });
+  assert.throws(run, /system SQLite install name|deceptive SQLite/u);
+  writeFixtures({ codesign: `Identifier=${bundle}.evil\nTeamIdentifier=${team}\n` });
+  assert.throws(run, /identity\/team mismatch/u);
+  writeFixtures({ codesign: `Identifier=evil.${bundle}\nTeamIdentifier=${team}\n` });
+  assert.throws(run, /identity\/team mismatch/u);
+  writeFixtures({ codesign: `Identifier=${bundle}\nTeamIdentifier=${team}EVIL\n` });
+  assert.throws(run, /identity\/team mismatch/u);
+  writeFixtures({ entApp: `${appID}.evil` });
+  assert.throws(run, /signed entitlements mismatch/u);
+  writeFixtures({ entTeam: `${team}EVIL` });
+  assert.throws(run, /signed entitlements mismatch/u);
+  writeFixtures({ profileApp: `${appID}.evil` });
+  assert.throws(run, /profile entitlements mismatch/u);
+  writeFixtures({ profileEntTeam: `${team}EVIL` });
+  assert.throws(run, /profile entitlements mismatch/u);
+  writeFixtures({ profileTeamArray: `${string(team)}${string("ATTACKER")}` });
+  assert.throws(run, /exact team\/application prefix mismatch/u);
+  writeFixtures({ profilePrefixArray: string(`${team}EVIL`) });
+  assert.throws(run, /exact team\/application prefix mismatch/u);
 });
 
 test("iPhone persistence depends only on the repository-owned system SQLite spike", () => {
@@ -643,6 +797,11 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   assert.match(swift, /awaiting_lock/u);
   assert.match(swift, /lockedRawReadDenied/u);
   assert.match(swift, /lockedSQLiteOpenDenied/u);
+  assert.match(swift, /unprotectedControlDatabaseURL/u);
+  assert.match(swift, /FileProtectionType\.none/u);
+  assert.match(swift, /lockedUnprotectedControlRawReadSucceeded/u);
+  assert.match(swift, /lockedUnprotectedControlSQLiteOpenSucceeded/u);
+  assert.match(swift, /SELECT count\(\*\) FROM control WHERE value = 4242/u);
   assert.match(swift, /reopenAfterUnlock/u);
   assert.match(swift, /allSQLiteHandlesClosedBeforeLock/u);
   assert.match(swift, /let closeCode = sqlite3_close\(/u);

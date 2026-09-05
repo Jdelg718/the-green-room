@@ -55,16 +55,33 @@ uninstall successfully, while an absent spike needs no ignored uninstall error.
 For the authorized registered physical iPhone, run:
 
 ```sh
-ios/Spikes/SQLiteCapability/run-device.sh prepare
+DEVICE_UDID='<Xcode device UDID>' CORE_DEVICE_ID='<CoreDevice UUID>' \
+  ios/Spikes/SQLiteCapability/run-device.sh prepare
 ```
 
 The device runner applies the same exact source inventory/hash and sanitized
 external-staging boundary, uses automatic signing only through explicit
-command-line overrides, verifies bundle/profile/team/entitlements and exact
-system `libsqlite3` linkage before installation, and performs the forced
-kill/relaunch proof. It then publishes physical-only evidence with a hashed
-device identifier and stops at `awaiting_lock`, with every SQLite handle closed.
-Lock the phone for at least ten seconds and unlock it, then run the exact
-`run-device.sh collect` command printed by `prepare`. Collection rejects
-Simulator evidence, stale status, missing lock denial, or missing post-unlock
-reopen proof. Device serial number and ECID are never published.
+command-line overrides, and resolves `codesign` and `security` to the exact
+allowlisted `/usr/bin` tools before invoking them through the same clean
+`env -i`/`xcrun` wrapper. It parses exact `otool` install names, exact
+`codesign` identity fields, and exact profile/team/application entitlements
+before installation, then performs the forced kill/relaunch proof. Raw device
+identifiers have no source defaults and are never printed or stored in evidence;
+only an opaque run ID and truncated SHA-256 device alias persist.
+
+The protected DB/WAL/SHM and a distinct `NSFileProtectionNone` SQLite control
+live in separate directories. While the phone is locked, qualification requires
+both a successful raw read and successful SQLite marker query against that
+control as well as raw-read and SQLite-open denial against the protected DB.
+The unprotected JSON evidence file is only a transport needed to record/read the
+state while locked; it is not the control and makes no confidentiality claim.
+
+`prepare` stops at `awaiting_lock` only after every SQLite handle is closed and
+protected data was observed available. Lock the phone for at least ten seconds
+and unlock it. Then supply both raw identifiers again through the environment
+and run `run-device.sh collect` with the same evidence path. The runner does not
+echo those values. Collection opens the prepare artifact through held no-follow
+parent/final descriptors and rejects Simulator evidence, stale or mismatched
+runs, any missing/false transition field, failed control, missing lock denial,
+or missing post-unlock reopen proof. Device serial number and ECID are never
+published.

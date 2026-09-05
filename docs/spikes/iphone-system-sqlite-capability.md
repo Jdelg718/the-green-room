@@ -23,11 +23,13 @@ Physical execution was attempted against an attached/trusted iPhone 15 Pro Max
 running iOS 26.6 (`23G71`). Device discovery confirmed Developer Mode and DDI
 services, but automatic provisioning stopped before compilation/install:
 `xcodebuild` reported `No Accounts` and no iOS development profile for the
-spike bundle identifier. The login keychain exposed only a Developer ID
-Application identity, not an Apple Development identity. No physical app or
-physical evidence was installed/published, so the state remains honestly before
-`awaiting_lock`. Re-authenticate the team in Xcode Accounts, then rerun
-`run-device.sh prepare`; do not use the Simulator JSON as physical proof.
+spike bundle identifier. A current keychain recheck exposes Apple Development
+identities only for a different team than the configured `JZ233HBW3Z`; it still
+provides no matching Apple Development identity for this spike. No physical app
+or physical evidence was installed/published, so the state remains honestly
+before `awaiting_lock`. Re-authenticate the configured team in Xcode Accounts,
+then rerun `run-device.sh prepare`; do not use the Simulator JSON as physical
+proof.
 
 ## Boundary proved
 
@@ -75,6 +77,18 @@ Mach-O linkage inspection, and every Simulator operation through one clean
 `xcrun` wrapper with the exact resolved `DEVELOPER_DIR`. No caller `TOOLCHAINS`, `SDKROOT`, xcconfig,
 dynamic-loader, Python, or command-resolver variables cross that boundary.
 
+The physical runner additionally has no embedded/default physical identifiers:
+both exact-format identifiers must be provided through the environment for each
+`prepare` and `collect` invocation. They are neither echoed nor persisted; the
+host artifact contains only an opaque run ID and a truncated SHA-256 alias.
+Collection consumes the `awaiting_lock` artifact through no-follow parent and
+final descriptors with `fstat`, avoiding an `lstat`/`open` name race. `codesign`
+and `security` must resolve exactly to their allowlisted `/usr/bin` paths and are
+invoked only through the clean Apple-tool wrapper. Physical Mach-O/signature
+validation parses exact `otool` install-name lines and exact `Identifier` and
+`TeamIdentifier` fields, then compares the bundle/application/team entitlements
+and provisioning-profile arrays exactly.
+
 ## Exact executable evidence
 
 Executed from commit worktree state on 2026-09-05:
@@ -99,7 +113,7 @@ Environment:
 - `sqlite3_libversion()`: **3.51.0**
 - first-launch contention busy wait observation: **142 ms** for a configured
   125 ms timeout
-- generated evidence timestamp: `2026-09-05T19:12:17Z`
+- generated evidence timestamp: `2026-09-05T21:11:38Z`
 
 `run-simulator.sh` first removed any regular stale output, validated the source
 inventory, verified every build-input hash, and copied only the five reviewed
@@ -145,6 +159,7 @@ version 382.0.0 for that system path.
 | backup exclusion | PASS on Simulator resource API | DB/WAL/SHM each reported `isExcludedFromBackup=true` after first write and again after relaunch |
 | `NSFileProtectionComplete` | **PENDING physical device** | setting `.protectionKey = .complete` succeeded for DB/WAL/SHM, but Simulator omitted the protection attribute on readback; evidence records `not_exposed_by_simulator` and `protectionVerified=false` rather than claiming success |
 | locked protected-data behavior | **PENDING physical device** | Simulator cannot truthfully prove lock/unlock data unavailability |
+| locked unprotected control | **PENDING physical device** | A distinct `NSFileProtectionNone` SQLite DB must remain raw-readable and SQLite-queryable while locked; the separately unprotected JSON is evidence transport only |
 
 ## Exact system SQLite compile options
 
@@ -228,11 +243,14 @@ USE_URI
 1. Select the product minimum iOS version from device/submission evidence; install
    that runtime if available and rerun this exact harness on the oldest supported
    Simulator.
-2. Run `ios/Spikes/SQLiteCapability/run-device.sh prepare`, perform the printed
-   lock/wait/unlock action, then run its exact `collect` command. The published
-   envelope records model/iOS/build and only a truncated SHA-256 device alias.
+2. Supply `DEVICE_UDID` and `CORE_DEVICE_ID` through the environment and run
+   `ios/Spikes/SQLiteCapability/run-device.sh prepare`, perform the printed
+   lock/wait/unlock action, then supply both identifiers again and run `collect`
+   with the same evidence path. Raw values are not printed or persisted. The
+   published envelope records model/iOS/build and only a truncated SHA-256 alias.
 3. Verify DB/WAL/SHM read back as `NSFileProtectionComplete` after first write
    and relaunch, then prove actual protected-data unavailability while locked
-   and successful reopen after unlock.
+   and successful reopen after unlock. Require matched raw-read and SQLite-query
+   success on the separate unprotected control while the phone remains locked.
 4. Repeat forced termination/relaunch and backup-exclusion checks on that
    physical device. Do not convert this report to GO unless every row is proven.
