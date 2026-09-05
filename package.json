@@ -44,6 +44,7 @@
     "verify:macos:signed": "node scripts/package/verify-macos-signed.mjs",
     "package:release-evidence": "node scripts/package/generate-release-evidence.mjs",
     "verify:release-evidence": "node scripts/package/verify-release-evidence.mjs",
+    "verify:clean-mac-acceptance": "node scripts/package/verify-clean-mac-acceptance.mjs",
     "test:packaging": "node scripts/package/test-packaged-validator.mjs && node scripts/package/test-packaged-runtime.mjs",
     "verify:payload": "node scripts/package/verify-payload.mjs",
     "verify:native-module": "node scripts/package/verify-native-module.mjs",
