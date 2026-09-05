@@ -19,6 +19,12 @@ Apple permits bundled HTML, CSS, and JavaScript in `WKWebView`, and Capacitor 8 
 
 Build the Alpha as an **iPhone-only Capacitor 8 application with a bundled `WKWebView` UI**, backed by a **pure TypeScript domain core** extracted from the existing validated runtime and a deliberately small native Swift boundary.
 
+The Alpha minimum deployment target is **iOS 18.6**. Phase 0 Task 0.2 proved
+the runtime-dependent system SQLite capability floor on an iOS 18.6 Simulator
+and proved hardware-only complete file protection and locked-data denial on a
+physical iPhone running iOS 26.6. This intentionally does not claim Simulator
+lock behavior or a physical iOS 18.6 test.
+
 ```text
 signed iOS application bundle
 ├── WKWebView presentation (bundled HTML/CSS/JS only)
