@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroomai.net/schemas/release-evidence-v1.json",
+  "title": "The Green Room release evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifact", "app", "components", "source", "toolchain", "signing", "notarization", "documents"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifact": { "$ref": "#/$defs/artifact" },
+    "app": { "$ref": "#/$defs/app" },
+    "components": { "$ref": "#/$defs/components" },
+    "source": { "$ref": "#/$defs/source" },
+    "toolchain": { "$ref": "#/$defs/toolchain" },
+    "signing": { "$ref": "#/$defs/signing" },
+    "notarization": { "$ref": "#/$defs/notarization" },
+    "documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["The-Green-Room-0.1.0-alpha.1.spdx.json", "THIRD-PARTY-NOTICES.txt", "notarization-evidence.json"],
+      "properties": {
+        "The-Green-Room-0.1.0-alpha.1.spdx.json": { "$ref": "#/$defs/sha256" },
+        "THIRD-PARTY-NOTICES.txt": { "$ref": "#/$defs/sha256" },
+        "notarization-evidence.json": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "bytes", "sha256"],
+      "properties": {
+        "name": { "const": "The-Green-Room-0.1.0-alpha.1-macos-arm64.zip" },
+        "bytes": { "const": 51598158 },
+        "sha256": { "const": "333f5cdd2e9c88e901cacd5cdad58109b67affc1f63cc5f98321644592bde469" }
+      }
+    },
+    "app": {
+      "type": "object", "additionalProperties": false,
+      "required": ["root", "archiveEntries", "regularFiles", "directories", "treeSha256", "manifestSchemaVersion", "payloadFiles", "signatureOwnedFiles"],
+      "properties": {
+        "root": { "const": "The Green Room.app" }, "archiveEntries": { "const": 1651 },
+        "regularFiles": { "const": 1341 }, "directories": { "const": 310 },
+        "treeSha256": { "const": "c05036f9828ba344188e085cfbc0090b249e05046039c64fa8e409a55abbd674" },
+        "manifestSchemaVersion": { "const": 2 }, "payloadFiles": { "const": 1337 },
+        "signatureOwnedFiles": { "const": ["Contents/CodeResources", "Contents/MacOS/GreenRoomLauncher", "Contents/_CodeSignature/CodeResources"] }
+      }
+    },
+    "components": {
+      "type": "object", "additionalProperties": false,
+      "required": ["npmPackagePaths", "personaRecords", "validatorFiles", "nodeVersion", "pythonVersion", "validatorVersion", "pyyamlVersion", "pyinstallerVersion"],
+      "properties": {
+        "npmPackagePaths": { "const": 52 }, "personaRecords": { "const": 19 }, "validatorFiles": { "const": 4 },
+        "nodeVersion": { "const": "24.20.0" }, "pythonVersion": { "const": "3.13.13" },
+        "validatorVersion": { "const": "0.1.0" }, "pyyamlVersion": { "const": "6.0.3" }, "pyinstallerVersion": { "const": "6.16.0" }
+      }
+    },
+    "implementation": {
+      "type": "object", "additionalProperties": false, "required": ["baseCommit", "commit", "state"],
+      "properties": {
+        "baseCommit": { "const": "6171a2736886f899e5221cc734444934e5cfa0fb" },
+        "commit": { "oneOf": [{ "$ref": "#/$defs/commit" }, { "type": "null" }] },
+        "state": { "enum": ["committed", "uncommitted-working-tree"] }
+      }
+    },
+    "material": {
+      "type": "object", "additionalProperties": false, "required": ["commit", "path", "sha256"],
+      "properties": { "commit": { "$ref": "#/$defs/commit" }, "path": { "enum": ["package.json", "package-lock.json", "pyproject.toml", "uv.lock", "scripts/package/build-validator.mjs", "packaging/macos/validator.spec"] }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "productCommit", "productTree", "protectedRef", "signingImplementationHead", "signingSquashMerge", "evidenceImplementation", "materials"],
+      "properties": {
+        "repository": { "const": "https://github.com/Jdelg718/the-green-room" },
+        "productCommit": { "const": "cd0096c53e356a4c2a7830ecbed5db690485c070" },
+        "productTree": { "const": "4ea71d620c5ea0fe2564cfa134d3445d8917185b" },
+        "protectedRef": { "const": "refs/heads/main" },
+        "signingImplementationHead": { "const": "ed92f1f9efb9635dde3579ef09fe62c5311cb6a9" },
+        "signingSquashMerge": { "const": "6171a2736886f899e5221cc734444934e5cfa0fb" },
+        "evidenceImplementation": { "$ref": "#/$defs/implementation" },
+        "materials": { "type": "array", "minItems": 7, "maxItems": 7, "items": { "$ref": "#/$defs/material" } }
+      }
+    },
+    "toolchain": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "xcodeBuild", "swift", "clang", "node", "python", "npm", "pyinstaller"],
+      "properties": {
+        "target": { "const": "arm64-apple-darwin" }, "xcodeBuild": { "const": "17F113" },
+        "swift": { "const": "Apple Swift version 6.3.3" }, "clang": { "const": "Apple clang version 21.0.0 (clang-2100.1.1.101)" },
+        "node": { "const": "24.20.0" }, "python": { "const": "3.13.13" }, "npm": { "const": "11.19.0" }, "pyinstaller": { "const": "6.16.0" }
+      }
+    },
+    "signing": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "teamId", "hardenedRuntime", "secureTimestamp", "requirements", "unsignedPayloadDigest", "preStapleTreeDigest", "finalTreeDigest"],
+      "properties": {
+        "identity": { "const": "Developer ID Application: James DelGuercio (JZ233HBW3Z)" }, "teamId": { "const": "JZ233HBW3Z" },
+        "hardenedRuntime": { "const": true }, "secureTimestamp": { "const": true }, "requirements": { "type": "object" },
+        "unsignedPayloadDigest": { "const": "673726aa78d8ecd647f7296ef6c08bd94ac6a0f13a001c2eee1140176e351d8c" },
+        "preStapleTreeDigest": { "const": "60b0845fe300ede1695f68515e721094d09e3bed08fb102e6c5be304807e8629" },
+        "finalTreeDigest": { "const": "c05036f9828ba344188e085cfbc0090b249e05046039c64fa8e409a55abbd674" }
+      }
+    },
+    "notarization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["submissionId", "status", "acceptedStatusEvidenceSha256", "acceptedPrivateLogSha256", "privateLogIncluded"],
+      "properties": {
+        "submissionId": { "const": "1b9c51ee-280b-4349-9459-583e967651e8" }, "status": { "const": "Accepted" },
+        "acceptedStatusEvidenceSha256": { "const": "984c7cf7f1b4168fbd353c139d24743a59fd6266e819ba0bf829167d350cc98f" },
+        "acceptedPrivateLogSha256": { "const": "4bcca3156992de7d7ab3f2f491e6903acf81088be6944e48213377dd902baa52" }, "privateLogIncluded": { "const": false }
+      }
+    }
+  }
+}

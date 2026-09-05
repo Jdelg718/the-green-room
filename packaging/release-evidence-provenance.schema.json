@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroomai.net/schemas/release-evidence-assembly-v1.json",
+  "title": "The Green Room release-evidence assembly in-toto predicate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["_type", "subject", "predicateType", "predicate"],
+  "properties": {
+    "_type": { "const": "https://in-toto.io/Statement/v1" },
+    "subject": {
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["name", "digest"],
+        "properties": {
+          "name": { "enum": ["The-Green-Room-0.1.0-alpha.1-macos-arm64.zip", "The-Green-Room-0.1.0-alpha.1.spdx.json", "THIRD-PARTY-NOTICES.txt", "notarization-evidence.json", "release-evidence.json"] },
+          "digest": { "type": "object", "additionalProperties": false, "required": ["sha256"], "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
+        }
+      }
+    },
+    "predicateType": { "const": "https://greenroomai.net/attestations/release-evidence-assembly/v1" },
+    "predicate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["builder", "buildType", "invocation", "materials", "metadata", "evidenceImplementation"],
+      "properties": {
+        "builder": { "const": { "id": "local:Mothership" } },
+        "buildType": { "const": "https://greenroomai.net/buildtypes/release-evidence-assembly/v1" },
+        "invocation": { "type": "object" }, "materials": { "type": "array", "minItems": 8, "maxItems": 8 },
+        "metadata": { "type": "object" }, "evidenceImplementation": { "type": "object" }
+      }
+    }
+  }
+}
