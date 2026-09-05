@@ -11,9 +11,24 @@ Run it against a booted Simulator from the repository root:
 ios/Spikes/SQLiteCapability/run-simulator.sh
 ```
 
-The runner builds with the installed Xcode, installs a fresh app, waits for the
-first-phase evidence, terminates it with `simctl terminate`, relaunches it, and
-copies the final `qualification-evidence.json` to the path printed at the end.
+The runner validates the exact seven-file repository inventory and its four
+required directories, copies only the five Xcode project/source inputs to an
+external temporary staging directory, and builds there so Xcode cannot create
+workspace metadata in the source tree. All five executable build inputs must
+match their reviewed SHA-256 values both before and after staging. The runner
+invokes `/usr/bin/xcodebuild` with a minimal clean environment so inherited
+xcconfig/build-setting channels cannot override them; every other external tool
+also uses its absolute system path. It installs a fresh app,
+waits for first-phase evidence,
+terminates it with `simctl terminate`, relaunches it, and copies the final
+`qualification-evidence.json` to the path printed at the end. A pre-existing
+regular output is removed before any validation or build; symlinks, directories,
+and other unsafe output entry types are rejected without being followed. Unsafe
+nondirectory entries are unlinked themselves; directories are never deleted, so
+a failed run cannot expose stale successful evidence at the configured path.
+Every existing output parent must be a real directory (macOS's fixed `/tmp` and
+`/var` aliases are canonicalized); publication uses held no-follow directory
+descriptors and refuses a concurrently created destination.
 Set `SIMULATOR_UDID` to select a particular booted device and
 `SQLITE_CAPABILITY_EVIDENCE` to select the output path.
 
@@ -28,3 +43,5 @@ The project deployment target is 15.0 only to compile this disposable spike
 against the lower API floor supported by the selected Capacitor generation. It
 is not a final Green Room product minimum and does not qualify an iOS 15 runtime.
 Only the exact Simulator runtime named in generated evidence is runtime proof.
+The runner queries `simctl listapps` before uninstalling: an installed spike must
+uninstall successfully, while an absent spike needs no ignored uninstall error.

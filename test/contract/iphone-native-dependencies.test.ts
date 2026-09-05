@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -77,6 +78,111 @@ function createAllowedFixture(root: string): void {
   }
 }
 
+const EXPECTED_BUILD_SETTINGS: Record<string, Record<string, string>> = {
+  A10000000000000000000060: {
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: "YES",
+    CLANG_ENABLE_MODULES: "YES",
+    CURRENT_PROJECT_VERSION: "1",
+    GENERATE_INFOPLIST_FILE: "NO",
+    INFOPLIST_FILE: "SQLiteCapability/Info.plist",
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0",
+    LD_RUNPATH_SEARCH_PATHS: '("$(inherited)", "@executable_path/Frameworks")',
+    MARKETING_VERSION: "1.0",
+    ONLY_ACTIVE_ARCH: "YES",
+    OTHER_LDFLAGS: '("-lsqlite3")',
+    PRODUCT_BUNDLE_IDENTIFIER: "net.greenroomai.spike.SQLiteCapability",
+    PRODUCT_NAME: '"$(TARGET_NAME)"',
+    SDKROOT: "iphoneos",
+    SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator"',
+    SUPPORTS_MACCATALYST: "NO",
+    SWIFT_EMIT_LOC_STRINGS: "YES",
+    SWIFT_STRICT_CONCURRENCY: "complete",
+    SWIFT_VERSION: "6.0",
+    TARGETED_DEVICE_FAMILY: "1",
+  },
+  A10000000000000000000061: {
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: "YES",
+    CLANG_ENABLE_MODULES: "YES",
+    CURRENT_PROJECT_VERSION: "1",
+    GENERATE_INFOPLIST_FILE: "NO",
+    INFOPLIST_FILE: "SQLiteCapability/Info.plist",
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0",
+    LD_RUNPATH_SEARCH_PATHS: '("$(inherited)", "@executable_path/Frameworks")',
+    MARKETING_VERSION: "1.0",
+    OTHER_LDFLAGS: '("-lsqlite3")',
+    PRODUCT_BUNDLE_IDENTIFIER: "net.greenroomai.spike.SQLiteCapability",
+    PRODUCT_NAME: '"$(TARGET_NAME)"',
+    SDKROOT: "iphoneos",
+    SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator"',
+    SUPPORTS_MACCATALYST: "NO",
+    SWIFT_EMIT_LOC_STRINGS: "YES",
+    SWIFT_STRICT_CONCURRENCY: "complete",
+    SWIFT_VERSION: "6.0",
+    TARGETED_DEVICE_FAMILY: "1",
+    VALIDATE_PRODUCT: "YES",
+  },
+  A10000000000000000000062: {
+    ALWAYS_SEARCH_USER_PATHS: "NO",
+    CLANG_ANALYZER_NONNULL: "YES",
+    CLANG_CXX_LANGUAGE_STANDARD: '"gnu++20"',
+    CLANG_ENABLE_OBJC_ARC: "YES",
+    CLANG_WARN_DOCUMENTATION_COMMENTS: "YES",
+    COPY_PHASE_STRIP: "NO",
+    DEBUG_INFORMATION_FORMAT: "dwarf",
+    ENABLE_TESTABILITY: "YES",
+    GCC_C_LANGUAGE_STANDARD: "gnu17",
+    GCC_OPTIMIZATION_LEVEL: "0",
+    MTL_ENABLE_DEBUG_INFO: "INCLUDE_SOURCE",
+    ONLY_ACTIVE_ARCH: "YES",
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: '"DEBUG $(inherited)"',
+    SWIFT_OPTIMIZATION_LEVEL: '"-Onone"',
+  },
+  A10000000000000000000063: {
+    ALWAYS_SEARCH_USER_PATHS: "NO",
+    CLANG_ANALYZER_NONNULL: "YES",
+    CLANG_CXX_LANGUAGE_STANDARD: '"gnu++20"',
+    CLANG_ENABLE_OBJC_ARC: "YES",
+    CLANG_WARN_DOCUMENTATION_COMMENTS: "YES",
+    DEBUG_INFORMATION_FORMAT: '"dwarf-with-dsym"',
+    ENABLE_NS_ASSERTIONS: "NO",
+    GCC_C_LANGUAGE_STANDARD: "gnu17",
+    MTL_ENABLE_DEBUG_INFO: "NO",
+    SWIFT_COMPILATION_MODE: "wholemodule",
+    VALIDATE_PRODUCT: "YES",
+  },
+};
+
+function normalizedSettingValue(value: string): string {
+  return value.replaceAll(/\s+/gu, " ").trim();
+}
+
+function assertExactBuildSettings(project: string): void {
+  const configurations = [...project.matchAll(
+    /\b([A-F0-9]{24})\s*\/\*[^*]+\*\/\s*=\s*\{\s*isa\s*=\s*XCBuildConfiguration;\s*buildSettings\s*=\s*\{([\s\S]*?)\};\s*name\s*=\s*[^;]+;\s*\};/gu,
+  )];
+  assert.equal(configurations.length, 4, "expected exactly four parseable buildSettings blocks");
+  assert.deepEqual(configurations.map((match) => match[1]).sort(), Object.keys(EXPECTED_BUILD_SETTINGS).sort());
+
+  for (const configuration of configurations) {
+    const identifier = configuration[1]!;
+    const body = configuration[2]!;
+    const assignments = [...body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:\([^;]*\)|"(?:[^"\\]|\\.)*"|[^;])+);/gu)];
+    const parsed: Record<string, string> = {};
+    let unparsed = "";
+    let cursor = 0;
+    for (const assignment of assignments) {
+      unparsed += body.slice(cursor, assignment.index).replaceAll(/\s/gu, "");
+      cursor = assignment.index! + assignment[0].length;
+      const key = assignment[1]!;
+      assert.equal(Object.hasOwn(parsed, key), false, `duplicate build setting ${key}`);
+      parsed[key] = normalizedSettingValue(assignment[2]!);
+    }
+    unparsed += body.slice(cursor).replaceAll(/\s/gu, "");
+    assert.equal(unparsed, "", `unparsed or conditional build setting syntax in ${identifier}: ${unparsed}`);
+    assert.deepEqual(parsed, EXPECTED_BUILD_SETTINGS[identifier], `unexpected build settings in ${identifier}`);
+  }
+}
+
 function assertProjectLinksOnlySystemSQLite(project: string): void {
   assert.doesNotMatch(
     project,
@@ -110,6 +216,32 @@ function assertProjectLinksOnlySystemSQLite(project: string): void {
     match[1]!.replaceAll('"', ""),
   );
   assert.deepEqual(fileReferences.sort(), ["AppDelegate.swift", "Info.plist", "SQLiteCapability.app", "SQLiteCapabilityProbe.swift"]);
+  const compact = project.replaceAll(/\s+/gu, " ");
+  for (const expected of [
+    "A10000000000000000000010 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* AppDelegate.swift */; };",
+    "A10000000000000000000011 /* SQLiteCapabilityProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* SQLiteCapabilityProbe.swift */; };",
+    "A10000000000000000000020 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = \"<group>\"; };",
+    "A10000000000000000000021 /* SQLiteCapabilityProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteCapabilityProbe.swift; sourceTree = \"<group>\"; };",
+    "A10000000000000000000022 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; };",
+    "A10000000000000000000041 /* SQLiteCapability */ = {isa = PBXGroup; children = (A10000000000000000000020 /* AppDelegate.swift */, A10000000000000000000021 /* SQLiteCapabilityProbe.swift */, A10000000000000000000022 /* Info.plist */); path = SQLiteCapability; sourceTree = \"<group>\"; };",
+    "files = (A10000000000000000000010 /* AppDelegate.swift in Sources */, A10000000000000000000011 /* SQLiteCapabilityProbe.swift in Sources */);",
+  ]) {
+    assert.equal(compact.includes(expected), true, `missing exact PBX relationship: ${expected}`);
+  }
+  assert.doesNotMatch(project, /\b(?:shellPath|shellScript|script|compilerSpec|filePatterns|outputFiles|inputFiles)\s*=/u);
+  assertExactBuildSettings(project);
+}
+
+function assertSchemeIsExactAndNonExecutable(scheme: string): void {
+  assert.doesNotMatch(
+    scheme,
+    /<(?:PreActions|PostActions|ExecutionAction|ActionContent|CommandLineArguments|EnvironmentVariables)\b|\b(?:scriptText|shellToInvoke|customWorkingDirectory)\s*=/u,
+  );
+  assert.equal(
+    createHash("sha256").update(scheme).digest("hex"),
+    "5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19",
+    "shared scheme must remain the exact reviewed non-executable file",
+  );
 }
 
 test("strict spike inventory rejects vendored, renamed, linked, and unexpected native artifacts", (context) => {
@@ -174,6 +306,121 @@ test("PBX audit rejects suspicious native and package references", () => {
   ]) {
     assert.throws(() => assertProjectLinksOnlySystemSQLite(`${valid}\n${malicious}\n`), malicious);
   }
+
+  const buildSettingAttacks = [
+    "OTHER_SWIFT_FLAGS = (\"-Xfrontend\", \"-load-plugin-executable\", \"/tmp/payload#Payload\");",
+    "OTHER_CFLAGS = \"-include /tmp/payload.h\";",
+    "OTHER_CPLUSPLUSFLAGS = \"-include /tmp/payload.hpp\";",
+    "LIBRARY_SEARCH_PATHS = /tmp;",
+    "FRAMEWORK_SEARCH_PATHS = /tmp;",
+    "HEADER_SEARCH_PATHS = /tmp;",
+    "SWIFT_EXEC = /tmp/swiftc;",
+    "CC = /tmp/cc;",
+    "CXX = /tmp/cxx;",
+    "LD = /tmp/ld;",
+    'LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "/tmp");',
+    '"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (\n  "-lsqlite3",\n  "-L/tmp",\n);',
+    "SUSPICIOUS_UNKNOWN_SETTING = YES;",
+  ];
+  for (const malicious of buildSettingAttacks) {
+    const fixture = valid.replace("buildSettings = {", `buildSettings = {\n${malicious}\n`);
+    assert.throws(() => assertProjectLinksOnlySystemSQLite(fixture), malicious);
+  }
+
+  for (const malicious of [
+    "shellScript = /tmp/payload;",
+    "compilerSpec = com.apple.compilers.proxy.script;",
+    "isa = PBXBuildRule; compilerSpec = com.apple.compilers.proxy.script; script = /tmp/payload;",
+  ]) {
+    assert.throws(() => assertProjectLinksOnlySystemSQLite(`${valid}\n${malicious}`), malicious);
+  }
+
+  for (const [before, after] of [
+    ["path = SQLiteCapability; sourceTree = \"<group>\";", "path = /tmp/payload; sourceTree = \"<group>\";"],
+    ["path = AppDelegate.swift; sourceTree = \"<group>\";", "path = /tmp/payload.swift; sourceTree = \"<absolute>\";"],
+    ["fileRef = A10000000000000000000020", "fileRef = A10000000000000000000022"],
+  ]) {
+    assert.throws(() => assertProjectLinksOnlySystemSQLite(valid.replace(before!, after!)), after);
+  }
+});
+
+test("shared Xcode scheme is exact and cannot contain executable actions", () => {
+  const valid = read(join(SPIKE_ROOT, "SQLiteCapability.xcodeproj", "xcshareddata", "xcschemes", "SQLiteCapability.xcscheme"));
+  assert.doesNotThrow(() => assertSchemeIsExactAndNonExecutable(valid));
+  for (const malicious of [
+    '<PreActions><ExecutionAction ActionType="Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction"><ActionContent scriptText="/tmp/payload"/></ExecutionAction></PreActions>',
+    '<PostActions><ExecutionAction shellToInvoke="/bin/sh"/></PostActions>',
+  ]) {
+    assert.throws(() => assertSchemeIsExactAndNonExecutable(valid.replace("<BuildAction ", `${malicious}<BuildAction `)), malicious);
+  }
+});
+
+test("runner stages reviewed inputs externally and invalidates stale evidence before Simulator validation", (context) => {
+  const runnerPath = join(SPIKE_ROOT, "run-simulator.sh");
+  const runner = read(runnerPath);
+  assert.match(runner, /STAGED_ROOT/u);
+  assert.match(runner, /SOURCE_FILES/u);
+  assert.match(runner, /PROJECT="\$STAGED_ROOT\/SQLiteCapability\.xcodeproj"/u);
+  assert.match(runner, /trap[^\n]*rm -rf[^\n]*WORK_ROOT/u);
+  assert.doesNotMatch(runner, /rm\s+-rf\s+[^\n]*\$(?:ROOT|PROJECT|STAGED_ROOT)/u);
+  assert.doesNotMatch(runner, /simctl uninstall[^\n]*\|\|\s*true/u);
+  assert.match(runner, /simctl listapps/u);
+  assert.match(runner, /staged Xcode input hash mismatch/u);
+  assert.match(runner, /O_NOFOLLOW/u);
+  assert.match(runner, /src_dir_fd/u);
+  assert.match(runner, /\/usr\/bin\/env -i/u);
+  assert.match(runner, /\/usr\/bin\/xcodebuild/u);
+  assert.doesNotMatch(runner, /(?<![\w/])(?:mktemp|xcrun|otool|sleep|dirname)\s/u);
+  assert.doesNotMatch(runner, /XCODE_XCCONFIG_FILE/u);
+
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-stale-evidence-"));
+  const output = join(fixtureRoot, "stale.json");
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeFileSync(output, '{"status":"complete","stale":true}\n');
+  assert.throws(() => execFileSync(runnerPath, [], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      SIMULATOR_UDID: "00000000-0000-0000-0000-000000000000",
+      SQLITE_CAPABILITY_EVIDENCE: output,
+    },
+    stdio: "pipe",
+  }));
+  assert.equal(existsSync(output), false, "failed runs must not leave stale successful evidence");
+
+  const protectedTarget = join(fixtureRoot, "protected-target.json");
+  const linkedOutput = join(fixtureRoot, "linked-output.json");
+  writeFileSync(protectedTarget, '{"status":"complete","protected":true}\n');
+  symlinkSync(protectedTarget, linkedOutput);
+  assert.throws(() => execFileSync(runnerPath, [], {
+    cwd: ROOT,
+    env: { ...process.env, SQLITE_CAPABILITY_EVIDENCE: linkedOutput },
+    stdio: "pipe",
+  }));
+  assert.equal(existsSync(linkedOutput), false, "runner must invalidate the output symlink itself");
+  assert.match(read(protectedTarget), /"protected":true/u, "runner must not follow an output symlink");
+
+  const directoryOutput = join(fixtureRoot, "directory-output");
+  mkdirSync(directoryOutput);
+  assert.throws(() => execFileSync(runnerPath, [], {
+    cwd: ROOT,
+    env: { ...process.env, SQLITE_CAPABILITY_EVIDENCE: directoryOutput },
+    stdio: "pipe",
+  }));
+  assert.equal(lstatSync(directoryOutput).isDirectory(), true, "runner must not delete an output directory");
+
+  const realParent = join(fixtureRoot, "real-parent");
+  const linkedParent = join(fixtureRoot, "linked-parent");
+  mkdirSync(realParent);
+  const parentTarget = join(realParent, "evidence.json");
+  writeFileSync(parentTarget, '{"status":"complete","parentProtected":true}\n');
+  symlinkSync(realParent, linkedParent);
+  assert.throws(() => execFileSync(runnerPath, [], {
+    cwd: ROOT,
+    env: { ...process.env, SQLITE_CAPABILITY_EVIDENCE: join(linkedParent, "evidence.json") },
+    stdio: "pipe",
+  }));
+  assert.match(read(parentTarget), /"parentProtected":true/u, "runner must not follow an output parent symlink");
 });
 
 test("iPhone persistence depends only on the repository-owned system SQLite spike", () => {

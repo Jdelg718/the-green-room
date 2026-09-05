@@ -39,14 +39,25 @@ encrypted database mode by Green Room.
 
 The TypeScript contract test
 `test/contract/iphone-native-dependencies.test.ts` enforces an exact allowlist of
-the seven reviewed first-party spike files and directories. It fails closed on
+the seven reviewed first-party spike files and four required directories. It
+fails closed on
 symlinks, unexpected filesystem types, extra source or compiled artifacts,
 framework bundles, dependency-manager files, and disguised native libraries.
 Malicious fixtures cover ordinary `sqlite3.c`, an amalgamation source, a renamed
 `.a`, `.dylib`/`.tbd`, `.framework`, `.xcframework`, and suspicious PBX package
-or native references. Separate PBX assertions allow only the two expected Swift
-sources and `-lsqlite3`, while retaining the checks against plugin dispatch and
-generic SQL-shaped bridge methods.
+or native references. The PBX audit parses every assignment in all four known
+project/target `buildSettings` blocks and compares keys and values with strict
+per-configuration allowlists. It rejects conditional and multiline injection,
+unknown settings, compiler/linker overrides, alternate flags and search paths,
+extra runpaths, shell/script phases, and custom build rules. It still requires
+exactly two `OTHER_LDFLAGS = ("-lsqlite3")` assignments and only the two expected
+Swift sources, while retaining the checks against plugin dispatch and generic
+SQL-shaped bridge methods. Exact PBX IDs, file references, source-group paths,
+and source-phase relationships are pinned. The shared scheme is hash-pinned and
+checked for executable pre/post actions. The runner verifies all five reviewed
+build-input hashes before and after staging, then invokes `/usr/bin/xcodebuild`
+under a minimal `env -i` environment that cannot inherit external xcconfig or
+build-setting overrides. All other runner tools use absolute system paths.
 
 ## Exact executable evidence
 
@@ -70,15 +81,25 @@ Environment:
   `F7D79755-4C03-44C7-B810-28DBC936444F`
 - app-reported runtime: iOS 26.5
 - `sqlite3_libversion()`: **3.51.0**
-- first-launch contention busy wait observation: **138 ms** for a configured
+- first-launch contention busy wait observation: **142 ms** for a configured
   125 ms timeout
-- generated evidence timestamp: `2026-09-05T18:06:50Z`
+- generated evidence timestamp: `2026-09-05T18:59:23Z`
 
-`run-simulator.sh` performed a clean uninstall/install, built with
-`xcodebuild` for the exact selected Simulator UDID, launched the app, waited for
+`run-simulator.sh` first removed any regular stale output, validated the source
+inventory, verified every build-input hash, and copied only the five reviewed
+Xcode inputs into an external temporary staging directory, then built that copy.
+This prevents Xcode from adding workspace
+metadata to the repository tree. Unsafe output entries fail closed; symlinks and
+other nondirectory entries are unlinked without being followed, while directories
+are rejected without recursive removal. Parent components are opened through
+held no-follow directory descriptors, and final publication is atomic and
+no-clobber. Every staged build input is re-hashed after copying. The
+runner queried `simctl listapps`, required uninstall success when the bundle was
+present, installed the fresh build, launched the app, waited for
 first-phase evidence, issued `simctl terminate`, relaunched, required final
 `status: "complete"`, and copied the app-container evidence JSON to the stated
-output path. Before building, it resolved that UDID through `simctl` and wrote
+output path atomically. Before building, it resolved the selected Simulator UDID
+through `simctl` and wrote
 `selectedSimulator` metadata into the output: device name, state, device-type
 identifier, runtime identifier/name/version/build, and UDID. The build completed
 successfully, both launches returned process IDs, and the final evidence status
@@ -99,7 +120,7 @@ version 382.0.0 for that system path.
 | `RETURNING` | PASS | `INSERT ... RETURNING id` returned 1 |
 | foreign keys | PASS | `PRAGMA foreign_keys=ON`; invalid child insert failed with `SQLITE_CONSTRAINT` |
 | WAL | PASS | `PRAGMA journal_mode=WAL` returned `wal`; DB/WAL/SHM existed |
-| busy handling | PASS | `sqlite3_busy_timeout(125)` returned `SQLITE_OK`; the second connection waited 138 ms before busy/locked, within the enforced finite 80–2000 ms evidence bound |
+| busy handling | PASS | `sqlite3_busy_timeout(125)` returned `SQLITE_OK`; the second connection waited 142 ms before busy/locked, within the enforced finite 80–2000 ms evidence bound |
 | `BEGIN IMMEDIATE` contention | PASS | first connection held the write transaction; second connection could not begin one |
 | rollback | PASS | inserted row disappeared after explicit `ROLLBACK` |
 | checkpoint | PASS | `sqlite3_wal_checkpoint_v2(..., SQLITE_CHECKPOINT_TRUNCATE, ...)` returned `SQLITE_OK` |
