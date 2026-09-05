@@ -21,6 +21,13 @@ import test from "node:test";
 const ROOT = process.cwd();
 const SPIKE_ROOT = join(ROOT, "ios", "Spikes", "SQLiteCapability");
 const REPORT = join(ROOT, "docs", "spikes", "iphone-system-sqlite-capability.md");
+const SYNTHETIC_CORE_DEVICE_ID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+const SYNTHETIC_DEVICE_UDID = "DEADBEEF-0000000000000000";
+
+const FORBIDDEN_DEVICE_IDENTIFIERS = [
+  ["0000", "8130-", "001851", "DE2E", "01001C"].join(""),
+  ["8798", "84A5-", "DCE2-", "517D-", "9323-", "C0D4", "74C5", "15AD"].join(""),
+];
 
 const ALLOWED_SPIKE_FILES = new Set([
   "README.md",
@@ -79,6 +86,25 @@ function createAllowedFixture(root: string): void {
     writeFileSync(absolute, "first-party fixture\n");
   }
 }
+
+test("repository text sources never retain private physical-device identifiers", () => {
+  const paths = execFileSync("/usr/bin/git", ["ls-files", "-co", "--exclude-standard", "-z"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  }).split("\0").filter(Boolean);
+  const violations: string[] = [];
+  for (const relativePath of paths) {
+    const path = join(ROOT, relativePath);
+    const stats = lstatSync(path);
+    if (!stats.isFile()) continue;
+    const bytes = readFileSync(path);
+    const text = bytes.toString("utf8");
+    for (const forbidden of FORBIDDEN_DEVICE_IDENTIFIERS) {
+      if (text.includes(forbidden)) violations.push(relativePath);
+    }
+  }
+  assert.deepEqual([...new Set(violations)].sort(), []);
+});
 
 const EXPECTED_BUILD_SETTINGS: Record<string, Record<string, string>> = {
   A10000000000000000000060: {
@@ -543,12 +569,12 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
   const devicePath = join(fixtureRoot, "device.json");
   writeFileSync(validator, match.groups.source);
   writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
-    identifier: "879884A5-DCE2-517D-9323-C0D474C515AD",
+    identifier: SYNTHETIC_CORE_DEVICE_ID,
     deviceProperties: {
       osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
     },
     hardwareProperties: {
-      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: SYNTHETIC_DEVICE_UDID,
     },
   }] } }));
   const fileEvidence = {
@@ -560,6 +586,19 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
     qualificationPlatform: "physical",
     deviceReportedSystemName: "iOS",
     deviceReportedSystemVersion: "26.6",
+    sqliteVersion: "3.50.4",
+    compileOptions: ["ENABLE_FTS5", "THREADSAFE=1"],
+    strictTables: true,
+    jsonFunctions: true,
+    returning: true,
+    foreignKeys: true,
+    wal: true,
+    busyTimeout: true,
+    busyElapsedMilliseconds: 125,
+    beginImmediateContention: true,
+    rollback: true,
+    checkpoint: true,
+    reopenPersistence: true,
     forcedTerminationRelaunch: true,
     allSQLiteHandlesClosedBeforeLock: true,
     protectedDataAvailableBeforeLock: true,
@@ -576,8 +615,8 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
   const run = (
     evidence: object,
     expected = "complete",
-    expectedCoreID = "879884A5-DCE2-517D-9323-C0D474C515AD",
-    expectedUDID = "00008130-001851DE2E01001C",
+    expectedCoreID = SYNTHETIC_CORE_DEVICE_ID,
+    expectedUDID = SYNTHETIC_DEVICE_UDID,
   ): void => {
     writeFileSync(evidencePath, JSON.stringify(evidence));
     const prepared = join(fixtureRoot, `prepared-${Math.random()}.json`);
@@ -587,19 +626,56 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
     ]);
   };
   assert.doesNotThrow(() => run(valid));
+  assert.doesNotThrow(() => run({ ...valid, status: "awaiting_lock" }, "awaiting_lock"));
   assert.throws(
-    () => run(valid, "complete", "879884a5-dce2-517d-9323-c0d474c515ad"),
+    () => run(valid, "complete", SYNTHETIC_CORE_DEVICE_ID.toLowerCase()),
     /identifiers do not exactly match/u,
     "identifier comparison must not normalize case",
   );
   assert.throws(
-    () => run(valid, "complete", "879884A5-DCE2-517D-9323-C0D474C515AD", "00008130-001851DE2E01001D"),
+    () => run(valid, "complete", SYNTHETIC_CORE_DEVICE_ID, "DEADBEEF-0000000000000001"),
     /identifiers do not exactly match/u,
   );
   assert.throws(() => run({ ...valid, qualificationPlatform: "simulator" }), /non-physical evidence/u);
   assert.throws(() => run({ ...valid, status: "awaiting_lock" }), /expected device status/u);
   assert.throws(() => run({ ...valid, runIdentifier: "fedcba9876543210fedcba9876543210" }), /run identifier mismatch/u);
   assert.throws(() => run({ ...valid, lockedRawReadDenied: false }), /lockedRawReadDenied/u);
+  for (const expected of ["awaiting_lock", "complete"]) {
+    const phaseValid = { ...valid, status: expected };
+    assert.doesNotThrow(() => run({ ...phaseValid, busyElapsedMilliseconds: 80 }, expected));
+    assert.doesNotThrow(() => run({ ...phaseValid, busyElapsedMilliseconds: 2000 }, expected));
+    for (const field of [
+      "strictTables", "jsonFunctions", "returning", "foreignKeys", "wal", "busyTimeout",
+      "beginImmediateContention", "rollback", "checkpoint", "reopenPersistence",
+    ]) {
+      assert.throws(() => run({ ...phaseValid, [field]: false }, expected), new RegExp(field, "u"), `${expected} ${field}=false`);
+      assert.throws(() => run({ ...phaseValid, [field]: "true" }, expected), new RegExp(field, "u"), `${expected} ${field} wrong type`);
+      const missing = { ...phaseValid } as Record<string, unknown>;
+      delete missing[field];
+      assert.throws(() => run(missing, expected), new RegExp(field, "u"), `${expected} ${field} missing`);
+    }
+    for (const invalidVersion of [undefined, null, false, "", "3.50", "3.50.4.1", 3504, `3.${"5".repeat(64)}.4`]) {
+      const fixture = { ...phaseValid } as Record<string, unknown>;
+      if (invalidVersion === undefined) delete fixture.sqliteVersion;
+      else fixture.sqliteVersion = invalidVersion;
+      assert.throws(() => run(fixture, expected), /sqliteVersion/u, `${expected} invalid sqliteVersion`);
+    }
+    for (const invalidOptions of [
+      undefined, null, false, [], "ENABLE_FTS5", [""], ["ENABLE_FTS5", "ENABLE_FTS5"], [1],
+      ["ENABLE_FTS5\nINJECTED"], ["X".repeat(257)], Array.from({ length: 257 }, (_, index) => `OPTION_${index}`),
+    ]) {
+      const fixture = { ...phaseValid } as Record<string, unknown>;
+      if (invalidOptions === undefined) delete fixture.compileOptions;
+      else fixture.compileOptions = invalidOptions;
+      assert.throws(() => run(fixture, expected), /compileOptions/u, `${expected} invalid compileOptions`);
+    }
+    for (const invalidElapsed of [undefined, null, false, "", "125", 79, 2001, 125.5]) {
+      const fixture = { ...phaseValid } as Record<string, unknown>;
+      if (invalidElapsed === undefined) delete fixture.busyElapsedMilliseconds;
+      else fixture.busyElapsedMilliseconds = invalidElapsed;
+      assert.throws(() => run(fixture, expected), /busyElapsedMilliseconds/u, `${expected} invalid busyElapsedMilliseconds`);
+    }
+  }
   for (const field of [
     "forcedTerminationRelaunch",
     "allSQLiteHandlesClosedBeforeLock",
@@ -617,18 +693,18 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
   invalidDevice.result.devices[0] = {
     ...invalidDevice.result.devices[0],
     hardwareProperties: {
-      marketingName: "Mac", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+      marketingName: "Mac", platform: "iOS", reality: "physical", udid: SYNTHETIC_DEVICE_UDID,
     },
   };
   writeFileSync(devicePath, JSON.stringify(invalidDevice));
   assert.throws(() => run(valid), /not an identified iPhone model/u);
   writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
-    identifier: "879884A5-DCE2-517D-9323-C0D474C515AD",
+    identifier: SYNTHETIC_CORE_DEVICE_ID,
     deviceProperties: {
       osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
     },
     hardwareProperties: {
-      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: "00008130-001851DE2E01001C",
+      marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical", udid: SYNTHETIC_DEVICE_UDID,
     },
   }] } }));
   const missingVersionDevice = JSON.parse(read(devicePath)) as { result: { devices: Array<Record<string, any>> } };
@@ -660,8 +736,8 @@ test("physical evidence validator rejects stale phases and Simulator evidence", 
     env: {
       ...process.env,
       SQLITE_CAPABILITY_DEVICE_EVIDENCE: awaitingLink,
-      DEVICE_UDID: "00008130-001851DE2E01001C",
-      CORE_DEVICE_ID: "879884A5-DCE2-517D-9323-C0D474C515AD",
+      DEVICE_UDID: SYNTHETIC_DEVICE_UDID,
+      CORE_DEVICE_ID: SYNTHETIC_CORE_DEVICE_ID,
     },
     stdio: "pipe",
   }));
@@ -673,7 +749,7 @@ test("physical runner keeps identifiers private and routes exact trusted Apple t
   const runner = read(join(SPIKE_ROOT, "run-device.sh"));
   assert.match(runner, /DEVICE_UDID="\$\{DEVICE_UDID:-\}"/u);
   assert.match(runner, /CORE_DEVICE_ID="\$\{CORE_DEVICE_ID:-\}"/u);
-  assert.doesNotMatch(runner, /00008130-001851DE2E01001C|879884A5-DCE2-517D-9323-C0D474C515AD/u);
+  for (const forbidden of FORBIDDEN_DEVICE_IDENTIFIERS) assert.equal(runner.includes(forbidden), false);
   assert.match(runner, /for tool in devicectl xcodebuild otool codesign security/u);
   assert.match(runner, /codesign\) trusted="\/usr\/bin\/codesign"/u);
   assert.match(runner, /security\) trusted="\/usr\/bin\/security"/u);

@@ -85,6 +85,13 @@ Provisioning-profile team entitlements and arrays are still compared exactly.
 The `devicectl` copy target is an explicit destination file path rather than a
 directory, matching the live CoreDevice file-copy behavior.
 
+Before either `awaiting_lock` or `complete` evidence can be published, the
+physical runner also requires the SQLite version in exact `3.x.y` numeric form,
+between 1 and 256 unique printable compile-option strings (each 1–256 bytes),
+every core capability flag exactly `true`, and an integer contention observation
+within the inclusive 80–2000 ms bound. Missing, false, empty, duplicate,
+wrong-type, non-printable, malformed, and out-of-bound values fail closed.
+
 ## Exact executable evidence
 
 Executed from commit worktree state on 2026-09-05:

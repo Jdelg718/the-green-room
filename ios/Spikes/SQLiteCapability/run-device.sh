@@ -127,7 +127,7 @@ copy_evidence() {
 publish_validated() {
   local source="$1" expected="$2" device_json="$3" expected_run_id="$4" expected_core_id="$5" expected_udid="$6" prepared="$APPLE_TMPDIR/prepared.json"
   run_python - "$source" "$expected" "$device_json" "$prepared" "$expected_run_id" "$expected_core_id" "$expected_udid" <<'PY'
-import hashlib, json, os, sys
+import hashlib, json, os, re, sys
 source, expected, device_path, prepared, expected_run_id, expected_core_id, expected_udid = sys.argv[1:]
 with open(source, encoding="utf-8") as f: evidence = json.load(f)
 with open(device_path, encoding="utf-8") as f: envelope = json.load(f)
@@ -156,6 +156,24 @@ if evidence.get("qualificationPlatform") != "physical": raise SystemExit("non-ph
 if evidence.get("runIdentifier") != expected_run_id: raise SystemExit("physical evidence run identifier mismatch")
 if evidence.get("deviceReportedSystemName") != "iOS" or evidence.get("deviceReportedSystemVersion") != props.get("osVersionNumber"):
     raise SystemExit("app and selected physical-device metadata disagree")
+sqlite_version = evidence.get("sqliteVersion")
+if type(sqlite_version) is not str or len(sqlite_version) > 32 or re.fullmatch(r"3\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", sqlite_version) is None:
+    raise SystemExit("sqliteVersion must be a bounded SQLite semantic version")
+compile_options = evidence.get("compileOptions")
+if type(compile_options) is not list or not 1 <= len(compile_options) <= 256:
+    raise SystemExit("compileOptions must be a non-empty bounded list")
+if any(type(option) is not str or not 1 <= len(option) <= 256 or any(ord(character) < 0x20 or ord(character) > 0x7e for character in option) for option in compile_options):
+    raise SystemExit("compileOptions entries must be bounded non-empty printable strings")
+if len(set(compile_options)) != len(compile_options):
+    raise SystemExit("compileOptions entries must be unique")
+for key in (
+    "strictTables", "jsonFunctions", "returning", "foreignKeys", "wal", "busyTimeout",
+    "beginImmediateContention", "rollback", "checkpoint", "reopenPersistence",
+):
+    if evidence.get(key) is not True: raise SystemExit(f"core SQLite capability proof must be exactly true: {key}")
+busy_elapsed = evidence.get("busyElapsedMilliseconds")
+if type(busy_elapsed) is not int or not 80 <= busy_elapsed <= 2000:
+    raise SystemExit("busyElapsedMilliseconds must be an integer within 80...2000")
 required_files = ("database", "wal", "shm")
 for phase in ("firstLaunchFiles", "filesAfterRelaunch"):
     files = evidence.get(phase) or {}
