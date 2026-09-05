@@ -4,7 +4,10 @@
 
 **Simulator capability result: PASS on the only installed iOS runtime.** The
 repository-owned Swift boundary directly linked and exercised the iOS system
-`libsqlite3` on an iPhone 17 Pro Simulator running iOS 26.5.
+`libsqlite3`. Runner-resolved CoreSimulator metadata identifies the selected
+device as an iPhone 17 Pro Simulator running iOS 26.5; the app's generic
+`UIDevice.current.model` value (`iPhone`) is recorded only as an app observation
+and is not the basis for that device identity claim.
 
 **Phase 0 Task 0.2 final disposition: NO-GO / incomplete for product
 qualification.** The registered physical iPhone 15 Pro Max was unavailable, and
@@ -35,12 +38,15 @@ Apple's supplied library, not a bundled SQLCipher dependency or selection of an
 encrypted database mode by Green Room.
 
 The TypeScript contract test
-`test/contract/iphone-native-dependencies.test.ts` rejects common Capacitor and
-Cordova SQLite package names, SQLCipher dependencies, CocoaPods, SwiftPM,
-Carthage, and related native dependency-manager descriptors anywhere below the
-spike root, remote Swift-package and CocoaPods markers in the Xcode project,
-Capacitor plugin classes, generic SQL-shaped plugin methods, symlink traversal,
-and a non-executable/document-only spike.
+`test/contract/iphone-native-dependencies.test.ts` enforces an exact allowlist of
+the seven reviewed first-party spike files and directories. It fails closed on
+symlinks, unexpected filesystem types, extra source or compiled artifacts,
+framework bundles, dependency-manager files, and disguised native libraries.
+Malicious fixtures cover ordinary `sqlite3.c`, an amalgamation source, a renamed
+`.a`, `.dylib`/`.tbd`, `.framework`, `.xcframework`, and suspicious PBX package
+or native references. Separate PBX assertions allow only the two expected Swift
+sources and `-lsqlite3`, while retaining the checks against plugin dispatch and
+generic SQL-shaped bridge methods.
 
 ## Exact executable evidence
 
@@ -64,16 +70,19 @@ Environment:
   `F7D79755-4C03-44C7-B810-28DBC936444F`
 - app-reported runtime: iOS 26.5
 - `sqlite3_libversion()`: **3.51.0**
-- first-to-second-launch busy wait observation: **140 ms** for a configured
+- first-launch contention busy wait observation: **138 ms** for a configured
   125 ms timeout
-- generated evidence timestamp: `2026-09-05T17:31:47Z`
+- generated evidence timestamp: `2026-09-05T18:06:50Z`
 
 `run-simulator.sh` performed a clean uninstall/install, built with
-`xcodebuild` for the exact Simulator UDID, launched the app, waited for
+`xcodebuild` for the exact selected Simulator UDID, launched the app, waited for
 first-phase evidence, issued `simctl terminate`, relaunched, required final
 `status: "complete"`, and copied the app-container evidence JSON to the stated
-output path. The build completed successfully, both launches returned process
-IDs, and the final evidence status was `complete`. The runner also used
+output path. Before building, it resolved that UDID through `simctl` and wrote
+`selectedSimulator` metadata into the output: device name, state, device-type
+identifier, runtime identifier/name/version/build, and UDID. The build completed
+successfully, both launches returned process IDs, and the final evidence status
+was `complete`. The runner also used
 `otool -L` on the built code-bearing Mach-O and required the exact
 `/usr/lib/libsqlite3.dylib` dependency; independent readback of the installed
 `SQLiteCapability.debug.dylib` showed compatibility version 9.0.0 and current
@@ -90,11 +99,11 @@ version 382.0.0 for that system path.
 | `RETURNING` | PASS | `INSERT ... RETURNING id` returned 1 |
 | foreign keys | PASS | `PRAGMA foreign_keys=ON`; invalid child insert failed with `SQLITE_CONSTRAINT` |
 | WAL | PASS | `PRAGMA journal_mode=WAL` returned `wal`; DB/WAL/SHM existed |
-| busy handling | PASS | second connection used `sqlite3_busy_timeout(125)` and waited 140 ms before busy/locked result |
+| busy handling | PASS | `sqlite3_busy_timeout(125)` returned `SQLITE_OK`; the second connection waited 138 ms before busy/locked, within the enforced finite 80–2000 ms evidence bound |
 | `BEGIN IMMEDIATE` contention | PASS | first connection held the write transaction; second connection could not begin one |
 | rollback | PASS | inserted row disappeared after explicit `ROLLBACK` |
 | checkpoint | PASS | `sqlite3_wal_checkpoint_v2(..., SQLITE_CHECKPOINT_TRUNCATE, ...)` returned `SQLITE_OK` |
-| close/reopen persistence | PASS | marker was present after explicit close and reopen |
+| close/reopen persistence | PASS | both pre-reopen handles returned `SQLITE_OK` from checked `sqlite3_close`; only then was the marker read through a new connection |
 | forced termination/relaunch | PASS on Simulator | runner terminated the installed process with `simctl terminate`; relaunched process reopened the DB and found the committed marker |
 | backup exclusion | PASS on Simulator resource API | DB/WAL/SHM each reported `isExcludedFromBackup=true` after first write and again after relaunch |
 | `NSFileProtectionComplete` | **PENDING physical device** | setting `.protectionKey = .complete` succeeded for DB/WAL/SHM, but Simulator omitted the protection attribute on readback; evidence records `not_exposed_by_simulator` and `protectionVerified=false` rather than claiming success |
