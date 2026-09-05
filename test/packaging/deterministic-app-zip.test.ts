@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
+import { removePrivateTree } from "../../scripts/package/verify-macos-signed.mjs";
+
 const script = join(process.cwd(), "scripts/package/deterministic_app_zip.py");
 function run(args: string[]) { return spawnSync("/usr/bin/python3", [script, ...args], { encoding: "utf8" }); }
 function hostileZip(path: string, kind: string) {
@@ -36,9 +38,10 @@ test("deterministic app ZIP is byte-stable and preserves exact executable modes 
   const root = mkdtempSync(join(tmpdir(), "greenroom-zip-"));
   try {
     const app = join(root, "The Green Room.app"); const executable = join(app, "Contents/MacOS/GreenRoomLauncher"); const data = join(app, "Contents/Resources/data.json");
-    mkdirSync(join(app, "Contents/MacOS"), { recursive: true }); mkdirSync(join(app, "Contents/Resources"), { recursive: true });
-    writeFileSync(executable, "binary"); writeFileSync(data, "{}\n"); chmodSync(executable, 0o555); chmodSync(data, 0o444);
-    for (const directory of [join(app, "Contents/MacOS"), join(app, "Contents/Resources"), join(app, "Contents"), app]) chmodSync(directory, 0o555);
+    const prefixedSibling = join(app, "Contents/Resources/data/value.txt");
+    mkdirSync(join(app, "Contents/MacOS"), { recursive: true }); mkdirSync(join(app, "Contents/Resources/data"), { recursive: true });
+    writeFileSync(executable, "binary"); writeFileSync(data, "{}\n"); writeFileSync(prefixedSibling, "value\n"); chmodSync(executable, 0o555); chmodSync(data, 0o444); chmodSync(prefixedSibling, 0o444);
+    for (const directory of [join(app, "Contents/MacOS"), join(app, "Contents/Resources/data"), join(app, "Contents/Resources"), join(app, "Contents"), app]) chmodSync(directory, 0o555);
     const a = join(root, "a.zip"); const b = join(root, "b.zip");
     assert.equal(run(["create", app, a]).status, 0); assert.equal(run(["create", app, b]).status, 0);
     assert.deepEqual(readFileSync(a), readFileSync(b));
@@ -46,6 +49,15 @@ test("deterministic app ZIP is byte-stable and preserves exact executable modes 
     assert.equal(statSync(join(extracted, "The Green Room.app/Contents/MacOS/GreenRoomLauncher")).mode & 0o777, 0o555);
     assert.equal(statSync(join(extracted, "The Green Room.app/Contents/Resources/data.json")).mode & 0o777, 0o444);
   } finally { cleanup(root); }
+});
+
+test("signed ZIP verifier cleanup removes an immutable extracted app tree", () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-signed-cleanup-"));
+  const app = join(root, "The Green Room.app"); const file = join(app, "Contents/data");
+  mkdirSync(join(app, "Contents"), { recursive: true }); writeFileSync(file, "data");
+  chmodSync(file, 0o444); chmodSync(join(app, "Contents"), 0o555); chmodSync(app, 0o555); chmodSync(root, 0o555);
+  removePrivateTree(root);
+  assert.equal(lstatSync(root, { throwIfNoEntry: false }), undefined);
 });
 
 test("deterministic app ZIP rejects links, junk, and executable data", () => {

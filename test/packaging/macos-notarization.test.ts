@@ -30,11 +30,13 @@ test("notary log must independently prove the same accepted submission without s
   const id = "123e4567-e89b-12d3-a456-426614174000";
   const ticketContents = [{ path: "submission.zip/The Green Room.app", digestAlgorithm: "SHA-256", cdhash: "a".repeat(40), arch: "arm64" }];
   assert.deepEqual(parseNotaryLog(JSON.stringify({ jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents }), id, []), { id, status: "Accepted" });
+  assert.deepEqual(parseNotaryLog(JSON.stringify({ jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents }), id, [], undefined), { id, status: "Accepted" });
   for (const value of [
     { jobId: id, status: "Invalid", statusCode: 4000, issues: [], ticketContents },
     { jobId: "223e4567-e89b-12d3-a456-426614174000", status: "Accepted", statusCode: 0, issues: null, ticketContents },
     { jobId: id, status: "Accepted", statusCode: 0, issues: [{ message: "failure" }], ticketContents },
     { jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents, nested: { token: "SECRET" } },
+    { jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents: [{ ...ticketContents[0], path: "submission.zip/NotThe Green Room.app" }] },
     { jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents: [] },
   ]) assert.throws(() => parseNotaryLog(JSON.stringify(value), id), /notary_/);
   assert.throws(() => parseNotaryLog(JSON.stringify({ jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents }), id, ["Contents/MacOS/GreenRoomLauncher"]), /notary_log_code_inventory/);
@@ -66,6 +68,7 @@ test("accepted response with failed or malformed log never staples and never mut
       const runner = (_tool: string, args: string[]) => {
         calls.push(args);
         if (args.includes("submit")) return JSON.stringify({ id, status: "Accepted" });
+        if (args.includes("--verbose=4")) return `CDHash=${"a".repeat(40)}\n`;
         if (args.includes("log")) return log;
         return "";
       };
@@ -101,6 +104,7 @@ test("notarizer rejects raw credential flags and environment surfaces", () => {
 function successfulFixtureRunner() {
   const id = "123e4567-e89b-12d3-a456-426614174000";
   return (_tool: string, args: string[]) => {
+    if (args.includes("--verbose=4")) return `CDHash=${"a".repeat(40)}\n`;
     if (args.includes("submit")) return JSON.stringify({ id, status: "Accepted" });
     if (args.includes("log")) return JSON.stringify({
       jobId: id, status: "Accepted", statusCode: 0, issues: null,
@@ -116,6 +120,105 @@ function successfulFixtureRunner() {
     return "";
   };
 }
+
+test("accepted submission resume fetches the authoritative log and never submits again", { skip: process.platform !== "darwin" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-notary-resume-"));
+  const id = "123e4567-e89b-12d3-a456-426614174000";
+  const codePaths = [
+    "Contents/MacOS/GreenRoomLauncher",
+    "Contents/Resources/app/node_modules/fs-ext/build/Release/fs_ext.node",
+    "Contents/Resources/helpers/GreenRoomCredentialHelper",
+    "Contents/Resources/runtime/node/bin/node",
+    "Contents/Resources/validator/_internal/libpython3.13.dylib",
+    "Contents/Resources/validator/_internal/yaml/_yaml.cpython-313-darwin.so",
+    "Contents/Resources/validator/greenroom-persona",
+  ];
+  try {
+    const app = join(root, "The Green Room.app"); const output = join(root, "final.zip");
+    mkdirSync(app); writeFileSync(join(app, "caller-marker"), "unchanged");
+    const calls: string[][] = [];
+    const runner = (_tool: string, args: string[]) => {
+      calls.push(args);
+      if (args.includes("--verbose=4")) return `CDHash=${"a".repeat(40)}\n`;
+      if (args.includes("log")) return JSON.stringify({
+        jobId: id, status: "Accepted", statusCode: 0, issues: null,
+        ticketContents: ["", ...codePaths].map((path) => ({
+          path: `submission.zip/The Green Room.app${path === "" ? "" : `/${path}`}`,
+          digestAlgorithm: "SHA-256", cdhash: "a".repeat(40), arch: "arm64",
+        })),
+      });
+      if (args.includes("staple")) {
+        const privateApp = args.at(-1)!;
+        mkdirSync(join(privateApp, "Contents"), { recursive: true });
+        writeFileSync(join(privateApp, "Contents/CodeResources"), "ticket");
+      }
+      if (args[1] === "create") writeFileSync(args[3]!, "our resumed notarized zip");
+      if (args[1] === "extract") mkdirSync(join(args[3]!, "The Green Room.app"), { recursive: true });
+      return "";
+    };
+    const verifier = (path: string, options: Record<string, unknown> = {}) => {
+      if (options.requireStaple !== true && existsSync(join(path, "Contents/CodeResources"))) throw new Error("source_already_stapled");
+      return { manifest: { signingPolicy: { codeObjects: codePaths.map((codePath) => ({ path: codePath })) } } };
+    };
+    assert.deepEqual(notarizeSignedApp({ appPath: app, outputZip: output, keychainProfile: "greenroom", submissionId: id, runner, verifier }), {
+      id, status: "Accepted", outputZip: output,
+    });
+    assert.equal(calls.some((args) => args.includes("submit")), false);
+    assert.equal(calls.some((args) => args[0] === "-c" && args.includes("submission.zip")), false);
+    assert.deepEqual(calls.find((args) => args.includes("log")), ["notarytool", "log", id, "--keychain-profile", "greenroom", "--output-format", "json"]);
+    assert.equal(readFileSync(join(app, "caller-marker"), "utf8"), "unchanged");
+    assert.equal(existsSync(join(app, "Contents/CodeResources")), false);
+    assert.equal(readFileSync(output, "utf8"), "our resumed notarized zip");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("submission resume rejects malformed IDs before verification or commands", { skip: process.platform !== "darwin" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "greenroom-notary-resume-id-"));
+  try {
+    const app = join(root, "The Green Room.app"); const output = join(root, "final.zip"); mkdirSync(app);
+    let called = false;
+    assert.throws(() => notarizeSignedApp({
+      appPath: app, outputZip: output, keychainProfile: "greenroom", submissionId: "Accepted", runner: () => { called = true; return ""; },
+      verifier: () => { called = true; return {}; },
+    }), /notary_submission_id_invalid/);
+    assert.equal(called, false); assert.equal(existsSync(output), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("submission resume rejects unaccepted, mismatched, or incomplete logs without submit, staple, or publication", { skip: process.platform !== "darwin" }, () => {
+  const id = "123e4567-e89b-12d3-a456-426614174000";
+  const otherId = "223e4567-e89b-12d3-a456-426614174000";
+  const codePath = "Contents/MacOS/GreenRoomLauncher";
+  const tickets = ["", codePath].map((path) => ({
+    path: `submission.zip/The Green Room.app${path === "" ? "" : `/${path}`}`,
+    digestAlgorithm: "SHA-256", cdhash: "a".repeat(40), arch: "arm64",
+  }));
+  const logs = [
+    { jobId: id, status: "Invalid", statusCode: 4000, issues: [], ticketContents: tickets },
+    { jobId: otherId, status: "Accepted", statusCode: 0, issues: null, ticketContents: tickets },
+    { jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents: tickets.slice(0, 1) },
+    { jobId: id, status: "Accepted", statusCode: 0, issues: null, ticketContents: tickets.map((ticket, ticketIndex) => ticketIndex === 0 ? { ...ticket, cdhash: "b".repeat(40) } : ticket) },
+  ];
+  for (const [index, log] of logs.entries()) {
+    const root = mkdtempSync(join(tmpdir(), `greenroom-notary-resume-log-${index}-`));
+    try {
+      const app = join(root, "The Green Room.app"); const output = join(root, "final.zip"); mkdirSync(app);
+      const calls: string[][] = [];
+      const runner = (_tool: string, args: string[]) => {
+        calls.push(args);
+        if (args.includes("--verbose=4")) return `CDHash=${"a".repeat(40)}\n`;
+        return args.includes("log") ? JSON.stringify(log) : "";
+      };
+      assert.throws(() => notarizeSignedApp({
+        appPath: app, outputZip: output, keychainProfile: "greenroom", submissionId: id, runner,
+        verifier: () => ({ manifest: { signingPolicy: { codeObjects: [{ path: codePath }] } } }),
+      }), /notary_/);
+      assert.equal(calls.some((args) => args.includes("submit")), false);
+      assert.equal(calls.some((args) => args.includes("staple")), false);
+      assert.equal(existsSync(output), false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+});
 
 test("notary publication rejects output-parent rebound and quarantines its inode in the retained parent", { skip: process.platform !== "darwin" }, () => {
   const root = mkdtempSync(join(tmpdir(), "greenroom-notary-parent-race-"));

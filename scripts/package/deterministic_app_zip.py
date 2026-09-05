@@ -267,6 +267,7 @@ def extract(archive_path: pathlib.Path, destination: pathlib.Path) -> pathlib.Pa
             if stat.S_IMODE(details.st_mode) != mode or stat.S_ISDIR(details.st_mode) != is_directory or (not is_directory and (details.st_nlink != 1 or details.st_size != size or digest(path) != sha)):
                 fail("zip_extracted_metadata_drift", relative)
             xattrs(path)
+        actual_names.sort()
         if actual_names != sorted(expected):
             fail("zip_extracted_inventory_drift")
     except Exception:

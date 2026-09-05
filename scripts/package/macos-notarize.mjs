@@ -49,7 +49,7 @@ export function parseNotaryResult(output) {
   return Object.freeze({ id: value.id.toLowerCase(), status: "Accepted" });
 }
 
-export function parseNotaryLog(output, submissionId, expectedCodePaths = []) {
+export function parseNotaryLog(output, submissionId, expectedCodePaths = [], expectedCdhashes) {
   const value = parseJSON(output, "notary_log_malformed");
   const id = typeof value.jobId === "string" ? value.jobId : value.id;
   if (typeof id !== "string" || !UUID.test(id) || id.toLowerCase() !== submissionId.toLowerCase() ||
@@ -57,27 +57,31 @@ export function parseNotaryLog(output, submissionId, expectedCodePaths = []) {
       !Array.isArray(value.ticketContents) || value.ticketContents.length === 0 || value.ticketContents.length > 10_000) {
     fail("notary_log_invalid");
   }
-  const suffixes = new Set();
+  const suffixes = new Set(); const ticketsBySuffix = new Map();
   for (const ticket of value.ticketContents) {
     if (!ordinary(ticket) || typeof ticket.path !== "string" || ticket.path.length > 4096 || ticket.digestAlgorithm !== "SHA-256" ||
         typeof ticket.cdhash !== "string" || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(ticket.cdhash) || ticket.arch !== "arm64") fail("notary_log_invalid");
     const marker = "The Green Room.app";
-    const index = ticket.path.indexOf(marker);
-    if (index < 0) fail("notary_log_invalid");
-    const suffix = ticket.path.slice(index);
+    const components = ticket.path.split("/");
+    const index = components.indexOf(marker);
+    if (index < 0 || components.lastIndexOf(marker) !== index) fail("notary_log_invalid");
+    const suffix = components.slice(index).join("/");
     if (suffixes.has(suffix)) fail("notary_log_invalid");
-    suffixes.add(suffix);
+    suffixes.add(suffix); ticketsBySuffix.set(suffix, ticket);
   }
-  if (expectedCodePaths.length > 0) {
-    const expected = new Set(["The Green Room.app", ...expectedCodePaths.map((path) => `The Green Room.app/${path}`)]);
-    if (expected.size !== suffixes.size || [...expected].some((path) => !suffixes.has(path))) fail("notary_log_code_inventory");
+  const expected = new Set(["The Green Room.app", ...expectedCodePaths.map((path) => `The Green Room.app/${path}`)]);
+  if (expected.size !== suffixes.size || [...expected].some((path) => !suffixes.has(path))) fail("notary_log_code_inventory");
+  if (expectedCdhashes !== undefined) {
+    if (!ordinary(expectedCdhashes) || Reflect.ownKeys(expectedCdhashes).length !== expected.size ||
+        [...expected].some((path) => !Object.hasOwn(expectedCdhashes, path) || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(expectedCdhashes[path]) ||
+          ticketsBySuffix.get(path)?.cdhash.toLowerCase() !== expectedCdhashes[path].toLowerCase())) fail("notary_log_code_hash_inventory");
   }
   return Object.freeze({ id: submissionId.toLowerCase(), status: "Accepted" });
 }
 
 export function sanitizedNotaryEvidence(value) { return Object.freeze({ id: value.id, status: value.status }); }
 
-export function runNotaryCommand(executable, args, { timeout = COMMAND_TIMEOUT_MS, fd3 } = {}) {
+export function runNotaryCommand(executable, args, { timeout = COMMAND_TIMEOUT_MS, fd3, includeStderr = false } = {}) {
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > COMMAND_TIMEOUT_MS) fail("notary_timeout_invalid");
   const result = spawnSync(executable, args, {
     encoding: "utf8", stdio: fd3 === undefined ? "pipe" : ["ignore", "pipe", "pipe", fd3],
@@ -86,7 +90,19 @@ export function runNotaryCommand(executable, args, { timeout = COMMAND_TIMEOUT_M
   });
   if (result.error?.code === "ETIMEDOUT") fail("notary_timeout");
   if (result.error || result.status !== 0) fail("notary_command_failed");
-  return result.stdout ?? "";
+  return includeStderr ? `${result.stdout ?? ""}\n${result.stderr ?? ""}` : result.stdout ?? "";
+}
+
+function localCodeHashes(appPath, codePaths, runner) {
+  const hashes = {};
+  const objects = [["The Green Room.app", appPath], ...codePaths.map((codePath) => [`The Green Room.app/${codePath}`, join(appPath, codePath)])];
+  for (const [suffix, path] of objects) {
+    const output = runner("/usr/bin/codesign", ["-d", "--verbose=4", "--", path], { includeStderr: true });
+    const matches = [...output.matchAll(/^CDHash=([0-9a-f]{40}(?:[0-9a-f]{24})?)\s*$/gmi)];
+    if (matches.length !== 1) fail("notary_local_code_hash_invalid");
+    hashes[suffix] = matches[0][1].toLowerCase();
+  }
+  return hashes;
 }
 
 function chmodDirectories(root, mode) {
@@ -119,9 +135,10 @@ function cleanupScratchBinding(parentFd, name, identity) {
   fail("notary_scratch_cleanup_failed");
 }
 
-export function notarizeSignedApp({ appPath, outputZip, keychainProfile, runner = runNotaryCommand, verifier = verifySignedApp, hooks = {} }) {
+export function notarizeSignedApp({ appPath, outputZip, keychainProfile, submissionId, runner = runNotaryCommand, verifier = verifySignedApp, hooks = {} }) {
   if (process.platform !== "darwin" || !isAbsolute(appPath) || resolve(appPath) !== appPath || !isAbsolute(outputZip) || resolve(outputZip) !== outputZip ||
       typeof keychainProfile !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(keychainProfile) || !outputZip.endsWith(".zip")) fail("notary_configuration_invalid");
+  if (submissionId !== undefined && (typeof submissionId !== "string" || !UUID.test(submissionId))) fail("notary_submission_id_invalid");
   rejectCredentialSurfaces([], process.env);
   const outputParent = dirname(outputZip);
   if (!existsSync(outputParent) || !lstatSync(outputParent).isDirectory() || !lstatSync(appPath).isDirectory()) fail("notary_output_parent_invalid");
@@ -170,10 +187,16 @@ export function notarizeSignedApp({ appPath, outputZip, keychainProfile, runner 
     finally { closeSync(scratchFd); }
     if (privateCopy.status !== "ok") fail("notary_source_copy_failed");
     const preflight = verifier(privateApp, { assessGatekeeper: false });
-    runner("/usr/bin/ditto", ["-c", "-k", "--keepParent", "--norsrc", "--", privateApp, submission]);
-    const result = parseNotaryResult(runner("/usr/bin/xcrun", ["notarytool", "submit", submission, "--keychain-profile", keychainProfile, "--wait", "--output-format", "json"]));
+    let result;
+    if (submissionId === undefined) {
+      runner("/usr/bin/ditto", ["-c", "-k", "--keepParent", "--norsrc", "--", privateApp, submission]);
+      result = parseNotaryResult(runner("/usr/bin/xcrun", ["notarytool", "submit", submission, "--keychain-profile", keychainProfile, "--wait", "--output-format", "json"]));
+    } else {
+      result = Object.freeze({ id: submissionId.toLowerCase(), status: "Accepted" });
+    }
     const codePaths = preflight?.manifest?.signingPolicy?.codeObjects?.map((item) => item.path) ?? [];
-    parseNotaryLog(runner("/usr/bin/xcrun", ["notarytool", "log", result.id, "--keychain-profile", keychainProfile, "--output-format", "json"]), result.id, codePaths);
+    const expectedCdhashes = localCodeHashes(privateApp, codePaths, runner);
+    parseNotaryLog(runner("/usr/bin/xcrun", ["notarytool", "log", result.id, "--keychain-profile", keychainProfile, "--output-format", "json"]), result.id, codePaths, expectedCdhashes);
 
     chmodDirectories(privateApp, 0o755);
     runner("/usr/bin/xcrun", ["stapler", "staple", "--", privateApp]);
@@ -241,11 +264,11 @@ function parseArgs(argv) {
     if (!key?.startsWith("--") || value === undefined || Object.hasOwn(values, key.slice(2))) fail("notary_usage");
     values[key.slice(2)] = value;
   }
-  if (!values.app || !values["output-zip"] || !values["keychain-profile"] || Object.keys(values).some((key) => !["app", "output-zip", "keychain-profile"].includes(key))) fail("notary_usage");
+  if (!values.app || !values["output-zip"] || !values["keychain-profile"] || Object.keys(values).some((key) => !["app", "output-zip", "keychain-profile", "submission-id"].includes(key))) fail("notary_usage");
   return values;
 }
 const invoked = process.argv[1] === undefined ? null : pathToFileURL(resolve(process.argv[1])).href;
 if (invoked === import.meta.url) {
-  try { const args = parseArgs(process.argv.slice(2)); process.stdout.write(`${JSON.stringify(notarizeSignedApp({ appPath: resolve(args.app), outputZip: resolve(args["output-zip"]), keychainProfile: args["keychain-profile"] }))}\n`); }
+  try { const args = parseArgs(process.argv.slice(2)); process.stdout.write(`${JSON.stringify(notarizeSignedApp({ appPath: resolve(args.app), outputZip: resolve(args["output-zip"]), keychainProfile: args["keychain-profile"], submissionId: args["submission-id"] }))}\n`); }
   catch (error) { process.stderr.write(`${JSON.stringify({ code: error?.code ?? "notary_failed" })}\n`); process.exitCode = 1; }
 }

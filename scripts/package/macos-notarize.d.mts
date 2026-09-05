@@ -1,11 +1,11 @@
 export function rejectCredentialSurfaces(argv: readonly string[], environment?: Record<string, string | undefined>): void;
 export function parseNotaryResult(output: string): { id: string; status: "Accepted" };
-export function parseNotaryLog(output: string, submissionId: string, expectedCodePaths?: readonly string[]): { id: string; status: "Accepted" };
+export function parseNotaryLog(output: string, submissionId: string, expectedCodePaths?: readonly string[], expectedCdhashes?: Readonly<Record<string, string>>): { id: string; status: "Accepted" };
 export function sanitizedNotaryEvidence(value: { id: string; status: string }): { id: string; status: string };
-export function runNotaryCommand(tool: string, args: string[], options?: { timeout?: number; fd3?: number }): string;
+export function runNotaryCommand(tool: string, args: string[], options?: { timeout?: number; fd3?: number; includeStderr?: boolean }): string;
 export function notarizeSignedApp(options: {
-  appPath: string; outputZip: string; keychainProfile: string;
-  runner?: (tool: string, args: string[], options?: { timeout?: number; fd3?: number }) => string;
+  appPath: string; outputZip: string; keychainProfile: string; submissionId?: string;
+  runner?: (tool: string, args: string[], options?: { timeout?: number; fd3?: number; includeStderr?: boolean }) => string;
   verifier?: (path: string, options?: Record<string, unknown>) => unknown;
   hooks?: {
     beforePublish?: (paths: { stage: string; destination: string }) => void;
