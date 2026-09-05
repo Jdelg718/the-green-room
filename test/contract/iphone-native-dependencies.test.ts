@@ -927,7 +927,12 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   assert.match(report, /Phase 0 Task 0\.2 final disposition: GO/u);
   assert.match(report, /minimum deployment target is iOS 18\.6/u);
   assert.match(report, /Floor-Simulator capability result: PASS/u);
+  assert.match(report, /iOS 18\.6 build `22G86`[\s\S]*SQLite 3\.43\.2/u);
   assert.match(report, /Physical-device capability result: PASS/u);
+  assert.match(report, /iOS 26\.6 build `23G71`[\s\S]*SQLite 3\.51\.0/u);
+  assert.match(report, /Simulator does not expose the `NSFileProtection` attribute and therefore did not prove file-protection or lock behavior\./u);
+  assert.match(report, /No physical iOS 18\.6 device was tested or is implied\./u);
+  assert.doesNotMatch(report, /Simulator (?:proved|verified|passed)[^\n]*(?:NSFileProtection|lock behavior)/iu);
   assert.doesNotMatch(report, /CONDITIONAL|only installed iOS runtime|oldest-supported-runtime gate|oldest-supported-iOS runtime has not yet been selected|pending the oldest/iu);
   assert.doesNotMatch(report, /PENDING physical device/iu);
   assert.match(report, /selected Simulator UDID/iu);
