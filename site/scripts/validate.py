@@ -14,6 +14,15 @@ from urllib.parse import unquote, urlparse
 
 SITE = Path(__file__).resolve().parents[1]
 SITE_ORIGIN = "https://greenroomai.net"
+ALPHA_RELEASE_URL = "https://github.com/Jdelg718/the-green-room/releases/tag/v0.1.0-alpha.1"
+ALPHA_DOWNLOAD_URL = (
+    "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/"
+    "The-Green-Room-0.1.0-alpha.1-macos-arm64.zip"
+)
+ALPHA_CHECKSUMS_URL = (
+    "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/SHA256SUMS"
+)
+ALPHA_SHA256 = "333f5cdd2e9c88e901cacd5cdad58109b67affc1f63cc5f98321644592bde469"
 CHARACTER_PROFILES = {
     "ada-lovelace": "Ada Lovelace",
     "benjamin-franklin": "Benjamin Franklin",
@@ -144,12 +153,12 @@ PROFILE_SOURCE_SHA256 = {
     "thomas-jefferson": "fe0455dfc95e7b95d40899eae4b7438839cbdb252751b3440ffb14aa83388b37",
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
 }
-PROFILE_STYLESHEET_SHA256 = "e3dadfd5cc5907fbb36f48a0b926fba5e387bf289eb2dcdfadcdf66764ce4560"
-SOCIAL_CARD_SHA256 = "ab01167634803a5478c3c76d5b1d925e03ea3857b8143041d7edf422c1b8dc87"
+PROFILE_STYLESHEET_SHA256 = "7d5dd86d18dfd291c1df677169402c0868784ff3d8355cd6173012633569310c"
+SOCIAL_CARD_SHA256 = "b3d4254d433d955017cf7849ff97fe27f11c1e6b91e0ff61904b632344ef29fb"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
-    "Backstage Electric Green Room project card with the GR slash mark, "
-    "early-development status, and release-forthcoming call sheet."
+    "Backstage Electric Green Room project card announcing the Alpha 1 "
+    "Apple-silicon macOS prerelease."
 )
 SOCIAL_CARD_PAGES = frozenset(
     {
@@ -179,7 +188,7 @@ REQUIRED_LANGUAGE = {
         "local-first",
         "your own local or cloud LLM",
         "bounded context",
-        "forthcoming",
+        "Alpha 1",
         "eighteen source-informed historical character packs",
         "Character Wizard",
         "community library",
@@ -220,7 +229,19 @@ REQUIRED_LANGUAGE = {
         "runtime preinstallation remain separate from Official Catalog admission",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
-    "download/index.html": ("forthcoming", "no downloadable release"),
+    "download/index.html": (
+        "Alpha 1",
+        "Apple-silicon macOS",
+        "macOS 14 or later",
+        "clean standard-user acceptance target is macOS 26.5.2",
+        "19 preinstalled characters",
+        "local or cloud model",
+        "No iPhone or iPad app",
+        "early alpha software",
+        ALPHA_SHA256,
+        "Move The Green Room.app to your personal Applications folder",
+        "~/Applications",
+    ),
     "contribute/index.html": ("GitHub", "content and legal boundaries"),
 }
 FORBIDDEN_TEXT = (
@@ -303,7 +324,13 @@ class PageParser(HTMLParser):
         self.tags.append((normalized_tag, normalized_attrs))
         parent = self.open_elements[-1] if self.open_elements else None
         self.elements.append(
-            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+            {
+                "tag": normalized_tag,
+                "attrs": dict(normalized_attrs),
+                "text": [],
+                "direct_text": [],
+                "parent": parent,
+            }
         )
         if normalized_tag not in {"meta", "link"}:
             self.open_elements.append(len(self.elements) - 1)
@@ -317,7 +344,13 @@ class PageParser(HTMLParser):
         self.tags.append((normalized_tag, normalized_attrs))
         parent = self.open_elements[-1] if self.open_elements else None
         self.elements.append(
-            {"tag": normalized_tag, "attrs": dict(normalized_attrs), "text": [], "parent": parent}
+            {
+                "tag": normalized_tag,
+                "attrs": dict(normalized_attrs),
+                "text": [],
+                "direct_text": [],
+                "parent": parent,
+            }
         )
 
     def handle_endtag(self, tag: str) -> None:
@@ -330,6 +363,11 @@ class PageParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         self.text.append(data)
+        if self.open_elements:
+            direct_text = self.elements[self.open_elements[-1]]["direct_text"]
+            if not isinstance(direct_text, list):
+                raise TypeError("parser element direct-text invariant failed")
+            direct_text.append(data)
         for element_index in self.open_elements:
             element_text = self.elements[element_index]["text"]
             if not isinstance(element_text, list):
@@ -528,6 +566,20 @@ def normalized_text(element: dict[str, object]) -> str:
     return " ".join(" ".join(text).split())
 
 
+def normalized_visible_text(parser: PageParser, ancestor: int) -> str:
+    parts: list[str] = []
+    for index, element in enumerate(parser.elements):
+        if index != ancestor and not is_descendant(parser, index, ancestor):
+            continue
+        if not is_visible(parser, index):
+            continue
+        direct_text = element["direct_text"]
+        if not isinstance(direct_text, list):
+            raise TypeError("parser element direct-text invariant failed")
+        parts.extend(direct_text)
+    return " ".join(" ".join(parts).split())
+
+
 def element_attrs(element: dict[str, object]) -> dict[str, str]:
     attrs = element["attrs"]
     if not isinstance(attrs, dict):
@@ -575,6 +627,32 @@ def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tupl
         (element_attrs(element).get("href", ""), normalized_text(element))
         for _, element in scoped_elements(parser, "a", ancestor)
     ]
+
+
+def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
+    links = [
+        (element_attrs(element).get("href", ""), normalized_visible_text(parser, index))
+        for index, element in scoped_elements(parser, "a")
+        if is_visible(parser, index)
+    ]
+    required = {
+        ALPHA_DOWNLOAD_URL: "Download Alpha 1 for Apple silicon",
+        ALPHA_CHECKSUMS_URL: "Download SHA256SUMS",
+        ALPHA_RELEASE_URL: "Release notes",
+        "https://github.com/Jdelg718/the-green-room": "Source",
+        "https://github.com/Jdelg718/the-green-room/issues": "Report issues",
+    }
+    for href, label in required.items():
+        matches = [(candidate_href, text) for candidate_href, text in links if candidate_href == href]
+        if matches != [(href, label)]:
+            fail(errors, f"download/index.html: missing unique exact {label} link")
+    visible = " ".join(
+        normalized_visible_text(parser, index)
+        for index, element in scoped_elements(parser, "p")
+        if is_visible(parser, index)
+    )
+    if ALPHA_SHA256 not in visible:
+        fail(errors, "download/index.html: missing exact release checksum")
 
 
 PROFILE_INTERPRETATION_DISCLOSURE = (
@@ -886,6 +964,8 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
 
     if relative == "characters/index.html":
         validate_character_index(parser, errors)
+    if relative == "download/index.html":
+        validate_download_contract(parser, errors)
     profile_match = re.fullmatch(r"characters/([a-z0-9-]+)/index\.html", relative)
     if profile_match:
         slug = profile_match.group(1)
