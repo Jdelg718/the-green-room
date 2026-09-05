@@ -102,6 +102,9 @@ def npm_packages(archive: zipfile.ZipFile) -> list[dict[str, Any]]:
             or not isinstance(metadata.get("version"), str)
         ):
             fail("npm_metadata_invalid", relative)
+        if metadata["name"] != npm_name_for_path(relative):
+            fail("npm_name_path_mismatch", relative)
+        canonical_npm_purl(metadata["name"], metadata["version"])
         declared = metadata.get("license")
         if not isinstance(declared, str) or not declared:
             if relative != "fs-ext":
@@ -393,7 +396,7 @@ def make_spdx(
                     {
                         "referenceCategory": "PACKAGE-MANAGER",
                         "referenceType": "purl",
-                        "referenceLocator": f"pkg:npm/{item['name'].replace('@', '%40').replace('/', '%2F')}@{item['version']}",
+                        "referenceLocator": canonical_npm_purl(item["name"], item["version"]),
                     }
                 ],
                 "comment": f"Exact shipped path: Contents/Resources/app/node_modules/{item['path']}",

@@ -313,6 +313,7 @@
           "externalRefs" : {
             "description" : "An External Reference allows a Package to reference an external source of additional information, metadata, enumerations, asset identifiers, or downloadable content believed to be relevant to the Package.",
             "type" : "array",
+            "uniqueItems" : true,
             "items" : {
               "type" : "object",
               "properties" : {
@@ -335,6 +336,20 @@
               },
               "required" : [ "referenceCategory", "referenceLocator", "referenceType" ],
               "additionalProperties" : false,
+              "allOf" : [ {
+                "if" : {
+                  "properties" : { "referenceType" : { "const" : "purl" } },
+                  "required" : [ "referenceType" ]
+                },
+                "then" : {
+                  "properties" : {
+                    "referenceCategory" : { "const" : "PACKAGE-MANAGER" },
+                    "referenceLocator" : {
+                      "pattern" : "^pkg:npm/(?:%40[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*@[A-Za-z0-9][A-Za-z0-9._+~-]*$"
+                    }
+                  }
+                }
+              } ],
               "description" : "An External Reference allows a Package to reference an external source of additional information, metadata, enumerations, asset identifiers, or downloadable content believed to be relevant to the Package."
             }
           },

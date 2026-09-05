@@ -56,6 +56,24 @@ class ReleaseEvidencePrimitiveTests(unittest.TestCase):
         self.assertFalse(common.package_root("nan/tools"))
         self.assertFalse(common.package_root("fast-uri/benchmark"))
 
+    def test_npm_identity_maps_path_and_uses_canonical_segment_encoding(self) -> None:
+        self.assertEqual(common.npm_name_for_path("@fastify/error"), "@fastify/error")
+        self.assertEqual(
+            common.npm_name_for_path("ajv/node_modules/fast-uri"),
+            "fast-uri",
+        )
+        self.assertEqual(
+            common.canonical_npm_purl("@fastify/error", "4.2.0"),
+            "pkg:npm/%40fastify/error@4.2.0",
+        )
+        self.assertEqual(
+            common.canonical_npm_purl("fast-uri", "3.1.6"),
+            "pkg:npm/fast-uri@3.1.6",
+        )
+        for name in ("@fastify", "@fastify/", "fastify/error", "%40fastify/error"):
+            with self.subTest(name=name), self.assertRaises(common.EvidenceError):
+                common.canonical_npm_purl(name, "1.0.0")
+
     def test_archive_paths_reject_traversal_links_by_name_and_junk(self) -> None:
         for value in (
             "../x",
@@ -189,6 +207,48 @@ class GeneratedReleaseEvidenceTests(unittest.TestCase):
         for value in (namespace, relationship, component, all57):
             with self.subTest(), self.assertRaises(common.EvidenceError):
                 verifier.verify_spdx(value, self.records, self.packages, self.personas)
+
+    def test_spdx_npm_external_refs_are_canonical_exact_and_unique(self) -> None:
+        npm_rows = [
+            item for item in self.spdx["packages"] if item["SPDXID"].startswith("SPDXRef-NPM-")
+        ]
+        self.assertEqual(len(npm_rows), 52)
+        scoped = next(item for item in npm_rows if item["name"] == "@fastify/error")
+        self.assertEqual(
+            scoped["externalRefs"],
+            [
+                {
+                    "referenceCategory": "PACKAGE-MANAGER",
+                    "referenceLocator": "pkg:npm/%40fastify/error@4.2.0",
+                    "referenceType": "purl",
+                }
+            ],
+        )
+
+        mutations = []
+        for locator, schema_rejects in (
+            ("pkg:npm/%40fastify%2Ferror@4.2.0", True),
+            ("pkg:npm/@fastify/error@4.2.0", True),
+            ("pkg:npm/%40fastify/forwarded@4.2.0", False),
+            ("pkg:npm/%40fastify/error@4.2.1", False),
+        ):
+            value = copy.deepcopy(self.spdx)
+            row = next(item for item in value["packages"] if item["name"] == "@fastify/error")
+            row["externalRefs"][0]["referenceLocator"] = locator
+            mutations.append((value, schema_rejects))
+        duplicate = copy.deepcopy(self.spdx)
+        row = next(item for item in duplicate["packages"] if item["name"] == "@fastify/error")
+        row["externalRefs"].append(copy.deepcopy(row["externalRefs"][0]))
+        mutations.append((duplicate, True))
+
+        spdx_schema = json.loads((ROOT / "packaging/spdx-2.3.schema.json").read_bytes())
+        validator = jsonschema.Draft7Validator(spdx_schema)
+        for value, schema_rejects in mutations:
+            with self.subTest(), self.assertRaises(common.EvidenceError):
+                verifier.verify_spdx(value, self.records, self.packages, self.personas)
+            if schema_rejects:
+                with self.subTest(), self.assertRaises(jsonschema.ValidationError):
+                    validator.validate(value)
 
     def test_spdx_uses_truthful_dependency_build_tool_and_persona_license_relationships(
         self,

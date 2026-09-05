@@ -31,6 +31,15 @@ def inventory_npm_packages(archive: zipfile.ZipFile) -> list[dict[str, Any]]:
             metadata = json.loads(archive.read(name))
         except (UnicodeDecodeError, json.JSONDecodeError):
             fail("npm_metadata_invalid", relative)
+        if (
+            not isinstance(metadata, dict)
+            or not isinstance(metadata.get("name"), str)
+            or not isinstance(metadata.get("version"), str)
+        ):
+            fail("npm_metadata_invalid", relative)
+        if metadata["name"] != npm_name_for_path(relative):
+            fail("npm_name_path_mismatch", relative)
+        canonical_npm_purl(metadata["name"], metadata["version"])
         license_id = metadata.get("license")
         if not isinstance(license_id, str) or not license_id:
             if relative != "fs-ext":
@@ -241,13 +250,30 @@ def verify_spdx(
             or (by_id[identifier].get("name"), by_id[identifier].get("versionInfo")) != identity
         ):
             fail("spdx_component_invalid", identifier)
+    npm_ids = {spdx_id("NPM", package["path"]) for package in packages}
+    external_ref_ids = {
+        item.get("SPDXID")
+        for item in package_rows
+        if isinstance(item, dict) and "externalRefs" in item
+    }
+    if external_ref_ids != npm_ids:
+        fail("spdx_external_refs_invalid")
     for package in packages:
         item = by_id.get(spdx_id("NPM", package["path"]))
+        expected_ref = [
+            {
+                "referenceCategory": "PACKAGE-MANAGER",
+                "referenceType": "purl",
+                "referenceLocator": canonical_npm_purl(package["name"], package["version"]),
+            }
+        ]
         if (
             item is None
             or item.get("name") != package["name"]
             or item.get("versionInfo") != package["version"]
-            or package["path"] not in item.get("comment", "")
+            or item.get("comment")
+            != f"Exact shipped path: Contents/Resources/app/node_modules/{package['path']}"
+            or item.get("externalRefs") != expected_ref
         ):
             fail("spdx_npm_invalid", package["path"])
     for persona in personas_found:

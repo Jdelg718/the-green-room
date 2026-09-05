@@ -9,7 +9,8 @@ import pathlib
 import re
 import stat
 import zipfile
-from typing import Any
+from typing import Any, NoReturn
+from urllib.parse import quote
 
 ARTIFACT_NAME = "The-Green-Room-0.1.0-alpha.1-macos-arm64.zip"
 ARTIFACT_BYTES = 51_598_158
@@ -69,6 +70,7 @@ CHECKSUM_NAMES = [
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._ +@-]+(?:/[A-Za-z0-9._ +@-]+)*/?$")
+NPM_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9._~-]*$")
 JUNK = {".DS_Store", "Thumbs.db", "__MACOSX"}
 
 
@@ -76,7 +78,7 @@ class EvidenceError(ValueError):
     """Stable fail-closed evidence error."""
 
 
-def fail(code: str, detail: str = "") -> None:
+def fail(code: str, detail: str = "") -> NoReturn:
     raise EvidenceError(f"{code}: {detail}" if detail else code)
 
 
@@ -222,6 +224,44 @@ def package_root(relative: str) -> bool:
         if index < len(parts) and parts[index] != "node_modules":
             return False
     return True
+
+
+def npm_name_for_path(relative: str) -> str:
+    """Return the npm identity represented by an exact node_modules package root."""
+    if not package_root(relative):
+        fail("npm_package_path_invalid", relative)
+    leaf = relative.rsplit("/node_modules/", 1)[-1]
+    parts = leaf.split("/")
+    if len(parts) == 1 and NPM_SEGMENT.fullmatch(parts[0]):
+        return parts[0]
+    if (
+        len(parts) == 2
+        and parts[0].startswith("@")
+        and NPM_SEGMENT.fullmatch(parts[0][1:])
+        and NPM_SEGMENT.fullmatch(parts[1])
+    ):
+        return leaf
+    fail("npm_package_path_invalid", relative)
+
+
+def canonical_npm_purl(name: str, version: str) -> str:
+    """Build a package-url npm PURL by encoding namespace/name as separate segments."""
+    if not isinstance(name, str) or not isinstance(version, str) or not version:
+        fail("npm_identity_invalid")
+    if name.startswith("@"):
+        parts = name.split("/")
+        if (
+            len(parts) != 2
+            or not NPM_SEGMENT.fullmatch(parts[0][1:])
+            or not NPM_SEGMENT.fullmatch(parts[1])
+        ):
+            fail("npm_name_invalid", name)
+        encoded_name = f"{quote(parts[0], safe='')}/{quote(parts[1], safe='')}"
+    else:
+        if not NPM_SEGMENT.fullmatch(name):
+            fail("npm_name_invalid", name)
+        encoded_name = quote(name, safe="")
+    return f"pkg:npm/{encoded_name}@{quote(version, safe='')}"
 
 
 def spdx_id(prefix: str, value: str) -> str:
