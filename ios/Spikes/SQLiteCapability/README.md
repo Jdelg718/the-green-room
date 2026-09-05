@@ -85,3 +85,24 @@ parent/final descriptors and rejects Simulator evidence, stale or mismatched
 runs, any missing/false transition field, failed control, missing lock denial,
 or missing post-unlock reopen proof. Device serial number and ECID are never
 published.
+
+Physical qualification passed on an iPhone 15 Pro Max running iOS 26.6 build
+`23G71`. The complete evidence proved system SQLite 3.51.0, forced relaunch,
+`NSFileProtectionComplete` plus backup exclusion for DB/WAL/SHM after first
+launch and relaunch, closed handles before lock, protected raw-read and SQLite
+open denial while locked, successful raw read and SQLite query against the
+separate `NSFileProtectionNone` control while locked, and successful protected
+reopen after unlock. The runtime JSON remains an external qualification artifact
+rather than a checked-in fixture because it includes an opaque per-run identifier;
+the source-controlled summary is
+`docs/spikes/iphone-system-sqlite-capability.md`.
+
+The signed app entitlement must always equal the exact application identifier.
+For Apple's automatically managed development profile, the embedded profile's
+`application-identifier` may be either that exact value or the exact team
+wildcard `${team}.*`; suffix-bearing wildcard lookalikes are rejected. Device
+evidence is copied to an explicit destination file path for compatibility with
+live `devicectl` behavior.
+
+This physical PASS is not final release qualification. The oldest-supported-iOS
+runtime has not yet been selected and exercised, so that gate remains NO-GO.

@@ -684,6 +684,9 @@ test("physical runner keeps identifiers private and routes exact trusted Apple t
     assert.match(line, /run_apple_tool (?:codesign|security)\b/u, `unsanitized signing tool invocation: ${line}`);
   }
   assert.doesNotMatch(runner, /DEVICE_UDID=%q|CORE_DEVICE_ID=%q/u);
+  assert.match(runner, /copied="\$destination_root\/qualification-evidence\.json"/u);
+  assert.match(runner, /--destination "\$copied"/u);
+  assert.doesNotMatch(runner, /--destination "\$destination_root"/u);
   assert.match(runner, /os\.open\(name,os\.O_RDONLY\|getattr\(os,"O_NOFOLLOW",0\),dir_fd=parent_fd\)/u);
   assert.match(runner, /os\.fstat\(evidence_fd\)/u);
   assert.doesNotMatch(runner, /mode=os\.lstat\(path\)/u);
@@ -748,6 +751,8 @@ test("physical binary/signature validator rejects substring and profile identity
   };
   writeFixtures();
   assert.doesNotThrow(run);
+  writeFixtures({ profileApp: `${team}.*` });
+  assert.doesNotThrow(run, "team-exact wildcard development profiles are valid for an exact signed app entitlement");
   writeFixtures({ otool: `/tmp/app:\n\t/usr/lib/libsqlite3.dylib.evil (compatibility version 9.0.0, current version 382.0.0)\n` });
   assert.throws(run, /system SQLite install name|deceptive SQLite/u);
   writeFixtures({ codesign: `Identifier=${bundle}.evil\nTeamIdentifier=${team}\n` });
@@ -761,6 +766,8 @@ test("physical binary/signature validator rejects substring and profile identity
   writeFixtures({ entTeam: `${team}EVIL` });
   assert.throws(run, /signed entitlements mismatch/u);
   writeFixtures({ profileApp: `${appID}.evil` });
+  assert.throws(run, /profile entitlements mismatch/u);
+  writeFixtures({ profileApp: `${team}.*.evil` });
   assert.throws(run, /profile entitlements mismatch/u);
   writeFixtures({ profileEntTeam: `${team}EVIL` });
   assert.throws(run, /profile entitlements mismatch/u);
@@ -838,7 +845,9 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
 
   const report = read(REPORT);
   assert.match(report, /NO-GO|CONDITIONAL/u);
-  assert.match(report, /PENDING physical device/iu);
+  assert.match(report, /Physical-device capability result: PASS/u);
+  assert.match(report, /oldest-supported-runtime gate/u);
+  assert.doesNotMatch(report, /PENDING physical device/iu);
   assert.match(report, /selected Simulator UDID/iu);
   assert.match(report, /run-simulator\.sh/u);
   assert.match(report, /sqlite3_libversion/u);

@@ -113,13 +113,13 @@ for tool in devicectl xcodebuild otool codesign security; do
 done
 
 copy_evidence() {
-  local destination
-  destination="$(/usr/bin/mktemp -d "$APPLE_TMPDIR/container-copy.XXXXXX")"
+  local destination_root copied
+  destination_root="$(/usr/bin/mktemp -d "$APPLE_TMPDIR/container-copy.XXXXXX")"
+  copied="$destination_root/qualification-evidence.json"
   run_apple_tool devicectl device copy from --device "$CORE_DEVICE_ID" \
     --domain-type appDataContainer --domain-identifier "$BUNDLE_ID" \
     --source "Library/Application Support/SQLiteCapabilitySpike/qualification-evidence.json" \
-    --destination "$destination" --json-output "$APPLE_TMPDIR/copy.json" >/dev/null
-  local copied="$destination/qualification-evidence.json"
+    --destination "$copied" --json-output "$APPLE_TMPDIR/copy.json" >/dev/null
   [[ -f "$copied" ]] || { echo >&2 "device evidence was not copied"; exit 4; }
   printf '%s\n' "$copied"
 }
@@ -325,7 +325,8 @@ application_identifier=f"{team}.{bundle}"
 if ent.get("application-identifier") != application_identifier or ent.get("com.apple.developer.team-identifier") != team:
     raise SystemExit("signed entitlements mismatch")
 pent=profile.get("Entitlements",{})
-if pent.get("application-identifier") != application_identifier or pent.get("com.apple.developer.team-identifier") != team:
+profile_application_identifier=pent.get("application-identifier")
+if profile_application_identifier not in (application_identifier, f"{team}.*") or pent.get("com.apple.developer.team-identifier") != team:
     raise SystemExit("provisioning profile entitlements mismatch")
 if profile.get("TeamIdentifier") != [team] or profile.get("ApplicationIdentifierPrefix") != [team]:
     raise SystemExit("provisioning profile exact team/application prefix mismatch")

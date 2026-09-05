@@ -9,27 +9,19 @@ device as an iPhone 17 Pro Simulator running iOS 26.5; the app's generic
 `UIDevice.current.model` value (`iPhone`) is recorded only as an app observation
 and is not the basis for that device identity claim.
 
-**Phase 0 Task 0.2 final disposition: CONDITIONAL pending the manual lock gate.**
-The registered physical iPhone 15 Pro Max is now exercised by a fail-closed
-device state machine, while Xcode has no older iOS Simulator runtime installed.
-Therefore this report does
-not qualify the oldest eventual product OS, physical-device protected-data
-behavior, or a final product deployment target. Schema work may use this harness
-and the measured Simulator capability set as provisional engineering evidence,
-but the physical-device/oldest-runtime gate in the implementation plan remains
-blocking before a final GO.
+**Physical-device capability result: PASS on iPhone 15 Pro Max running iOS 26.6
+(`23G71`).** The complete prepare/lock/unlock/collect state machine proved the
+system SQLite capability set, forced termination/relaunch, file protection and
+backup exclusion, denial of protected reads while locked, success of the
+distinct unprotected control while locked, and successful protected reopen after
+unlock.
 
-Physical execution was attempted against an attached/trusted iPhone 15 Pro Max
-running iOS 26.6 (`23G71`). Device discovery confirmed Developer Mode and DDI
-services, but automatic provisioning stopped before compilation/install:
-`xcodebuild` reported `No Accounts` and no iOS development profile for the
-spike bundle identifier. A current keychain recheck exposes Apple Development
-identities only for a different team than the configured `JZ233HBW3Z`; it still
-provides no matching Apple Development identity for this spike. No physical app
-or physical evidence was installed/published, so the state remains honestly
-before `awaiting_lock`. Re-authenticate the configured team in Xcode Accounts,
-then rerun `run-device.sh prepare`; do not use the Simulator JSON as physical
-proof.
+**Phase 0 Task 0.2 final disposition: CONDITIONAL / NO-GO for final release
+qualification pending the oldest-supported-runtime gate.** Xcode still has no
+older iOS Simulator runtime installed, and the product minimum iOS version has
+not been selected and exercised. The Simulator and physical-device results below
+qualify the tested iOS 26.5 and iOS 26.6 environments only. They do not qualify
+the oldest eventual product OS or select a final product deployment target.
 
 ## Boundary proved
 
@@ -84,10 +76,14 @@ host artifact contains only an opaque run ID and a truncated SHA-256 alias.
 Collection consumes the `awaiting_lock` artifact through no-follow parent and
 final descriptors with `fstat`, avoiding an `lstat`/`open` name race. `codesign`
 and `security` must resolve exactly to their allowlisted `/usr/bin` paths and are
-invoked only through the clean Apple-tool wrapper. Physical Mach-O/signature
-validation parses exact `otool` install-name lines and exact `Identifier` and
-`TeamIdentifier` fields, then compares the bundle/application/team entitlements
-and provisioning-profile arrays exactly.
+invoked only through the clean Apple-tool wrapper. Physical Mach-O/signature validation parses exact `otool` install-name lines and
+exact `Identifier` and `TeamIdentifier` fields. The signed app entitlement must
+equal the exact team-qualified application identifier. The embedded provisioning
+profile may contain either that exact identifier or Apple's exact team wildcard
+`${team}.*`; suffix-bearing or otherwise broader lookalikes remain rejected.
+Provisioning-profile team entitlements and arrays are still compared exactly.
+The `devicectl` copy target is an explicit destination file path rather than a
+directory, matching the live CoreDevice file-copy behavior.
 
 ## Exact executable evidence
 
@@ -139,6 +135,27 @@ was `complete`. The runner also used
 `SQLiteCapability.debug.dylib` showed compatibility version 9.0.0 and current
 version 382.0.0 for that system path.
 
+### Physical-device evidence
+
+The physical run completed at `2026-09-05T21:19:27Z` on an iPhone 15 Pro Max
+running iOS 26.6 build `23G71`, with Developer Mode enabled and DDI services
+available. The host evidence remained outside the repository at
+`/private/tmp/greenroom-sqlite-capability-device-evidence.json`; it was validated
+as `status: "complete"` and is intentionally not checked in because the runtime
+envelope includes a per-run identifier. Raw UDID/CoreDevice identifiers were
+neither printed nor persisted; the envelope contains only the runner's safe,
+truncated device alias.
+
+The physical app reported system SQLite 3.51.0 and passed every capability row
+below. Before lock, protected data was available and every SQLite handle had
+closed. While locked, protected data became unavailable, raw access to the
+protected database was denied, and SQLite open failed with code 23
+(`SQLITE_AUTH`). In the same locked interval, the separate
+`NSFileProtectionNone` control remained raw-readable and SQLite-queryable. After
+unlock, protected data became available and the protected database reopened
+successfully. DB/WAL/SHM existed, reported `NSFileProtectionComplete`, and were
+excluded from backup after both first launch and forced relaunch.
+
 ## Behavioral results
 
 | Required behavior | Result | Executed proof |
@@ -155,11 +172,11 @@ version 382.0.0 for that system path.
 | rollback | PASS | inserted row disappeared after explicit `ROLLBACK` |
 | checkpoint | PASS | `sqlite3_wal_checkpoint_v2(..., SQLITE_CHECKPOINT_TRUNCATE, ...)` returned `SQLITE_OK` |
 | close/reopen persistence | PASS | both pre-reopen handles returned `SQLITE_OK` from checked `sqlite3_close`; only then was the marker read through a new connection |
-| forced termination/relaunch | PASS on Simulator | runner terminated the installed process with `simctl terminate`; relaunched process reopened the DB and found the committed marker |
-| backup exclusion | PASS on Simulator resource API | DB/WAL/SHM each reported `isExcludedFromBackup=true` after first write and again after relaunch |
-| `NSFileProtectionComplete` | **PENDING physical device** | setting `.protectionKey = .complete` succeeded for DB/WAL/SHM, but Simulator omitted the protection attribute on readback; evidence records `not_exposed_by_simulator` and `protectionVerified=false` rather than claiming success |
-| locked protected-data behavior | **PENDING physical device** | Simulator cannot truthfully prove lock/unlock data unavailability |
-| locked unprotected control | **PENDING physical device** | A distinct `NSFileProtectionNone` SQLite DB must remain raw-readable and SQLite-queryable while locked; the separately unprotected JSON is evidence transport only |
+| forced termination/relaunch | PASS on Simulator and physical device | each runner forcibly terminated and relaunched the app; the relaunched process reopened the DB and found the committed marker |
+| backup exclusion | PASS on Simulator and physical device | DB/WAL/SHM each reported `isExcludedFromBackup=true` after first write and again after relaunch |
+| `NSFileProtectionComplete` | PASS on physical device | DB/WAL/SHM reported `NSFileProtectionComplete` after first write and relaunch; Simulator correctly records that it cannot expose this attribute |
+| locked protected-data behavior | PASS on physical device | protected data became unavailable while locked; raw protected read was denied and SQLite open was denied with code 23; protected data and reopen succeeded after unlock |
+| locked unprotected control | PASS on physical device | the distinct `NSFileProtectionNone` control remained raw-readable and SQLite-queryable during the same locked interval |
 
 ## Exact system SQLite compile options
 
@@ -240,17 +257,9 @@ USE_URI
 
 ## Required follow-up before final GO
 
-1. Select the product minimum iOS version from device/submission evidence; install
-   that runtime if available and rerun this exact harness on the oldest supported
-   Simulator.
-2. Supply `DEVICE_UDID` and `CORE_DEVICE_ID` through the environment and run
-   `ios/Spikes/SQLiteCapability/run-device.sh prepare`, perform the printed
-   lock/wait/unlock action, then supply both identifiers again and run `collect`
-   with the same evidence path. Raw values are not printed or persisted. The
-   published envelope records model/iOS/build and only a truncated SHA-256 alias.
-3. Verify DB/WAL/SHM read back as `NSFileProtectionComplete` after first write
-   and relaunch, then prove actual protected-data unavailability while locked
-   and successful reopen after unlock. Require matched raw-read and SQLite-query
-   success on the separate unprotected control while the phone remains locked.
-4. Repeat forced termination/relaunch and backup-exclusion checks on that
-   physical device. Do not convert this report to GO unless every row is proven.
+1. Select the product minimum iOS version from device/submission evidence.
+2. Install that runtime if available and rerun this exact harness on the oldest
+   supported Simulator (and on matching physical hardware when the selected
+   minimum requires physical protected-data proof).
+3. Do not convert the Task 0.2 disposition to final GO or claim final release
+   qualification until the oldest-supported-runtime gate passes.
