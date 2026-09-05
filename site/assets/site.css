@@ -179,6 +179,7 @@ h1 {
 .prose h2 { margin: 3rem 0 0.8rem; padding-top: 0.75rem; border-top: var(--rule); font: 2.5rem/0.95 var(--display); text-transform: uppercase; }
 .prose h3 { margin-top: 2rem; font-size: 1.25rem; }
 .prose code { padding: 0.12rem 0.3rem; background: var(--paper-deep); font-family: var(--mono); }
+.checksum { overflow-wrap: anywhere; }
 .prose li + li { margin-top: 0.65rem; }
 .steps { counter-reset: steps; margin: 2rem 0 0; padding: 0; list-style: none; }
 .steps li { counter-increment: steps; position: relative; padding: 1.2rem 1rem 1.2rem 5rem; border-top: var(--rule); font-weight: 700; }

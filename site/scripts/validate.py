@@ -14,6 +14,15 @@ from urllib.parse import unquote, urlparse
 
 SITE = Path(__file__).resolve().parents[1]
 SITE_ORIGIN = "https://greenroomai.net"
+ALPHA_RELEASE_URL = "https://github.com/Jdelg718/the-green-room/releases/tag/v0.1.0-alpha.1"
+ALPHA_DOWNLOAD_URL = (
+    "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/"
+    "The-Green-Room-0.1.0-alpha.1-macos-arm64.zip"
+)
+ALPHA_CHECKSUMS_URL = (
+    "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/SHA256SUMS"
+)
+ALPHA_SHA256 = "333f5cdd2e9c88e901cacd5cdad58109b67affc1f63cc5f98321644592bde469"
 CHARACTER_PROFILES = {
     "ada-lovelace": "Ada Lovelace",
     "benjamin-franklin": "Benjamin Franklin",
@@ -144,7 +153,7 @@ PROFILE_SOURCE_SHA256 = {
     "thomas-jefferson": "fe0455dfc95e7b95d40899eae4b7438839cbdb252751b3440ffb14aa83388b37",
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
 }
-PROFILE_STYLESHEET_SHA256 = "e3dadfd5cc5907fbb36f48a0b926fba5e387bf289eb2dcdfadcdf66764ce4560"
+PROFILE_STYLESHEET_SHA256 = "7d5dd86d18dfd291c1df677169402c0868784ff3d8355cd6173012633569310c"
 SOCIAL_CARD_SHA256 = "ab01167634803a5478c3c76d5b1d925e03ea3857b8143041d7edf422c1b8dc87"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
@@ -179,7 +188,7 @@ REQUIRED_LANGUAGE = {
         "local-first",
         "your own local or cloud LLM",
         "bounded context",
-        "forthcoming",
+        "Alpha 1",
         "eighteen source-informed historical character packs",
         "Character Wizard",
         "community library",
@@ -220,7 +229,16 @@ REQUIRED_LANGUAGE = {
         "runtime preinstallation remain separate from Official Catalog admission",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
-    "download/index.html": ("forthcoming", "no downloadable release"),
+    "download/index.html": (
+        "Alpha 1",
+        "Apple-silicon macOS",
+        "19 preinstalled characters",
+        "local or cloud model",
+        "No iPhone or iPad app",
+        "early alpha software",
+        ALPHA_SHA256,
+        "Move The Green Room.app to Applications",
+    ),
     "contribute/index.html": ("GitHub", "content and legal boundaries"),
 }
 FORBIDDEN_TEXT = (
@@ -577,6 +595,24 @@ def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tupl
     ]
 
 
+def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
+    links = semantic_links(parser)
+    required = {
+        ALPHA_DOWNLOAD_URL: "Download Alpha 1 for Apple silicon",
+        ALPHA_CHECKSUMS_URL: "Download SHA256SUMS",
+        ALPHA_RELEASE_URL: "Release notes",
+        "https://github.com/Jdelg718/the-green-room": "Source",
+        "https://github.com/Jdelg718/the-green-room/issues": "Report issues",
+    }
+    for href, label in required.items():
+        matches = [(candidate_href, text) for candidate_href, text in links if candidate_href == href]
+        if matches != [(href, label)]:
+            fail(errors, f"download/index.html: missing unique exact {label} link")
+    visible = " ".join(" ".join(parser.text).split())
+    if ALPHA_SHA256 not in visible:
+        fail(errors, "download/index.html: missing exact release checksum")
+
+
 PROFILE_INTERPRETATION_DISCLOSURE = (
     "This is a source-informed educational creative interpretation of a historical person. "
     "It is not the person, a literal simulation, an authoritative reconstruction, an endorsed "
@@ -886,6 +922,8 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
 
     if relative == "characters/index.html":
         validate_character_index(parser, errors)
+    if relative == "download/index.html":
+        validate_download_contract(parser, errors)
     profile_match = re.fullmatch(r"characters/([a-z0-9-]+)/index\.html", relative)
     if profile_match:
         slug = profile_match.group(1)

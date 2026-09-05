@@ -25,7 +25,7 @@ The validator uses only the Python standard library. It checks required pages an
 - `index.html` — public project overview
 - `characters/index.html` — installed historical cast, Character Wizard direction, and community-library contract
 - `docs/index.html` — documentation map and trust boundary
-- `download/index.html` — honest forthcoming-release state
+- `download/index.html` — verified Alpha 1 download, requirements, limitations, install steps, and checksum
 - `contribute/index.html` — contribution and security guidance
 - `assets/site.css` — shared Backstage Electric styles using system fonts
 - `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations also used as local-app presentation assets; originals and generation metadata are not web assets
@@ -43,7 +43,7 @@ The live bytes were deployed separately. Merging this source and its Cloudflare 
 - set `Content-Security-Policy: default-src 'self'; base-uri 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'` (the pages also carry a compatible meta policy where supported);
 - set `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and a restrictive `Permissions-Policy`;
 - avoid analytics, cookies, injected scripts, remote fonts, remote images, forms, and request logging that captures sensitive query data;
-- publish a download only after the artifact and checksum are independently verified, then replace the forthcoming copy in a reviewed change;
+- publish downloads only after each artifact and checksum is independently verified, and keep the exact public release links pinned in reviewed source;
 - keep provider credentials, transcripts, rooms, memory, pack drafts, and model proxying entirely outside this public plane; and
 - treat any hosted application, invitation flow, or multi-tenant room as a separate architecture and security review.
 

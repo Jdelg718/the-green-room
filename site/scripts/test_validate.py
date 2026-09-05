@@ -44,6 +44,28 @@ class StaticPolicyTests(unittest.TestCase):
     def test_current_site_passes(self) -> None:
         self.assertEqual(validate.collect_errors(), [])
 
+    def test_download_page_pins_release_asset_and_evidence_links(self) -> None:
+        mutations = {
+            "Download Alpha 1 for Apple silicon": (
+                validate.ALPHA_DOWNLOAD_URL,
+                validate.ALPHA_RELEASE_URL,
+            ),
+            "Download SHA256SUMS": (
+                validate.ALPHA_CHECKSUMS_URL,
+                validate.ALPHA_RELEASE_URL,
+            ),
+            "release checksum": (validate.ALPHA_SHA256, "0" * 64),
+        }
+        for reason, (old, new) in mutations.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "download" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(old, source)
+                page.write_text(source.replace(old, new, 1), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
     def test_readme_requires_no_redeploy_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
