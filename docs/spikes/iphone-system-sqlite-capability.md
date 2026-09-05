@@ -9,14 +9,25 @@ device as an iPhone 17 Pro Simulator running iOS 26.5; the app's generic
 `UIDevice.current.model` value (`iPhone`) is recorded only as an app observation
 and is not the basis for that device identity claim.
 
-**Phase 0 Task 0.2 final disposition: NO-GO / incomplete for product
-qualification.** The registered physical iPhone 15 Pro Max was unavailable, and
-Xcode has no older iOS Simulator runtime installed. Therefore this report does
+**Phase 0 Task 0.2 final disposition: CONDITIONAL pending the manual lock gate.**
+The registered physical iPhone 15 Pro Max is now exercised by a fail-closed
+device state machine, while Xcode has no older iOS Simulator runtime installed.
+Therefore this report does
 not qualify the oldest eventual product OS, physical-device protected-data
 behavior, or a final product deployment target. Schema work may use this harness
 and the measured Simulator capability set as provisional engineering evidence,
 but the physical-device/oldest-runtime gate in the implementation plan remains
 blocking before a final GO.
+
+Physical execution was attempted against an attached/trusted iPhone 15 Pro Max
+running iOS 26.6 (`23G71`). Device discovery confirmed Developer Mode and DDI
+services, but automatic provisioning stopped before compilation/install:
+`xcodebuild` reported `No Accounts` and no iOS development profile for the
+spike bundle identifier. The login keychain exposed only a Developer ID
+Application identity, not an Apple Development identity. No physical app or
+physical evidence was installed/published, so the state remains honestly before
+`awaiting_lock`. Re-authenticate the team in Xcode Accounts, then rerun
+`run-device.sh prepare`; do not use the Simulator JSON as physical proof.
 
 ## Boundary proved
 
@@ -39,7 +50,7 @@ encrypted database mode by Green Room.
 
 The TypeScript contract test
 `test/contract/iphone-native-dependencies.test.ts` enforces an exact allowlist of
-the seven reviewed first-party spike files and four required directories. It
+the eight reviewed first-party spike files and four required directories. It
 fails closed on
 symlinks, unexpected filesystem types, extra source or compiled artifacts,
 framework bundles, dependency-manager files, and disguised native libraries.
@@ -217,9 +228,9 @@ USE_URI
 1. Select the product minimum iOS version from device/submission evidence; install
    that runtime if available and rerun this exact harness on the oldest supported
    Simulator.
-2. Run the repository-owned harness or its production-equivalent checks on the
-   registered physical iPhone 15 Pro Max and record exact hardware, iOS, app
-   build, SQLite version, and compile options.
+2. Run `ios/Spikes/SQLiteCapability/run-device.sh prepare`, perform the printed
+   lock/wait/unlock action, then run its exact `collect` command. The published
+   envelope records model/iOS/build and only a truncated SHA-256 device alias.
 3. Verify DB/WAL/SHM read back as `NSFileProtectionComplete` after first write
    and relaunch, then prove actual protected-data unavailability while locked
    and successful reopen after unlock.

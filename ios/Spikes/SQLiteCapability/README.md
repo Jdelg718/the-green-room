@@ -11,7 +11,7 @@ Run it against a booted Simulator from the repository root:
 ios/Spikes/SQLiteCapability/run-simulator.sh
 ```
 
-The runner validates the exact seven-file repository inventory and its four
+The runner validates the exact eight-file repository inventory and its four
 required directories, copies only the five Xcode project/source inputs to an
 external temporary staging directory, and builds there so Xcode cannot create
 workspace metadata in the source tree. All five executable build inputs must
@@ -51,3 +51,20 @@ is not a final Green Room product minimum and does not qualify an iOS 15 runtime
 Only the exact Simulator runtime named in generated evidence is runtime proof.
 The runner queries `simctl listapps` before uninstalling: an installed spike must
 uninstall successfully, while an absent spike needs no ignored uninstall error.
+
+For the authorized registered physical iPhone, run:
+
+```sh
+ios/Spikes/SQLiteCapability/run-device.sh prepare
+```
+
+The device runner applies the same exact source inventory/hash and sanitized
+external-staging boundary, uses automatic signing only through explicit
+command-line overrides, verifies bundle/profile/team/entitlements and exact
+system `libsqlite3` linkage before installation, and performs the forced
+kill/relaunch proof. It then publishes physical-only evidence with a hashed
+device identifier and stops at `awaiting_lock`, with every SQLite handle closed.
+Lock the phone for at least ten seconds and unlock it, then run the exact
+`run-device.sh collect` command printed by `prepare`. Collection rejects
+Simulator evidence, stale status, missing lock denial, or missing post-unlock
+reopen proof. Device serial number and ECID are never published.

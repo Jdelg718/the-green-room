@@ -110,6 +110,7 @@ root = sys.argv[1]
 expected_files = {
     "README.md",
     "run-simulator.sh",
+    "run-device.sh",
     "SQLiteCapability/AppDelegate.swift",
     "SQLiteCapability/Info.plist",
     "SQLiteCapability/SQLiteCapabilityProbe.swift",
@@ -144,9 +145,9 @@ if actual_files != expected_files or actual_directories != expected_directories:
     missing = sorted((expected_files - actual_files) | (expected_directories - actual_directories))
     raise SystemExit(f"spike inventory mismatch; unexpected={unexpected}, missing={missing}")
 expected_hashes = {
-    "SQLiteCapability/AppDelegate.swift": "e0c75ea403017d42fa3d375af595204eb05db5a6973f7da5f98a11f032a83e77",
+    "SQLiteCapability/AppDelegate.swift": "c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
     "SQLiteCapability/Info.plist": "09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-    "SQLiteCapability/SQLiteCapabilityProbe.swift": "8d5aa6f51b94824819b7aef51ecbc2135d4d69d1fe4892ebe7feb227e1942cef",
+    "SQLiteCapability/SQLiteCapabilityProbe.swift": "50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
     "SQLiteCapability.xcodeproj/project.pbxproj": "af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
     "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme": "5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19",
 }
@@ -197,9 +198,9 @@ for directory, names, files in os.walk(root, topdown=True, followlinks=False):
 if actual != expected:
     raise SystemExit(f"staged Xcode inventory mismatch: {sorted(actual)}")
 for relative, expected_hash in {
-    "SQLiteCapability/AppDelegate.swift": "e0c75ea403017d42fa3d375af595204eb05db5a6973f7da5f98a11f032a83e77",
+    "SQLiteCapability/AppDelegate.swift": "c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
     "SQLiteCapability/Info.plist": "09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
-    "SQLiteCapability/SQLiteCapabilityProbe.swift": "8d5aa6f51b94824819b7aef51ecbc2135d4d69d1fe4892ebe7feb227e1942cef",
+    "SQLiteCapability/SQLiteCapabilityProbe.swift": "50f3c6b55b9de59925221867025d9130b95fdc734e41bae8deb5432175c375c9",
     "SQLiteCapability.xcodeproj/project.pbxproj": "af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
     "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme": "5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19",
 }.items():

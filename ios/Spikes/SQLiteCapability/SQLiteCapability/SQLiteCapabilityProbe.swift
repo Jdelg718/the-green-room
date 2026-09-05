@@ -12,6 +12,7 @@ struct FileCapabilityEvidence: Codable {
 
 struct SQLiteQualificationEvidence: Codable {
     var status: String
+    let runIdentifier: String
     let generatedAt: String
     let deviceReportedModel: String
     let deviceReportedSystemName: String
@@ -32,6 +33,15 @@ struct SQLiteQualificationEvidence: Codable {
     var forcedTerminationRelaunch: Bool
     let firstLaunchFiles: [String: FileCapabilityEvidence]
     var filesAfterRelaunch: [String: FileCapabilityEvidence]?
+    var qualificationPlatform: String?
+    var allSQLiteHandlesClosedBeforeLock: Bool?
+    var protectedDataAvailableBeforeLock: Bool?
+    var lockedProtectedDataUnavailable: Bool?
+    var lockedRawReadDenied: Bool?
+    var lockedSQLiteOpenDenied: Bool?
+    var lockedSQLiteOpenCode: Int32?
+    var unlockedProtectedDataAvailable: Bool?
+    var reopenAfterUnlock: Bool?
     var failure: String?
 }
 
@@ -92,17 +102,26 @@ enum SQLiteCapabilityProbe {
     private static var retainedConnections: [CheckedSQLiteConnection] = []
     private static var failedCleanupQuarantine: [CheckedSQLiteConnection] = []
 
-    private static var directory: URL {
+    private static var controlDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent(directoryName, isDirectory: true)
     }
 
-    private static var databaseURL: URL { directory.appendingPathComponent(databaseName) }
-    private static var evidenceURL: URL { directory.appendingPathComponent(evidenceName) }
+    private static var databaseDirectory: URL {
+        controlDirectory.appendingPathComponent("ProtectedDatabase", isDirectory: true)
+    }
+
+    private static var databaseURL: URL { databaseDirectory.appendingPathComponent(databaseName) }
+    private static var evidenceURL: URL { controlDirectory.appendingPathComponent(evidenceName) }
 
     static func run() throws -> SQLiteQualificationEvidence {
         try FileManager.default.createDirectory(
-            at: directory,
+            at: controlDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.none]
+        )
+        try FileManager.default.createDirectory(
+            at: databaseDirectory,
             withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.complete]
         )
@@ -110,15 +129,48 @@ enum SQLiteCapabilityProbe {
         if FileManager.default.fileExists(atPath: evidenceURL.path) {
             let data = try Data(contentsOf: evidenceURL)
             var prior = try JSONDecoder().decode(SQLiteQualificationEvidence.self, from: data)
+#if !targetEnvironment(simulator)
+            guard prior.runIdentifier == (try requiredRunIdentifier()) else {
+                throw ProbeFailure.assertion("physical run identifier changed across launch")
+            }
+#endif
             if prior.status == "awaiting_forced_termination" {
                 return try runRelaunch(prior: &prior)
             }
+#if !targetEnvironment(simulator)
+            if prior.status == "awaiting_lock" {
+                return UIApplication.shared.isProtectedDataAvailable ? prior : try recordLockedAttempt(prior: &prior)
+            }
+            if prior.status == "awaiting_unlock" {
+                return UIApplication.shared.isProtectedDataAvailable ? try recordUnlockedReopen(prior: &prior) : prior
+            }
+#endif
         }
         return try runFirstLaunch()
     }
 
+    static func protectedDataWillBecomeUnavailable() throws -> SQLiteQualificationEvidence {
+        var prior = try readEvidence()
+        guard prior.status == "awaiting_lock" else {
+            throw ProbeFailure.assertion("lock event received in unexpected state: \(prior.status)")
+        }
+        return try recordLockedAttempt(prior: &prior)
+    }
+
+    static func protectedDataDidBecomeAvailable() throws -> SQLiteQualificationEvidence {
+        var prior = try readEvidence()
+        guard prior.status == "awaiting_unlock" else {
+            throw ProbeFailure.assertion("unlock event received in unexpected state: \(prior.status)")
+        }
+        return try recordUnlockedReopen(prior: &prior)
+    }
+
     static func recordFailure(_ error: Error) {
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: controlDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.none]
+        )
         let payload: [String: Any] = [
             "status": "failed",
             "failure": String(describing: error),
@@ -131,19 +183,42 @@ enum SQLiteCapabilityProbe {
 
     private static func runRelaunch(prior: inout SQLiteQualificationEvidence) throws -> SQLiteQualificationEvidence {
         let connection = try openDatabase(databaseURL.path)
+        var active = [connection]
         do {
             let db = try connection.requireHandle()
             let marker = try scalarInt(db, "SELECT count(*) FROM persistence WHERE value = 4242")
             guard marker == 1 else { throw ProbeFailure.assertion("forced-relaunch marker missing") }
+            try exec(db, "PRAGMA journal_mode = WAL")
+            try exec(db, "INSERT INTO persistence(value) VALUES (8)")
+            let sidecar = try openDatabase(databaseURL.path)
+            active.append(sidecar)
+            _ = try scalarInt(try sidecar.requireHandle(), "SELECT count(*) FROM persistence")
             try configureFiles()
+#if targetEnvironment(simulator)
             prior.status = "complete"
+#else
+            prior.status = "awaiting_lock"
+#endif
             prior.forcedTerminationRelaunch = true
             prior.filesAfterRelaunch = inspectFiles()
-            try connection.checkedClose("forced-relaunch")
+            try sidecar.checkedClose("forced-relaunch sidecar before lock")
+            active.removeAll { $0 === sidecar }
+            try connection.checkedClose("forced-relaunch primary before lock")
+            active.removeAll { $0 === connection }
+#if targetEnvironment(simulator)
+            prior.qualificationPlatform = "simulator"
+#else
+            prior.qualificationPlatform = "physical"
+            prior.allSQLiteHandlesClosedBeforeLock = true
+            prior.protectedDataAvailableBeforeLock = UIApplication.shared.isProtectedDataAvailable
+            guard prior.protectedDataAvailableBeforeLock == true else {
+                throw ProbeFailure.assertion("protected data was unavailable before manual lock gate")
+            }
+#endif
             try writeEvidence(prior)
             return prior
         } catch {
-            throw cleanup([connection], after: error)
+            throw cleanup(active, after: error)
         }
     }
 
@@ -246,6 +321,7 @@ enum SQLiteCapabilityProbe {
 
             let evidence = SQLiteQualificationEvidence(
                 status: "awaiting_forced_termination",
+                runIdentifier: try requiredRunIdentifier(),
                 generatedAt: ISO8601DateFormatter().string(from: Date()),
                 deviceReportedModel: UIDevice.current.model,
                 deviceReportedSystemName: UIDevice.current.systemName,
@@ -266,6 +342,21 @@ enum SQLiteCapabilityProbe {
                 forcedTerminationRelaunch: false,
                 firstLaunchFiles: inspectFiles(),
                 filesAfterRelaunch: nil,
+                qualificationPlatform: {
+#if targetEnvironment(simulator)
+                    "simulator"
+#else
+                    "physical"
+#endif
+                }(),
+                allSQLiteHandlesClosedBeforeLock: nil,
+                protectedDataAvailableBeforeLock: nil,
+                lockedProtectedDataUnavailable: nil,
+                lockedRawReadDenied: nil,
+                lockedSQLiteOpenDenied: nil,
+                lockedSQLiteOpenCode: nil,
+                unlockedProtectedDataAvailable: nil,
+                reopenAfterUnlock: nil,
                 failure: nil
             )
             try writeEvidence(evidence)
@@ -421,10 +512,96 @@ enum SQLiteCapabilityProbe {
         })
     }
 
+    private static func readEvidence() throws -> SQLiteQualificationEvidence {
+        try JSONDecoder().decode(SQLiteQualificationEvidence.self, from: Data(contentsOf: evidenceURL))
+    }
+
+    private static func requiredRunIdentifier() throws -> String {
+#if targetEnvironment(simulator)
+        return "simulator-run"
+#else
+        guard let value = ProcessInfo.processInfo.environment["SQLITE_CAPABILITY_RUN_ID"],
+              value.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil else {
+            throw ProbeFailure.assertion("missing or invalid physical run identifier")
+        }
+        return value
+#endif
+    }
+
+    private static func recordLockedAttempt(prior: inout SQLiteQualificationEvidence) throws -> SQLiteQualificationEvidence {
+        guard prior.qualificationPlatform == "physical" else {
+            throw ProbeFailure.assertion("physical lock proof cannot consume non-physical evidence")
+        }
+        guard prior.allSQLiteHandlesClosedBeforeLock == true else {
+            throw ProbeFailure.assertion("SQLite handles were not proven closed before lock")
+        }
+        guard !UIApplication.shared.isProtectedDataAvailable else {
+            throw ProbeFailure.assertion("lock callback ran while protected data remained available")
+        }
+
+        let rawReadDenied: Bool
+        do {
+            _ = try Data(contentsOf: databaseURL)
+            rawReadDenied = false
+        } catch {
+            rawReadDenied = true
+        }
+        var lockedHandle: OpaquePointer?
+        let openCode = sqlite3_open_v2(
+            databaseURL.path, &lockedHandle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil
+        )
+        let sqliteDenied = openCode != SQLITE_OK
+        if let lockedHandle {
+            try CheckedSQLiteConnection(handle: lockedHandle).checkedClose("locked read-only open cleanup")
+        }
+        guard rawReadDenied && sqliteDenied else {
+            throw ProbeFailure.assertion(
+                "protected database remained accessible while locked (rawDenied=\(rawReadDenied), sqliteCode=\(openCode))"
+            )
+        }
+        prior.lockedProtectedDataUnavailable = true
+        prior.lockedRawReadDenied = true
+        prior.lockedSQLiteOpenDenied = true
+        prior.lockedSQLiteOpenCode = openCode
+        prior.status = "awaiting_unlock"
+        try writeEvidence(prior)
+        return prior
+    }
+
+    private static func recordUnlockedReopen(prior: inout SQLiteQualificationEvidence) throws -> SQLiteQualificationEvidence {
+        guard prior.qualificationPlatform == "physical",
+              prior.lockedProtectedDataUnavailable == true,
+              prior.lockedRawReadDenied == true,
+              prior.lockedSQLiteOpenDenied == true else {
+            throw ProbeFailure.assertion("unlock proof lacks a successful locked-data denial")
+        }
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            throw ProbeFailure.assertion("protected data is still unavailable after unlock")
+        }
+        let connection = try openDatabase(databaseURL.path)
+        do {
+            let marker = try scalarInt(
+                try connection.requireHandle(), "SELECT count(*) FROM persistence WHERE value = 4242"
+            )
+            guard marker == 1 else { throw ProbeFailure.assertion("marker missing after unlock") }
+            try connection.checkedClose("post-unlock reopen")
+        } catch {
+            throw cleanup([connection], after: error)
+        }
+        prior.unlockedProtectedDataAvailable = true
+        prior.reopenAfterUnlock = true
+        prior.status = "complete"
+        try writeEvidence(prior)
+        return prior
+    }
+
     private static func writeEvidence(_ evidence: SQLiteQualificationEvidence) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(evidence)
         try data.write(to: evidenceURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.none], ofItemAtPath: evidenceURL.path
+        )
     }
 }

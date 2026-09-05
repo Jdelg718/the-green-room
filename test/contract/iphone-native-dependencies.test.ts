@@ -24,6 +24,7 @@ const REPORT = join(ROOT, "docs", "spikes", "iphone-system-sqlite-capability.md"
 
 const ALLOWED_SPIKE_FILES = new Set([
   "README.md",
+  "run-device.sh",
   "run-simulator.sh",
   "SQLiteCapability/AppDelegate.swift",
   "SQLiteCapability/Info.plist",
@@ -529,6 +530,92 @@ test("runner ignores Python and Apple toolchain injection while invalidating sta
   assert.equal(existsSync(output), false, "injected environments must not prevent stale evidence invalidation");
 });
 
+test("physical evidence validator rejects stale phases and Simulator evidence", (context) => {
+  const runner = read(join(SPIKE_ROOT, "run-device.sh"));
+  const match = runner.match(
+    /run_python - "\$source" "\$expected" "\$device_json" "\$prepared" "\$expected_run_id" <<'PY'\n(?<source>[\s\S]*?)\nPY\n  run_python - "\$prepared"/u,
+  );
+  assert.ok(match?.groups?.source, "missing physical evidence validation helper");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-device-validator-"));
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const validator = join(fixtureRoot, "validator.py");
+  const evidencePath = join(fixtureRoot, "evidence.json");
+  const devicePath = join(fixtureRoot, "device.json");
+  writeFileSync(validator, match.groups.source);
+  writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
+    identifier: "safe-test-identifier",
+    deviceProperties: {
+      osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
+    },
+    hardwareProperties: { marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical" },
+  }] } }));
+  const fileEvidence = {
+    exists: true, observedProtection: "NSFileProtectionComplete", protectionVerified: true, excludedFromBackup: true,
+  };
+  const valid = {
+    status: "complete",
+    runIdentifier: "0123456789abcdef0123456789abcdef",
+    qualificationPlatform: "physical",
+    deviceReportedSystemName: "iOS",
+    deviceReportedSystemVersion: "26.6",
+    forcedTerminationRelaunch: true,
+    allSQLiteHandlesClosedBeforeLock: true,
+    lockedProtectedDataUnavailable: true,
+    lockedRawReadDenied: true,
+    lockedSQLiteOpenDenied: true,
+    unlockedProtectedDataAvailable: true,
+    reopenAfterUnlock: true,
+    firstLaunchFiles: { database: fileEvidence, wal: fileEvidence, shm: fileEvidence },
+    filesAfterRelaunch: { database: fileEvidence, wal: fileEvidence, shm: fileEvidence },
+  };
+  const run = (evidence: object, expected = "complete"): void => {
+    writeFileSync(evidencePath, JSON.stringify(evidence));
+    const prepared = join(fixtureRoot, `prepared-${Math.random()}.json`);
+    execFileSync("/usr/bin/python3", [
+      "-I", validator, evidencePath, expected, devicePath, prepared, "0123456789abcdef0123456789abcdef",
+    ]);
+  };
+  assert.doesNotThrow(() => run(valid));
+  assert.throws(() => run({ ...valid, qualificationPlatform: "simulator" }), /non-physical evidence/u);
+  assert.throws(() => run({ ...valid, status: "awaiting_lock" }), /expected device status/u);
+  assert.throws(() => run({ ...valid, runIdentifier: "fedcba9876543210fedcba9876543210" }), /run identifier mismatch/u);
+  assert.throws(() => run({ ...valid, lockedRawReadDenied: false }), /lockedRawReadDenied/u);
+  assert.throws(() => run({ ...valid, filesAfterRelaunch: { database: fileEvidence, wal: fileEvidence } }), /filesAfterRelaunch\.shm/u);
+  const invalidDevice = JSON.parse(read(devicePath)) as { result: { devices: Array<Record<string, unknown>> } };
+  invalidDevice.result.devices[0] = {
+    ...invalidDevice.result.devices[0],
+    hardwareProperties: { marketingName: "Mac", platform: "iOS", reality: "physical" },
+  };
+  writeFileSync(devicePath, JSON.stringify(invalidDevice));
+  assert.throws(() => run(valid), /not an identified iPhone model/u);
+  writeFileSync(devicePath, JSON.stringify({ result: { devices: [{
+    identifier: "safe-test-identifier",
+    deviceProperties: {
+      osVersionNumber: "26.6", osBuildUpdate: "23G71", developerModeStatus: "enabled", ddiServicesAvailable: true,
+    },
+    hardwareProperties: { marketingName: "iPhone 15 Pro Max", platform: "iOS", reality: "physical" },
+  }] } }));
+  const missingVersionDevice = JSON.parse(read(devicePath)) as { result: { devices: Array<Record<string, any>> } };
+  missingVersionDevice.result.devices[0]!.deviceProperties.osVersionNumber = "";
+  writeFileSync(devicePath, JSON.stringify(missingVersionDevice));
+  assert.throws(() => run(valid), /OS version is missing/u);
+  missingVersionDevice.result.devices[0]!.deviceProperties.osVersionNumber = "26.6";
+  missingVersionDevice.result.devices[0]!.deviceProperties.osBuildUpdate = "";
+  writeFileSync(devicePath, JSON.stringify(missingVersionDevice));
+  assert.throws(() => run(valid), /OS build is missing/u);
+
+  const staleSimulatorOutput = join(fixtureRoot, "stale-simulator.json");
+  writeFileSync(staleSimulatorOutput, JSON.stringify({
+    ...valid, status: "complete", qualificationPlatform: "simulator", runIdentifier: "simulator-run",
+  }));
+  assert.throws(() => execFileSync(join(SPIKE_ROOT, "run-device.sh"), ["collect"], {
+    cwd: ROOT,
+    env: { ...process.env, SQLITE_CAPABILITY_DEVICE_EVIDENCE: staleSimulatorOutput },
+    stdio: "pipe",
+  }));
+  assert.equal(existsSync(staleSimulatorOutput), false, "failed collect must invalidate stale Simulator evidence");
+});
+
 test("iPhone persistence depends only on the repository-owned system SQLite spike", () => {
   const packageFiles = [join(ROOT, "package.json"), join(ROOT, "package-lock.json")].map(read).join("\n").toLowerCase();
   for (const forbidden of ["@capacitor-community/sqlite", "capacitor-sqlite", "sqlcipher", "cordova-sqlite"]) {
@@ -553,6 +640,11 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   assert.match(swift, /sqlite3_busy_timeout/u);
   assert.match(swift, /busyElapsedUpperBoundMilliseconds/u);
   assert.match(swift, /checkedClose/u);
+  assert.match(swift, /awaiting_lock/u);
+  assert.match(swift, /lockedRawReadDenied/u);
+  assert.match(swift, /lockedSQLiteOpenDenied/u);
+  assert.match(swift, /reopenAfterUnlock/u);
+  assert.match(swift, /allSQLiteHandlesClosedBeforeLock/u);
   assert.match(swift, /let closeCode = sqlite3_close\(/u);
   assert.doesNotMatch(swift, /^\s*sqlite3_close\(/mu);
   assert.doesNotMatch(swift, /CAPPlugin|CAPBridgedPlugin|CDVPlugin|SQLCipher/iu);
@@ -568,6 +660,22 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   assert.match(runner, /runtimeIdentifier/u);
   assert.match(runner, /deviceTypeIdentifier/u);
   assert.match(runner, /qualification-evidence\.json/u);
+
+  const deviceRunner = read(join(SPIKE_ROOT, "run-device.sh"));
+  assert.match(deviceRunner, /platform=iOS,id=\$DEVICE_UDID/u);
+  assert.match(deviceRunner, /DEVELOPMENT_TEAM="\$TEAM_ID"/u);
+  assert.match(deviceRunner, /CODE_SIGN_STYLE=Automatic/u);
+  assert.match(deviceRunner, /-allowProvisioningUpdates/u);
+  assert.match(deviceRunner, /devicectl device install app/u);
+  assert.match(deviceRunner, /devicectl device process terminate/u);
+  assert.match(deviceRunner, /codesign --verify --deep --strict/u);
+  assert.match(deviceRunner, /staged Xcode input hash mismatch/u);
+  assert.match(deviceRunner, /SQLITE_CAPABILITY_RUN_ID/u);
+  assert.match(deviceRunner, /--domain-type appDataContainer/u);
+  assert.match(deviceRunner, /qualificationPlatform/u);
+  assert.match(deviceRunner, /non-physical evidence cannot satisfy physical proof/u);
+  assert.match(deviceRunner, /expected device status/u);
+  assert.doesNotMatch(deviceRunner, /(?:serialNumber|ecid)/u);
 
   const report = read(REPORT);
   assert.match(report, /NO-GO|CONDITIONAL/u);
