@@ -233,6 +233,7 @@ REQUIRED_LANGUAGE = {
         "Alpha 1",
         "Apple-silicon macOS",
         "macOS 14 or later",
+        "release acceptance was verified on macOS 26.5.2",
         "19 preinstalled characters",
         "local or cloud model",
         "No iPhone or iPad app",
