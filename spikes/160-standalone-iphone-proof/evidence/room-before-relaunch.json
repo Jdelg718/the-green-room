@@ -1,0 +1,26 @@
+{
+  "id" : "041BCFA6-76EE-4667-838F-65002E04E6FA",
+  "messages" : [
+    {
+      "createdAt" : "2026-09-05T12:18:38Z",
+      "id" : "19DB1DEE-EF23-408D-B9E2-D495B5ADE0D8",
+      "speakerKind" : "human",
+      "speakerName" : "You",
+      "text" : "What should we test first in a room that lives entirely on this iPhone?"
+    },
+    {
+      "createdAt" : "2026-09-05T12:18:39Z",
+      "id" : "EE4CBB0B-D86E-4E42-9924-060B3E97C55F",
+      "speakerKind" : "persona",
+      "speakerName" : "Ada Lovelace",
+      "text" : "Begin with the sequence: create one room, record one exchange, close the apparatus, and prove the same state returns. A small exact trial is better than a grand promise."
+    }
+  ],
+  "personaIDs" : [
+    "org.greenroom.historical.ada-lovelace",
+    "org.greenroom.historical.mary-shelley",
+    "org.greenroom.historical.benjamin-franklin"
+  ],
+  "title" : "The First Mobile Room",
+  "updatedAt" : "2026-09-05T12:18:39Z"
+}

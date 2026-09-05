@@ -1,0 +1,502 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		01810BB174A0A4BBB9300BA5 /* ada-lovelace.yaml in Resources */ = {isa = PBXBuildFile; fileRef = 182AF19BBDF1FC348558478E /* ada-lovelace.yaml */; };
+		16A11C04D5D266AF3A148CF7 /* GreenRoomProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD5C1141C527E7C049F0848 /* GreenRoomProofApp.swift */; };
+		2249C1ADB53A9F18A4AAC5F3 /* benjamin-franklin.webp in Resources */ = {isa = PBXBuildFile; fileRef = 99C6549B7CDAE48D26501B51 /* benjamin-franklin.webp */; };
+		2B44516A7E6CB14F04482306 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C629DE56613E5F2770A6A3AB /* Models.swift */; };
+		38434C9CA98F87F2BFF394D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DA742B100B3C5872155373A /* ContentView.swift */; };
+		50C65865D2F575C224D0620B /* RoomStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3310C837ECF3CBA963F8FA7D /* RoomStore.swift */; };
+		6C2E2EF83E13E4039EBE6EF6 /* ada-lovelace.webp in Resources */ = {isa = PBXBuildFile; fileRef = F38332B44B06977EC5FE3FCE /* ada-lovelace.webp */; };
+		74FC3530A05BEB68C811EA5C /* benjamin-franklin.yaml in Resources */ = {isa = PBXBuildFile; fileRef = 187A69E1ACB4518872513AC3 /* benjamin-franklin.yaml */; };
+		99A404ADD43F060F5AE2366D /* GreenRoomProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D391101015D0D860F8D57FE2 /* GreenRoomProofTests.swift */; };
+		A36B6BFE7D796970A5266A01 /* mary-shelley.yaml in Resources */ = {isa = PBXBuildFile; fileRef = E15812996547FC74E4199C28 /* mary-shelley.yaml */; };
+		B26C8F56C458A179EFE84DE6 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B1BEF17C0AFD9332CA133 /* KeychainStore.swift */; };
+		F4F09BE754BF0E31A5FB6838 /* RoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ADABE9ADF583BE3F1FDB4E1 /* RoomViewModel.swift */; };
+		FF5DECD06224ED06EC0B3899 /* mary-shelley.webp in Resources */ = {isa = PBXBuildFile; fileRef = 937960070B4C06509C9A3725 /* mary-shelley.webp */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2CDF1EEE7CC2E161CABAE956 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A4C25104A5C24ED8B2F6EED6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B089CC4FD287C2929C54E8DC;
+			remoteInfo = GreenRoomProof;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0138A3B7CFF423218CE06A5C /* GreenRoomProofTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GreenRoomProofTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		148B1BEF17C0AFD9332CA133 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		182AF19BBDF1FC348558478E /* ada-lovelace.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = "ada-lovelace.yaml"; sourceTree = "<group>"; };
+		187A69E1ACB4518872513AC3 /* benjamin-franklin.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = "benjamin-franklin.yaml"; sourceTree = "<group>"; };
+		270E5FCA2DEE56B513BF6F0E /* GreenRoomProof.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GreenRoomProof.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2DA742B100B3C5872155373A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3310C837ECF3CBA963F8FA7D /* RoomStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomStore.swift; sourceTree = "<group>"; };
+		3ADABE9ADF583BE3F1FDB4E1 /* RoomViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomViewModel.swift; sourceTree = "<group>"; };
+		937960070B4C06509C9A3725 /* mary-shelley.webp */ = {isa = PBXFileReference; path = "mary-shelley.webp"; sourceTree = "<group>"; };
+		99C6549B7CDAE48D26501B51 /* benjamin-franklin.webp */ = {isa = PBXFileReference; path = "benjamin-franklin.webp"; sourceTree = "<group>"; };
+		C629DE56613E5F2770A6A3AB /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		D391101015D0D860F8D57FE2 /* GreenRoomProofTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomProofTests.swift; sourceTree = "<group>"; };
+		DFD5C1141C527E7C049F0848 /* GreenRoomProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomProofApp.swift; sourceTree = "<group>"; };
+		E15812996547FC74E4199C28 /* mary-shelley.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = "mary-shelley.yaml"; sourceTree = "<group>"; };
+		F38332B44B06977EC5FE3FCE /* ada-lovelace.webp */ = {isa = PBXFileReference; path = "ada-lovelace.webp"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		04E7CE874383E7F821391C68 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				C629DE56613E5F2770A6A3AB /* Models.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		165509A5C4935E9E811CAA7F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				270E5FCA2DEE56B513BF6F0E /* GreenRoomProof.app */,
+				0138A3B7CFF423218CE06A5C /* GreenRoomProofTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		321710A3E7A5AB910CFA16F3 /* GreenRoomProof */ = {
+			isa = PBXGroup;
+			children = (
+				8F0686193E922B47D1FAECAA /* App */,
+				04E7CE874383E7F821391C68 /* Model */,
+				C35143A1D222A1BFDFB599FF /* Persistence */,
+				6A5AAC8CB0615613180855C5 /* Resources */,
+			);
+			path = GreenRoomProof;
+			sourceTree = "<group>";
+		};
+		65237085F70187D3F7BBF871 /* GreenRoomProofTests */ = {
+			isa = PBXGroup;
+			children = (
+				D391101015D0D860F8D57FE2 /* GreenRoomProofTests.swift */,
+			);
+			path = GreenRoomProofTests;
+			sourceTree = "<group>";
+		};
+		6A5AAC8CB0615613180855C5 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AE18E578401E81AAEB59730D /* Personas */,
+				D1BE83D86F345DE0FF77ADA2 /* Portraits */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		8F0686193E922B47D1FAECAA /* App */ = {
+			isa = PBXGroup;
+			children = (
+				2DA742B100B3C5872155373A /* ContentView.swift */,
+				DFD5C1141C527E7C049F0848 /* GreenRoomProofApp.swift */,
+				3ADABE9ADF583BE3F1FDB4E1 /* RoomViewModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AE18E578401E81AAEB59730D /* Personas */ = {
+			isa = PBXGroup;
+			children = (
+				182AF19BBDF1FC348558478E /* ada-lovelace.yaml */,
+				187A69E1ACB4518872513AC3 /* benjamin-franklin.yaml */,
+				E15812996547FC74E4199C28 /* mary-shelley.yaml */,
+			);
+			path = Personas;
+			sourceTree = "<group>";
+		};
+		C35143A1D222A1BFDFB599FF /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				148B1BEF17C0AFD9332CA133 /* KeychainStore.swift */,
+				3310C837ECF3CBA963F8FA7D /* RoomStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		D1BE83D86F345DE0FF77ADA2 /* Portraits */ = {
+			isa = PBXGroup;
+			children = (
+				F38332B44B06977EC5FE3FCE /* ada-lovelace.webp */,
+				99C6549B7CDAE48D26501B51 /* benjamin-franklin.webp */,
+				937960070B4C06509C9A3725 /* mary-shelley.webp */,
+			);
+			path = Portraits;
+			sourceTree = "<group>";
+		};
+		D2DEF73443663FC687670C64 = {
+			isa = PBXGroup;
+			children = (
+				321710A3E7A5AB910CFA16F3 /* GreenRoomProof */,
+				65237085F70187D3F7BBF871 /* GreenRoomProofTests */,
+				165509A5C4935E9E811CAA7F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B089CC4FD287C2929C54E8DC /* GreenRoomProof */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5196245958A17F175EB20A2F /* Build configuration list for PBXNativeTarget "GreenRoomProof" */;
+			buildPhases = (
+				89951CB14238BF22BE733EF9 /* Sources */,
+				251C1EF01BBF8B1369F60597 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GreenRoomProof;
+			packageProductDependencies = (
+			);
+			productName = GreenRoomProof;
+			productReference = 270E5FCA2DEE56B513BF6F0E /* GreenRoomProof.app */;
+			productType = "com.apple.product-type.application";
+		};
+		DCAB732EB2ACC572D86AEDD3 /* GreenRoomProofTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48E802CDDE90BDDEE1AAAB39 /* Build configuration list for PBXNativeTarget "GreenRoomProofTests" */;
+			buildPhases = (
+				0922102AB8BD706DD6F66405 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				47BA83D20A66B4D420D4CA41 /* PBXTargetDependency */,
+			);
+			name = GreenRoomProofTests;
+			packageProductDependencies = (
+			);
+			productName = GreenRoomProofTests;
+			productReference = 0138A3B7CFF423218CE06A5C /* GreenRoomProofTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A4C25104A5C24ED8B2F6EED6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					B089CC4FD287C2929C54E8DC = {
+						DevelopmentTeam = "";
+					};
+					DCAB732EB2ACC572D86AEDD3 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 90A5F08E1111F48AEA1B39D3 /* Build configuration list for PBXProject "GreenRoomProof" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D2DEF73443663FC687670C64;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 165509A5C4935E9E811CAA7F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B089CC4FD287C2929C54E8DC /* GreenRoomProof */,
+				DCAB732EB2ACC572D86AEDD3 /* GreenRoomProofTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		251C1EF01BBF8B1369F60597 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6C2E2EF83E13E4039EBE6EF6 /* ada-lovelace.webp in Resources */,
+				01810BB174A0A4BBB9300BA5 /* ada-lovelace.yaml in Resources */,
+				2249C1ADB53A9F18A4AAC5F3 /* benjamin-franklin.webp in Resources */,
+				74FC3530A05BEB68C811EA5C /* benjamin-franklin.yaml in Resources */,
+				FF5DECD06224ED06EC0B3899 /* mary-shelley.webp in Resources */,
+				A36B6BFE7D796970A5266A01 /* mary-shelley.yaml in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0922102AB8BD706DD6F66405 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				99A404ADD43F060F5AE2366D /* GreenRoomProofTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		89951CB14238BF22BE733EF9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				38434C9CA98F87F2BFF394D0 /* ContentView.swift in Sources */,
+				16A11C04D5D266AF3A148CF7 /* GreenRoomProofApp.swift in Sources */,
+				B26C8F56C458A179EFE84DE6 /* KeychainStore.swift in Sources */,
+				2B44516A7E6CB14F04482306 /* Models.swift in Sources */,
+				50C65865D2F575C224D0620B /* RoomStore.swift in Sources */,
+				F4F09BE754BF0E31A5FB6838 /* RoomViewModel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		47BA83D20A66B4D420D4CA41 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B089CC4FD287C2929C54E8DC /* GreenRoomProof */;
+			targetProxy = 2CDF1EEE7CC2E161CABAE956 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0D290EC40A7352CC7C95AE28 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Green Room Proof";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.spike.iphoneproof160;
+				PRODUCT_NAME = GreenRoomProof;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		3181001A13BA3A9C97C8E60A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		3CE64AF8FB2DFE4F4A0B7DC2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Green Room Proof";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.spike.iphoneproof160;
+				PRODUCT_NAME = GreenRoomProof;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		44A39C338AF24264237AE244 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.spike.iphoneproof160.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GreenRoomProof.app/GreenRoomProof";
+			};
+			name = Debug;
+		};
+		4F37585D7B57855EFF691301 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5D84F51A200CA3D22D0F67D5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.spike.iphoneproof160.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GreenRoomProof.app/GreenRoomProof";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		48E802CDDE90BDDEE1AAAB39 /* Build configuration list for PBXNativeTarget "GreenRoomProofTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				44A39C338AF24264237AE244 /* Debug */,
+				5D84F51A200CA3D22D0F67D5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5196245958A17F175EB20A2F /* Build configuration list for PBXNativeTarget "GreenRoomProof" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3CE64AF8FB2DFE4F4A0B7DC2 /* Debug */,
+				0D290EC40A7352CC7C95AE28 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		90A5F08E1111F48AEA1B39D3 /* Build configuration list for PBXProject "GreenRoomProof" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3181001A13BA3A9C97C8E60A /* Debug */,
+				4F37585D7B57855EFF691301 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A4C25104A5C24ED8B2F6EED6 /* Project object */;
+}
