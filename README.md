@@ -20,6 +20,8 @@ The macOS arm64 release path preserves the deterministic unsigned manifest-v1 ap
 
 Final evidence assembly is external, deterministic, atomic, and no-clobber. It inventories the exact notarized ZIP, generates complete notices, an SPDX 2.3 final-payload SBOM, a strict release manifest, custom local-assembly in-toto provenance, and an exact `SHA256SUMS` allowlist. See the [downloadable Alpha release-evidence checklist](docs/release/downloadable-alpha-checklist.md). The protected manual attestation workflow is a separate environment approval and never publishes release assets.
 
+Clean standard-user macOS acceptance is a separate, not-yet-executed gate. Its strict schema and independent verifier keep signed automated reports separate from hash-bound human screenshots and reject local/share acquisition, missing quarantine, contaminated targets, stale evidence, and incomplete core launch/persistence checks. See the [clean standard-user macOS acceptance guide](docs/release/clean-standard-user-macos-acceptance.md).
+
 Native iPhone/iPad clients and secure invitations for additional human participants are future roadmap pillars, not current alpha capabilities. Both remain downstream of the first-playable and community-release foundations and must preserve the local companion's authority unless a reviewed ADR changes it. See the [future-track plan](docs/plans/2026-09-01-apple-client-and-human-room-invitations.md).
 
 ## Run the first-playable acceptance

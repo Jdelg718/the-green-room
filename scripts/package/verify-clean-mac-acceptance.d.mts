@@ -1,0 +1,11 @@
+export const SCHEMA_VERSION: "clean-user-acceptance.v1";
+export const REPORT_SCHEMA_VERSION: "clean-user-automated-phase.v1";
+export const ARTIFACT: Readonly<{ filename: string; bytes: number; sha256: string; sourceCommit: string }>;
+export const TEAM_ID: "JZ233HBW3Z";
+export const SIGNING_IDENTITY: "Developer ID Application: James DelGuercio (JZ233HBW3Z)";
+export const KIT_BUNDLE_IDENTIFIER: "net.greenroomai.GreenRoom.AcceptanceKit";
+export const LIFECYCLE_QUALIFICATION: Readonly<{ issue: 141; commit: string; scope: string }>;
+export function canonicalJson(value: unknown): string;
+export function phasePolicy(): Record<string, { automated: string[]; human: string[] }>;
+export function validateAcceptanceEvidence(value: any, options?: { nowMs?: number }): Readonly<{ passed: true; runId: string; phases: number; checks: number; limitations: number }>;
+export function verifyAcceptanceDirectory(directory: string, options?: { nowMs?: number; verifySignature?: (payloadPath: string, signaturePath: string, descriptor: Record<string, unknown>) => void; verifyScreenshot?: (path: string) => void }): Readonly<{ passed: true; runId: string; phases: number; checks: number; limitations: number }>;
