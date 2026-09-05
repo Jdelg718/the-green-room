@@ -76,6 +76,12 @@ Pin Capacitor exactly and own every privileged native bridge in this repository.
 
 No analytics, advertising, crash-reporting, remote configuration, dynamic-update, provider SDK, browser polyfill, or general-purpose native bridge belongs in Alpha.
 
+## Distribution and business-model rule
+
+Issue #160 authorizes an **internal TestFlight** Alpha. The Alpha is free, sells no digital content, inference, credits, subscriptions, or provider access, and contains no provider signup, purchase, pricing, account-management, or external purchase link/call-to-action. A tester may enter only a previously obtained provider API key after provider-specific consent and terms review. Xcode's TestFlight Internal Only distribution mode is preferred and must be verified if compatible with the owner workflow.
+
+This posture is not asserted to qualify automatically for public distribution under Guideline 3.1. Before external TestFlight or App Store submission, the release owner must obtain and record a current, provider-by-provider App Review/business-model determination. If Apple requires in-app purchase, rejects externally obtained paid API access, or the provider does not authorize this client use, that provider is removed from the public build. If no approved provider remains, public distribution is **NO-GO** and requires a new product/architecture decision; the app will not add purchase links, a Green Room account, hosted inference, credits, or a relay by convenience.
+
 ## Release gates
 
 A TestFlight candidate is eligible only when all of the following are recorded against an exact commit:

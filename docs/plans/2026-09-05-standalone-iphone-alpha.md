@@ -248,10 +248,10 @@ Estimate assumptions:
 - Test: Swift persistence tests and TypeScript repository contract tests
 
 **Steps:**
-1. Define stable statement IDs for only the operations named in the bridge contract.
-2. Test rejection of raw SQL, unknown IDs, wrong arity/type, oversized results, nested transactions, and rollback.
+1. Define stable statement IDs for only the operations named in the bridge contract, including new-room-only participant creation, local drafts, credential reservation states, immutable provider request plans, and profile tombstones. Existing-room cast replacement is not an Alpha operation.
+2. Enforce and test the exact bridge bounds: 64 statements/batch, 64 parameters/statement, 64 query parameters, 500 returned rows, 100 events/page, and 256 KiB encoded call/result; reject raw SQL, unknown IDs, wrong arity/type, oversized results, nested transactions, and rollback failures.
 3. Implement one serialized database actor and `BEGIN IMMEDIATE` batches.
-4. Port desktop room repository behavior behind the core persistence port.
+4. Port desktop room repository behavior behind the core persistence port without weakening immutable participant/history triggers.
 5. Commit: `feat(ios): implement bounded SQLite repository`.
 
 ### Task 3.3: Prove event, director, and command recovery parity
@@ -329,13 +329,15 @@ Estimate assumptions:
 - Test: bridge and sentinel suites
 
 **Steps:**
-1. Write tests asserting the exact accessibility and synchronizable attributes, native-only secure entry, and absence of any key or read method in the JavaScript bridge.
-2. Implement the native save sheet plus status/delete calls using the existing canonical `credential:<profile-id>:<revision>` reference and provider/profile/revision-bound Keychain metadata.
-3. Share the serialized native persistence actor with the provider plugin so every request re-reads and verifies the exact profile revision is current, enabled, non-tombstone, and bound to the same provider before Keychain resolution.
-4. Implement save/revision/tombstone failure ordering: failed save never enables a profile; tombstone disables calls before idempotent Keychain deletion; launch reconciliation removes/reports orphans without reviving access.
-5. Test reinstall/key persistence behavior and document the chosen cleanup UX; never promise automatic purge if iOS preserves Keychain after uninstall.
-6. Search app container, SQLite, preferences, WebKit stores, logs, generated diagnostics, backups, and bridge responses for a synthetic sentinel.
-7. Commit: `security(ios): keep provider keys in Keychain`.
+1. Write tests asserting exact accessibility/synchronizable attributes, native-only secure entry, and absence of any key/read method in the JavaScript bridge.
+2. Reserve `credential_pending` in SQLite with exact profile ID, revision, provider ID, canonical reference, expected prior revision, and mutation ID before showing the native sheet.
+3. Implement replay-safe native save/status/delete: validate that reservation before Keychain write; if an exact Keychain item already matches the pending mutation, mark the revision ready without re-prompting or replacing; if any item mismatches, delete it, leave the reservation pending, return retryable failure, and do not present/write in that call; only an absent item may open the sheet and write once.
+4. Test termination and injected SQLite failure after Keychain write but before `ready`; exact retry/launch reconciliation must complete the matched item idempotently, while a mismatched/unattributable item is deleted and leaves a non-enabled retryable reservation.
+5. Share the serialized native persistence actor with the provider plugin so request-plan creation, Send enablement, and provider network all require credential state exactly `ready` and validate current non-tombstone revisions, command claim, and generation fence before Keychain resolution.
+6. Implement tombstone failure ordering: the tombstone blocks request plans/provider calls before idempotent Keychain deletion; launch reconciliation removes/reports orphan and delete-pending items without reviving access.
+7. Test reinstall/key persistence behavior and document the chosen cleanup UX; never promise automatic purge if iOS preserves Keychain after uninstall.
+8. Search app container, SQLite, preferences, WebKit stores, logs, generated diagnostics, backups, and bridge responses for a synthetic sentinel.
+9. Commit: `security(ios): keep provider keys in Keychain`.
 
 ### Task 5.2: Implement fixed native provider definitions
 
@@ -348,8 +350,9 @@ Estimate assumptions:
 
 **Steps:**
 1. Generate or fixture-check provider ID → host/path/token-field/parser mappings for all five providers.
-2. Test every mismatched scheme/host/port/path and unknown ID fails before network.
-3. Commit: `feat(ios): pin approved cloud provider destinations`.
+2. Require lifecycle state exactly `ready` before both model listing and generation; test `pending`, `delete_pending`, `missing`, stale, tombstoned, and mismatched state fails before Keychain resolution or network.
+3. Test every mismatched scheme/host/port/path and unknown ID fails before network.
+4. Commit: `feat(ios): pin approved cloud provider destinations`.
 
 ### Task 5.3: Implement bounded `URLSession` transport
 
@@ -360,11 +363,14 @@ Estimate assumptions:
 - Create: `ios/App/AppTests/ProviderTransportTests.swift`
 
 **Steps:**
-1. Use an injected `URLProtocol` to test headers, bodies, status, MIME, redirects, malformed JSON, 64-KiB generation-body and 2-MiB model-list limits, 16,384-byte output limit, timeout, capacity, cancellation, provider/profile/revision credential mismatch, and late callback races.
-2. Use ephemeral `URLSessionConfiguration`; disable cache/cookies/credential storage and reject every redirect.
-3. Resolve Keychain bytes inside the native actor, attach authorization, then release mutable copies.
-4. Return only the bounded text/silence or stable failure code.
-5. Commit: `security(ios): add bounded provider transport`.
+1. Persist an immutable provider request plan in the same transaction as the pending command claim: decision snapshot, current room binding/model/connection revisions, provider definition, credential reference, generation fence, bounded messages/settings, and request digest.
+2. Make `provider.generate` accept only `requestId`, `decisionSnapshotId`, and `commandClaimId`; native code reloads and verifies the entire plan/current lifecycle state before key resolution or network.
+3. Use an injected `URLProtocol` to test headers, bodies, status, MIME, redirects, malformed JSON, 64-KiB generation-body and 2-MiB model-list limits, 16,384-byte output limit, timeout, capacity, cancellation, stale/tombstoned profile/model/binding/snapshot, claim/fence/digest mismatch, and late callback races.
+4. Enforce desktop decoder ranges: 128-character canonical profile IDs, revisions `1...2_147_483_647`, opaque 256-byte NFC model IDs without controls/whitespace, temperature `0...2`, output tokens `1...32_768`, and exact duplicate in-flight request rejection.
+5. Use ephemeral `URLSessionConfiguration`; disable cache/cookies/credential storage and reject every redirect.
+6. Resolve Keychain bytes inside the native actor, attach authorization, then release mutable copies.
+7. Return only the bounded text/silence or stable failure code.
+8. Commit: `security(ios): add bounded provider transport`.
 
 ### Task 5.4: Run live-provider milestone on physical iPhone
 
@@ -377,7 +383,7 @@ Estimate assumptions:
 1. Configure one owner-approved provider/key through the app UI.
 2. Create a three-character room, send one prompt, receive one bounded response, force-terminate, relaunch, and reopen the room.
 3. Confirm the selected provider disclosure was shown and packet capture contains only the approved destination.
-4. Delete the profile and verify `credential.status` is absent and the room snapshot remains secret-free.
+4. Tombstone/delete the profile and verify `credential.status` returns `state: "missing"` and the room snapshot remains secret-free.
 5. Commit: `test(ios): record redacted provider milestone` only after privacy review.
 
 ## Phase 6 — integrate the compact Alpha experience
@@ -459,9 +465,10 @@ Estimate assumptions:
 1. Inventory binaries/frameworks/entitlements/Info.plist/privacy manifests and software licenses.
 2. Fail on Node/Python, local listeners, arbitrary ATS loads, background modes, remote-code/update strings, analytics SDKs, unexpected domains, or privacy-sensitive APIs without declared reasons.
 3. Inspect the Xcode privacy report and network captures; update the manifest and App Store privacy worksheet from measured behavior only.
-4. Add a current App Review checklist for Guidelines 3.1, 5.1.2(i), and 5.2.2: provider-specific affirmative consent before sending conversation/persona context, always-available privacy policy, evidence that each provider's terms permit BYO-key client access/display, regional purchase-link behavior, and reviewer notes explaining that Green Room sells no provider service or credits.
-5. Repeat secret/transcript sentinel scans across app/container/backup/log/diagnostic/WebKit surfaces.
-6. Commit: `security(ios): qualify exact Alpha archive`.
+4. Enforce the internal-Alpha business rule: no sale of inference/credits/subscriptions, provider signup, pricing, account management, purchase link, or purchase call-to-action; testers enter only previously obtained keys.
+5. For any later external TestFlight/App Store build, require a current provider-by-provider determination under Guidelines 3.1, 5.1.2(i), and 5.2.2: affirmative provider-specific consent, always-available privacy policy, provider terms/authorization evidence, regional purchase-link behavior, and App Review notes. Remove a provider if Apple/provider terms reject the model; if none remain, public distribution is NO-GO pending a new ADR—do not add accounts, hosted inference, credits, or relay as a shortcut.
+6. Repeat secret/transcript sentinel scans across app/container/backup/log/diagnostic/WebKit surfaces.
+7. Commit: `security(ios): qualify exact Alpha archive`.
 
 ### Task 7.3: Regression and hostile-path matrix
 
@@ -490,9 +497,10 @@ Estimate assumptions:
 
 **Steps:**
 1. Confirm App Store Connect app record, exact bundle ID, Team ID, version/build, signing mode, encryption/export-compliance answer, support/privacy URLs, and internal tester group.
-2. Do not create credentials, rotate certificates, or submit external review without explicit owner action/approval.
-3. Archive from the exact reviewed commit and verify the archive again.
-4. Commit checklist/metadata changes separately from generated credentials or archives.
+2. Select and verify Xcode's **TestFlight Internal Only** distribution mode when compatible with the owner workflow; record that the resulting build cannot be promoted to external testing or customers.
+3. Do not create credentials, rotate certificates, or submit external review without explicit owner action/approval.
+4. Archive from the exact reviewed commit and verify the archive again.
+5. Commit checklist/metadata changes separately from generated credentials or archives.
 
 ### Task 8.2: Upload and read back the internal TestFlight candidate
 
