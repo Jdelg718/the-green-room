@@ -448,6 +448,40 @@ test("runner stages reviewed inputs externally and invalidates stale evidence be
   assert.match(read(parentTarget), /"parentProtected":true/u, "runner must not follow an output parent symlink");
 });
 
+test("evidence output normalization preserves Linux /tmp paths while canonicalizing Darwin aliases", () => {
+  const runner = read(join(SPIKE_ROOT, "run-simulator.sh"));
+  const helperMatch = runner.match(
+    /OUTPUT="\$\(run_python - "\$OUTPUT" <<'PY'\n(?<source>[\s\S]*?)\nPY\n\)"/u,
+  );
+  assert.ok(helperMatch?.groups?.source, "missing evidence invalidation helper");
+
+  const probe = [
+    "import ast",
+    "import json",
+    "import sys",
+    "tree = ast.parse(sys.argv[1])",
+    'body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) or (isinstance(node, ast.FunctionDef) and node.name == "normalize_output_path")]',
+    'namespace = {}',
+    'exec(compile(ast.Module(body=body, type_ignores=[]), "<evidence-helper>", "exec"), namespace)',
+    'normalize = namespace["normalize_output_path"]',
+    'print(json.dumps({platform: [normalize(path, platform) for path in ["/tmp/evidence.json", "/var/evidence.json", "/tmp-not-an-alias/evidence.json"]] for platform in ["linux", "darwin"]}))',
+  ].join("\n");
+  const result = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-c", probe, helperMatch.groups.source], {
+    encoding: "utf8",
+  })) as Record<string, string[]>;
+
+  assert.deepEqual(result.linux, [
+    "/tmp/evidence.json",
+    "/var/evidence.json",
+    "/tmp-not-an-alias/evidence.json",
+  ]);
+  assert.deepEqual(result.darwin, [
+    "/private/tmp/evidence.json",
+    "/private/var/evidence.json",
+    "/tmp-not-an-alias/evidence.json",
+  ]);
+});
+
 test("runner ignores Python and Apple toolchain injection while invalidating stale evidence", (context) => {
   const runnerPath = join(SPIKE_ROOT, "run-simulator.sh");
   const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-runner-injection-"));

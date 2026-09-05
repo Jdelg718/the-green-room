@@ -21,9 +21,14 @@ import os
 import stat
 import sys
 
-output = os.path.abspath(sys.argv[1])
-if output == "/tmp" or output.startswith("/tmp/") or output == "/var" or output.startswith("/var/"):
-    output = "/private" + output
+def normalize_output_path(path, platform):
+    if platform == "darwin" and (
+        path == "/tmp" or path.startswith("/tmp/") or path == "/var" or path.startswith("/var/")
+    ):
+        return "/private" + path
+    return path
+
+output = normalize_output_path(os.path.abspath(sys.argv[1]), sys.platform)
 parent, name = os.path.split(output)
 if not name:
     raise SystemExit("evidence output must name a file")
