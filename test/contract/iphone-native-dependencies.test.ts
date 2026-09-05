@@ -767,6 +767,10 @@ test("physical runner keeps identifiers private and routes exact trusted Apple t
   assert.match(runner, /os\.fstat\(evidence_fd\)/u);
   assert.doesNotMatch(runner, /mode=os\.lstat\(path\)/u);
 
+  // Linux CI still enforces the exact boundary above, but cannot execute Apple's
+  // absolute developer tools. Exercise poisoned-tool resolution on Darwin only.
+  if (process.platform !== "darwin") return;
+
   const boundary = runner.match(/(?<source>ACTIVE_DEVELOPER_DIR="[\s\S]*?\nfor tool in devicectl xcodebuild otool codesign security; do[\s\S]*?\ndone)/u);
   assert.ok(boundary?.groups?.source, "missing extractable trusted Apple-tool resolution boundary");
   const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-physical-tool-boundary-"));
