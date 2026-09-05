@@ -59,9 +59,9 @@ build-input hashes before and after staging. All `/usr/bin/python3` helpers use
 isolated mode under `env -i`, excluding Python import-path, home, startup,
 user-site, and encoding-hook injection. The runner resolves the active developer
 directory once via `/usr/bin/xcode-select -p` under a clean environment, validates
-that it supplies executable `xcodebuild` and `simctl` tools, and routes both the
-build and every Simulator operation through one clean `xcrun` wrapper with the
-exact resolved `DEVELOPER_DIR`. No caller `TOOLCHAINS`, `SDKROOT`, xcconfig,
+that it supplies executable `xcodebuild` and `simctl` tools, and routes the build,
+Mach-O linkage inspection, and every Simulator operation through one clean
+`xcrun` wrapper with the exact resolved `DEVELOPER_DIR`. No caller `TOOLCHAINS`, `SDKROOT`, xcconfig,
 dynamic-loader, Python, or command-resolver variables cross that boundary.
 
 ## Exact executable evidence

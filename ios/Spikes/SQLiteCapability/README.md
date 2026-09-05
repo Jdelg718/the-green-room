@@ -20,8 +20,9 @@ Python helper runs as `/usr/bin/python3 -I` inside an empty environment, so
 `PYTHONPATH`, `PYTHONHOME`, startup/user-site hooks, and encoding overrides cannot
 affect inventory checks or evidence handling. The runner resolves the active
 developer directory once with `/usr/bin/xcode-select -p` in a clean environment,
-validates its `xcodebuild` and `simctl`, then routes the build and every Simulator
-operation through one `env -i`/`xcrun` wrapper with only that `DEVELOPER_DIR`.
+validates its `xcodebuild` and `simctl`, then routes the build, Mach-O linkage
+inspection, and every Simulator operation through one `env -i`/`xcrun` wrapper
+with only that `DEVELOPER_DIR`.
 Inherited toolchains, SDK roots, xcconfigs, dynamic-loader settings, and resolver
 injection variables therefore cannot redirect those tools. It installs a fresh app,
 waits for first-phase evidence,

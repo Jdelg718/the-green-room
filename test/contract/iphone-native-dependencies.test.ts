@@ -373,8 +373,19 @@ test("runner stages reviewed inputs externally and invalidates stale evidence be
   assert.match(runner, /\/usr\/bin\/xcode-select -p/u);
   assert.match(runner, /run_apple_tool\(\)/u);
   assert.match(runner, /run_apple_tool xcodebuild build/u);
+  assert.match(runner, /run_apple_tool otool -L/u);
   assert.doesNotMatch(runner, /(?:^|\n)\s*\/usr\/bin\/xcodebuild\s/u);
+  assert.doesNotMatch(runner, /(?:^|\n)\s*\/usr\/bin\/otool\s/u);
   assert.doesNotMatch(runner, /\/usr\/bin\/xcrun simctl/u);
+  const xcrunInvocations = runner.split("\n").filter((line) => /\/usr\/bin\/xcrun\b/u.test(line));
+  assert.deepEqual(xcrunInvocations.map((line) => line.trim()), ['/usr/bin/xcrun "$@"']);
+  const developerToolInvocations = runner.split("\n").filter((line) =>
+    /\b(?:xcodebuild build|otool -L)\b/u.test(line),
+  );
+  assert.equal(developerToolInvocations.length, 2, "runner must build and inspect linkage");
+  for (const invocation of developerToolInvocations) {
+    assert.match(invocation, /run_apple_tool (?:xcodebuild|otool)\b/u, `unsanitized developer tool invocation: ${invocation}`);
+  }
   const simctlInvocations = runner.split("\n").filter((line) =>
     /\bsimctl (?:list|listapps|uninstall|install|launch|get_app_container|terminate)\b/u.test(line),
   );
@@ -385,7 +396,7 @@ test("runner stages reviewed inputs externally and invalidates stale evidence be
   const pythonInvocations = runner.split("\n").filter((line) => /\/usr\/bin\/python3\b/u.test(line));
   assert.equal(pythonInvocations.length, 1, "python must appear only inside its shared wrapper");
   assert.match(pythonInvocations[0]!, /\/usr\/bin\/python3 -I/u);
-  assert.doesNotMatch(runner, /(?<![\w/])(?:mktemp|otool|sleep|dirname)\s/u);
+  assert.doesNotMatch(runner, /(?<![\w/])(?:mktemp|sleep|dirname)\s/u);
 
   const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-stale-evidence-"));
   const output = join(fixtureRoot, "stale.json");
@@ -458,7 +469,7 @@ test("runner ignores Python and Apple toolchain injection while invalidating sta
     join(poisonRoot, "hashlib.py"),
     `from pathlib import Path\nPath(${JSON.stringify(hashlibSentinel)}).write_text("executed\\n")\nraise RuntimeError("poisoned hashlib imported")\n`,
   );
-  for (const tool of ["simctl", "xcodebuild"]) {
+  for (const tool of ["simctl", "xcodebuild", "otool"]) {
     const toolPath = join(fakeDeveloperRoot, "usr", "bin", tool);
     writeFileSync(toolPath, `#!/bin/sh\nprintf 'executed\\n' > '${appleToolSentinel}'\nexit 91\n`);
     chmodSync(toolPath, 0o755);
@@ -472,6 +483,7 @@ test("runner ignores Python and Apple toolchain injection while invalidating sta
       DEVELOPER_DIR: fakeDeveloperRoot,
       TOOLCHAINS: "attacker.toolchain",
       PYTHONPATH: poisonRoot,
+      PYTHONHOME: poisonRoot,
       SIMULATOR_UDID: "00000000-0000-0000-0000-000000000000",
       SQLITE_CAPABILITY_EVIDENCE: output,
     },

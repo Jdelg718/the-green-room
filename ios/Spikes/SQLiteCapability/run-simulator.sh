@@ -276,7 +276,7 @@ LINKED_BINARY="$APP/SQLiteCapability.debug.dylib"
 if [[ ! -f "$LINKED_BINARY" ]]; then
   LINKED_BINARY="$APP/SQLiteCapability"
 fi
-if ! /usr/bin/otool -L "$LINKED_BINARY" | /usr/bin/grep -q '/usr/lib/libsqlite3.dylib'; then
+if ! run_apple_tool otool -L "$LINKED_BINARY" | /usr/bin/grep -q '/usr/lib/libsqlite3.dylib'; then
   echo >&2 "Built spike does not link the iOS system /usr/lib/libsqlite3.dylib"
   exit 3
 fi
