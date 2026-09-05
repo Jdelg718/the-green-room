@@ -154,7 +154,7 @@ PROFILE_SOURCE_SHA256 = {
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
 }
 PROFILE_STYLESHEET_SHA256 = "7d5dd86d18dfd291c1df677169402c0868784ff3d8355cd6173012633569310c"
-SOCIAL_CARD_SHA256 = "d2225b49812612f048d697134c8b3d01171eca328751794fc7f81028eb133897"
+SOCIAL_CARD_SHA256 = "b3d4254d433d955017cf7849ff97fe27f11c1e6b91e0ff61904b632344ef29fb"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
     "Backstage Electric Green Room project card announcing the Alpha 1 "
@@ -232,7 +232,7 @@ REQUIRED_LANGUAGE = {
     "download/index.html": (
         "Alpha 1",
         "Apple-silicon macOS",
-        "macOS 13 or later",
+        "macOS 14 or later",
         "19 preinstalled characters",
         "local or cloud model",
         "No iPhone or iPad app",
@@ -598,7 +598,11 @@ def semantic_links(parser: PageParser, ancestor: int | None = None) -> list[tupl
 
 
 def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
-    links = semantic_links(parser)
+    links = [
+        (element_attrs(element).get("href", ""), normalized_text(element))
+        for index, element in scoped_elements(parser, "a")
+        if is_visible(parser, index)
+    ]
     required = {
         ALPHA_DOWNLOAD_URL: "Download Alpha 1 for Apple silicon",
         ALPHA_CHECKSUMS_URL: "Download SHA256SUMS",
@@ -610,7 +614,11 @@ def validate_download_contract(parser: PageParser, errors: list[str]) -> None:
         matches = [(candidate_href, text) for candidate_href, text in links if candidate_href == href]
         if matches != [(href, label)]:
             fail(errors, f"download/index.html: missing unique exact {label} link")
-    visible = " ".join(" ".join(parser.text).split())
+    visible = " ".join(
+        normalized_text(element)
+        for index, element in scoped_elements(parser, "p")
+        if is_visible(parser, index)
+    )
     if ALPHA_SHA256 not in visible:
         fail(errors, "download/index.html: missing exact release checksum")
 

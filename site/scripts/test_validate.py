@@ -66,6 +66,40 @@ class StaticPolicyTests(unittest.TestCase):
                 page.write_text(source.replace(old, new, 1), encoding="utf-8")
                 self.assert_rejected(validate.collect_errors(site), reason)
 
+    def test_download_contract_must_be_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "download" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            exact_link = (
+                f'<a class="button" href="{validate.ALPHA_DOWNLOAD_URL}">'
+                "Download Alpha 1 for Apple silicon</a>"
+            )
+            hidden_link = f'<div aria-hidden="true">{exact_link}</div>'
+            visible_decoy = (
+                f'<a class="button" href="{validate.ALPHA_RELEASE_URL}">'
+                "Download Alpha 1 for Apple silicon</a>"
+            )
+            self.assertIn(exact_link, source)
+            page.write_text(source.replace(exact_link, hidden_link + visible_decoy, 1), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "Download Alpha 1 for Apple silicon")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "download" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            exact_checksum = f'<p class="checksum"><code>{validate.ALPHA_SHA256}</code></p>'
+            hidden_checksum = f'<div aria-hidden="true">{exact_checksum}</div>'
+            visible_decoy = f'<p class="checksum"><code>{"0" * 64}</code></p>'
+            self.assertIn(exact_checksum, source)
+            page.write_text(
+                source.replace(exact_checksum, hidden_checksum + visible_decoy, 1),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "exact release checksum")
+
     def test_readme_requires_no_redeploy_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
