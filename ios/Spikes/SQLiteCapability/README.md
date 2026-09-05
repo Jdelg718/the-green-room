@@ -45,10 +45,9 @@ probe checks every SQLite close and busy-timeout return code, bounds the observe
 busy wait to a finite 80–2000 ms window, and transfers only the two deliberately
 live final WAL connections into process-lifetime ownership.
 
-The project deployment target is 15.0 only to compile this disposable spike
-against the lower API floor supported by the selected Capacitor generation. It
-is not a final Green Room product minimum and does not qualify an iOS 15 runtime.
-Only the exact Simulator runtime named in generated evidence is runtime proof.
+The project deployment target is 18.6 in both target configurations, matching
+the selected standalone iPhone Alpha minimum. Runtime qualification comes only
+from the exact Simulator runtime named in generated evidence.
 The runner queries `simctl listapps` before uninstalling: an installed spike must
 uninstall successfully, while an absent spike needs no ignored uninstall error.
 
@@ -104,5 +103,8 @@ wildcard `${team}.*`; suffix-bearing wildcard lookalikes are rejected. Device
 evidence is copied to an explicit destination file path for compatibility with
 live `devicectl` behavior.
 
-This physical PASS is not final release qualification. The oldest-supported-iOS
-runtime has not yet been selected and exercised, so that gate remains NO-GO.
+Task 0.2 is GO with the Alpha minimum frozen at iOS 18.6. The system SQLite
+semantics passed on an iPhone 16 Pro Simulator running the exact iOS 18.6 floor
+(build `22G86`, SQLite 3.43.2). Hardware-only file-protection and lock behavior
+passed on the physical iPhone running iOS 26.6. Simulator does not expose the
+`NSFileProtection` attribute, and no physical iOS 18.6 device was tested.

@@ -12,6 +12,14 @@ The signing Mac and initial CI baseline use:
 - npm **11.19.0**
 - `@capacitor/core`, `@capacitor/cli`, and `@capacitor/ios` **8.5.1**
 
+The standalone iPhone Alpha minimum deployment target is **iOS 18.6**. Phase 0
+Task 0.2 qualified system SQLite on an iPhone 16 Pro Simulator running iOS 18.6
+build `22G86` (SQLite 3.43.2) and qualified hardware-only complete file
+protection and locked-data denial on an iPhone 15 Pro Max running iOS 26.6 build
+`23G71`. The Simulator did not expose `NSFileProtection`, and no physical iOS
+18.6 test is claimed. See
+[`docs/spikes/iphone-system-sqlite-capability.md`](../docs/spikes/iphone-system-sqlite-capability.md).
+
 `.xcode-version` pins Xcode 26.6 for Xcode-version managers. The Xcode build and complete Swift compiler identity above are the reproducibility check; verify them before an iOS build:
 
 ```sh

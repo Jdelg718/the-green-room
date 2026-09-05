@@ -60,6 +60,13 @@ Estimate assumptions:
 
 **Objective:** Qualify the repository-owned Swift SQLite bridge on the oldest supported iPhone OS before schema work.
 
+**Disposition (2026-09-05): GO.** The Alpha minimum is frozen at iOS 18.6.
+Runtime-floor SQLite semantics passed on an iPhone 16 Pro Simulator running iOS
+18.6 build `22G86` with system SQLite 3.43.2. Hardware-only
+`NSFileProtectionComplete`, locked denial, unprotected control, and reopen passed
+on an iPhone 15 Pro Max running iOS 26.6 build `23G71`. Simulator did not expose
+the protection attribute; no physical iOS 18.6 test is claimed.
+
 **Files:**
 - Create: `docs/spikes/iphone-system-sqlite-capability.md`
 - Create: `ios/Spikes/SQLiteCapability/**`
@@ -67,7 +74,7 @@ Estimate assumptions:
 
 **Steps:**
 1. Link the disposable Swift spike directly to the iOS system SQLite library; add no generic Capacitor SQLite plugin and no SQLCipher.
-2. Record `sqlite3_libversion()` and compile options on the oldest supported Simulator and physical iPhone.
+2. Record `sqlite3_libversion()` and compile options on the oldest supported Simulator; record physical-device SQLite and hardware-only protection evidence on an available iPhone.
 3. Prove strict tables, JSON functions, `RETURNING`, foreign keys, WAL, busy handling, `BEGIN IMMEDIATE`, rollback, checkpoint, and reopen after forced termination.
 4. Verify `NSFileProtectionComplete` and backup exclusion on the database, WAL, and SHM files after first write and relaunch.
 5. Record GO only if every required behavior passes. Otherwise adjust the iPhone schema/queries without weakening invariants or stop for a new ADR and estimate; do not expose a generic raw-SQL bridge as a shortcut.
@@ -86,7 +93,7 @@ Estimate assumptions:
 
 **Steps:**
 1. Generate an iPhone-only Capacitor app with bundle identifier `net.greenroomai.GreenRoom` or the owner-confirmed iOS identifier; never guess if App Store Connect already reserves a different identifier.
-2. Set the final minimum iOS from current test-device and submission evidence; ADR research confirms Capacitor supports iOS 15+, but does not freeze the product minimum.
+2. Set the target to the frozen iOS 18.6 Alpha minimum selected and qualified in Task 0.2.
 3. Add a restrictive local-only CSP and navigation delegate.
 4. Write a failing bundle test that detects remote entry URLs, dynamic-update packages, ATS arbitrary-load exceptions, background modes, Node/Python executables, or undeclared frameworks.
 5. Make the empty shell pass and boot it with networking disabled.

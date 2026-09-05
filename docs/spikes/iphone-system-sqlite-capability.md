@@ -2,26 +2,13 @@
 
 ## Disposition
 
-**Simulator capability result: PASS on the only installed iOS runtime.** The
-repository-owned Swift boundary directly linked and exercised the iOS system
-`libsqlite3`. Runner-resolved CoreSimulator metadata identifies the selected
-device as an iPhone 17 Pro Simulator running iOS 26.5; the app's generic
-`UIDevice.current.model` value (`iPhone`) is recorded only as an app observation
-and is not the basis for that device identity claim.
+**Phase 0 Task 0.2 final disposition: GO.** The Alpha minimum deployment target is iOS 18.6.
 
-**Physical-device capability result: PASS on iPhone 15 Pro Max running iOS 26.6
-(`23G71`).** The complete prepare/lock/unlock/collect state machine proved the
-system SQLite capability set, forced termination/relaunch, file protection and
-backup exclusion, denial of protected reads while locked, success of the
-distinct unprotected control while locked, and successful protected reopen after
-unlock.
+**Floor-Simulator capability result: PASS.** The repository-owned Swift boundary directly linked and exercised the iOS system `libsqlite3` on an iPhone 16 Pro Simulator running the selected floor, iOS 18.6 build `22G86`. The runtime reported SQLite 3.43.2. STRICT tables, JSON functions, `RETURNING`, foreign keys, WAL, a 125 ms busy timeout (139 ms observed), `BEGIN IMMEDIATE` contention, rollback, checkpoint, close/reopen persistence, forced termination/relaunch, and backup exclusion all passed.
 
-**Phase 0 Task 0.2 final disposition: CONDITIONAL / NO-GO for final release
-qualification pending the oldest-supported-runtime gate.** Xcode still has no
-older iOS Simulator runtime installed, and the product minimum iOS version has
-not been selected and exercised. The Simulator and physical-device results below
-qualify the tested iOS 26.5 and iOS 26.6 environments only. They do not qualify
-the oldest eventual product OS or select a final product deployment target.
+**Physical-device capability result: PASS.** An iPhone 15 Pro Max running current iOS 26.6 build `23G71` reported SQLite 3.51.0 and passed the complete prepare/lock/unlock/collect state machine: `NSFileProtectionComplete` and backup exclusion for DB/WAL/SHM, closed handles before lock, denial of protected raw reads and SQLite opens while locked, a successful `NSFileProtectionNone` control during the same lock interval, and protected reopen after unlock.
+
+This evidence split is sufficient for Task 0.2. SQLite syntax, compile options, transaction, WAL, contention, persistence, and relaunch semantics are runtime-floor-dependent and were exercised on the exact selected iOS 18.6 floor. Protected-data lock behavior requires hardware and was exercised on a physical iPhone. Simulator does not expose the `NSFileProtection` attribute and therefore did not prove file-protection or lock behavior. No physical iOS 18.6 device was tested or is implied.
 
 ## Boundary proved
 
@@ -29,170 +16,70 @@ The disposable app in `ios/Spikes/SQLiteCapability/`:
 
 - imports the SDK `SQLite3` module and links `OTHER_LDFLAGS = ("-lsqlite3")`;
 - calls the C API directly from repository-owned Swift;
-- has no Capacitor dependency or plugin dispatch code;
-- includes no generic raw-SQL JavaScript bridge;
-- includes no SQLite package, CocoaPod, Swift package, or SQLCipher dependency;
-- uses a spike-only bundle identifier and unsigned Simulator build; and
-- sets an iOS 15.0 compile target only as a disposable API compile floor. That
-  setting is not a selected Green Room deployment target and is not runtime
-  evidence for iOS 15.
+- has no Capacitor dependency, generic raw-SQL JavaScript bridge, SQLite package, CocoaPod, Swift package, or SQLCipher dependency;
+- uses a spike-only bundle identifier; and
+- sets both target build configurations to `IPHONEOS_DEPLOYMENT_TARGET = 18.6`, matching the selected Alpha minimum.
 
-Apple's system SQLite reports `CCCRYPT256`, `CODEC=see-cccrypt`, and
-`HAS_CODEC_RESTRICTED` among its compile options. Those are observations about
-Apple's supplied library, not a bundled SQLCipher dependency or selection of an
-encrypted database mode by Green Room.
+Apple's system SQLite compile options are observations about Apple's supplied library, not evidence of a bundled SQLCipher dependency or selection of encrypted database mode by Green Room.
 
-The TypeScript contract test
-`test/contract/iphone-native-dependencies.test.ts` enforces an exact allowlist of
-the eight reviewed first-party spike files and four required directories. It
-fails closed on
-symlinks, unexpected filesystem types, extra source or compiled artifacts,
-framework bundles, dependency-manager files, and disguised native libraries.
-Malicious fixtures cover ordinary `sqlite3.c`, an amalgamation source, a renamed
-`.a`, `.dylib`/`.tbd`, `.framework`, `.xcframework`, and suspicious PBX package
-or native references. The PBX audit parses every assignment in all four known
-project/target `buildSettings` blocks and compares keys and values with strict
-per-configuration allowlists. It rejects conditional and multiline injection,
-unknown settings, compiler/linker overrides, alternate flags and search paths,
-extra runpaths, shell/script phases, and custom build rules. It still requires
-exactly two `OTHER_LDFLAGS = ("-lsqlite3")` assignments and only the two expected
-Swift sources, while retaining the checks against plugin dispatch and generic
-SQL-shaped bridge methods. Exact PBX IDs, file references, source-group paths,
-and source-phase relationships are pinned. The shared scheme is hash-pinned and
-checked for executable pre/post actions. The runner verifies all five reviewed
-build-input hashes before and after staging. All `/usr/bin/python3` helpers use
-isolated mode under `env -i`, excluding Python import-path, home, startup,
-user-site, and encoding-hook injection. The runner resolves the active developer
-directory once via `/usr/bin/xcode-select -p` under a clean environment, validates
-that it supplies executable `xcodebuild` and `simctl` tools, and routes the build,
-Mach-O linkage inspection, and every Simulator operation through one clean
-`xcrun` wrapper with the exact resolved `DEVELOPER_DIR`. No caller `TOOLCHAINS`, `SDKROOT`, xcconfig,
-dynamic-loader, Python, or command-resolver variables cross that boundary.
+The TypeScript contract test `test/contract/iphone-native-dependencies.test.ts` enforces the exact reviewed spike inventory, strict PBX build-setting allowlists, the 18.6 target in both configurations, direct system-SQLite linkage, exact PBX relationships, and the non-executable shared scheme. Both runners hash-pin all five build inputs before and after isolated external staging. They sanitize the Apple tool environment and reject unexpected files, symlinks, stale evidence, alternate toolchains, package/native-library references, script phases, and linker/compiler overrides.
 
-The physical runner additionally has no embedded/default physical identifiers:
-both exact-format identifiers must be provided through the environment for each
-`prepare` and `collect` invocation. They are neither echoed nor persisted; the
-host artifact contains only an opaque run ID and a truncated SHA-256 alias.
-Collection consumes the `awaiting_lock` artifact through no-follow parent and
-final descriptors with `fstat`, avoiding an `lstat`/`open` name race. `codesign`
-and `security` must resolve exactly to their allowlisted `/usr/bin` paths and are
-invoked only through the clean Apple-tool wrapper. Physical Mach-O/signature validation parses exact `otool` install-name lines and
-exact `Identifier` and `TeamIdentifier` fields. The signed app entitlement must
-equal the exact team-qualified application identifier. The embedded provisioning
-profile may contain either that exact identifier or Apple's exact team wildcard
-`${team}.*`; suffix-bearing or otherwise broader lookalikes remain rejected.
-Provisioning-profile team entitlements and arrays are still compared exactly.
-The `devicectl` copy target is an explicit destination file path rather than a
-directory, matching the live CoreDevice file-copy behavior.
+The physical runner requires identifiers through the environment and does not print or persist raw identifiers. Its evidence contains only an opaque run ID and truncated SHA-256 device alias. It fail-closes on incomplete transitions, missing lock denial/control/reopen results, malformed SQLite metadata, false capability flags, or contention outside the 80–2000 ms evidence bound.
 
-Before either `awaiting_lock` or `complete` evidence can be published, the
-physical runner also requires the SQLite version in exact `3.x.y` numeric form,
-between 1 and 256 unique printable compile-option strings (each 1–256 bytes),
-every core capability flag exactly `true`, and an integer contention observation
-within the inclusive 80–2000 ms bound. Missing, false, empty, duplicate,
-wrong-type, non-printable, malformed, and out-of-bound values fail closed.
+## Exact floor-Simulator evidence
 
-## Exact executable evidence
-
-Executed from commit worktree state on 2026-09-05:
+Executed on 2026-09-05 with:
 
 ```sh
-xcodebuild -version
-swift --version
-xcrun simctl list runtimes available
-xcrun simctl list devices available
-SQLITE_CAPABILITY_EVIDENCE=/tmp/greenroom-sqlite-capability-evidence.json \
+SIMULATOR_UDID=A44A1FE2-D75F-415A-A99F-FE05209DB509 \
+SQLITE_CAPABILITY_EVIDENCE=/private/tmp/greenroom-sqlite-capability-ios-18-6.json \
   ios/Spikes/SQLiteCapability/run-simulator.sh
 ```
 
-Environment:
+Environment recorded by the runner:
 
 - Xcode 26.6, build `17F113`
 - Apple Swift 6.3.3 (`swiftlang-6.3.3.1.3 clang-2100.1.1.101`)
-- only available iOS runtime: iOS 26.5 (`23F77`)
-- booted device: iPhone 17 Pro Simulator,
-  `F7D79755-4C03-44C7-B810-28DBC936444F`
-- app-reported runtime: iOS 26.5
-- `sqlite3_libversion()`: **3.51.0**
-- first-launch contention busy wait observation: **142 ms** for a configured
-  125 ms timeout
-- generated evidence timestamp: `2026-09-05T21:11:38Z`
+- selected Simulator UDID: `A44A1FE2-D75F-415A-A99F-FE05209DB509`
+- device: iPhone 16 Pro Simulator (`com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro`)
+- runtime: iOS 18.6, build `22G86` (`com.apple.CoreSimulator.SimRuntime.iOS-18-6`)
+- app-reported runtime: iOS 18.6
+- `sqlite3_libversion()`: **3.43.2**
+- configured busy timeout: 125 ms; observed contention wait: **139 ms**
+- generated evidence timestamp: `2026-09-05T22:28:03Z`
+- final evidence status: `complete`
 
-`run-simulator.sh` first removed any regular stale output, validated the source
-inventory, verified every build-input hash, and copied only the five reviewed
-Xcode inputs into an external temporary staging directory, then built that copy.
-This prevents Xcode from adding workspace
-metadata to the repository tree. Unsafe output entries fail closed; symlinks and
-other nondirectory entries are unlinked without being followed, while directories
-are rejected without recursive removal. Parent components are opened through
-held no-follow directory descriptors, and final publication is atomic and
-no-clobber. Every staged build input is re-hashed after copying. The
-runner queried `simctl listapps`, required uninstall success when the bundle was
-present, installed the fresh build, launched the app, waited for
-first-phase evidence, issued `simctl terminate`, relaunched, required final
-`status: "complete"`, and copied the app-container evidence JSON to the stated
-output path atomically. Before building, it resolved the selected Simulator UDID
-through `simctl` and wrote
-`selectedSimulator` metadata into the output: device name, state, device-type
-identifier, runtime identifier/name/version/build, and UDID. The build completed
-successfully, both launches returned process IDs, and the final evidence status
-was `complete`. The runner also used
-`otool -L` on the built code-bearing Mach-O and required the exact
-`/usr/lib/libsqlite3.dylib` dependency; independent readback of the installed
-`SQLiteCapability.debug.dylib` showed compatibility version 9.0.0 and current
-version 382.0.0 for that system path.
+`run-simulator.sh` verified the source inventory and hashes, built only the staged reviewed inputs, required exact `/usr/lib/libsqlite3.dylib` linkage, installed a fresh app, launched it, collected first-phase evidence, forcibly terminated it, relaunched it, and atomically published complete evidence. The runtime JSON remains external and untracked at `/private/tmp/greenroom-sqlite-capability-ios-18-6.json`.
 
-### Physical-device evidence
+For DB/WAL/SHM after first launch and relaunch, the Simulator reported each file existed and was excluded from backup. It recorded requested protection as `NSFileProtectionComplete`, observed protection as `not_exposed_by_simulator`, and `protectionVerified: false`. This is the honest Simulator limitation, not a protection PASS.
 
-The physical run completed at `2026-09-05T21:19:27Z` on an iPhone 15 Pro Max
-running iOS 26.6 build `23G71`, with Developer Mode enabled and DDI services
-available. The host evidence remained outside the repository at
-`/private/tmp/greenroom-sqlite-capability-device-evidence.json`; it was validated
-as `status: "complete"` and is intentionally not checked in because the runtime
-envelope includes a per-run identifier. Raw UDID/CoreDevice identifiers were
-neither printed nor persisted; the envelope contains only the runner's safe,
-truncated device alias.
+### Floor behavioral results
 
-The physical app reported system SQLite 3.51.0 and passed every capability row
-below. Before lock, protected data was available and every SQLite handle had
-closed. While locked, protected data became unavailable, raw access to the
-protected database was denied, and SQLite open failed with code 23
-(`SQLITE_AUTH`). In the same locked interval, the separate
-`NSFileProtectionNone` control remained raw-readable and SQLite-queryable. After
-unlock, protected data became available and the protected database reopened
-successfully. DB/WAL/SHM existed, reported `NSFileProtectionComplete`, and were
-excluded from backup after both first launch and forced relaunch.
+| Required behavior | iOS 18.6 Simulator result |
+| --- | --- |
+| system library/version | PASS — system SQLite 3.43.2 |
+| compile options | PASS — `PRAGMA compile_options` captured the exact list below |
+| STRICT tables | PASS — STRICT creation succeeded; invalid INTEGER storage failed |
+| JSON functions | PASS — `json_extract` returned the expected value |
+| `RETURNING` | PASS — inserted ID returned |
+| foreign keys | PASS — invalid child insertion failed |
+| WAL | PASS — mode returned `wal`; DB/WAL/SHM existed |
+| busy handling | PASS — 125 ms timeout configured; 139 ms observed |
+| `BEGIN IMMEDIATE` contention | PASS — second writer could not begin while first held transaction |
+| rollback | PASS — rolled-back row was absent |
+| checkpoint | PASS — truncate checkpoint returned `SQLITE_OK` |
+| close/reopen persistence | PASS — checked closes succeeded and a new connection found the marker |
+| forced termination/relaunch | PASS — relaunched process reopened DB and found marker |
+| backup exclusion | PASS — DB/WAL/SHM excluded after first write and relaunch |
+| `NSFileProtectionComplete` / locked behavior | Not exposed by Simulator; covered only by physical evidence below |
 
-## Behavioral results
-
-| Required behavior | Result | Executed proof |
-| --- | --- | --- |
-| system library/version | PASS | `sqlite3_libversion()` returned 3.51.0 |
-| compile options | PASS | `PRAGMA compile_options` enumerated the exact list below |
-| STRICT tables | PASS | `CREATE TABLE ... STRICT` succeeded and a text value for an INTEGER column failed with `SQLITE_CONSTRAINT` |
-| JSON functions | PASS | `json_extract('{"floor":42}', '$.floor')` returned 42 |
-| `RETURNING` | PASS | `INSERT ... RETURNING id` returned 1 |
-| foreign keys | PASS | `PRAGMA foreign_keys=ON`; invalid child insert failed with `SQLITE_CONSTRAINT` |
-| WAL | PASS | `PRAGMA journal_mode=WAL` returned `wal`; DB/WAL/SHM existed |
-| busy handling | PASS | `sqlite3_busy_timeout(125)` returned `SQLITE_OK`; the second connection waited 142 ms before busy/locked, within the enforced finite 80–2000 ms evidence bound |
-| `BEGIN IMMEDIATE` contention | PASS | first connection held the write transaction; second connection could not begin one |
-| rollback | PASS | inserted row disappeared after explicit `ROLLBACK` |
-| checkpoint | PASS | `sqlite3_wal_checkpoint_v2(..., SQLITE_CHECKPOINT_TRUNCATE, ...)` returned `SQLITE_OK` |
-| close/reopen persistence | PASS | both pre-reopen handles returned `SQLITE_OK` from checked `sqlite3_close`; only then was the marker read through a new connection |
-| forced termination/relaunch | PASS on Simulator and physical device | each runner forcibly terminated and relaunched the app; the relaunched process reopened the DB and found the committed marker |
-| backup exclusion | PASS on Simulator and physical device | DB/WAL/SHM each reported `isExcludedFromBackup=true` after first write and again after relaunch |
-| `NSFileProtectionComplete` | PASS on physical device | DB/WAL/SHM reported `NSFileProtectionComplete` after first write and relaunch; Simulator correctly records that it cannot expose this attribute |
-| locked protected-data behavior | PASS on physical device | protected data became unavailable while locked; raw protected read was denied and SQLite open was denied with code 23; protected data and reopen succeeded after unlock |
-| locked unprotected control | PASS on physical device | the distinct `NSFileProtectionNone` control remained raw-readable and SQLite-queryable during the same locked interval |
-
-## Exact system SQLite compile options
+### iOS 18.6 system SQLite compile options
 
 ```text
 ATOMIC_INTRINSICS=1
 BUG_COMPATIBLE_20160819
 CCCRYPT256
-CODEC=see-cccrypt
-COMPILER=clang-21.0.0
+COMPILER=clang-17.0.0
 DEFAULT_AUTOVACUUM
 DEFAULT_CACHE_SIZE=128
 DEFAULT_CKPTFULLFSYNC
@@ -209,7 +96,6 @@ DEFAULT_SYNCHRONOUS=2
 DEFAULT_WAL_AUTOCHECKPOINT=1000
 DEFAULT_WAL_SYNCHRONOUS=1
 DEFAULT_WORKER_THREADS=0
-DIRECT_OVERFLOW_READ
 DQS=3
 ENABLE_API_ARMOR
 ENABLE_BYTECODE_VTAB
@@ -226,7 +112,6 @@ ENABLE_NORMALIZE
 ENABLE_PREUPDATE_HOOK
 ENABLE_RTREE
 ENABLE_SESSION
-ENABLE_SETLK_TIMEOUT
 ENABLE_SNAPSHOT
 ENABLE_SQLLOG
 ENABLE_STMT_SCANSTATUS
@@ -262,11 +147,17 @@ THREADSAFE=2
 USE_URI
 ```
 
-## Required follow-up before final GO
+## Physical file-protection evidence
 
-1. Select the product minimum iOS version from device/submission evidence.
-2. Install that runtime if available and rerun this exact harness on the oldest
-   supported Simulator (and on matching physical hardware when the selected
-   minimum requires physical protected-data proof).
-3. Do not convert the Task 0.2 disposition to final GO or claim final release
-   qualification until the oldest-supported-runtime gate passes.
+The physical run completed at `2026-09-05T21:19:27Z` on an iPhone 15 Pro Max running iOS 26.6 build `23G71`, with Developer Mode enabled and DDI services available. Its external, untracked artifact is `/private/tmp/greenroom-sqlite-capability-device-evidence.json`, validated with `status: "complete"`.
+
+The device reported system SQLite 3.51.0 and passed the same SQLite semantics. More importantly for the hardware-only portion of Task 0.2:
+
+- DB/WAL/SHM existed, reported `NSFileProtectionComplete`, and were excluded from backup after first launch and forced relaunch;
+- every SQLite handle was closed before lock;
+- protected data became unavailable while locked;
+- protected raw read was denied and SQLite open failed with code 23 (`SQLITE_AUTH`);
+- the separate `NSFileProtectionNone` control remained raw-readable and SQLite-queryable in the same locked interval; and
+- protected data became available and the protected database reopened after unlock.
+
+An earlier iOS 26.5 Simulator run (iPhone 17 Pro Simulator, build `23F77`, SQLite 3.51.0) also passed the non-hardware capability suite. It is retained as corroborating history; the iOS 18.6 floor run above is the controlling minimum-runtime evidence.

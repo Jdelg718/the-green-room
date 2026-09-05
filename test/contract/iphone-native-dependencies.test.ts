@@ -113,7 +113,7 @@ const EXPECTED_BUILD_SETTINGS: Record<string, Record<string, string>> = {
     CURRENT_PROJECT_VERSION: "1",
     GENERATE_INFOPLIST_FILE: "NO",
     INFOPLIST_FILE: "SQLiteCapability/Info.plist",
-    IPHONEOS_DEPLOYMENT_TARGET: "15.0",
+    IPHONEOS_DEPLOYMENT_TARGET: "18.6",
     LD_RUNPATH_SEARCH_PATHS: '("$(inherited)", "@executable_path/Frameworks")',
     MARKETING_VERSION: "1.0",
     ONLY_ACTIVE_ARCH: "YES",
@@ -134,7 +134,7 @@ const EXPECTED_BUILD_SETTINGS: Record<string, Record<string, string>> = {
     CURRENT_PROJECT_VERSION: "1",
     GENERATE_INFOPLIST_FILE: "NO",
     INFOPLIST_FILE: "SQLiteCapability/Info.plist",
-    IPHONEOS_DEPLOYMENT_TARGET: "15.0",
+    IPHONEOS_DEPLOYMENT_TARGET: "18.6",
     LD_RUNPATH_SEARCH_PATHS: '("$(inherited)", "@executable_path/Frameworks")',
     MARKETING_VERSION: "1.0",
     OTHER_LDFLAGS: '("-lsqlite3")',
@@ -924,9 +924,11 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   assert.doesNotMatch(deviceRunner, /(?:serialNumber|ecid)/u);
 
   const report = read(REPORT);
-  assert.match(report, /NO-GO|CONDITIONAL/u);
+  assert.match(report, /Phase 0 Task 0\.2 final disposition: GO/u);
+  assert.match(report, /minimum deployment target is iOS 18\.6/u);
+  assert.match(report, /Floor-Simulator capability result: PASS/u);
   assert.match(report, /Physical-device capability result: PASS/u);
-  assert.match(report, /oldest-supported-runtime gate/u);
+  assert.doesNotMatch(report, /CONDITIONAL|only installed iOS runtime|oldest-supported-runtime gate|oldest-supported-iOS runtime has not yet been selected|pending the oldest/iu);
   assert.doesNotMatch(report, /PENDING physical device/iu);
   assert.match(report, /selected Simulator UDID/iu);
   assert.match(report, /run-simulator\.sh/u);

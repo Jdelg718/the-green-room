@@ -261,7 +261,7 @@ hashes={
 "SQLiteCapability/AppDelegate.swift":"c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
 "SQLiteCapability/Info.plist":"09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
 "SQLiteCapability/SQLiteCapabilityProbe.swift":"1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
-"SQLiteCapability.xcodeproj/project.pbxproj":"af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
+"SQLiteCapability.xcodeproj/project.pbxproj":"7c65795c40125eda632e1eb1875c9cfbcba4bb04ae51b2819f32085dc2c0356c",
 "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme":"5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19"}
 for rel,want in hashes.items():
     if hashlib.sha256(open(os.path.join(root,rel),"rb").read()).hexdigest()!=want: raise SystemExit(f"reviewed Xcode input hash mismatch: {rel}")
@@ -275,7 +275,7 @@ hashes={
 "SQLiteCapability/AppDelegate.swift":"c42b638f183c21f231dab788c6ced64ca50d980f682a457806d6ae139f79c045",
 "SQLiteCapability/Info.plist":"09e808f70ee8f66b5e7dc9686d5ef44c15ecd3d03bec8dd72eb54eb76c78ff3b",
 "SQLiteCapability/SQLiteCapabilityProbe.swift":"1b42466179638d53ce83837f541a9e9a53e1d969eec88046432282223bd48b13",
-"SQLiteCapability.xcodeproj/project.pbxproj":"af295e63468bd86114ff68adf4815b3b0711f3c1a88592b17b7072b5fb503cb2",
+"SQLiteCapability.xcodeproj/project.pbxproj":"7c65795c40125eda632e1eb1875c9cfbcba4bb04ae51b2819f32085dc2c0356c",
 "SQLiteCapability.xcodeproj/xcshareddata/xcschemes/SQLiteCapability.xcscheme":"5f618dbc75ecfc38dbab882b5856df75ce8d00763a623f6055be91dea0bf1b19"}
 actual=set()
 for directory,names,files in os.walk(root,topdown=True,followlinks=False):
