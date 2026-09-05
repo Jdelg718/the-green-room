@@ -4,10 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(/usr/bin/dirname "$0")" && pwd)"
 BUNDLE_ID="net.greenroomai.spike.SQLiteCapability"
 OUTPUT="${SQLITE_CAPABILITY_EVIDENCE:-${TMPDIR:-/tmp}/greenroom-sqlite-capability-evidence.json}"
+SYSTEM_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+run_python() {
+  /usr/bin/env -i \
+    PATH="$SYSTEM_PATH" \
+    HOME=/var/empty \
+    TMPDIR=/tmp \
+    /usr/bin/python3 -I "$@"
+}
 
 # Invalidate old evidence before source, Simulator, or build validation. Walk
 # every parent with openat(O_NOFOLLOW), then inspect/unlink only the final entry.
-OUTPUT="$(/usr/bin/python3 - "$OUTPUT" <<'PY'
+OUTPUT="$(run_python - "$OUTPUT" <<'PY'
 import os
 import stat
 import sys
@@ -45,13 +54,48 @@ PY
 
 WORK_ROOT="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/greenroom-sqlite-capability.XXXXXX")"
 trap '/bin/rm -rf "$WORK_ROOT"' EXIT
+APPLE_TMPDIR="$WORK_ROOT/apple-tools"
+/bin/mkdir "$APPLE_TMPDIR"
 STAGED_ROOT="$WORK_ROOT/source"
 DERIVED_DATA="$WORK_ROOT/DerivedData"
 PROJECT="$STAGED_ROOT/SQLiteCapability.xcodeproj"
 
+# Resolve the selected Xcode once without honoring caller-supplied toolchain or
+# dynamic-loader state. Route every Apple developer tool through this boundary.
+ACTIVE_DEVELOPER_DIR="$(/usr/bin/env -i \
+  PATH="$SYSTEM_PATH" \
+  HOME=/var/empty \
+  TMPDIR="$APPLE_TMPDIR" \
+  /usr/bin/xcode-select -p)"
+case "$ACTIVE_DEVELOPER_DIR" in
+  /*) ;;
+  *) echo >&2 "Selected developer directory is not absolute: $ACTIVE_DEVELOPER_DIR"; exit 2 ;;
+esac
+if [[ ! -d "$ACTIVE_DEVELOPER_DIR" || ! -x "$ACTIVE_DEVELOPER_DIR/usr/bin/xcodebuild" ]]; then
+  echo >&2 "Selected developer directory does not contain xcodebuild: $ACTIVE_DEVELOPER_DIR"
+  exit 2
+fi
+run_apple_tool() {
+  /usr/bin/env -i \
+    PATH="$SYSTEM_PATH" \
+    HOME=/var/empty \
+    TMPDIR="$APPLE_TMPDIR" \
+    DEVELOPER_DIR="$ACTIVE_DEVELOPER_DIR" \
+    /usr/bin/xcrun "$@"
+}
+SIMCTL_PATH="$(run_apple_tool --find simctl)"
+case "$SIMCTL_PATH" in
+  "$ACTIVE_DEVELOPER_DIR"/*) ;;
+  *) echo >&2 "Selected developer directory did not resolve simctl within itself: $SIMCTL_PATH"; exit 2 ;;
+esac
+if [[ ! -x "$SIMCTL_PATH" ]]; then
+  echo >&2 "Selected developer directory does not contain executable simctl: $SIMCTL_PATH"
+  exit 2
+fi
+
 # The repository tree is input-only. Validate its complete inventory, then copy
 # only the five reviewed Xcode inputs into external staging.
-/usr/bin/python3 - "$ROOT" <<'PY'
+run_python - "$ROOT" <<'PY'
 import hashlib
 import os
 import stat
@@ -119,7 +163,7 @@ for relative_path in "${SOURCE_FILES[@]}"; do
   /bin/mkdir -p "$STAGED_ROOT/$(/usr/bin/dirname "$relative_path")"
   /bin/cp "$ROOT/$relative_path" "$STAGED_ROOT/$relative_path"
 done
-/usr/bin/python3 - "$STAGED_ROOT" <<'PY'
+run_python - "$STAGED_ROOT" <<'PY'
 import hashlib
 import os
 import stat
@@ -163,9 +207,9 @@ UDID="${SIMULATOR_UDID:-}"
 DEVICES_JSON="$WORK_ROOT/devices.json"
 RUNTIMES_JSON="$WORK_ROOT/runtimes.json"
 SELECTED_SIMULATOR_JSON="$WORK_ROOT/selected-simulator.json"
-/usr/bin/xcrun simctl list devices available --json > "$DEVICES_JSON"
-/usr/bin/xcrun simctl list runtimes available --json > "$RUNTIMES_JSON"
-UDID="$(/usr/bin/python3 - "$UDID" "$DEVICES_JSON" "$RUNTIMES_JSON" "$SELECTED_SIMULATOR_JSON" <<'PY'
+run_apple_tool simctl list devices available --json > "$DEVICES_JSON"
+run_apple_tool simctl list runtimes available --json > "$RUNTIMES_JSON"
+UDID="$(run_python - "$UDID" "$DEVICES_JSON" "$RUNTIMES_JSON" "$SELECTED_SIMULATOR_JSON" <<'PY'
 import json
 import sys
 
@@ -219,11 +263,7 @@ print(udid)
 PY
 )"
 
-/usr/bin/env -i \
-  PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  HOME="$HOME" \
-  TMPDIR="${TMPDIR:-/tmp}" \
-  /usr/bin/xcodebuild build -quiet \
+run_apple_tool xcodebuild build -quiet \
   -project "$PROJECT" \
   -scheme SQLiteCapability \
   -configuration Debug \
@@ -243,9 +283,9 @@ fi
 
 INSTALLED_APPS_PLIST="$WORK_ROOT/installed-apps.plist"
 INSTALLED_APPS_JSON="$WORK_ROOT/installed-apps.json"
-/usr/bin/xcrun simctl listapps "$UDID" > "$INSTALLED_APPS_PLIST"
+run_apple_tool simctl listapps "$UDID" > "$INSTALLED_APPS_PLIST"
 /usr/bin/plutil -convert json -o "$INSTALLED_APPS_JSON" "$INSTALLED_APPS_PLIST"
-if /usr/bin/python3 - "$INSTALLED_APPS_JSON" "$BUNDLE_ID" <<'PY'
+if run_python - "$INSTALLED_APPS_JSON" "$BUNDLE_ID" <<'PY'
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -253,12 +293,12 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 raise SystemExit(0 if sys.argv[2] in installed else 1)
 PY
 then
-  /usr/bin/xcrun simctl uninstall "$UDID" "$BUNDLE_ID"
+  run_apple_tool simctl uninstall "$UDID" "$BUNDLE_ID"
 fi
-/usr/bin/xcrun simctl install "$UDID" "$APP"
-/usr/bin/xcrun simctl launch "$UDID" "$BUNDLE_ID"
+run_apple_tool simctl install "$UDID" "$APP"
+run_apple_tool simctl launch "$UDID" "$BUNDLE_ID"
 
-CONTAINER="$(/usr/bin/xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)"
+CONTAINER="$(run_apple_tool simctl get_app_container "$UDID" "$BUNDLE_ID" data)"
 EVIDENCE="$CONTAINER/Library/Application Support/SQLiteCapabilitySpike/qualification-evidence.json"
 wait_for_status() {
   local expected="$1"
@@ -276,12 +316,12 @@ wait_for_status() {
 }
 
 wait_for_status awaiting_forced_termination
-/usr/bin/xcrun simctl terminate "$UDID" "$BUNDLE_ID"
-/usr/bin/xcrun simctl launch "$UDID" "$BUNDLE_ID"
+run_apple_tool simctl terminate "$UDID" "$BUNDLE_ID"
+run_apple_tool simctl launch "$UDID" "$BUNDLE_ID"
 wait_for_status complete
 
 PREPARED_OUTPUT="$WORK_ROOT/prepared-evidence.json"
-/usr/bin/python3 - "$EVIDENCE" "$SELECTED_SIMULATOR_JSON" "$PREPARED_OUTPUT" <<'PY'
+run_python - "$EVIDENCE" "$SELECTED_SIMULATOR_JSON" "$PREPARED_OUTPUT" <<'PY'
 import json
 import os
 import sys
@@ -307,7 +347,7 @@ PY
 
 # Publish through a held, no-follow directory descriptor. Linking an fsynced
 # private temporary file into the final name is atomic and refuses a race winner.
-/usr/bin/python3 - "$PREPARED_OUTPUT" "$OUTPUT" <<'PY'
+run_python - "$PREPARED_OUTPUT" "$OUTPUT" <<'PY'
 import os
 import secrets
 import stat

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -369,9 +370,22 @@ test("runner stages reviewed inputs externally and invalidates stale evidence be
   assert.match(runner, /O_NOFOLLOW/u);
   assert.match(runner, /src_dir_fd/u);
   assert.match(runner, /\/usr\/bin\/env -i/u);
-  assert.match(runner, /\/usr\/bin\/xcodebuild/u);
-  assert.doesNotMatch(runner, /(?<![\w/])(?:mktemp|xcrun|otool|sleep|dirname)\s/u);
-  assert.doesNotMatch(runner, /XCODE_XCCONFIG_FILE/u);
+  assert.match(runner, /\/usr\/bin\/xcode-select -p/u);
+  assert.match(runner, /run_apple_tool\(\)/u);
+  assert.match(runner, /run_apple_tool xcodebuild build/u);
+  assert.doesNotMatch(runner, /(?:^|\n)\s*\/usr\/bin\/xcodebuild\s/u);
+  assert.doesNotMatch(runner, /\/usr\/bin\/xcrun simctl/u);
+  const simctlInvocations = runner.split("\n").filter((line) =>
+    /\bsimctl (?:list|listapps|uninstall|install|launch|get_app_container|terminate)\b/u.test(line),
+  );
+  assert.equal(simctlInvocations.length > 0, true, "runner must invoke simctl");
+  for (const invocation of simctlInvocations) {
+    assert.match(invocation, /run_apple_tool simctl/u, `unsanitized simctl invocation: ${invocation}`);
+  }
+  const pythonInvocations = runner.split("\n").filter((line) => /\/usr\/bin\/python3\b/u.test(line));
+  assert.equal(pythonInvocations.length, 1, "python must appear only inside its shared wrapper");
+  assert.match(pythonInvocations[0]!, /\/usr\/bin\/python3 -I/u);
+  assert.doesNotMatch(runner, /(?<![\w/])(?:mktemp|otool|sleep|dirname)\s/u);
 
   const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-stale-evidence-"));
   const output = join(fixtureRoot, "stale.json");
@@ -421,6 +435,52 @@ test("runner stages reviewed inputs externally and invalidates stale evidence be
     stdio: "pipe",
   }));
   assert.match(read(parentTarget), /"parentProtected":true/u, "runner must not follow an output parent symlink");
+});
+
+test("runner ignores Python and Apple toolchain injection while invalidating stale evidence", (context) => {
+  const runnerPath = join(SPIKE_ROOT, "run-simulator.sh");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-runner-injection-"));
+  const poisonRoot = join(fixtureRoot, "python-poison");
+  const fakeDeveloperRoot = join(fixtureRoot, "FakeXcode.app", "Contents", "Developer");
+  const siteSentinel = join(fixtureRoot, "sitecustomize-ran");
+  const hashlibSentinel = join(fixtureRoot, "hashlib-ran");
+  const appleToolSentinel = join(fixtureRoot, "fake-apple-tool-ran");
+  const output = join(fixtureRoot, "stale.json");
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+
+  mkdirSync(poisonRoot, { recursive: true });
+  mkdirSync(join(fakeDeveloperRoot, "usr", "bin"), { recursive: true });
+  writeFileSync(
+    join(poisonRoot, "sitecustomize.py"),
+    `from pathlib import Path\nPath(${JSON.stringify(siteSentinel)}).write_text("executed\\n")\n`,
+  );
+  writeFileSync(
+    join(poisonRoot, "hashlib.py"),
+    `from pathlib import Path\nPath(${JSON.stringify(hashlibSentinel)}).write_text("executed\\n")\nraise RuntimeError("poisoned hashlib imported")\n`,
+  );
+  for (const tool of ["simctl", "xcodebuild"]) {
+    const toolPath = join(fakeDeveloperRoot, "usr", "bin", tool);
+    writeFileSync(toolPath, `#!/bin/sh\nprintf 'executed\\n' > '${appleToolSentinel}'\nexit 91\n`);
+    chmodSync(toolPath, 0o755);
+  }
+  writeFileSync(output, '{"status":"complete","stale":true}\n');
+
+  assert.throws(() => execFileSync(runnerPath, [], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      DEVELOPER_DIR: fakeDeveloperRoot,
+      TOOLCHAINS: "attacker.toolchain",
+      PYTHONPATH: poisonRoot,
+      SIMULATOR_UDID: "00000000-0000-0000-0000-000000000000",
+      SQLITE_CAPABILITY_EVIDENCE: output,
+    },
+    stdio: "pipe",
+  }));
+  assert.equal(existsSync(siteSentinel), false, "isolated Python must not import sitecustomize from PYTHONPATH");
+  assert.equal(existsSync(hashlibSentinel), false, "isolated Python must not import hashlib from PYTHONPATH");
+  assert.equal(existsSync(appleToolSentinel), false, "caller developer settings must not redirect Apple tools");
+  assert.equal(existsSync(output), false, "injected environments must not prevent stale evidence invalidation");
 });
 
 test("iPhone persistence depends only on the repository-owned system SQLite spike", () => {

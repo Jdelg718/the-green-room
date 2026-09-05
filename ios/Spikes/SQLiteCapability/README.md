@@ -15,10 +15,15 @@ The runner validates the exact seven-file repository inventory and its four
 required directories, copies only the five Xcode project/source inputs to an
 external temporary staging directory, and builds there so Xcode cannot create
 workspace metadata in the source tree. All five executable build inputs must
-match their reviewed SHA-256 values both before and after staging. The runner
-invokes `/usr/bin/xcodebuild` with a minimal clean environment so inherited
-xcconfig/build-setting channels cannot override them; every other external tool
-also uses its absolute system path. It installs a fresh app,
+match their reviewed SHA-256 values both before and after staging. Every system
+Python helper runs as `/usr/bin/python3 -I` inside an empty environment, so
+`PYTHONPATH`, `PYTHONHOME`, startup/user-site hooks, and encoding overrides cannot
+affect inventory checks or evidence handling. The runner resolves the active
+developer directory once with `/usr/bin/xcode-select -p` in a clean environment,
+validates its `xcodebuild` and `simctl`, then routes the build and every Simulator
+operation through one `env -i`/`xcrun` wrapper with only that `DEVELOPER_DIR`.
+Inherited toolchains, SDK roots, xcconfigs, dynamic-loader settings, and resolver
+injection variables therefore cannot redirect those tools. It installs a fresh app,
 waits for first-phase evidence,
 terminates it with `simctl terminate`, relaunches it, and copies the final
 `qualification-evidence.json` to the path printed at the end. A pre-existing

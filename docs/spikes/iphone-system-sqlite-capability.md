@@ -55,9 +55,14 @@ Swift sources, while retaining the checks against plugin dispatch and generic
 SQL-shaped bridge methods. Exact PBX IDs, file references, source-group paths,
 and source-phase relationships are pinned. The shared scheme is hash-pinned and
 checked for executable pre/post actions. The runner verifies all five reviewed
-build-input hashes before and after staging, then invokes `/usr/bin/xcodebuild`
-under a minimal `env -i` environment that cannot inherit external xcconfig or
-build-setting overrides. All other runner tools use absolute system paths.
+build-input hashes before and after staging. All `/usr/bin/python3` helpers use
+isolated mode under `env -i`, excluding Python import-path, home, startup,
+user-site, and encoding-hook injection. The runner resolves the active developer
+directory once via `/usr/bin/xcode-select -p` under a clean environment, validates
+that it supplies executable `xcodebuild` and `simctl` tools, and routes both the
+build and every Simulator operation through one clean `xcrun` wrapper with the
+exact resolved `DEVELOPER_DIR`. No caller `TOOLCHAINS`, `SDKROOT`, xcconfig,
+dynamic-loader, Python, or command-resolver variables cross that boundary.
 
 ## Exact executable evidence
 
@@ -83,7 +88,7 @@ Environment:
 - `sqlite3_libversion()`: **3.51.0**
 - first-launch contention busy wait observation: **142 ms** for a configured
   125 ms timeout
-- generated evidence timestamp: `2026-09-05T18:59:23Z`
+- generated evidence timestamp: `2026-09-05T19:12:17Z`
 
 `run-simulator.sh` first removed any regular stale output, validated the source
 inventory, verified every build-input hash, and copied only the five reviewed
