@@ -132,13 +132,18 @@ async function defaultVerifyInternal(options: KeychainHelperClientOptions): Prom
     if (bytes.length < 8 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== 0x0100000c) fail("credential_helper_arch_invalid");
   } finally { bytes.fill(0); }
   if (process.platform !== "darwin") fail("credential_helper_signature_unavailable");
-  const result = spawnSync("/usr/bin/codesign", ["-d", "--verbose=4", "--requirements", "-", "--", executablePath], { encoding: "utf8", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }, maxBuffer: 64 * 1024 });
-  const strict = spawnSync("/usr/bin/codesign", ["--verify", "--strict", "--", executablePath], { encoding: "utf8", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }, maxBuffer: 64 * 1024 });
+  const commandOptions = { encoding: "utf8" as const, env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }, maxBuffer: 64 * 1024, timeout: 10_000, killSignal: "SIGKILL" as const };
+  const result = spawnSync("/usr/bin/codesign", ["-d", "--verbose=4", "--requirements", "-", "--", executablePath], commandOptions);
+  const strict = spawnSync("/usr/bin/codesign", ["--verify", "--strict", "--", executablePath], commandOptions);
   const evidence = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   if (strict.error || strict.status !== 0 || result.error || result.status !== 0 || !evidence.includes(`Identifier=${HELPER_IDENTIFIER}`)) fail("credential_helper_signature_invalid");
   if (signaturePolicy.kind === "adhoc") {
     if (!evidence.includes("Signature=adhoc")) fail("credential_helper_signature_invalid");
-  } else if (!evidence.includes(`designated => ${signaturePolicy.requirement}`)) fail("credential_helper_requirement_invalid");
+  } else {
+    if (evidence.includes("Signature=adhoc")) fail("credential_helper_signature_invalid");
+    const requirement = spawnSync("/usr/bin/codesign", ["--verify", "--strict", `-R=${signaturePolicy.requirement}`, "--", executablePath], commandOptions);
+    if (requirement.error || requirement.status !== 0) fail("credential_helper_requirement_invalid");
+  }
   const details = await lstat(executablePath);
   return Object.freeze({ dev: details.dev, ino: details.ino });
 }

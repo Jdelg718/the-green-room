@@ -125,6 +125,79 @@ final class LauncherTests: XCTestCase {
         XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle))
     }
 
+    func testSignedManifestRequiresDeveloperIDStateBeforeReadAndCannotDowngradeToV1() throws {
+        let bundle = try makeBundle()
+        var checked = false
+        XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in
+            checked = true
+            return .developerID
+        }) { error in XCTAssertEqual(error as? LauncherError, .manifestMissing) }
+        XCTAssertTrue(checked, "signature state must be established before the manifest is opened")
+
+        let payload = bundle.appendingPathComponent("Contents/Resources/runtime/node")
+        try write(Data("payload".utf8), to: payload)
+        try writeManifest(to: bundle, files: [["path": "Contents/Resources/runtime/node", "sha256": sha256(Data("payload".utf8))]])
+        XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in .developerID }) { error in
+            XCTAssertEqual(error as? LauncherError, .manifestInvalid("signature_schema_mismatch"))
+        }
+    }
+
+    func testSecurityClassificationAllowsOnlyAdHocV1AndExactDeveloperIDV2() throws {
+        XCTAssertEqual(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecCSReqFailed,
+            developerIDRequirementStatus: errSecCSReqFailed,
+            adHocOrUnsigned: true
+        ), .unsigned)
+        XCTAssertEqual(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecSuccess,
+            developerIDRequirementStatus: errSecSuccess,
+            adHocOrUnsigned: false
+        ), .developerID)
+
+        for schema in [1, 2] {
+            let bundle = try makeBundle()
+            if schema == 1 {
+                let payload = bundle.appendingPathComponent("Contents/Resources/runtime/node")
+                let bytes = Data("payload".utf8)
+                try write(bytes, to: payload)
+                try writeManifest(to: bundle, files: [["path": "Contents/Resources/runtime/node", "sha256": sha256(bytes)]])
+            } else {
+                try writeSignedManifest(to: bundle)
+            }
+            XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in
+                try LauncherPreflight.classifySignature(
+                    exactRequirementStatus: errSecCSReqFailed,
+                    developerIDRequirementStatus: errSecSuccess,
+                    adHocOrUnsigned: false
+                )
+            }) { error in
+                XCTAssertEqual(error as? LauncherError, .manifestInvalid("launcher_signer_identity_mismatch"))
+            }
+        }
+        XCTAssertThrowsError(try LauncherPreflight.classifySignature(
+            exactRequirementStatus: errSecCSReqFailed,
+            developerIDRequirementStatus: errSecCSReqFailed,
+            adHocOrUnsigned: false
+        )) { error in
+            XCTAssertEqual(error as? LauncherError, .manifestInvalid("launcher_signer_identity_mismatch"))
+        }
+    }
+
+    func testSignedManifestHasExactExhaustiveInventoryAndCodeObjectPolicy() throws {
+        let bundle = try makeBundle()
+        try writeSignedManifest(to: bundle)
+        XCTAssertNoThrow(try LauncherPreflight.validate(bundleRoot: bundle) { _ in .developerID })
+        XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in .unsigned }) { error in
+            XCTAssertEqual(error as? LauncherError, .manifestInvalid("signature_schema_mismatch"))
+        }
+
+        chmod(bundle.appendingPathComponent("Contents/Resources").path, 0o755)
+        try write(Data("surprise".utf8), to: bundle.appendingPathComponent("Contents/Resources/surprise"))
+        chmod(bundle.appendingPathComponent("Contents/Resources/surprise").path, 0o444)
+        chmod(bundle.appendingPathComponent("Contents/Resources").path, 0o555)
+        XCTAssertThrowsError(try LauncherPreflight.validate(bundleRoot: bundle) { _ in .developerID })
+    }
+
     func testInvocationRejectsArgumentsAndInheritedRuntimeOverrides() throws {
         let executable = "/Applications/The Green Room.app/Contents/MacOS/GreenRoomLauncher"
         XCTAssertNoThrow(try LauncherInvocation.validate(arguments: [executable], environment: [:]))
@@ -316,6 +389,62 @@ final class LauncherTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
         try data.write(to: bundle.appendingPathComponent(LauncherPreflight.manifestRelativePath))
+    }
+
+    private func writeSignedManifest(to bundle: URL) throws {
+        let launcher = bundle.appendingPathComponent("Contents/MacOS/GreenRoomLauncher")
+        let seal = bundle.appendingPathComponent("Contents/_CodeSignature/CodeResources")
+        let readOnlyCode = bundle.appendingPathComponent("Contents/Resources/app/node_modules/fs-ext/build/Release/fs_ext.node")
+        let payload = bundle.appendingPathComponent("Contents/Resources/payload.json")
+        var macho = Data([0xcf, 0xfa, 0xed, 0xfe])
+        macho.append(Data(repeating: 0, count: 28))
+        try write(macho, to: launcher)
+        try write(macho, to: readOnlyCode)
+        try write(Data("seal".utf8), to: seal)
+        let payloadData = Data("{}\n".utf8)
+        try write(payloadData, to: payload)
+        chmod(launcher.path, 0o555); chmod(readOnlyCode.path, 0o555); chmod(seal.path, 0o444); chmod(payload.path, 0o444)
+        let appRequirement = designatedRequirement("net.greenroomai.GreenRoom")
+        let readOnlyIdentifier = "net.greenroomai.GreenRoom.component.24a0b1f7e3eb54db2b260df1"
+        let manifest: [String: Any] = [
+            "schemaVersion": 2, "bundleIdentifier": "net.greenroomai.GreenRoom", "appVersion": "0.1.0",
+            "sourceCommit": String(repeating: "a", count: 40), "buildEpoch": 1, "targetTriple": "arm64-apple-darwin",
+            "runtimes": ["nodeVersion": "24.20.0", "pythonVersion": "3.13.13", "validatorVersion": "0.1.0"],
+            "databaseSchema": ["minimum": 1, "maximum": 8], "unsignedPayloadDigest": String(repeating: "b", count: 64),
+            "payloadFiles": [
+                ["path": "Contents/Resources/app/node_modules/fs-ext/build/Release/fs_ext.node", "mode": 365, "bytes": macho.count, "sha256": sha256(macho)],
+                ["path": "Contents/Resources/payload.json", "mode": 292, "bytes": payloadData.count, "sha256": sha256(payloadData)],
+            ],
+            "signatureOwnedFiles": ["Contents/CodeResources", "Contents/MacOS/GreenRoomLauncher", "Contents/_CodeSignature/CodeResources"],
+            "signingPolicy": [
+                "teamId": "JZ233HBW3Z", "identity": "Developer ID Application: James DelGuercio (JZ233HBW3Z)",
+                "hardenedRuntime": true, "secureTimestamp": true,
+                "identifiers": ["app": "net.greenroomai.GreenRoom", "credentialHelper": "net.greenroomai.GreenRoom.credential-helper"],
+                "requirements": ["app": appRequirement, "credentialHelper": designatedRequirement("net.greenroomai.GreenRoom.credential-helper")],
+                "codeObjects": [
+                    ["path": "Contents/MacOS/GreenRoomLauncher", "identifier": "net.greenroomai.GreenRoom", "requirement": appRequirement],
+                    ["path": "Contents/Resources/app/node_modules/fs-ext/build/Release/fs_ext.node", "identifier": readOnlyIdentifier, "requirement": designatedRequirement(readOnlyIdentifier)],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+        let manifestURL = bundle.appendingPathComponent(LauncherPreflight.manifestRelativePath)
+        try data.write(to: manifestURL); chmod(manifestURL.path, 0o444)
+        for directory in [
+            bundle.appendingPathComponent("Contents/Resources/app/node_modules/fs-ext/build/Release"),
+            bundle.appendingPathComponent("Contents/Resources/app/node_modules/fs-ext/build"),
+            bundle.appendingPathComponent("Contents/Resources/app/node_modules/fs-ext"),
+            bundle.appendingPathComponent("Contents/Resources/app/node_modules"),
+            bundle.appendingPathComponent("Contents/Resources/app"),
+            bundle.appendingPathComponent("Contents/MacOS"), bundle.appendingPathComponent("Contents/Resources"),
+            bundle.appendingPathComponent("Contents/_CodeSignature"), bundle.appendingPathComponent("Contents"), bundle,
+        ] {
+            chmod(directory.path, 0o555)
+        }
+    }
+
+    private func designatedRequirement(_ identifier: String) -> String {
+        "identifier \"\(identifier)\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"JZ233HBW3Z\""
     }
 
     private func write(_ data: Data, to url: URL) throws {

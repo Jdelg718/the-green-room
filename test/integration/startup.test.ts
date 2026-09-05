@@ -120,7 +120,7 @@ function realPackagedFixture(root: string, mutate?: (fixture: {
   chmodSync(validatorExecutable, 0o555);
   const helperBytes = Buffer.from("#!/bin/sh\nexit 20\n");
   writeFileSync(helper, helperBytes, { mode: 0o555 });
-  writeFileSync(manifest, `${JSON.stringify({ files: [{
+  writeFileSync(manifest, `${JSON.stringify({ schemaVersion: 1, files: [{
     path: "Contents/Resources/helpers/GreenRoomCredentialHelper",
     sha256: createHash("sha256").update(helperBytes).digest("hex"),
   }] })}\n`, { mode: 0o444 });

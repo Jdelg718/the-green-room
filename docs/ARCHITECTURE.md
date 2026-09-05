@@ -1,5 +1,7 @@
 # Architecture
 
+The macOS downloadable path's signed-payload, exact designated-requirement, Keychain-profile-only notarization, and deterministic ZIP boundaries are fixed by [ADR 0005](adr/0005-macos-developer-id-signing-and-notarization.md). The unsigned manifest-v1 artifact remains separate release evidence; only a private copy becomes manifest v2 and receives nested then outer Developer ID signatures.
+
 ## Status
 
 Accepted standalone local-companion baseline. [ADR 0002](adr/0002-local-first-byo-llm-and-buzz-boundary.md) records the local-first BYO-LLM and Buzz boundary.

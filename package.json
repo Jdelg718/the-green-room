@@ -12,6 +12,8 @@
   "greenroomPackageIdentity": {
     "bundleIdentifier": "net.greenroomai.GreenRoom",
     "releaseManifestSchemaVersion": 1,
+    "signedReleaseManifestSchemaVersion": 2,
+    "developerIdTeam": "JZ233HBW3Z",
     "macosBuildVersion": "120",
     "pythonVersion": "3.13.13",
     "macosToolchain": {
@@ -37,6 +39,9 @@
     "package:validator:macos": "node scripts/package/build-validator.mjs",
     "package:launcher:macos": "node scripts/package/build-launcher.mjs",
     "package:macos:unsigned": "node packaging/macos/assemble-app.mjs",
+    "package:macos:signed": "node scripts/package/macos-signing.mjs",
+    "notarize:macos": "node scripts/package/macos-notarize.mjs",
+    "verify:macos:signed": "node scripts/package/verify-macos-signed.mjs",
     "test:packaging": "node scripts/package/test-packaged-validator.mjs && node scripts/package/test-packaged-runtime.mjs",
     "verify:payload": "node scripts/package/verify-payload.mjs",
     "verify:native-module": "node scripts/package/verify-native-module.mjs",

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenroomai.net/schemas/release-manifest-v2.json",
+  "title": "The Green Room signed release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "bundleIdentifier", "appVersion", "sourceCommit", "buildEpoch", "targetTriple", "runtimes", "databaseSchema", "unsignedPayloadDigest", "payloadFiles", "signatureOwnedFiles", "signingPolicy"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "bundleIdentifier": { "const": "net.greenroomai.GreenRoom" },
+    "appVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
+    "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "buildEpoch": { "type": "integer", "minimum": 0 },
+    "targetTriple": { "const": "arm64-apple-darwin" },
+    "runtimes": {
+      "type": "object", "additionalProperties": false, "required": ["nodeVersion", "pythonVersion", "validatorVersion"],
+      "properties": {
+        "nodeVersion": { "type": "string", "pattern": "^24\\.[0-9]+\\.[0-9]+$" },
+        "pythonVersion": { "type": "string", "pattern": "^3\\.[0-9]+\\.[0-9]+$" },
+        "validatorVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" }
+      }
+    },
+    "databaseSchema": { "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"], "properties": { "minimum": { "const": 1 }, "maximum": { "const": 8 } } },
+    "unsignedPayloadDigest": { "$ref": "#/$defs/sha256" },
+    "payloadFiles": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/file" } },
+    "signatureOwnedFiles": { "const": ["Contents/CodeResources", "Contents/MacOS/GreenRoomLauncher", "Contents/_CodeSignature/CodeResources"] },
+    "signingPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["teamId", "identity", "hardenedRuntime", "secureTimestamp", "identifiers", "requirements", "codeObjects"],
+      "properties": {
+        "teamId": { "const": "JZ233HBW3Z" },
+        "identity": { "const": "Developer ID Application: James DelGuercio (JZ233HBW3Z)" },
+        "hardenedRuntime": { "const": true }, "secureTimestamp": { "const": true },
+        "identifiers": { "type": "object", "additionalProperties": false, "required": ["app", "credentialHelper"], "properties": { "app": { "const": "net.greenroomai.GreenRoom" }, "credentialHelper": { "const": "net.greenroomai.GreenRoom.credential-helper" } } },
+        "requirements": { "type": "object", "additionalProperties": false, "required": ["app", "credentialHelper"], "properties": {
+          "app": { "const": "identifier \"net.greenroomai.GreenRoom\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"JZ233HBW3Z\"" },
+          "credentialHelper": { "const": "identifier \"net.greenroomai.GreenRoom.credential-helper\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"JZ233HBW3Z\"" }
+        } },
+        "codeObjects": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["path", "identifier", "requirement"], "properties": { "path": { "$ref": "#/$defs/path" }, "identifier": { "type": "string", "pattern": "^net\\.greenroomai\\.GreenRoom(?:\\.[a-z0-9-]+)*$" }, "requirement": { "type": "string", "minLength": 1 } } } }
+      }
+    }
+  },
+  "$defs": {
+    "path": { "type": "string", "pattern": "^Contents/(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))(?!.*//)[A-Za-z0-9._ +@-]+(?:/[A-Za-z0-9._ +@-]+)*$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "file": { "type": "object", "additionalProperties": false, "required": ["path", "mode", "bytes", "sha256"], "properties": { "path": { "$ref": "#/$defs/path" }, "mode": { "enum": [292, 365] }, "bytes": { "type": "integer", "minimum": 0 }, "sha256": { "$ref": "#/$defs/sha256" } } }
+  }
+}
