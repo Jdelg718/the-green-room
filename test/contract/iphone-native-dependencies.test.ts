@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, sep } from "node:path";
 import test from "node:test";
 
 const ROOT = process.cwd();
@@ -18,6 +30,101 @@ function filesBelow(root: string): string[] {
     return entry.isDirectory() ? filesBelow(path) : [path];
   });
 }
+
+const FORBIDDEN_NATIVE_DEPENDENCY_DESCRIPTORS = [
+  /^Podfile(?:\.lock|\.properties\.json)?$/iu,
+  /^Manifest\.lock$/iu,
+  /\.podspec(?:\.json)?$/iu,
+  /^Package(?:@swift-\d+(?:\.\d+)*)?\.swift$/iu,
+  /^Package\.(?:resolved|pins)$/iu,
+  /^Cartfile(?:\.private)?(?:\.resolved)?$/iu,
+  /^Dependencies\.swift$/iu,
+  /^Mintfile$/iu,
+];
+
+function portableRelative(root: string, path: string): string {
+  return relative(root, path).split(sep).join("/");
+}
+
+function findForbiddenNativeDependencyEntries(root: string): string[] {
+  if (!existsSync(root)) return ["."];
+
+  const rootStats = lstatSync(root);
+  if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) return ["."];
+
+  const violations: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const relativePath = portableRelative(root, path);
+      const stats = lstatSync(path);
+
+      if (stats.isSymbolicLink()) {
+        violations.push(relativePath);
+      } else if (stats.isDirectory()) {
+        visit(path);
+      } else if (!stats.isFile()) {
+        violations.push(relativePath);
+      } else if (FORBIDDEN_NATIVE_DEPENDENCY_DESCRIPTORS.some((pattern) => pattern.test(entry.name))) {
+        violations.push(relativePath);
+      }
+    }
+  };
+
+  visit(root);
+  return violations.sort();
+}
+
+test("native dependency scanner rejects descriptors at any depth and escaping links", (context) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "greenroom-native-dependencies-"));
+  const outsideRoot = mkdtempSync(join(tmpdir(), "greenroom-native-dependencies-outside-"));
+  context.after(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+    rmSync(outsideRoot, { recursive: true, force: true });
+  });
+
+  mkdirSync(join(fixtureRoot, "Nested", "Deeper"), { recursive: true });
+  writeFileSync(join(fixtureRoot, "README.md"), "repository-owned spike\n");
+  assert.deepEqual(findForbiddenNativeDependencyEntries(fixtureRoot), []);
+
+  const descriptors = [
+    "Podfile",
+    "Podfile.lock",
+    "Podfile.properties.json",
+    "Manifest.lock",
+    "SQLiteCapability.podspec",
+    "SQLiteCapability.podspec.json",
+    "Package.swift",
+    "Package@swift-6.0.swift",
+    "Package.resolved",
+    "Package.pins",
+    "Cartfile",
+    "Cartfile.private",
+    "Cartfile.resolved",
+    "Dependencies.swift",
+    "Mintfile",
+  ];
+  for (const [index, descriptor] of descriptors.entries()) {
+    const directory = join(fixtureRoot, "Nested", "Deeper", String(index));
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, descriptor), "malicious fixture\n");
+  }
+
+  writeFileSync(join(outsideRoot, "Package.swift"), "// outside fixture root\n");
+  symlinkSync(join(outsideRoot, "Package.swift"), join(fixtureRoot, "linked-package"));
+  symlinkSync(outsideRoot, join(fixtureRoot, "linked-directory"));
+
+  const violations = findForbiddenNativeDependencyEntries(fixtureRoot);
+  for (const descriptor of descriptors) {
+    assert.equal(
+      violations.some((violation) => violation.endsWith(`/${descriptor}`)),
+      true,
+      `scanner accepted forbidden descriptor ${descriptor}`,
+    );
+  }
+  assert.equal(violations.some((violation) => violation.includes("linked-package")), true);
+  assert.equal(violations.some((violation) => violation.includes("linked-directory")), true);
+});
 
 test("iPhone persistence depends only on the repository-owned system SQLite spike", () => {
   const packageFiles = [join(ROOT, "package.json"), join(ROOT, "package-lock.json")]
@@ -49,6 +156,11 @@ test("iPhone persistence depends only on the repository-owned system SQLite spik
   const project = read(join(SPIKE_ROOT, "SQLiteCapability.xcodeproj", "project.pbxproj"));
   assert.match(project, /OTHER_LDFLAGS = \("-lsqlite3"\);/u);
   assert.doesNotMatch(project, /(?:CocoaPods|Package\.resolved|XCRemoteSwiftPackageReference|SQLCipher)/iu);
+  assert.deepEqual(
+    findForbiddenNativeDependencyEntries(SPIKE_ROOT),
+    [],
+    "the SQLite capability spike must not contain dependency-manager descriptors or links",
+  );
 
   const swift = filesBelow(SPIKE_ROOT)
     .filter((path) => path.endsWith(".swift"))

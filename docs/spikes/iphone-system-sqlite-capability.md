@@ -36,9 +36,11 @@ encrypted database mode by Green Room.
 
 The TypeScript contract test
 `test/contract/iphone-native-dependencies.test.ts` rejects common Capacitor and
-Cordova SQLite package names, SQLCipher dependencies, remote Swift packages,
-CocoaPods, Capacitor plugin classes, generic SQL-shaped plugin methods, and a
-non-executable/document-only spike.
+Cordova SQLite package names, SQLCipher dependencies, CocoaPods, SwiftPM,
+Carthage, and related native dependency-manager descriptors anywhere below the
+spike root, remote Swift-package and CocoaPods markers in the Xcode project,
+Capacitor plugin classes, generic SQL-shaped plugin methods, symlink traversal,
+and a non-executable/document-only spike.
 
 ## Exact executable evidence
 
