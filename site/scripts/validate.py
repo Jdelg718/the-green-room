@@ -166,7 +166,7 @@ PROFILE_SOURCE_SHA256 = {
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
     "ff2k": "b50d07979d94363c336823472be1c62c8a84f459ca2d9f429baee9572fc28d95",
 }
-PROFILE_STYLESHEET_SHA256 = "fabf00cfb2e27e6b1b155eb19d87420ebaece0b4bc95ccc285f29808e844ded2"
+PROFILE_STYLESHEET_SHA256 = "e30f93e027a36040091e5d019199c22c7e3c0c43a124d4c4414c509992d08b20"
 SOCIAL_CARD_SHA256 = "b3d4254d433d955017cf7849ff97fe27f11c1e6b91e0ff61904b632344ef29fb"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
@@ -755,7 +755,18 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         ]
         if len(matching_cards) != 1:
             fail(errors, f"characters/index.html: expected one cast card for {name}")
-        elif slug in CAST_STATUS_LABELS:
+        else:
+            card = matching_cards[0]
+            card_classes = set(element_attrs(parser.elements[card]).get("class", "").split())
+            portrait_classes = {"portrait", f"portrait--{slug}"}
+            portraits = [
+                set(element_attrs(element).get("class", "").split())
+                for _, element in scoped_elements(parser, "figure", card)
+            ]
+            if f"portrait--{slug}" in card_classes or portraits != [portrait_classes]:
+                fail(errors, f"characters/index.html: portrait tone class must be on the figure for {name}")
+
+        if len(matching_cards) == 1 and slug in CAST_STATUS_LABELS:
             status_labels = [
                 index
                 for index, element in scoped_elements(parser, "small", matching_cards[0])
