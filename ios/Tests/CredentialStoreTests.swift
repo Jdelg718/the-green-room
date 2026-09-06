@@ -186,6 +186,59 @@ func runCredentialStoreTests() throws {
         ) == .invalid,
         "synchronizing Keychain item was accepted"
     )
+    var queryReturnedAttributes = returnedAttributes
+    queryReturnedAttributes[kSecAttrSynchronizable] = nil
+    queryReturnedAttributes[kSecClass] = nil
+    queryReturnedAttributes[kSecAttrService] = nil
+    queryReturnedAttributes[kSecAttrAccount] = nil
+    credentialRequire(
+        SecurityCredentialStore.inspectScopedAttributes(
+            queryReturnedAttributes, credentialRef: productionReference
+        ) == .valid(attributeMetadata),
+        "query-scoped physical Keychain attributes were rejected when iOS omitted query-enforced fields"
+    )
+    queryReturnedAttributes[kSecAttrSynchronizable] = true
+    credentialRequire(
+        SecurityCredentialStore.inspectScopedAttributes(
+            queryReturnedAttributes, credentialRef: productionReference
+        ) == .invalid,
+        "query-scoped physical Keychain attributes accepted an explicit synchronizing value"
+    )
+
+    var usableAttributes = queryReturnedAttributes
+    usableAttributes[kSecAttrSynchronizable] = false
+    usableAttributes[kSecValueData] = Data("production-use".utf8)
+    var useQueries: [[CFString: Any]] = []
+    let productionUseStore = SecurityCredentialStore(service: "net.greenroomai.GreenRoom") { query in
+        useQueries.append(query)
+        return (errSecSuccess, [usableAttributes])
+    }
+    var productionOperationCount = 0
+    try productionUseStore.performWithCredential(
+        credentialRef: productionReference, expectedMetadata: attributeMetadata
+    ) { bytes in
+        productionOperationCount += 1
+        credentialRequire(bytes == Data("production-use".utf8), "production credential bytes mismatch")
+    }
+    credentialRequire(productionOperationCount == 1 && useQueries.count == 1, "credential use was not one serialized operation")
+    credentialRequire(
+        CFEqual(useQueries[0][kSecAttrSynchronizable] as CFTypeRef, kSecAttrSynchronizableAny) &&
+            CFEqual(useQueries[0][kSecMatchLimit] as CFTypeRef, kSecMatchLimitAll),
+        "production credential use did not atomically inventory every synchronizing variant"
+    )
+
+    var synchronizingAttributes = usableAttributes
+    synchronizingAttributes[kSecAttrSynchronizable] = true
+    for rows in [[usableAttributes, synchronizingAttributes], [synchronizingAttributes]] {
+        let rejectingStore = SecurityCredentialStore(service: "net.greenroomai.GreenRoom") { _ in
+            (errSecSuccess, rows)
+        }
+        credentialFailure("credential_missing") {
+            try rejectingStore.performWithCredential(
+                credentialRef: productionReference, expectedMetadata: attributeMetadata
+            ) { _ in fatalError("synchronizing Keychain variant reached credential operation") }
+        }
+    }
 
     let fixtureURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("contracts/iphone-alpha-native-bridge-v1/fixtures/credential-lifecycle.json")

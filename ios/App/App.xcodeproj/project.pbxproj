@@ -24,6 +24,7 @@
 		A16000000000000000000006 /* GreenRoomCredentialLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */; };
 		A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000017 /* SecurityCredentialStore.swift */; };
 		A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */; };
+		A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000021 /* DeviceCredentialAcceptance.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +46,7 @@
 		A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialLifecycle.swift; sourceTree = "<group>"; };
 		A16000000000000000000017 /* SecurityCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityCredentialStore.swift; sourceTree = "<group>"; };
 		A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialPlugin.swift; sourceTree = "<group>"; };
+		A16000000000000000000021 /* DeviceCredentialAcceptance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialAcceptance.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -109,6 +111,7 @@
 		A16000000000000000000020 /* Credentials */ = {
 			isa = PBXGroup;
 			children = (
+				A16000000000000000000021 /* DeviceCredentialAcceptance.swift */,
 				A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */,
 				A16000000000000000000017 /* SecurityCredentialStore.swift */,
 				A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */,
@@ -206,6 +209,7 @@
 				A16000000000000000000006 /* GreenRoomCredentialLifecycle.swift in Sources */,
 				A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */,
 				A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */,
+				A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

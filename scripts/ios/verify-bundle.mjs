@@ -39,6 +39,12 @@ const REQUIRED_CSP = new Map([
 const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appflow|ionic-deploy|cordova-plugin-ionic|codepush|hot-code|hot-update)/iu;
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
+const DEBUG_ACCEPTANCE_MARKERS = [
+  "greenroom-credential-device-acceptance=",
+  "net.greenroomai.GreenRoom.device-credential-acceptance",
+  "DeviceCredentialAcceptance",
+  "credential-acceptance-evidence.json",
+];
 const REVIEWED_WEB_SHA256 = new Map([
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
@@ -47,11 +53,12 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["shell.css", "db40b8af8478a57034d9328b953b298fbc0b54cba768bdb1eb1d3e1a52c6c319"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
-  ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
+  ["App/AppDelegate.swift", "f2dd61c55131b1a27e0dc1773f0907f3a01a06e4c425b9da7b35d78e8fad26ea"],
   ["App/ContainedBridgeViewController.swift", "ea017915fee83bee84430895cbd6de30154452c56169f4b88e5a1042eb3f9bdd"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
-  ["App/Credentials/SecurityCredentialStore.swift", "e63e05aa6807578178f31438acde31ba057eb38f1b617fd2d8c490486c64111b"],
+  ["App/Credentials/DeviceCredentialAcceptance.swift", "e35c6feb53d55ebb4cf70cfec8fb11443bbf3e3780a0365e746db1ff1cd4d67f"],
+  ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "61067242a8da6ad5a07a21fa79e9c512aceb8b6f4815e4a1524aa6dc4015c39c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
@@ -219,6 +226,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/Credentials/GreenRoomCredentialLifecycle.swift",
     "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift",
     "ios/App/App/Credentials/SecurityCredentialStore.swift",
+    "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
@@ -291,7 +299,16 @@ export function verifySource(root = process.cwd()) {
   requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /GreenRoomDatabasePlugin\.swift in Sources/u.test(project) && /GreenRoomCredentialPlugin\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project) && /Migrations in Resources/u.test(project), "local-room native source or resources are not in the target");
   const sourcesPhase = project.match(/\/\* Begin PBXSourcesBuildPhase section \*\/[\s\S]*?\/\* End PBXSourcesBuildPhase section \*\//u)?.[0] ?? "";
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+
+  const acceptance = readText(join(sourceRoot, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), sourceRoot);
+  requireCondition(acceptance.startsWith("#if DEBUG\n") && acceptance.trimEnd().endsWith("#endif"), "device credential acceptance source must be wholly Debug-only");
+  requireCondition(acceptance.includes("SecRandomCopyBytes") && !/(?:ProcessInfo\.processInfo\.environment|UserDefaults|UIPasteboard)/u.test(acceptance), "device credential acceptance must generate secrets natively without environment, preferences, or pasteboard input");
+  requireCondition(!/(?:print\s*\(|NSLog|os_log|Logger\s*\()/u.test(acceptance), "device credential acceptance must not log");
+  const appDelegate = readText(join(sourceRoot, "ios/App/App/AppDelegate.swift"), sourceRoot);
+  const releaseVisibleDelegate = appDelegate.replace(/#if DEBUG[\s\S]*?#endif/gu, "");
+  requireCondition(!/DeviceCredentialAcceptance|greenroom-credential-device-acceptance/u.test(releaseVisibleDelegate), "AppDelegate exposes credential acceptance outside Debug");
+  requireCondition((project.match(/SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;/gu) ?? []).length === 2 && /SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";/u.test(project), "Debug acceptance compilation condition is not separated from Release");
 
   const credentialStore = readText(join(sourceRoot, "ios/App/App/Credentials/SecurityCredentialStore.swift"), sourceRoot);
   for (const token of ["import Security", "kSecClassGenericPassword", "kSecAttrAccessibleWhenUnlockedThisDeviceOnly", "kSecAttrSynchronizable", "kCFBooleanFalse", "SecItemAdd", "SecItemCopyMatching", "SecItemDelete"]) {
@@ -466,8 +483,24 @@ export function verifySignedDeviceApp(appPath) {
   return { ...built, signing: { identifier: BUNDLE_ID, teamIdentifier: "JZ233HBW3Z", sealed: true, developmentProfile: true, profileApplicationIdentifier: exactProfileAppId ? `JZ233HBW3Z.${BUNDLE_ID}` : "JZ233HBW3Z.*" } };
 }
 
+export function verifyReleaseAcceptanceBoundary(appPath) {
+  const built = verifyBuiltApp(appPath);
+  const appRoot = resolve(appPath);
+  const info = plistJson(join(appRoot, "Info.plist"), appRoot);
+  const executable = join(appRoot, info.CFBundleExecutable);
+  const strings = execFileSync("/usr/bin/xcrun", ["strings", "-a", executable], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  for (const marker of DEBUG_ACCEPTANCE_MARKERS) {
+    requireCondition(!strings.includes(marker), "Debug credential acceptance marker is present in Release executable");
+  }
+  return { ...built, debugCredentialAcceptance: false };
+}
+
 function usage() {
-  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app | --signed-device-app path/to/App.app");
+  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app | --signed-device-app path/to/App.app | --release-acceptance-boundary path/to/App.app");
   process.exit(64);
 }
 
@@ -478,6 +511,7 @@ if (invoked) {
     if (process.argv[2] === "--source") result = verifySource(process.argv[3] ?? process.cwd());
     else if (process.argv[2] === "--app" && process.argv[3]) result = verifyBuiltApp(process.argv[3]);
     else if (process.argv[2] === "--signed-device-app" && process.argv[3]) result = verifySignedDeviceApp(process.argv[3]);
+    else if (process.argv[2] === "--release-acceptance-boundary" && process.argv[3]) result = verifyReleaseAcceptanceBoundary(process.argv[3]);
     else usage();
     console.log(JSON.stringify({ status: "PASS", ...result }, null, 2));
   } catch (error) {
