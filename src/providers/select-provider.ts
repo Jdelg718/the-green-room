@@ -39,6 +39,7 @@ export function createBoundProviderResolver(options: {
     });
     return Object.freeze({
       async generate(invitation: ProviderInvitation, signal: AbortSignal) {
+        signal.throwIfAborted();
         const messages = personaGenerationMessages(invitation, options.personaCatalog);
         let keyBytes: Buffer | null;
         try { keyBytes = await options.credentialStore.get(reference, signal); }

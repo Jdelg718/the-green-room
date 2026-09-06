@@ -152,6 +152,43 @@ test("bound cloud generation rejects unknown personas before credentials or tran
   assert.equal(attempts, 0);
 });
 
+test("already-aborted bound cloud generation performs no catalog, credential, or transport work", async () => {
+  let resolutions = 0;
+  let gets = 0;
+  let attempts = 0;
+  const resolver = createBoundProviderResolver({
+    personaCatalog: {
+      resolvePrompt() {
+        resolutions += 1;
+        return "must not resolve";
+      },
+    },
+    credentialStore: {
+      async put() {}, async replace() {}, async delete() { return false; },
+      async get() { gets += 1; return Buffer.from("runtime-secret"); },
+    },
+    cloudTransport: {
+      request() {
+        attempts += 1;
+        return Promise.reject(new Error("must not run"));
+      },
+    },
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    resolver(decision(1)).generate(
+      { id: "invitation", personaId: "ada-lovelace", prompt: "Prompt" },
+      controller.signal,
+    ),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(resolutions, 0);
+  assert.equal(gets, 0);
+  assert.equal(attempts, 0);
+});
+
 test("missing credential fails before transport", async () => {
   let attempts = 0;
   const resolver = createBoundProviderResolver({
