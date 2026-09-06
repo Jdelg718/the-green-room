@@ -46,6 +46,7 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     "capacitor.config.ts",
     "ios/App/App.xcodeproj/project.pbxproj",
     "ios/App/App/ContainedBridgeViewController.swift",
+    "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios-web/index.html",
     "scripts/ios/verify-bundle.mjs",
@@ -58,6 +59,24 @@ test("repository contains and passes the complete iPhone source boundary", () =>
   const gate = readFileSync(join(ROOT, "scripts/ios/run-ios-test.mjs"), "utf8");
   assert.match(gate, /process\.platform !== "darwin"/u);
   assert.match(gate, /run-simulator-offline\.mjs/u);
+  assert.match(gate, /build-simulator-release\.mjs/u);
+  assert.match(gate, /--release-acceptance-boundary/u);
+});
+
+test("physical credential harness is explicit, Debug-only, state-only, and probes real lock state", () => {
+  const acceptance = readFileSync(join(ROOT, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), "utf8");
+  const appDelegate = readFileSync(join(ROOT, "ios/App/App/AppDelegate.swift"), "utf8");
+  const smoke = readFileSync(join(ROOT, "scripts/ios/device-smoke.mjs"), "utf8");
+  assert.match(acceptance, /^#if DEBUG\n/u);
+  assert.match(acceptance, /SecRandomCopyBytes/u);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/Credentials/SecurityCredentialStore.swift"), "utf8"), /errSecInteractionNotAllowed/u);
+  assert.doesNotMatch(acceptance, /ProcessInfo\.processInfo\.environment|UserDefaults|UIPasteboard|print\s*\(|NSLog|os_log/u);
+  assert.match(appDelegate, /#if DEBUG[\s\S]*DeviceCredentialAcceptance\.requested\(\)[\s\S]*#endif/u);
+  assert.match(smoke, /device", "info", "lockState"/u);
+  assert.doesNotMatch(smoke, /tunnelState|ddiServicesAvailable/u);
+  assert.match(smoke, /greenroom-credential-device-acceptance=prepare/u);
+  assert.match(smoke, /greenroom-credential-device-acceptance=recover-lock-cycle/u);
+  assert.doesNotMatch(smoke, /GREENROOM_CREDENTIAL_DEVICE_ACCEPTANCE|device", "uninstall"/u);
 });
 
 test("remote entry URLs and generated navigation allowances fail closed", (context) => {
