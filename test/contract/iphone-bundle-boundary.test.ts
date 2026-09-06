@@ -211,6 +211,11 @@ test("built verifier rejects arbitrary executable and script payloads", { skip: 
   assert.throws(() => verifyBuiltApp(app), /script payload/u);
 });
 
-test("built verifier gates trusted Apple plist parsing to Darwin", { skip: process.platform === "darwin" }, () => {
-  assert.throws(() => verifyBuiltApp("/tmp/nonexistent.app"), /root must be a real directory|built \.app verification requires/u);
+test("built verifier gates trusted Apple plist parsing to Darwin before path or tool inspection", () => {
+  for (const appPath of ["/tmp/nonexistent.app", "/tmp/not-an-app"]) {
+    assert.throws(
+      () => verifyBuiltApp(appPath, { platform: "linux" }),
+      /^Error: iPhone bundle boundary: built \.app verification requires trusted Apple plutil on Darwin$/u,
+    );
+  }
 });

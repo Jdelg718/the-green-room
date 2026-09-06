@@ -325,7 +325,8 @@ function isMachO(path, root) {
   return ["feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca"].includes(bytes);
 }
 
-export function verifyBuiltApp(appPath) {
+export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
+  requireCondition(process.platform === "darwin" && platform === "darwin", "built .app verification requires trusted Apple plutil on Darwin");
   const appRoot = resolve(appPath);
   requireCondition(appRoot.endsWith(".app"), "built path must name an .app directory");
   const entries = walkNoFollow(appRoot);
