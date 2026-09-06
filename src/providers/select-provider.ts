@@ -6,6 +6,7 @@ import { DeterministicMockProvider } from "./mock.js";
 import type { GenerationProvider, ProviderInvitation } from "./provider.js";
 import { canonicalCredentialReference, type CredentialStore } from "./credential-store.js";
 import { OpenAICompatibleCloudAdapter, type CloudTransport } from "./openai-compatible-cloud.js";
+import { personaGenerationMessages } from "./persona-generation.js";
 import { parseDecisionSnapshot, type DecisionSnapshot } from "./profile-contracts.js";
 
 export interface SelectProviderOptions
@@ -24,6 +25,7 @@ export class BoundProviderError extends Error {
 export function createBoundProviderResolver(options: {
   readonly credentialStore: CredentialStore;
   readonly cloudTransport: CloudTransport;
+  readonly personaCatalog?: Pick<BundledPersonaCatalog, "resolvePrompt">;
 }): (decision: DecisionSnapshot) => GenerationProvider {
   return (rawDecision) => {
     const decision = parseDecisionSnapshot(rawDecision);
@@ -37,6 +39,7 @@ export function createBoundProviderResolver(options: {
     });
     return Object.freeze({
       async generate(invitation: ProviderInvitation, signal: AbortSignal) {
+        const messages = personaGenerationMessages(invitation, options.personaCatalog);
         let keyBytes: Buffer | null;
         try { keyBytes = await options.credentialStore.get(reference, signal); }
         catch { throw new BoundProviderError("credential_unavailable"); }
@@ -45,7 +48,7 @@ export function createBoundProviderResolver(options: {
           return await adapter.generate({
             credential: keyBytes.toString("utf8"),
             model: decision.model.modelId,
-            messages: [{ role: "user", content: invitation.prompt }],
+            messages,
             temperature: decision.effectiveGeneration.temperature,
             maxOutputTokens: decision.effectiveGeneration.maxOutputTokens,
           }, signal);

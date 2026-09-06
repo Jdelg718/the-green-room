@@ -6,9 +6,14 @@ import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js"
 import { AcceptanceFixtureProvider } from "../../src/providers/acceptance-fixture.js";
 import { LMStudioProvider } from "../../src/providers/lm-studio.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
+import {
+  originalSystemPrompt,
+  personaGenerationMessages,
+} from "../../src/providers/persona-generation.js";
+import { HOST_RESPONSE_POLICY } from "../../src/providers/response-policy.js";
 import { createBoundProviderResolver, selectProvider } from "../../src/providers/select-provider.js";
 import type { CredentialStore } from "../../src/providers/credential-store.js";
-import type { CloudTransport } from "../../src/providers/openai-compatible-cloud.js";
+import type { CloudTransport, CloudTransportRequest } from "../../src/providers/openai-compatible-cloud.js";
 
 const base = {
   personaCatalog: loadHistoricalCatalog(
@@ -57,6 +62,19 @@ test("the exact acceptance fixture gate has priority over configured LM Studio",
   assert.ok(selected instanceof AcceptanceFixtureProvider);
 });
 
+function decodeChatMessages(request: CloudTransportRequest): unknown {
+  assert.ok(request.body instanceof Uint8Array);
+  const payload = JSON.parse(new TextDecoder().decode(request.body)) as { messages?: unknown };
+  return payload.messages;
+}
+
+function successfulOpenRouterBody(): Uint8Array {
+  return Uint8Array.from(Buffer.from(JSON.stringify({
+    model: "anthropic/claude-3.5-sonnet",
+    choices: [{ message: { content: "Exact reply." } }],
+  })));
+}
+
 test("bound provider resolution loads one exact credential and makes one exact attempt", async () => {
   let gets = 0;
   let attempts = 0;
@@ -69,7 +87,11 @@ test("bound provider resolution loads one exact credential and makes one exact a
       attempts += 1;
       assert.equal(request.definitionId, "openrouter");
       assert.equal(request.method, "POST");
-      return Promise.resolve({ status: 200, headers: { "content-type": "application/json" }, body: Uint8Array.from(Buffer.from(JSON.stringify({ model: "anthropic/claude-3.5-sonnet", choices: [{ message: { content: "Exact reply." } }] }))) });
+      assert.deepEqual(
+        decodeChatMessages(request),
+        personaGenerationMessages({ id: "invitation", personaId: "detective", prompt: "Bounded prompt" }),
+      );
+      return Promise.resolve({ status: 200, headers: { "content-type": "application/json" }, body: successfulOpenRouterBody() });
     },
   };
   const resolver = createBoundProviderResolver({ credentialStore: credentials, cloudTransport: transport });
@@ -77,6 +99,57 @@ test("bound provider resolution loads one exact credential and makes one exact a
   assert.deepEqual(await provider.generate({ id: "invitation", personaId: "detective", prompt: "Bounded prompt" }, new AbortController().signal), { kind: "text", text: "Exact reply." });
   assert.equal(gets, 1);
   assert.equal(attempts, 1);
+});
+
+test("bound cloud generation sends persona instructions and host response policy", async () => {
+  const catalog = loadHistoricalCatalog(
+    fileURLToPath(new URL("../../personas/historical", import.meta.url)),
+  );
+  const invitation = { id: "invitation", personaId: "ada-lovelace", prompt: "What should we notice?" };
+  let captured: unknown;
+  const resolver = createBoundProviderResolver({
+    personaCatalog: catalog,
+    credentialStore: {
+      async put() {}, async replace() {}, async delete() { return false; },
+      async get() { return Buffer.from("runtime-secret"); },
+    },
+    cloudTransport: {
+      request(request) {
+        captured = decodeChatMessages(request);
+        return Promise.resolve({ status: 200, headers: { "content-type": "application/json" }, body: successfulOpenRouterBody() });
+      },
+    },
+  });
+  await resolver(decision(3)).generate(invitation, new AbortController().signal);
+  assert.deepEqual(captured, [
+    { role: "system", content: catalog.resolvePrompt("ada-lovelace") },
+    { role: "system", content: HOST_RESPONSE_POLICY },
+    { role: "user", content: invitation.prompt },
+  ]);
+  assert.equal(originalSystemPrompt("ada-lovelace"), undefined);
+});
+
+test("bound cloud generation rejects unknown personas before credentials or transport", async () => {
+  let gets = 0;
+  let attempts = 0;
+  const resolver = createBoundProviderResolver({
+    credentialStore: {
+      async put() {}, async replace() {}, async delete() { return false; },
+      async get() { gets += 1; return Buffer.from("runtime-secret"); },
+    },
+    cloudTransport: {
+      request() {
+        attempts += 1;
+        return Promise.reject(new Error("must not run"));
+      },
+    },
+  });
+  await assert.rejects(
+    resolver(decision(1)).generate({ id: "invitation", personaId: "ada-lovelace", prompt: "Prompt" }, new AbortController().signal),
+    /unknown persona/i,
+  );
+  assert.equal(gets, 0);
+  assert.equal(attempts, 0);
 });
 
 test("missing credential fails before transport", async () => {

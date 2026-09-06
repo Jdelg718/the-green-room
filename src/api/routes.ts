@@ -683,7 +683,11 @@ export function registerApiRoutes(
               ? options.provider!
               : (() => { throw new Error("LM Studio binding model is stale"); })()
             : cloudResolver(decision)
-        )(createBoundProviderResolver({ credentialStore: options.providerCredentials, cloudTransport: options.cloudTransport })),
+        )(createBoundProviderResolver({
+          credentialStore: options.providerCredentials,
+          cloudTransport: options.cloudTransport,
+          ...(options.personaCatalog === undefined ? {} : { personaCatalog: options.personaCatalog }),
+        })),
       } : {}),
       ...(options.providerCredentials === undefined && options.lmStudioModel !== undefined ? {
         providerDecisionEvidence: { adapterVersion: "1.0.0", directorRevision: 1, policyRevision: 1 },
