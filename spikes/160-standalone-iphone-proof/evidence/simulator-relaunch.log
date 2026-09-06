@@ -1,0 +1,44 @@
++ DEVICE=F7D79755-4C03-44C7-B810-28DBC936444F
++ BUNDLE=net.greenroomai.spike.iphoneproof160
++++ dirname scripts/run-simulator-proof.sh
+++ cd scripts/..
+++ pwd
++ ROOT=<spike-root>
++ APP=<spike-root>/evidence/DerivedData/Build/Products/Debug-iphonesimulator/GreenRoomProof.app
++ xcrun simctl bootstatus F7D79755-4C03-44C7-B810-28DBC936444F -b
+Monitoring boot status for iPhone 17 Pro (F7D79755-4C03-44C7-B810-28DBC936444F).
+Device already booted, nothing to do.
+
++ xcrun simctl uninstall F7D79755-4C03-44C7-B810-28DBC936444F net.greenroomai.spike.iphoneproof160
++ xcrun simctl install F7D79755-4C03-44C7-B810-28DBC936444F <spike-root>/evidence/DerivedData/Build/Products/Debug-iphonesimulator/GreenRoomProof.app
++ xcrun simctl launch F7D79755-4C03-44C7-B810-28DBC936444F net.greenroomai.spike.iphoneproof160
+net.greenroomai.spike.iphoneproof160: 71788
++ sleep 2
++ xcrun simctl io F7D79755-4C03-44C7-B810-28DBC936444F screenshot <spike-root>/evidence/first-launch.png
+Detected file type from extension: PNG
+Note: No display specified. Defaulting to display: 55A8D986-3395-4B28-9596-93FF8AA01F7A (screenID: 1, name: LCD)
+Wrote screenshot to: <spike-root>/evidence/first-launch.png
++ set +x
++ test -f '<app-container>/Library/Application Support/GreenRoomProof/room.json'
+++ shasum -a 256
+++ cut '-d ' -f1
++ BEFORE=fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e
++ cp '<app-container>/Library/Application Support/GreenRoomProof/room.json' <spike-root>/evidence/room-before-relaunch.json
++ printf '%s  room.json\n' fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e
++ xcrun simctl terminate F7D79755-4C03-44C7-B810-28DBC936444F net.greenroomai.spike.iphoneproof160
++ xcrun simctl launch F7D79755-4C03-44C7-B810-28DBC936444F net.greenroomai.spike.iphoneproof160
+net.greenroomai.spike.iphoneproof160: 71807
++ sleep 2
++ xcrun simctl io F7D79755-4C03-44C7-B810-28DBC936444F screenshot <spike-root>/evidence/after-relaunch.png
+Detected file type from extension: PNG
+Note: No display specified. Defaulting to display: 55A8D986-3395-4B28-9596-93FF8AA01F7A (screenID: 1, name: LCD)
+Wrote screenshot to: <spike-root>/evidence/after-relaunch.png
+++ shasum -a 256
+++ cut '-d ' -f1
++ AFTER=fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e
++ printf '%s  room.json\n' fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e
++ test fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e = fd853141676a25205eb024f1854711a99513daa01a334f39415f3204666ef73e
++ cmp <spike-root>/evidence/room-before-relaunch.json '<app-container>/Library/Application Support/GreenRoomProof/room.json'
++ printf 'Persistence relaunch comparison: PASS\n'
++ tee <spike-root>/evidence/relaunch-verification.txt
+Persistence relaunch comparison: PASS

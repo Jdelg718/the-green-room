@@ -1,0 +1,46 @@
+name: GreenRoomProof
+options:
+  bundleIdPrefix: net.greenroomai.spike
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    GENERATE_INFOPLIST_FILE: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  GreenRoomProof:
+    type: application
+    platform: iOS
+    sources:
+      - path: GreenRoomProof
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.greenroomai.spike.iphoneproof160
+        PRODUCT_NAME: GreenRoomProof
+        INFOPLIST_KEY_CFBundleDisplayName: Green Room Proof
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+  GreenRoomProofTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: GreenRoomProofTests
+    dependencies:
+      - target: GreenRoomProof
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.greenroomai.spike.iphoneproof160.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  GreenRoomProof:
+    build:
+      targets:
+        GreenRoomProof: all
+        GreenRoomProofTests: [test]
+    test:
+      targets:
+        - GreenRoomProofTests
