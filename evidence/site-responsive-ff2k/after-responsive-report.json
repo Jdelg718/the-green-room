@@ -1,0 +1,83 @@
+{
+  "mode": "after",
+  "routes": [
+    "/",
+    "/characters/",
+    "/characters/ada-lovelace/",
+    "/characters/benjamin-franklin/",
+    "/characters/elizabeth-i/",
+    "/characters/ff2k/",
+    "/characters/frederick-douglass/",
+    "/characters/galileo-galilei/",
+    "/characters/george-washington/",
+    "/characters/hal-finney/",
+    "/characters/isaac-newton/",
+    "/characters/jane-austen/",
+    "/characters/john-maynard-keynes/",
+    "/characters/len-sassaman/",
+    "/characters/leonardo-da-vinci/",
+    "/characters/ludwig-von-mises/",
+    "/characters/mary-shelley/",
+    "/characters/milton-friedman/",
+    "/characters/nicolaus-copernicus/",
+    "/characters/thomas-jefferson/",
+    "/characters/timothy-c-may/",
+    "/contribute/",
+    "/docs/",
+    "/download/"
+  ],
+  "widths": [
+    320,
+    375,
+    390,
+    896,
+    897,
+    1024,
+    1280,
+    1440
+  ],
+  "checks": 192,
+  "failures": [],
+  "thirdPartyRequests": [],
+  "consoleErrors": [],
+  "named1280": [
+    {
+      "route": "/",
+      "horizontalOverflow": false,
+      "splitHeadings": [
+        {
+          "text": "The public site stays out of the room.",
+          "lineCrossesAdjacentColumn": false
+        },
+        {
+          "text": "Inspired, independent.",
+          "lineCrossesAdjacentColumn": false
+        }
+      ]
+    },
+    {
+      "route": "/characters/",
+      "horizontalOverflow": false,
+      "splitHeadings": [
+        {
+          "text": "Share the pack, not your room.",
+          "lineCrossesAdjacentColumn": false
+        }
+      ]
+    },
+    {
+      "route": "/docs/",
+      "horizontalOverflow": false,
+      "splitHeadings": [
+        {
+          "text": "Information here. Rooms there.",
+          "lineCrossesAdjacentColumn": false
+        },
+        {
+          "text": "Private alpha to community release.",
+          "lineCrossesAdjacentColumn": false
+        }
+      ]
+    }
+  ]
+}

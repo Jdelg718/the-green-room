@@ -23,7 +23,7 @@ ALPHA_CHECKSUMS_URL = (
     "https://github.com/Jdelg718/the-green-room/releases/download/v0.1.0-alpha.1/SHA256SUMS"
 )
 ALPHA_SHA256 = "333f5cdd2e9c88e901cacd5cdad58109b67affc1f63cc5f98321644592bde469"
-CHARACTER_PROFILES = {
+HISTORICAL_PROFILES = {
     "ada-lovelace": "Ada Lovelace",
     "benjamin-franklin": "Benjamin Franklin",
     "elizabeth-i": "Elizabeth I",
@@ -43,6 +43,8 @@ CHARACTER_PROFILES = {
     "thomas-jefferson": "Thomas Jefferson",
     "timothy-c-may": "Timothy C. May",
 }
+ORIGINAL_PROFILES = {"ff2k": "FF2K"}
+CHARACTER_PROFILES = {**HISTORICAL_PROFILES, **ORIGINAL_PROFILES}
 PROMOTED_PROFILE_SLUGS = frozenset(
     {
         "hal-finney",
@@ -53,6 +55,13 @@ PROMOTED_PROFILE_SLUGS = frozenset(
         "timothy-c-may",
     }
 )
+CAST_STATUS_LABELS = {
+    **{
+        slug: "Preinstalled candidate · not Official Catalog admitted"
+        for slug in PROMOTED_PROFILE_SLUGS
+    },
+    "ff2k": "Creator-authorized pseudonymous original candidate · not Official Catalog admitted",
+}
 PROFILE_HORIZONS = {
     "ada-lovelace": "Through 26 November 1852",
     "benjamin-franklin": "Through 16 April 1790",
@@ -92,6 +101,7 @@ PROFILE_BEHAVIOR = {
     "nicolaus-copernicus": ("Measured initiative", "Rarely interrupts", "Measured detail", "Independent", "Restrained affect"),
     "thomas-jefferson": ("Measured initiative", "Rarely interrupts", "Expansive", "Independent", "Controlled range"),
     "timothy-c-may": ("Proactive initiative", "Sometimes interrupts", "Measured detail", "Challenging", "Controlled range"),
+    "ff2k": ("Proactive initiative", "Rarely interrupts", "Compact detail", "Independent", "Controlled range"),
 }
 PORTRAIT_ASSETS = {
     "ada-lovelace": ("daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2", 840, 1200, "AI-generated creative historical interpretation of Ada Lovelace in a dark study, wearing a high-collared black dress."),
@@ -112,6 +122,7 @@ PORTRAIT_ASSETS = {
     "nicolaus-copernicus": ("f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e", 768, 1024, "AI-generated creative historical interpretation of Nicolaus Copernicus in a red-and-black scholar’s robe beside astronomical notes."),
     "thomas-jefferson": ("1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06", 768, 1024, "AI-generated creative historical interpretation of Thomas Jefferson in a dark period coat in an architectural study."),
     "timothy-c-may": ("b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34", 768, 1024, "AI-generated creative historical interpretation of Timothy C. May with a graying beard and glasses in a dim semiconductor workshop."),
+    "ff2k": ("3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8", 427, 427, "Stylized cartoon figure wearing an orange Bitcoin respirator mask with three Bitcoin-symbol filters and a blue market-chart visor, raising a clenched fist."),
 }
 PROFILE_MAIN_TEXT_SHA256 = {
     "ada-lovelace": "89e691f39800b9364e90782f802f9cd6918895c3844e909a070f55531bb3fa48",
@@ -132,6 +143,7 @@ PROFILE_MAIN_TEXT_SHA256 = {
     "nicolaus-copernicus": "a8cd34a7414afba70e5532562f425993343962df0afe78b3a092733718f5c2c1",
     "thomas-jefferson": "09f327748551040e4ea937ce2d9de1263148fe099fceeb90413786c7dd6e7906",
     "timothy-c-may": "224aa335b6900547b8b9b10e00ae4c642f5b66a679da51e2a2c7183fec9e91ab",
+    "ff2k": "6ca4e71963e1f5871d80dcccb6f35fd7520a5b79e610c3535752a4f9fde1ca16",
 }
 PROFILE_SOURCE_SHA256 = {
     "ada-lovelace": "3547f8ec0b86ee4f083c04e1ce31d5b8fff2a19fa82fbd0caa64c56250772cbe",
@@ -152,8 +164,9 @@ PROFILE_SOURCE_SHA256 = {
     "nicolaus-copernicus": "01bcccfc02c4abde1f05843d8c783f67274a09584283a924741457218043a79a",
     "thomas-jefferson": "fe0455dfc95e7b95d40899eae4b7438839cbdb252751b3440ffb14aa83388b37",
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
+    "ff2k": "b50d07979d94363c336823472be1c62c8a84f459ca2d9f429baee9572fc28d95",
 }
-PROFILE_STYLESHEET_SHA256 = "7d5dd86d18dfd291c1df677169402c0868784ff3d8355cd6173012633569310c"
+PROFILE_STYLESHEET_SHA256 = "fabf00cfb2e27e6b1b155eb19d87420ebaece0b4bc95ccc285f29808e844ded2"
 SOCIAL_CARD_SHA256 = "b3d4254d433d955017cf7849ff97fe27f11c1e6b91e0ff61904b632344ef29fb"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
@@ -189,14 +202,15 @@ REQUIRED_LANGUAGE = {
         "your own local or cloud LLM",
         "bounded context",
         "Alpha 1",
-        "eighteen source-informed historical character packs",
+        "eighteen source-informed historical candidates plus FF2K",
+        "creator-authorized pseudonymous original candidate",
         "Character Wizard",
         "community library",
     ),
     "characters/index.html": (
-        "eighteen public historical profiles",
-        "all eighteen researched historical character packs",
-        "candidate packs are preinstalled but are not approved Official Catalog releases",
+        "nineteen bounded candidates",
+        "eighteen researched historical character packs plus FF2K",
+        "creator-authorized pseudonymous original candidate",
         "Official Catalog admission requires exact-version approval",
         "source-informed educational interpretation",
         "Character Wizard",
@@ -220,12 +234,16 @@ REQUIRED_LANGUAGE = {
         "Nicolaus Copernicus",
         "Thomas Jefferson",
         "Timothy C. May",
+        "FF2K",
         "AI-generated creative historical interpretations",
         "not authentic portraits",
-        "not Official Catalog admission",
+        "candidate packs are preinstalled but are not approved Official Catalog releases",
+        "owner-authorized public profile illustration",
+        "not a real person",
+        "no Official Catalog admission",
         "remain in development",
         "no Official Catalog Manifest exists yet",
-        "approved website and local-app presentation assets",
+        "website and local-app presentation assets",
         "runtime preinstallation remain separate from Official Catalog admission",
     ),
     "docs/index.html": ("local runtime", "cloud provider", "bounded context"),
@@ -662,6 +680,12 @@ PROFILE_INTERPRETATION_DISCLOSURE = (
     "generated dialogue is not a historical quotation. Consult reliable historical sources "
     "for the record."
 )
+ORIGINAL_INTERPRETATION_DISCLOSURE = (
+    "This is a creator-authorized, source-informed interpretation of the living pseudonymous "
+    "creator FF2K. It is not the person, a literal consciousness, an authentic quotation, or a "
+    "live representative. Generated dialogue is interpretive and is never presented as FF2K’s "
+    "actual words. Authorization and preinstallation do not constitute Official Catalog admission."
+)
 
 
 def definition_fields(
@@ -716,7 +740,7 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         and element["parent"] == cast_section
     ]
     if len(cast_cards) != len(CHARACTER_PROFILES):
-        fail(errors, "characters/index.html: expected exactly 18 cast cards")
+        fail(errors, "characters/index.html: expected exactly 19 cast cards")
 
     links = semantic_links(parser, cast_section)
     for slug, name in CHARACTER_PROFILES.items():
@@ -731,11 +755,11 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         ]
         if len(matching_cards) != 1:
             fail(errors, f"characters/index.html: expected one cast card for {name}")
-        elif slug in PROMOTED_PROFILE_SLUGS:
+        elif slug in CAST_STATUS_LABELS:
             status_labels = [
                 index
                 for index, element in scoped_elements(parser, "small", matching_cards[0])
-                if normalized_text(element) == "Preinstalled candidate · not Official Catalog admitted"
+                if normalized_text(element) == CAST_STATUS_LABELS[slug]
             ]
             if len(status_labels) != 1:
                 fail(errors, f"characters/index.html: missing promoted status label for {name}")
@@ -814,18 +838,32 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         fields: dict[str, str] = {}
     else:
         fields = definition_fields(parser, fact_asides[0], errors, relative)
-    expected_fields = {
-        "Historical horizon": PROFILE_HORIZONS[slug],
-        "Catalog status": "Candidate pack in the verified local alpha",
-        "Preinstallation": "Preinstalled separately from Official Catalog admission",
-        "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
-    }
-    field_errors = {
-        "Historical horizon": "historical horizon field",
-        "Catalog status": "candidate status field",
-        "Preinstallation": "exact-version preinstallation field",
-        "Portrait": "portrait field",
-    }
+    if slug in ORIGINAL_PROFILES:
+        expected_fields = {
+            "Knowledge boundary": "Through 1 September 2026",
+            "Catalog status": "Creator-authorized pseudonymous original candidate",
+            "Preinstallation": "Preinstalled separately from Official Catalog admission",
+            "Portrait": "Owner-authorized public profile illustration representing the pseudonymous character; not a real-person depiction",
+        }
+        field_errors = {
+            "Knowledge boundary": "knowledge boundary field",
+            "Catalog status": "original candidate status field",
+            "Preinstallation": "preinstallation field",
+            "Portrait": "owner-authorized portrait field",
+        }
+    else:
+        expected_fields = {
+            "Historical horizon": PROFILE_HORIZONS[slug],
+            "Catalog status": "Candidate pack in the verified local alpha",
+            "Preinstallation": "Preinstalled separately from Official Catalog admission",
+            "Portrait": "Published AI-generated creative historical interpretation; not an authentic portrait, and no endorsement is claimed",
+        }
+        field_errors = {
+            "Historical horizon": "historical horizon field",
+            "Catalog status": "candidate status field",
+            "Preinstallation": "exact-version preinstallation field",
+            "Portrait": "portrait field",
+        }
     for term, expected_value in expected_fields.items():
         if fields.get(term) != expected_value:
             fail(errors, f"{relative}: missing semantic {field_errors[term]}")
@@ -857,7 +895,12 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
             normalized_text(element)
             for _, element in scoped_elements(parser, "p", interpretations[0])
         ]
-        if disclosure_paragraphs != [PROFILE_INTERPRETATION_DISCLOSURE]:
+        expected_disclosure = (
+            ORIGINAL_INTERPRETATION_DISCLOSURE
+            if slug in ORIGINAL_PROFILES
+            else PROFILE_INTERPRETATION_DISCLOSURE
+        )
+        if disclosure_paragraphs != [expected_disclosure]:
             fail(errors, f"{relative}: interpretation disclosure must match the canonical non-simulation statement")
 
     page_links = semantic_links(parser)
@@ -865,7 +908,7 @@ def validate_profile_contract(relative: str, slug: str, name: str, parser: PageP
         ("/characters/", "Back to all profiles"): "back link to Characters",
         ("/characters/#community-title", "community library roadmap"): "community roadmap link",
     }
-    if slug in PROMOTED_PROFILE_SLUGS:
+    if slug in CAST_STATUS_LABELS:
         required_links[("/characters/#review-title", "Artwork review boundary")] = "artwork review link"
     else:
         required_links[("/characters/#make-title", "Character Wizard roadmap")] = "Wizard roadmap link"
@@ -1175,6 +1218,16 @@ def collect_errors(site: Path = SITE) -> list[str]:
         for requirement in ("@media (max-width:", "prefers-reduced-motion", ":focus-visible"):
             if requirement not in content:
                 fail(errors, f"assets/site.css: missing {requirement}")
+        responsive_hooks = (
+            ".split > * { min-width: 0; }",
+            ".split > :first-child { container-type: inline-size; }",
+            ".split .section-title",
+            "overflow-wrap: anywhere;",
+            "15cqi",
+        )
+        for hook in responsive_hooks:
+            if hook not in content:
+                fail(errors, f"assets/site.css: missing split-layout responsive hook {hook!r}")
 
     for css in sorted(site.rglob("*.css")):
         validate_css_source(
