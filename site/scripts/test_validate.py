@@ -169,6 +169,14 @@ class StaticPolicyTests(unittest.TestCase):
             with self.subTest(hook=hook):
                 self.assertIn(hook, stylesheet)
 
+    def test_profile_fact_terms_have_overflow_protection(self) -> None:
+        stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
+        self.assertIn("grid-template-columns: 7.5rem 1fr;", stylesheet)
+        self.assertIn(
+            ".call-slip dt { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }",
+            stylesheet,
+        )
+
     def test_amber_token_is_synchronized_across_site_app_and_ios_stylesheets(self) -> None:
         root = validate.SITE.parent
         for relative in (
