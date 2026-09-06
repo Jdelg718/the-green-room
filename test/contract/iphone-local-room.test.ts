@@ -55,7 +55,7 @@ class MemoryPlugin {
 
   async open(call: NativeEnvelope) {
     this.calls.push(call);
-    return success(call, { schema: 4 });
+    return success(call, { schema: 5 });
   }
 
   async executeBatch(call: NativeEnvelope) {
@@ -199,21 +199,23 @@ test("iPhone local-room milestone has schema-four replay migration and bundled r
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
+    "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
   ]) assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
 
-  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql"];
+  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql"];
   const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
-  assert.equal(manifest.schema, 4);
+  assert.equal(manifest.schema, 5);
   assert.deepEqual(manifest.migrations, files.map((file, index) => {
     const source = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations", file), "utf8");
     return { version: index + 1, file, sha256: createHash("sha256").update(source).digest("hex") };
   }));
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0003-shared-director-state.sql"), "utf8"), /state_json/u);
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0004-transaction-replay.sql"), "utf8"), /bridge_transactions/u);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql"), "utf8"), /credential_tombstones/u);
 });
 
 test("the iPhone picker is generated from the exact existing nineteen-character catalog", async () => {

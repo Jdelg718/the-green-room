@@ -94,9 +94,20 @@ There is deliberately **no key field in the JavaScript contract and no get/read 
 4. only when no Keychain item exists does the native Swift secure-text sheet accept and write a value, then ask the database actor to mark the same reservation `ready`; cancellation or write failure leaves a non-enabled pending revision that can be retried with the same mutation ID; and
 5. launch reconciliation applies the same rule to the cross-store crash window: an exact matched pending item completes `ready` idempotently; a mismatched/unattributable item is deleted, and the reservation remains pending/retryable without enabling calls.
 
+`database.open` does not report success until this reconciliation pass completes. A
+Keychain access failure therefore fails open with a sanitized retryable credential
+failure instead of silently exposing a stale `ready` database state to the caller.
+
 The plugin clears the native field and mutable buffers where the platform permits and never logs or reflects the value. It returns the existing canonical non-secret reference `credential:<profile-id>:<revision>`. Possession of this predictable reference is not authorization: every native use requires Keychain metadata and current SQLite state to match provider ID, profile ID, revision, mutation, and lifecycle state.
 
 The Keychain item is a generic password with a service scoped to the bundle identifier, non-synchronizing, non-migrating, and `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. The native sheet creates an item only for the verified pending immutable profile revision. Disable or deletion appends the SQLite tombstone first, preventing new request-plan creation and provider calls, then changes the item to `delete_pending` and deletes it idempotently; launch-time reconciliation removes orphan/delete-pending items and never re-enables a tombstoned profile. A failed save never commits an enabled profile, and a failed post-tombstone deletion stays visibly pending for retry without restoring provider use.
+
+Keychain items can persist after uninstall according to iOS behavior. The app does
+not promise uninstall-time erasure: delete in-app for immediate cleanup. If an item
+survives uninstall, a later fresh installation deletes it as an orphan during the
+first successful database-open reconciliation. Physical-device uninstall/reinstall
+and protected-data tests remain required release evidence and are not inferred from
+Simulator behavior.
 
 Required failure codes: `invalid_call`, `incompatible_contract`, `credential_unavailable`, `credential_missing`, `credential_write_failed`, `canceled`, `internal_failure`.
 

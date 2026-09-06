@@ -5,7 +5,7 @@ import CryptoKit
 import Foundation
 import SQLite3
 
-private let bridgeContractVersion = "iphone-native-bridge/1.0"
+let bridgeContractVersion = "iphone-native-bridge/1.0"
 private let bridgeMaximumBytes = 256 * 1024
 private let maximumQueryRows = 500
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -40,9 +40,24 @@ func canonicalBridgeCallId(_ value: Any?) -> String {
     return supplied
 }
 
+func consumeSQLiteRows(
+    step: () -> Int32,
+    onRow: () -> Void,
+    failureCode: String
+) throws {
+    while true {
+        let result = step()
+        if result == SQLITE_DONE { return }
+        guard result == SQLITE_ROW else {
+            throw DatabaseFailure(code: failureCode, retryable: true)
+        }
+        onRow()
+    }
+}
+
 final class GreenRoomDatabaseStore: @unchecked Sendable {
     private var database: OpaquePointer?
-    private let lock = NSLock()
+    let serializationLock: NSRecursiveLock
     private let directoryOverride: URL?
     private let migrationsDirectoryOverride: URL?
     private let fileProtector: (URL) throws -> Void
@@ -50,18 +65,20 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     init(
         directory: URL? = nil,
         migrationsDirectory: URL? = nil,
+        serializationLock: NSRecursiveLock = NSRecursiveLock(),
         fileProtector: ((URL) throws -> Void)? = nil
     ) {
         self.directoryOverride = directory
         self.migrationsDirectoryOverride = migrationsDirectory
+        self.serializationLock = serializationLock
         self.fileProtector = fileProtector ?? Self.applyDatabaseFileProtection
     }
 
     deinit { if let database { sqlite3_close_v2(database) } }
 
     func open(expectedSchema: Int) throws -> [String: Any] {
-        try lock.withLock {
-            guard expectedSchema == 4 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        try serializationLock.withLock {
+            guard expectedSchema == 5 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -93,7 +110,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 
     func close() throws -> [String: Any] {
-        try lock.withLock {
+        try serializationLock.withLock {
             guard let database else { return ["closed": true] }
             _ = sqlite3_wal_checkpoint_v2(database, nil, SQLITE_CHECKPOINT_FULL, nil, nil)
             guard sqlite3_close_v2(database) == SQLITE_OK else {
@@ -105,7 +122,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 
     func checkpoint() throws -> [String: Any] {
-        try lock.withLock {
+        try serializationLock.withLock {
             guard let database else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
             guard sqlite3_wal_checkpoint_v2(database, nil, SQLITE_CHECKPOINT_FULL, nil, nil) == SQLITE_OK else {
                 throw DatabaseFailure(code: "database_unavailable", retryable: true)
@@ -115,7 +132,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 
     func executeBatch(transactionId: String, statements: [[String: Any]]) throws -> [String: Any] {
-        try lock.withLock {
+        try serializationLock.withLock {
             guard !transactionId.isEmpty, transactionId.utf8.count <= 256,
                   transactionId.trimmingCharacters(in: .whitespacesAndNewlines) == transactionId,
                   !statements.isEmpty, statements.count <= 64,
@@ -184,7 +201,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         parameters: [Any],
         maximumResultBytes: Int = bridgeMaximumBytes
     ) throws -> [String: Any] {
-        try lock.withLock {
+        try serializationLock.withLock {
             guard parameters.count <= 64, let database else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
@@ -289,12 +306,252 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
+    func supersededCredentialReferences(profileId: String, before revision: Int) throws -> [String] {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                "SELECT credential_ref FROM credential_revisions WHERE profile_id = ? AND profile_revision < ? ORDER BY profile_revision",
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([profileId, revision], to: statement)
+            var references: [String] = []
+            while true {
+                let step = sqlite3_step(statement)
+                if step == SQLITE_DONE { return references }
+                guard step == SQLITE_ROW else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+                references.append(columnText(statement, 0))
+            }
+        }
+    }
+
+    func credentialReservation(
+        profileId: String,
+        profileRevision: Int,
+        providerId: String,
+        credentialRef: String
+    ) throws -> CredentialReservation? {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT profile_id, profile_revision, provider_id, credential_ref, mutation_id,
+                       lifecycle_state, tombstoned
+                FROM credential_revisions
+                WHERE profile_id = ? AND profile_revision = ? AND provider_id = ? AND credential_ref = ?
+                  AND profile_revision = (
+                    SELECT max(profile_revision) FROM credential_revisions WHERE profile_id = ?
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM connection_profile_revisions profile
+                    WHERE profile.profile_id = credential_revisions.profile_id
+                      AND profile.profile_revision = credential_revisions.profile_revision
+                      AND profile.provider_id = credential_revisions.provider_id
+                      AND profile.profile_revision = (
+                        SELECT max(current.profile_revision)
+                        FROM connection_profile_revisions current
+                        WHERE current.profile_id = profile.profile_id
+                      )
+                  )
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([profileId, profileRevision, providerId, credentialRef, profileId], to: statement)
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { return nil }
+            guard step == SQLITE_ROW else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            return CredentialReservation(
+                profileId: columnText(statement, 0),
+                profileRevision: Int(sqlite3_column_int64(statement, 1)),
+                providerId: columnText(statement, 2),
+                credentialRef: columnText(statement, 3),
+                mutationId: columnText(statement, 4),
+                lifecycleState: columnText(statement, 5),
+                tombstoned: sqlite3_column_int(statement, 6) == 1
+            )
+        }
+    }
+
+    func markCredentialReady(_ reservation: CredentialReservation) throws {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                UPDATE credential_revisions
+                SET lifecycle_state = 'ready', ready_at = COALESCE(ready_at, CURRENT_TIMESTAMP)
+                WHERE profile_id = ? AND profile_revision = ? AND provider_id = ?
+                  AND credential_ref = ? AND mutation_id = ?
+                  AND lifecycle_state = 'credential_pending' AND tombstoned = 0
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind(reservation.identityParameters, to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+            }
+        }
+    }
+
+    func beginCredentialDelete(_ request: CredentialMutationRequest) throws -> CredentialReservation {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            guard let existing = try credentialReservation(
+                profileId: request.profileId,
+                profileRevision: request.profileRevision,
+                providerId: request.providerId,
+                credentialRef: request.credentialRef
+            ) else { throw DatabaseFailure(code: "credential_missing", retryable: false) }
+            if existing.tombstoned {
+                guard try tombstoneMutationId(existing, on: database) == request.mutationId else {
+                    throw DatabaseFailure(code: "credential_unavailable", retryable: false)
+                }
+                return existing
+            }
+            try execute("BEGIN IMMEDIATE", on: database)
+            do {
+                let tombstone = try prepare(
+                    """
+                    INSERT INTO credential_tombstones(
+                      profile_id, profile_revision, provider_id, credential_ref, mutation_id
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    on: database
+                )
+                defer { sqlite3_finalize(tombstone) }
+                try bind(request.identityParameters, to: tombstone)
+                guard sqlite3_step(tombstone) == SQLITE_DONE else {
+                    throw DatabaseFailure(code: "credential_unavailable", retryable: false)
+                }
+                try execute("COMMIT", on: database)
+            } catch {
+                _ = try? execute("ROLLBACK", on: database)
+                throw error
+            }
+            guard let result = try credentialReservation(
+                profileId: request.profileId,
+                profileRevision: request.profileRevision,
+                providerId: request.providerId,
+                credentialRef: request.credentialRef
+            ) else { throw DatabaseFailure(code: "internal_failure", retryable: false) }
+            return result
+        }
+    }
+
+    func markCredentialMissing(_ reservation: CredentialReservation) throws {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                UPDATE credential_revisions
+                SET lifecycle_state = 'missing'
+                WHERE profile_id = ? AND profile_revision = ? AND provider_id = ?
+                  AND credential_ref = ? AND mutation_id = ?
+                  AND lifecycle_state IN ('delete_pending', 'missing') AND tombstoned = 1
+                  AND EXISTS (
+                    SELECT 1 FROM credential_tombstones
+                    WHERE profile_id = credential_revisions.profile_id
+                      AND profile_revision = credential_revisions.profile_revision
+                  )
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind(reservation.identityParameters, to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+            }
+        }
+    }
+
+    func markCredentialUnavailable(_ reservation: CredentialReservation) throws {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                UPDATE credential_revisions
+                SET lifecycle_state = 'missing'
+                WHERE profile_id = ? AND profile_revision = ? AND provider_id = ?
+                  AND credential_ref = ? AND mutation_id = ?
+                  AND lifecycle_state = 'ready' AND tombstoned = 0
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind(reservation.identityParameters, to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+            }
+        }
+    }
+
+    func credentialReservationsForReconciliation() throws -> [CredentialReservation] {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT profile_id, profile_revision, provider_id, credential_ref, mutation_id,
+                       lifecycle_state, tombstoned
+                FROM credential_revisions current
+                WHERE profile_revision = (
+                  SELECT max(profile_revision) FROM credential_revisions
+                  WHERE profile_id = current.profile_id
+                )
+                  AND EXISTS (
+                    SELECT 1 FROM connection_profile_revisions profile
+                    WHERE profile.profile_id = current.profile_id
+                      AND profile.profile_revision = current.profile_revision
+                      AND profile.provider_id = current.provider_id
+                      AND profile.profile_revision = (
+                        SELECT max(latest.profile_revision)
+                        FROM connection_profile_revisions latest
+                        WHERE latest.profile_id = profile.profile_id
+                      )
+                  )
+                ORDER BY profile_id, profile_revision
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            var values: [CredentialReservation] = []
+            try consumeSQLiteRows(step: { sqlite3_step(statement) }, onRow: {
+                values.append(CredentialReservation(
+                    profileId: columnText(statement, 0),
+                    profileRevision: Int(sqlite3_column_int64(statement, 1)),
+                    providerId: columnText(statement, 2),
+                    credentialRef: columnText(statement, 3),
+                    mutationId: columnText(statement, 4),
+                    lifecycleState: columnText(statement, 5),
+                    tombstoned: sqlite3_column_int(statement, 6) == 1
+                ))
+            }, failureCode: "credential_unavailable")
+            return values
+        }
+    }
+
     private static let statements = [
         "append_event": "INSERT INTO events(room_id, sequence, event_json) SELECT id, next_event_sequence, ? FROM rooms WHERE id = ?",
         "create_room": "INSERT INTO rooms(id, title, status) VALUES (?, ?, 'active')",
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
+        "create_connection_profile_revision": """
+          INSERT INTO connection_profile_revisions(
+            profile_id, profile_revision, provider_id, expected_prior_revision
+          ) VALUES (?, ?, ?, ?)
+          """,
+        "reserve_credential": """
+          INSERT INTO credential_revisions(
+            profile_id, profile_revision, provider_id, credential_ref,
+            expected_prior_revision, mutation_id, lifecycle_state
+          ) VALUES (?, ?, ?, ?, ?, ?, 'credential_pending')
+          """,
+        "tombstone_credential": """
+          INSERT INTO credential_tombstones(
+            profile_id, profile_revision, provider_id, credential_ref, mutation_id
+          ) VALUES (?, ?, ?, ?, ?)
+          """,
         "select_room": "INSERT INTO current_room(singleton, room_id) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET room_id = excluded.room_id",
         "update_director_state": """
           UPDATE director_state
@@ -309,7 +566,8 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     ]
 
     private static let requiredSingleChangeStatements = Set([
-        "append_event", "update_director_state"
+        "append_event", "update_director_state", "create_connection_profile_revision", "reserve_credential",
+        "tombstone_credential"
     ])
 
     private func applicationDirectory() throws -> URL {
@@ -347,20 +605,25 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     private func migrate(_ database: OpaquePointer) throws {
         var current = try scalarInt("PRAGMA user_version", on: database)
-        guard current <= 4,
+        let expectedFiles = [
+            "0001-iphone-alpha.sql", "0002-ordered-events.sql",
+            "0003-shared-director-state.sql", "0004-transaction-replay.sql",
+            "0005-credential-lifecycle.sql"
+        ]
+        guard current <= 5,
               let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 4,
+              manifest["schema"] as? Int == 5,
               let migrations = manifest["migrations"] as? [[String: Any]],
-              migrations.count == 4 else {
+              migrations.count == expectedFiles.count else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
         }
         for (index, migration) in migrations.enumerated() {
             let version = index + 1
             guard migration["version"] as? Int == version,
                   let file = migration["file"] as? String,
-                  file == ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql"][index],
+                  file == expectedFiles[index],
                   let expected = migration["sha256"] as? String,
                   let migrationURL = migrationURL(file: file),
                   let migrationData = try? Data(contentsOf: migrationURL),
@@ -380,7 +643,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 4 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 5 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func migrationURL(file: String) -> URL? {
@@ -458,6 +721,22 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         return statement
     }
 
+    private func columnText(_ statement: OpaquePointer, _ index: Int32) -> String {
+        guard let value = sqlite3_column_text(statement, index) else { return "" }
+        return String(cString: value)
+    }
+
+    private func tombstoneMutationId(_ reservation: CredentialReservation, on database: OpaquePointer) throws -> String? {
+        let statement = try prepare(
+            "SELECT mutation_id FROM credential_tombstones WHERE profile_id = ? AND profile_revision = ?",
+            on: database
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind([reservation.profileId, reservation.profileRevision], to: statement)
+        if sqlite3_step(statement) == SQLITE_ROW { return columnText(statement, 0) }
+        return nil
+    }
+
     private func bind(_ parameters: [Any], to statement: OpaquePointer) throws {
         for (offset, value) in parameters.enumerated() {
             let index = Int32(offset + 1)
@@ -504,28 +783,28 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "query", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "checkpoint", returnType: CAPPluginReturnPromise)
     ]
-    private let store = GreenRoomDatabaseStore()
+    private let store = GreenRoomNativeAuthority.shared.database
 
     @objc func open(_ call: CAPPluginCall) {
         respond(call, method: "database.open") { payload in
             guard Set(payload.keys) == Set(["expectedSchema"]), let schema = payload["expectedSchema"] as? NSNumber else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            return try self.store.open(expectedSchema: schema.intValue)
+            return try GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: schema.intValue)
         }
     }
 
     @objc func close(_ call: CAPPluginCall) {
         respond(call, method: "database.close") { payload in
             guard payload.isEmpty else { throw DatabaseFailure(code: "invalid_call", retryable: false) }
-            return try self.store.close()
+            return try GreenRoomNativeAuthority.shared.closeDatabase()
         }
     }
 
     @objc func checkpoint(_ call: CAPPluginCall) {
         respond(call, method: "database.checkpoint") { payload in
             guard payload.isEmpty else { throw DatabaseFailure(code: "invalid_call", retryable: false) }
-            return try self.store.checkpoint()
+            return try GreenRoomNativeAuthority.shared.withReconciledDatabase { try self.store.checkpoint() }
         }
     }
 
@@ -536,7 +815,9 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
                   let statements = payload["statements"] as? [[String: Any]] else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            return try self.store.executeBatch(transactionId: transactionId, statements: statements)
+            return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                try self.store.executeBatch(transactionId: transactionId, statements: statements)
+            }
         }
     }
 
@@ -549,24 +830,33 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let options = call.options as? [String: Any] ?? [:]
             let callId = options["callId"] as? String ?? "invalid"
-            return try self.store.query(
-                sqlId: sqlId,
-                parameters: parameters,
-                maximumResultBytes: bridgeSuccessValueBudget(callId: callId)
-            )
+            return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                try self.store.query(
+                    sqlId: sqlId,
+                    parameters: parameters,
+                    maximumResultBytes: bridgeSuccessValueBudget(callId: callId)
+                )
+            }
         }
     }
 
     private func respond(_ call: CAPPluginCall, method: String, operation: ([String: Any]) throws -> [String: Any]) {
         let options = call.options as? [String: Any] ?? [:]
         let callId = canonicalBridgeCallId(options["callId"])
+        guard callId != "invalid", GreenRoomNativeAuthority.shared.inFlightCalls.begin(callId) else {
+            call.resolve(["callId": callId, "ok": false, "error": ["code": "invalid_call", "retryable": false]])
+            return
+        }
+        defer { GreenRoomNativeAuthority.shared.inFlightCalls.finish(callId) }
         do {
             guard Set(options.keys) == Set(["contractVersion", "callId", "method", "payload"]),
-                  options["contractVersion"] as? String == bridgeContractVersion,
                   options["method"] as? String == method,
                   callId != "invalid",
                   let payload = options["payload"] as? [String: Any] else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            guard options["contractVersion"] as? String == bridgeContractVersion else {
+                throw DatabaseFailure(code: "incompatible_contract", retryable: false)
             }
             _ = try encodedBridgeJSONObject(options, code: "invalid_call")
             let response: [String: Any] = ["callId": callId, "ok": true, "value": try operation(payload)]

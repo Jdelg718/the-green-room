@@ -20,6 +20,10 @@
 		A16000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000012 /* PrivacyInfo.xcprivacy */; };
 		A16000000000000000000003 /* GreenRoomDatabasePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000013 /* GreenRoomDatabasePlugin.swift */; };
 		A16000000000000000000004 /* Migrations in Resources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000014 /* Migrations */; };
+		A16000000000000000000005 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A16000000000000000000015 /* Security.framework */; };
+		A16000000000000000000006 /* GreenRoomCredentialLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */; };
+		A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000017 /* SecurityCredentialStore.swift */; };
+		A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +41,10 @@
 		A16000000000000000000012 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A16000000000000000000013 /* GreenRoomDatabasePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomDatabasePlugin.swift; sourceTree = "<group>"; };
 		A16000000000000000000014 /* Migrations */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Migrations; path = Resources/Migrations; sourceTree = "<group>"; };
+		A16000000000000000000015 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialLifecycle.swift; sourceTree = "<group>"; };
+		A16000000000000000000017 /* SecurityCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityCredentialStore.swift; sourceTree = "<group>"; };
+		A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +53,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				A16000000000000000000005 /* Security.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -56,6 +65,7 @@
 			children = (
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				A16000000000000000000019 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -73,6 +83,7 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				A16000000000000000000011 /* ContainedBridgeViewController.swift */,
 				A16000000000000000000013 /* GreenRoomDatabasePlugin.swift */,
+				A16000000000000000000020 /* Credentials */,
 				A16000000000000000000014 /* Migrations */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -85,6 +96,24 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A16000000000000000000019 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A16000000000000000000015 /* Security.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A16000000000000000000020 /* Credentials */ = {
+			isa = PBXGroup;
+			children = (
+				A16000000000000000000016 /* GreenRoomCredentialLifecycle.swift */,
+				A16000000000000000000017 /* SecurityCredentialStore.swift */,
+				A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */,
+			);
+			path = Credentials;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -174,6 +203,9 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A16000000000000000000001 /* ContainedBridgeViewController.swift in Sources */,
 				A16000000000000000000003 /* GreenRoomDatabasePlugin.swift in Sources */,
+				A16000000000000000000006 /* GreenRoomCredentialLifecycle.swift in Sources */,
+				A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */,
+				A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

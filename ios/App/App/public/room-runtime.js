@@ -150,7 +150,7 @@ async function readDirectorContext(plugin, room, uuid) {
 }
 
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 4 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 5 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
   return Object.freeze({ events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
