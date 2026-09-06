@@ -1,12 +1,11 @@
-import { ORIGINAL_CAST } from "../personas/original-cast.js";
 import type { BundledPersonaCatalog } from "../personas/bundled-persona-catalog.js";
 import type {
   GenerationProvider,
   ProviderInvitation,
   ProviderResult,
 } from "./provider.js";
+import { personaGenerationMessages } from "./persona-generation.js";
 import {
-  HOST_RESPONSE_POLICY,
   boundedCompleteResponse as sharedBoundedCompleteResponse,
   extractOpenAICompatibleText,
   readBoundedJsonResponse,
@@ -117,18 +116,6 @@ function assertKnownOptions(options: LMStudioProviderOptions): void {
   }
 }
 
-function originalSystemPrompt(personaId: string): string | undefined {
-  const persona = ORIGINAL_CAST.find(({ id }) => id === personaId);
-  if (persona === undefined) {
-    return undefined;
-  }
-  return (
-    `You are ${persona.name}.\n` +
-    `Voice: ${persona.voice}\n` +
-    `Motivation: ${persona.motivation}`
-  );
-}
-
 export class LMStudioProvider implements GenerationProvider {
   readonly #fetch: Fetch;
   readonly #personaCatalog: Pick<BundledPersonaCatalog, "resolvePrompt"> | undefined;
@@ -158,27 +145,15 @@ export class LMStudioProvider implements GenerationProvider {
     signal: AbortSignal,
   ): Promise<ProviderResult> {
     signal.throwIfAborted();
-    const originalPrompt = originalSystemPrompt(invitation.personaId);
-    let personaPrompt: string;
-    if (originalPrompt !== undefined) {
-      personaPrompt = originalPrompt;
-    } else {
-      if (this.#personaCatalog === undefined) {
-        throw new TypeError("LM Studio received an unknown persona");
-      }
-      try {
-        personaPrompt = this.#personaCatalog.resolvePrompt(invitation.personaId);
-      } catch {
-        throw new TypeError("LM Studio received an unknown persona");
-      }
+    let messages;
+    try {
+      messages = personaGenerationMessages(invitation, this.#personaCatalog);
+    } catch {
+      throw new TypeError("LM Studio received an unknown persona");
     }
     return {
       kind: "text",
-      text: await this.#complete([
-        { role: "system", content: personaPrompt },
-        { role: "system", content: HOST_RESPONSE_POLICY },
-        { role: "user", content: invitation.prompt },
-      ], this.#temperature, this.#maxTokens, signal),
+      text: await this.#complete(messages, this.#temperature, this.#maxTokens, signal),
     };
   }
 

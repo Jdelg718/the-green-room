@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -6,9 +7,11 @@ import { test } from "node:test";
 
 import { buildApp } from "../../src/app.js";
 import { openGreenRoomDatabase } from "../../src/db/index.js";
+import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import type { CredentialStore } from "../../src/providers/credential-store.js";
 import type { CloudTransport, CloudTransportRequest } from "../../src/providers/openai-compatible-cloud.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
+import { HOST_RESPONSE_POLICY } from "../../src/providers/response-policy.js";
 
 const ORIGIN = "http://127.0.0.1:8787";
 const SECRET = "«redacted:sk-…»";
@@ -182,6 +185,94 @@ test("replace rollback, stale revisions, bounded models, test/profile/bind, and 
   assert.equal(f.transport.requests.length, requestsBeforeMissing);
   const again = await f.mutate("DELETE", "/api/providers/connections/openrouter-main", { expectedRevision: 1 });
   assert.equal(again.statusCode, 200);
+});
+
+test("API room generation forwards the bundled FF2K persona prompt to the bound cloud provider exactly", async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), "green-room-provider-persona-api-"));
+  const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
+  const credentials = new MemoryCredentials();
+  const transport = new MockOpenRouterTransport();
+  const personaCatalog = loadBundledPersonaCatalog({
+    historicalRoot: resolve("personas/historical"),
+    originalRoot: resolve("personas/original"),
+  });
+  const app = buildApp({
+    allowedOrigin: ORIGIN,
+    database: store.database,
+    provider: new DeterministicMockProvider(),
+    personaCatalog,
+    providerCredentials: credentials,
+    cloudTransport: transport,
+  });
+  await app.ready();
+  context.after(async () => {
+    await app.close();
+    store.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers: { host: new URL(ORIGIN).host } });
+  const mutate = async (url: string, payload: Record<string, unknown>) => {
+    const response = await app.inject({
+      method: "POST",
+      url,
+      headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-csrf-token": bootstrap.json().csrfToken },
+      payload,
+    });
+    assert.ok(response.statusCode >= 200 && response.statusCode < 300, `${url}: ${response.body}`);
+    return response.json<Record<string, any>>();
+  };
+
+  const cast = await mutate("/api/rooms/first-playable/cast", {
+    requestId: "ff2k-cloud-cast", selectionRevision: 0, personaSlugs: ["ff2k"],
+  });
+  await mutate("/api/providers/connections", {
+    id: "ff2k-cloud", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
+  });
+  await mutate("/api/providers/connections/ff2k-cloud/models", { connectionRevision: 1 });
+  await mutate("/api/providers/connections/ff2k-cloud/test", {
+    connectionRevision: 1, modelId: "anthropic/claude-3.5-sonnet",
+  });
+  const profile = await mutate("/api/providers/model-profiles", {
+    id: "ff2k-cloud-model", connectionId: "ff2k-cloud", connectionRevision: 1,
+    modelId: "anthropic/claude-3.5-sonnet", temperature: 0.4, maxOutputTokens: 256,
+    acknowledgedConnectionRevision: 1,
+  });
+  await mutate(`/api/rooms/${cast.sessionId}/provider-binding`, {
+    id: "ff2k-cloud-binding", expectedRevision: 0,
+    modelProfileId: profile.modelProfile.profile.id,
+    modelProfileRevision: profile.modelProfile.profile.revision,
+    acknowledgedConnectionRevision: 1,
+  });
+  const userPrompt = "Which claim should we test first?";
+  const generated = await mutate(`/api/rooms/${cast.sessionId}/messages`, {
+    requestId: "ff2k-cloud-message", selectionRevision: cast.selectionRevision,
+    text: userPrompt, wantsResponse: true, targetPersonaId: cast.selectedCast[0].participantId,
+  });
+  assert.equal(generated.outcome, "text");
+
+  const generationRequest = transport.requests.at(-1);
+  assert.ok(generationRequest);
+  const payload = JSON.parse(Buffer.from(generationRequest.body!).toString("utf8")) as {
+    messages: Array<{ role: string; content: string }>;
+  };
+  assert.equal(payload.messages.length, 3);
+  assert.equal(payload.messages[0]?.role, "system");
+  const personaPrompt = payload.messages[0]!.content;
+  assert.equal(Buffer.byteLength(personaPrompt, "utf8"), 13_918);
+  assert.equal(
+    createHash("sha256").update(personaPrompt, "utf8").digest("hex"),
+    "fb89a2994c8dcc71a8d4d217564705c6cb11084b2c9ee11b0b42e84cd9f50e1d",
+  );
+  for (const forbidden of [
+    "schema_version: \"0.1\"",
+    "# Provenance and editorial record",
+    "https://ff2k.us/start/",
+    "SPDX-License-Identifier: CC-BY-4.0",
+  ]) {
+    assert.equal(personaPrompt.includes(forbidden), false, `transport included non-runtime sentinel: ${forbidden}`);
+  }
+  assert.deepEqual(payload.messages[1], { role: "system", content: HOST_RESPONSE_POLICY });
+  assert.deepEqual(payload.messages[2], { role: "user", content: userPrompt });
 });
 
 test("successful replacement creates a new revision, removes the superseded key, and requires revision acknowledgement", async (context) => {
