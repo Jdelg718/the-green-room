@@ -88,14 +88,18 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
             }
             for _ in 0..<50 {
                 let marker = try? await webView.evaluateJavaScript(
-                    "JSON.stringify({boot:document.documentElement.dataset.localRoomBoot||'',source:document.documentElement.dataset.localRoomSource||''})"
+                    "JSON.stringify({boot:document.documentElement.dataset.localRoomBoot||'',source:document.documentElement.dataset.localRoomSource||'',castCount:document.documentElement.dataset.localRoomCastCount||'0'})"
                 )
                 if let marker = marker as? String,
                    let data = marker.data(using: .utf8),
                    let state = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                   state["boot"] == "open",
+                   let boot = state["boot"],
+                   boot == "open" || boot == "picker",
                    let source = state["source"],
-                   source == "created" || source == "reopened" {
+                   let castText = state["castCount"],
+                   let castCount = Int(castText),
+                   (boot == "open" && (source == "created" || source == "reopened") && (1...3).contains(castCount)) ||
+                     (boot == "picker" && source == "empty" && castCount == 0) {
                     let environment = ProcessInfo.processInfo.environment
                     let networkAudit = environment["GREENROOM_NETWORK_AUDIT_LOADED"] == "true" && environment["GREENROOM_NETWORK_ATTEMPT"] == nil
                     let deviceAcceptance = environment["GREENROOM_DEVICE_ACCEPTANCE"] == "true"
@@ -104,7 +108,8 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                         "networkPolicy": networkAudit ? "denied" : "not-measured",
                         "origin": "capacitor://localhost",
                         "roomSource": source,
-                        "status": "room-open"
+                        "castCount": castCount,
+                        "status": boot == "open" ? "room-open" : "picker-ready"
                     ]
                     if let encoded = try? JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]) {
                         try? encoded.write(

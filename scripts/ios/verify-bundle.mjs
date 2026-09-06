@@ -40,15 +40,15 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const REVIEWED_WEB_SHA256 = new Map([
-  ["index.html", "0638870ac7a109dc092c38953fe3c3ed46129cd899ac94ddc1c30020f6b1554f"],
-  ["personas.js", "5fb5ae2239b30d69f1d498477d695afd052b0e399ce8d59c4f28e038c7368559"],
-  ["room-runtime.js", "06f25b02e8f4901fc73f9cd0124ca44029610a3980e4b8602d63f06000d55902"],
-  ["shell.css", "f8508d2427fda020248ece9c5eb3aa057c9a738e2a240186a6392d56dd8c527d"],
+  ["index.html", "6eb38412a10f5113e28d7ec4322c4dccbe255c941d0867586fda871d7225ec2c"],
+  ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
+  ["room-runtime.js", "ba5e8e109f0dc5746df85f6f09ee035e5ce119e552cc35345eb1ae42b66f9a8f"],
+  ["shell.css", "71c7a03f0a2b6fc2bd4157d5f8f4c9836638ff3bf6ad04ad707341d5cd6d7a52"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
-  ["App/ContainedBridgeViewController.swift", "30de84880bb57db04f00541c8bfe289ba18d8951d585f8a1154c7fbc159c0b33"],
-  ["App/GreenRoomDatabasePlugin.swift", "4e7dc2c9dffdcc4593fb19c273cfe86a841de15adebeac47b82e16744c1db58c"],
+  ["App/ContainedBridgeViewController.swift", "beac4a1027fc9b18e33bf1177c2be973268a18322019db7612ecb4bf0163b15f"],
+  ["App/GreenRoomDatabasePlugin.swift", "4634fcdcc76eded5231a24a5d8b4cc74961335253660671cff98b5e85be5cfea"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";

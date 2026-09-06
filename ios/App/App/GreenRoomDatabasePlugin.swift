@@ -160,9 +160,9 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
     private static let statements = [
         "create_room": "INSERT INTO rooms(id, title, status) VALUES (?, ?, 'active')",
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
-        "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', 1, ?)",
+        "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
-        "select_room": "INSERT INTO current_room(singleton, room_id) VALUES (1, ?)"
+        "select_room": "INSERT INTO current_room(singleton, room_id) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET room_id = excluded.room_id"
     ]
 
     private func applicationDirectory() throws -> URL {

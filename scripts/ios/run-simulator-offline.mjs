@@ -117,8 +117,8 @@ try {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     }
   }
-  if (JSON.stringify(evidence) !== JSON.stringify({ networkPolicy: "denied", origin: "capacitor://localhost", roomSource: "created", status: "room-open" })) {
-    throw new Error("bundled local room creation evidence was not produced");
+  if (evidence?.castCount !== 0 || evidence?.networkPolicy !== "denied" || evidence?.origin !== "capacitor://localhost" || evidence?.roomSource !== "empty" || evidence?.status !== "picker-ready") {
+    throw new Error("bundled offline character picker evidence was not produced");
   }
   simctl(["terminate", selected.udid, BUNDLE_ID]);
   rmSync(evidencePath, { force: true });
@@ -132,8 +132,8 @@ try {
     try { evidence = JSON.parse(readFileSync(evidencePath, "utf8")); break; }
     catch { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); }
   }
-  if (JSON.stringify(evidence) !== JSON.stringify({ networkPolicy: "denied", origin: "capacitor://localhost", roomSource: "reopened", status: "room-open" })) {
-    throw new Error("bundled local room persistence evidence was not produced after termination/relaunch");
+  if (evidence?.castCount !== 0 || evidence?.networkPolicy !== "denied" || evidence?.origin !== "capacitor://localhost" || evidence?.roomSource !== "empty" || evidence?.status !== "picker-ready") {
+    throw new Error("bundled offline character picker did not survive termination/relaunch");
   }
   let audit = [];
   try { audit = readFileSync(auditPath, "utf8").trim().split("\n").filter(Boolean); } catch {}
@@ -146,7 +146,7 @@ try {
   console.log(JSON.stringify({
     status: "PASS",
     simulator: { model: DEVICE_NAME, os: "18.6" },
-    app: { bundleIdentifier: BUNDLE_ID, origin: evidence.origin, localRoom: evidence.status, persistence: evidence.roomSource },
+    app: { bundleIdentifier: BUNDLE_ID, origin: evidence.origin, picker: evidence.status, persistence: evidence.roomSource },
     offline: { interposerLoaded: true, outboundAttempts: 0, listeningSockets: 0 },
   }, null, 2));
 } finally {

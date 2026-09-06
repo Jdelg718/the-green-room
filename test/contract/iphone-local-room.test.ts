@@ -20,28 +20,34 @@ function success(call: NativeEnvelope, value: unknown): Record<string, unknown> 
   return { callId: call.callId, ok: true, value };
 }
 
-test("iPhone local-room milestone has a native migration and bundled runtime", async () => {
+function uuids(): () => string {
+  let value = 0;
+  return () => `00000000-0000-4000-8000-${String(++value).padStart(12, "0")}`;
+}
+
+async function runtime(): Promise<{
+  createLocalRoom(plugin: object, slugs: string[], uuid?: () => string): Promise<{ room: Record<string, any>; source: string }>;
+  openLocalRoom(plugin: object, uuid?: () => string): Promise<{ room: Record<string, any> | null; source: string }>;
+}> {
+  return import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as never;
+}
+
+test("iPhone local-room milestone has a native migration and bundled runtime", () => {
   for (const path of [
     "ios/App/App/GreenRoomDatabasePlugin.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
-  ]) {
-    assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
-  }
+    "scripts/ios/build-local-room-assets.mjs",
+  ]) assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
 
   const migration = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql"), "utf8");
-  assert.match(migration, /CREATE TABLE rooms/u);
-  assert.match(migration, /CREATE TABLE participants/u);
-  assert.match(migration, /CREATE TABLE events/u);
-  assert.match(migration, /CREATE TABLE director_state/u);
-  assert.match(migration, /CREATE TABLE current_room/u);
+  for (const table of ["rooms", "participants", "events", "director_state", "current_room"]) {
+    assert.match(migration, new RegExp(`CREATE TABLE ${table}`, "u"));
+  }
   assert.doesNotMatch(migration, /INSERT INTO rooms/u);
-  const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8")) as {
-    schema: number;
-    migrations: Array<{ file: string; sha256: string; version: number }>;
-  };
+  const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
   assert.deepEqual(manifest, {
     schema: 1,
     migrations: [{
@@ -52,7 +58,7 @@ test("iPhone local-room milestone has a native migration and bundled runtime", a
   });
 });
 
-test("the iPhone room character matches the existing bundled catalog contract", async () => {
+test("the iPhone picker is generated from the exact existing nineteen-character catalog", async () => {
   const { BUNDLED_PERSONAS } = await import(pathToFileURL(join(ROOT, "ios-web/personas.js")).href) as {
     BUNDLED_PERSONAS: Array<Record<string, unknown>>;
   };
@@ -60,22 +66,42 @@ test("the iPhone room character matches the existing bundled catalog contract", 
     historicalRoot: join(ROOT, "personas/historical"),
     originalRoot: join(ROOT, "personas/original"),
   });
-  const ada = catalog.personas.find(({ slug }) => slug === "ada-lovelace");
-  assert.ok(ada);
-  assert.deepEqual(BUNDLED_PERSONAS, [{
-    slug: ada.slug,
-    name: ada.name,
-    catalogKind: ada.catalogKind,
+  assert.equal(BUNDLED_PERSONAS.length, 19);
+  assert.deepEqual(BUNDLED_PERSONAS, catalog.personas.map((persona) => ({
+    slug: persona.slug,
+    name: persona.name,
+    catalogKind: persona.catalogKind,
     status: "candidate · draft",
-    summary: ada.summary,
-    notice: ada.educationalNotice,
-  }]);
+    summary: persona.summary,
+    notice: persona.educationalNotice,
+  })));
 });
 
-test("bundled Ada room is created once then reopened from native authority", async () => {
-  const { openLocalRoom } = await import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as {
-    openLocalRoom(plugin: object, uuid?: () => string): Promise<{ room: Record<string, unknown>; persona: { slug: string }; source: string }>;
+test("the picker upgrade reopens the stable room created by the prior milestone", async () => {
+  const { openLocalRoom } = await runtime();
+  const legacyRoom = {
+    id: "room-local-default",
+    title: "The Analytical Engine",
+    status: "active",
+    generation: 0,
+    participants: [
+      { id: "human", kind: "human", displayName: "You", muted: false, sortOrder: 0, personaSlug: null },
+      { id: "ada-lovelace", kind: "persona", displayName: "Ada Lovelace", muted: false, sortOrder: 1, personaSlug: "ada-lovelace" },
+    ],
   };
+  const plugin = {
+    async open(call: NativeEnvelope) { return success(call, { schema: 1 }); },
+    async query(call: NativeEnvelope) {
+      return success(call, { columns: ["room_json"], rows: [[JSON.stringify(legacyRoom)]] });
+    },
+  };
+  const opened = await openLocalRoom(plugin, uuids());
+  assert.equal(opened.source, "reopened");
+  assert.deepEqual(opened.room, legacyRoom);
+});
+
+test("one-to-three selected bundled characters create a new authoritative room and reopen", async () => {
+  const { createLocalRoom, openLocalRoom } = await runtime();
   const calls: NativeEnvelope[] = [];
   let room: Record<string, unknown> | undefined;
   const plugin = {
@@ -85,17 +111,24 @@ test("bundled Ada room is created once then reopened from native authority", asy
     },
     async executeBatch(call: NativeEnvelope) {
       calls.push(call);
+      const statements = call.payload.statements as Array<{ sqlId: string; parameters: any[] }>;
+      const roomStatement = statements.find(({ sqlId }) => sqlId === "create_room")!;
+      const human = statements.find(({ sqlId }) => sqlId === "create_human")!;
+      const personas = statements.filter(({ sqlId }) => sqlId === "create_persona");
       room = {
-        id: "room-local-default",
-        title: "The Analytical Engine",
+        id: roomStatement.parameters[0],
+        title: roomStatement.parameters[1],
         status: "active",
         generation: 0,
         participants: [
-          { id: "human", kind: "human", displayName: "You", muted: false, sortOrder: 0, personaSlug: null },
-          { id: "ada-lovelace", kind: "persona", displayName: "Ada Lovelace", muted: false, sortOrder: 1, personaSlug: "ada-lovelace" },
+          { id: human.parameters[0], kind: "human", displayName: "You", muted: false, sortOrder: 0, personaSlug: null },
+          ...personas.map(({ parameters }) => ({
+            id: parameters[0], kind: "persona", displayName: parameters[2], muted: false,
+            sortOrder: parameters[3], personaSlug: parameters[4],
+          })),
         ],
       };
-      return success(call, { changes: 5 });
+      return success(call, { changes: statements.length });
     },
     async query(call: NativeEnvelope) {
       calls.push(call);
@@ -103,30 +136,33 @@ test("bundled Ada room is created once then reopened from native authority", asy
     },
   };
 
-  const first = await openLocalRoom(plugin, () => "00000000-0000-4000-8000-000000000001");
-  assert.equal(first.source, "created");
-  assert.equal(first.room.id, "room-local-default");
-  assert.equal(first.persona.slug, "ada-lovelace");
-  assert.equal(calls.filter(({ method }) => method === "database.executeBatch").length, 1);
+  const empty = await openLocalRoom(plugin, uuids());
+  assert.equal(empty.source, "empty");
+  assert.equal(empty.room, null);
 
-  const second = await openLocalRoom(plugin, () => "00000000-0000-4000-8000-000000000002");
-  assert.equal(second.source, "reopened");
-  assert.deepEqual(second.room, first.room);
+  const created = await createLocalRoom(plugin, ["ada-lovelace", "isaac-newton", "ff2k"], uuids());
+  assert.equal(created.source, "created");
+  assert.match(created.room.id, /^room-/u);
+  const createdPersonas = created.room.participants as Array<{ kind: string; personaSlug: string | null }>;
+  assert.deepEqual(createdPersonas.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => personaSlug), [
+    "ada-lovelace", "isaac-newton", "ff2k",
+  ]);
   assert.equal(calls.filter(({ method }) => method === "database.executeBatch").length, 1);
+  assert.equal((calls.find(({ method }) => method === "database.executeBatch")!.payload.statements as unknown[]).length, 7);
+
+  const reopened = await openLocalRoom(plugin, uuids());
+  assert.equal(reopened.source, "reopened");
+  assert.deepEqual(reopened.room, created.room);
   assert.ok(calls.every(({ contractVersion }) => contractVersion === "iphone-native-bridge/1.0"));
 });
 
-test("iPhone room runtime rejects malformed native success envelopes", async () => {
-  const { openLocalRoom } = await import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as {
-    openLocalRoom(plugin: object, uuid?: () => string): Promise<unknown>;
-  };
+test("the picker runtime rejects invalid casts and malformed native responses", async () => {
+  const { createLocalRoom, openLocalRoom } = await runtime();
+  await assert.rejects(createLocalRoom({}, [], uuids()), /one to three/u);
+  await assert.rejects(createLocalRoom({}, ["ada-lovelace", "ada-lovelace"], uuids()), /one to three/u);
+  await assert.rejects(createLocalRoom({}, ["not-bundled"], uuids()), /one to three/u);
   const plugin = {
-    async open(call: NativeEnvelope) {
-      return { callId: `${call.callId}-wrong`, ok: true, value: { schema: 1 } };
-    },
+    async open(call: NativeEnvelope) { return { callId: `${call.callId}-wrong`, ok: true, value: { schema: 1 } }; },
   };
-  await assert.rejects(
-    openLocalRoom(plugin, () => "00000000-0000-4000-8000-000000000003"),
-    /native bridge response/u,
-  );
+  await assert.rejects(openLocalRoom(plugin, uuids()), /native bridge response/u);
 });

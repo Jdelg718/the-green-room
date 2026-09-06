@@ -7,6 +7,12 @@ import { verifySource } from "./verify-bundle.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(ROOT, "node_modules", "@capacitor", "cli", "bin", "capacitor");
+const build = spawnSync("npm", ["run", "build", "--silent"], { cwd: ROOT, stdio: "inherit" });
+if (build.error) throw build.error;
+if (build.status !== 0) process.exit(build.status ?? 1);
+const assets = spawnSync(process.execPath, [join(ROOT, "scripts", "ios", "build-local-room-assets.mjs")], { cwd: ROOT, stdio: "inherit" });
+if (assets.error) throw assets.error;
+if (assets.status !== 0) process.exit(assets.status ?? 1);
 const result = spawnSync(process.execPath, [cli, "sync", "ios"], { cwd: ROOT, stdio: "inherit" });
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
