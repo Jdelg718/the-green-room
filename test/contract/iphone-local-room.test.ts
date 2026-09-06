@@ -115,7 +115,10 @@ class MemoryPlugin {
     this.calls.push(call);
     const sqlId = call.payload.sqlId;
     if (sqlId === "room_events") {
-      return success(call, { columns: ["event_record_json"], rows: this.events.map((event) => [JSON.stringify(event)]) });
+      return success(call, {
+        columns: ["event_record_json"],
+        rows: this.events.slice(-100).map((event) => [JSON.stringify(event)]),
+      });
     }
     if (sqlId === "director_context") {
       if (this.malformedDirectorProjection !== undefined) return success(call, this.malformedDirectorProjection);
@@ -224,6 +227,45 @@ test("restart restores cooldown, rotation, duplicate tracking, silence, and mute
   for (const participant of plugin.room!.participants) if (participant.kind === "persona") participant.muted = true;
   const unavailable = await api.sendLocalMessage(plugin, reopened.room!, "Anyone?", uuids(), { requestId: ids[4]! });
   assert.deepEqual(unavailable.decision, { speaker: null, reason: "no_eligible_persona" });
+});
+
+test("bounded event history preserves authoritative continuity beyond one hundred events", async () => {
+  const { api, created, plugin } = await createdRoom();
+
+  for (let message = 1; message <= 52; message += 1) {
+    const requestId = `52000000-0000-4000-8000-${String(message).padStart(12, "0")}`;
+    const sent = await api.sendLocalMessage(plugin, created.room, `Message ${message}`, uuids(), {
+      requestId,
+      wantsResponse: false,
+    });
+    assert.ok(sent.events.length <= 100, `message ${message} returned an unbounded UI history`);
+  }
+
+  assert.equal(plugin.events.length, 104);
+  assert.deepEqual(
+    plugin.events.map(({ sequence }) => sequence),
+    Array.from({ length: 104 }, (_, index) => index + 1),
+  );
+  for (let index = 0; index < plugin.events.length; index += 2) {
+    assert.equal(plugin.events[index]?.event.type, "human_message");
+    assert.equal(plugin.events[index + 1]?.event.type, "director_decision");
+    assert.equal(plugin.events[index + 1]?.event.sourceEventSequence, index + 1);
+  }
+
+  const reopened = await api.openLocalRoom(plugin, uuids());
+  assert.equal(reopened.events.length, 100);
+  assert.deepEqual(
+    reopened.events.map(({ sequence }) => sequence),
+    Array.from({ length: 100 }, (_, index) => index + 5),
+  );
+
+  const next = await api.sendLocalMessage(plugin, reopened.room!, "Message 53", uuids(), {
+    requestId: "53000000-0000-4000-8000-000000000053",
+    wantsResponse: false,
+  });
+  assert.equal(plugin.nextEventSequence, 107);
+  assert.equal(next.events.length, 100);
+  assert.deepEqual(next.events.slice(-2).map(({ sequence }) => sequence), [105, 106]);
 });
 
 test("forced director-event failure rolls back human event and director state", async () => {

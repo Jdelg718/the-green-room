@@ -3,6 +3,7 @@ import { DIRECTOR_REASON, Director, TrustedEventAdapter } from "./director.js";
 
 const CONTRACT_VERSION = "iphone-native-bridge/1.0";
 const MAX_CAST = 3;
+const MAX_EVENT_PAGE = 100;
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
@@ -62,8 +63,9 @@ async function readCurrentRoom(plugin, uuid) {
   return parseRoom(await invoke(plugin, "database.query", { sqlId: "current_room", parameters: [] }, uuid));
 }
 
-function parseEvent(record, index) {
-  if (!exactRecord(record, ["event", "sequence"]) || record.sequence !== index + 1 || !Number.isSafeInteger(record.sequence)) {
+function parseEvent(record, expectedSequence) {
+  if (!exactRecord(record, ["event", "sequence"]) || record.sequence !== expectedSequence ||
+      !Number.isSafeInteger(record.sequence) || record.sequence < 1) {
     throw new Error("Invalid local event projection.");
   }
   const event = record.event;
@@ -89,13 +91,16 @@ function parseEvent(record, index) {
 
 async function readRoomEvents(plugin, roomId, uuid) {
   const value = await invoke(plugin, "database.query", { sqlId: "room_events", parameters: [roomId] }, uuid);
-  if (!exactRecord(value, ["columns", "rows"]) || !Array.isArray(value.rows) || value.rows.length > 100) {
+  if (!exactRecord(value, ["columns", "rows"]) || !Array.isArray(value.rows) || value.rows.length > MAX_EVENT_PAGE) {
     throw new Error("Invalid local event projection.");
   }
+  let firstSequence;
   return value.rows.map((row, index) => {
     const encoded = row?.[0];
     if (typeof encoded !== "string" || encoded.length > 20_000) throw new Error("Invalid local event projection.");
-    return parseEvent(JSON.parse(encoded), index);
+    const record = JSON.parse(encoded);
+    if (index === 0) firstSequence = record?.sequence;
+    return parseEvent(record, firstSequence + index);
   });
 }
 
@@ -194,7 +199,8 @@ export async function sendLocalMessage(
 
   const events = await readRoomEvents(plugin, room.id, uuid);
   const context = await readDirectorContext(plugin, room, uuid);
-  if (context.nextEventSequence !== events.length + 1) throw new Error("Invalid native director sequence projection.");
+  const projectedNextSequence = events.length === 0 ? 1 : events.at(-1).sequence + 1;
+  if (context.nextEventSequence !== projectedNextSequence) throw new Error("Invalid native director sequence projection.");
   const personaIds = context.personas.map(({ id }) => id);
   const director = context.state === null
     ? new Director(personaIds)
@@ -240,7 +246,7 @@ export async function sendLocalMessage(
     ...events,
     Object.freeze({ event: Object.freeze(humanEvent), sequence: humanSequence }),
     Object.freeze({ event: Object.freeze(directorEvent), sequence: directorSequence }),
-  ]);
+  ].slice(-MAX_EVENT_PAGE));
   return Object.freeze({ decision, events: committed });
 }
 

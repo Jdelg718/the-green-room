@@ -1,6 +1,16 @@
 const EVENT_PROOF = Symbol("trusted-director-event");
 const ONE_EVENT_COOLDOWN = 1;
 const DEFAULT_AUTONOMOUS_TURN_BUDGET = 10;
+const DIRECTOR_SNAPSHOT_KEYS = Object.freeze([
+  "acceptedHumanEventNumber",
+  "autonomousTurns",
+  "cancelled",
+  "fallbackIndex",
+  "lastSelectedAt",
+  "maxAutonomousTurns",
+  "seen",
+  "version",
+] as const);
 
 export const DIRECTOR_LIMITS = Object.freeze({
   MAX_NAMESPACE_LENGTH: 128,
@@ -160,7 +170,7 @@ export class Director {
     }
     const maxAutonomousTurns = snapshot?.maxAutonomousTurns ??
       options.maxAutonomousTurns ?? DEFAULT_AUTONOMOUS_TURN_BUDGET;
-    if (!Number.isInteger(maxAutonomousTurns) || maxAutonomousTurns < 0) {
+    if (!Number.isSafeInteger(maxAutonomousTurns) || maxAutonomousTurns < 0) {
       throw new TypeError("maxAutonomousTurns must be a non-negative integer");
     }
     if (
@@ -248,7 +258,8 @@ export class Director {
   }
 
   #restore(snapshot: DirectorSnapshot): void {
-    if (snapshot === null || typeof snapshot !== "object" || snapshot.version !== 1) {
+    if (snapshot === null || typeof snapshot !== "object" || snapshot.version !== 1 ||
+        Object.keys(snapshot).sort().join("\0") !== DIRECTOR_SNAPSHOT_KEYS.join("\0")) {
       throw new TypeError("director snapshot version is invalid");
     }
     this.#autonomousTurns = requireNonNegativeInteger(snapshot.autonomousTurns, "snapshot autonomousTurns");
@@ -256,6 +267,10 @@ export class Director {
       snapshot.acceptedHumanEventNumber,
       "snapshot acceptedHumanEventNumber",
     );
+    if (this.#autonomousTurns > this.#maxAutonomousTurns ||
+        this.#autonomousTurns > this.#acceptedHumanEventNumber) {
+      throw new TypeError("snapshot autonomousTurns is inconsistent");
+    }
     this.#fallbackIndex = requireNonNegativeInteger(snapshot.fallbackIndex, "snapshot fallbackIndex");
     if (this.#personas.length === 0 ? this.#fallbackIndex !== 0 : this.#fallbackIndex >= this.#personas.length) {
       throw new TypeError("snapshot fallbackIndex is outside the roster");
@@ -266,11 +281,34 @@ export class Director {
         snapshot.seen.length > DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES) {
       throw new TypeError("director snapshot collections are invalid");
     }
+    const selectedPersonas = new Set<string>();
+    const selectionEventNumbers = new Set<number>();
     for (const entry of snapshot.lastSelectedAt) {
-      if (!Array.isArray(entry) || entry.length !== 2 || !this.#personaSet.has(entry[0])) {
+      if (!Array.isArray(entry) || entry.length !== 2 || !this.#personaSet.has(entry[0]) ||
+          selectedPersonas.has(entry[0])) {
         throw new TypeError("snapshot lastSelectedAt is invalid");
       }
-      this.#lastSelectedAt.set(entry[0], requireNonNegativeInteger(entry[1], "snapshot event number"));
+      const eventNumber = requireNonNegativeInteger(entry[1], "snapshot event number");
+      if (eventNumber === 0 || eventNumber > this.#acceptedHumanEventNumber ||
+          selectionEventNumbers.has(eventNumber)) {
+        throw new TypeError("snapshot lastSelectedAt is inconsistent");
+      }
+      selectedPersonas.add(entry[0]);
+      selectionEventNumbers.add(eventNumber);
+      this.#lastSelectedAt.set(entry[0], eventNumber);
+    }
+    if (this.#lastSelectedAt.size > this.#autonomousTurns ||
+        (this.#autonomousTurns === 0) !== (this.#lastSelectedAt.size === 0)) {
+      throw new TypeError("snapshot selection history is inconsistent");
+    }
+    if (this.#autonomousTurns > 0) {
+      const latestSelection = [...this.#lastSelectedAt.entries()].reduce((latest, entry) =>
+        entry[1] > latest[1] ? entry : latest,
+      );
+      const expectedFallback = (this.#personas.indexOf(latestSelection[0]) + 1) % this.#personas.length;
+      if (this.#fallbackIndex !== expectedFallback) {
+        throw new TypeError("snapshot fallbackIndex is inconsistent with selection history");
+      }
     }
     for (const entry of snapshot.seen) {
       if (!Array.isArray(entry) || entry.length !== 2) throw new TypeError("snapshot seen identity is invalid");

@@ -150,7 +150,11 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
             case "room_events":
                 sql = """
                 SELECT json_object('sequence', sequence, 'event', json(event_json)) AS event_record_json
-                FROM events WHERE room_id = ? ORDER BY sequence LIMIT 100
+                FROM (
+                  SELECT sequence, event_json FROM events
+                  WHERE room_id = ? ORDER BY sequence DESC LIMIT 100
+                ) AS recent_events
+                ORDER BY sequence ASC
                 """
                 column = "event_record_json"
             case "director_context":

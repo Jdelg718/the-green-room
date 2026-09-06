@@ -7,6 +7,7 @@ import {
   DIRECTOR_REASON,
   Director as SharedDirector,
   TrustedEventAdapter as SharedTrustedEventAdapter,
+  type DirectorSnapshot,
 } from "../../packages/core/src/director.js";
 import {
   Director as DesktopDirector,
@@ -56,6 +57,45 @@ test("shared director snapshot restores deterministic cooldown and duplicate sta
   assert.deepEqual(restored.schedule(adapter.humanEvent("request:2", "Duplicate")), {
     speaker: null, reason: DIRECTOR_REASON.DUPLICATE,
   });
+});
+
+test("shared director rejects malformed cross-field snapshot states", () => {
+  const valid: DirectorSnapshot = {
+    version: 1,
+    autonomousTurns: 2,
+    acceptedHumanEventNumber: 2,
+    fallbackIndex: 2,
+    cancelled: false,
+    maxAutonomousTurns: 10,
+    lastSelectedAt: [[roster[0], 1], [roster[1], 2]],
+    seen: [["room:restart", "request:1"], ["room:restart", "request:2"]],
+  };
+  const attacks: Array<readonly [string, unknown]> = [
+    ["reproduced autonomous counter forgery", { ...valid, autonomousTurns: 999, acceptedHumanEventNumber: 0 }],
+    ["autonomous turns beyond budget", { ...valid, autonomousTurns: 11 }],
+    ["duplicate persona selection keys", { ...valid, lastSelectedAt: [[roster[0], 1], [roster[0], 2]] }],
+    ["selection beyond accepted human event", { ...valid, lastSelectedAt: [[roster[0], 3]] }],
+    ["zero selection event number", { ...valid, lastSelectedAt: [[roster[0], 0]] }],
+    ["two selections for one human event", { ...valid, lastSelectedAt: [[roster[0], 2], [roster[1], 2]] }],
+    ["more selected personas than autonomous turns", { ...valid, autonomousTurns: 1 }],
+    ["fallback inconsistent with latest selection", { ...valid, fallbackIndex: 0 }],
+    ["fallback outside roster", { ...valid, fallbackIndex: roster.length }],
+    ["duplicate serialized seen identity", { ...valid, seen: [["room:restart", "request:1"], ["room:restart", "request:1"]] }],
+    ["unexpected serialized field", { ...valid, injected: true }],
+  ];
+
+  for (const [label, snapshot] of attacks) {
+    assert.throws(
+      () => SharedDirector.restore(roster, snapshot as DirectorSnapshot),
+      { name: "TypeError" },
+      label,
+    );
+    assert.throws(
+      () => DesktopDirector.restore(roster, snapshot as DirectorSnapshot),
+      { name: "TypeError" },
+      `${label} (desktop export)`,
+    );
+  }
 });
 
 test("shared director core has no platform imports or globals", () => {
