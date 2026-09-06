@@ -19,7 +19,7 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try lock.withLock {
-            guard expectedSchema == 2 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 3 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -99,7 +99,11 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                     guard sqlite3_step(prepared) == SQLITE_DONE else {
                         throw DatabaseFailure(code: "transaction_rejected", retryable: false)
                     }
-                    changes += Int(sqlite3_changes(database))
+                    let statementChanges = Int(sqlite3_changes(database))
+                    if Self.requiredSingleChangeStatements.contains(sqlId), statementChanges != 1 {
+                        throw DatabaseFailure(code: "transaction_rejected", retryable: false)
+                    }
+                    changes += statementChanges
                 }
                 try execute("COMMIT", on: database)
                 try protectDatabaseFiles(try databaseURL())
@@ -149,6 +153,28 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                 FROM events WHERE room_id = ? ORDER BY sequence LIMIT 100
                 """
                 column = "event_record_json"
+            case "director_context":
+                sql = """
+                SELECT json_object(
+                  'roomId', room.id,
+                  'generation', room.generation,
+                  'nextEventSequence', room.next_event_sequence,
+                  'state', json(director.state_json),
+                  'personas', json((
+                    SELECT json_group_array(json_object(
+                      'id', participant.id,
+                      'personaSlug', participant.persona_slug,
+                      'displayName', participant.display_name,
+                      'muted', json(CASE participant.muted WHEN 1 THEN 'true' ELSE 'false' END),
+                      'sortOrder', participant.sort_order
+                    ))
+                    FROM (SELECT * FROM participants WHERE room_id = room.id AND kind = 'persona' ORDER BY sort_order) AS participant
+                  ))
+                ) AS director_context_json
+                FROM rooms room JOIN director_state director ON director.room_id = room.id
+                WHERE room.id = ?
+                """
+                column = "director_context_json"
             default:
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
@@ -180,8 +206,22 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
-        "select_room": "INSERT INTO current_room(singleton, room_id) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET room_id = excluded.room_id"
+        "select_room": "INSERT INTO current_room(singleton, room_id) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET room_id = excluded.room_id",
+        "update_director_state": """
+          UPDATE director_state
+          SET state_json = ?, last_human_event_sequence = ?,
+              last_speaker_id = CASE WHEN ? IS NULL THEN last_speaker_id ELSE ? END,
+              autonomous_turns = ?, scheduling_window_generation = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE room_id = ? AND EXISTS (
+            SELECT 1 FROM rooms WHERE id = director_state.room_id
+              AND generation = ? AND next_event_sequence = ?
+          )
+          """
     ]
+
+    private static let requiredSingleChangeStatements = Set([
+        "append_event", "update_director_state"
+    ])
 
     private func applicationDirectory() throws -> URL {
         let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -210,20 +250,20 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     private func migrate(_ database: OpaquePointer) throws {
         var current = try scalarInt("PRAGMA user_version", on: database)
-        guard current <= 2,
+        guard current <= 3,
               let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Migrations"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 2,
+              manifest["schema"] as? Int == 3,
               let migrations = manifest["migrations"] as? [[String: Any]],
-              migrations.count == 2 else {
+              migrations.count == 3 else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
         }
         for (index, migration) in migrations.enumerated() {
             let version = index + 1
             guard migration["version"] as? Int == version,
                   let file = migration["file"] as? String,
-                  file == (version == 1 ? "0001-iphone-alpha.sql" : "0002-ordered-events.sql"),
+                  file == ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql"][index],
                   let expected = migration["sha256"] as? String,
                   let migrationURL = Bundle.main.url(forResource: file.replacingOccurrences(of: ".sql", with: ""), withExtension: "sql", subdirectory: "Migrations"),
                   let migrationData = try? Data(contentsOf: migrationURL),
@@ -243,7 +283,7 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 2 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 3 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func execute(_ sql: String, on database: OpaquePointer) throws -> Void {

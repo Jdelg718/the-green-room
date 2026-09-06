@@ -38,6 +38,7 @@
     "ios:test": "npm run build --silent && node scripts/ios/run-ios-test.mjs",
     "ios:verify-bundle": "node scripts/ios/verify-bundle.mjs --source && node scripts/ios/verify-bundle.mjs --app .build/ios/Build/Products/Debug-iphonesimulator/App.app",
     "ios:simulator-offline": "node scripts/ios/run-simulator-offline.mjs",
+    "ios:simulator-director": "node scripts/ios/run-simulator-director.mjs",
     "ios:device-smoke": "node scripts/ios/device-smoke.mjs",
     "check:python": "uv run python -m unittest discover -s site/scripts -p 'test_*.py' -q && uv run pytest -q tests docs/programmable-character/test_verify_contract.py && uv run ruff format --check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run ruff check src tests docs/programmable-character/verify_contract.py docs/programmable-character/test_verify_contract.py pyproject.toml && uv run mypy",
     "check:all": "npm run check && npm run check:python",

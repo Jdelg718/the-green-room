@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "migrations": [
     {
       "version": 1,
@@ -10,6 +10,11 @@
       "version": 2,
       "file": "0002-ordered-events.sql",
       "sha256": "64583eb10f9771cd3344b37af2442965dd6a500eaee1543601d9a118b3a860d3"
+    },
+    {
+      "version": 3,
+      "file": "0003-shared-director-state.sql",
+      "sha256": "31919295f1fb72c8d3da0d7ec15d0e494db8412629c5f98c8c19351a877825b7"
     }
   ]
 }

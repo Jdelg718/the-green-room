@@ -40,15 +40,16 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const REVIEWED_WEB_SHA256 = new Map([
+  ["director.js", "d35ac08efc35c2666207f052eac9af9ca418d93a459f41897e4525d999a40db3"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
   ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
-  ["room-runtime.js", "3bc58cfe76a4fe9042d2a43ad2c7cce794435c35a4d4fb2c59a346b19476868e"],
+  ["room-runtime.js", "a61b2634547a75b8b6be3d423f5c8baa7097d43cde6e9bf53e3afca63851911e"],
   ["shell.css", "db40b8af8478a57034d9328b953b298fbc0b54cba768bdb1eb1d3e1a52c6c319"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
-  ["App/ContainedBridgeViewController.swift", "beac4a1027fc9b18e33bf1177c2be973268a18322019db7612ecb4bf0163b15f"],
-  ["App/GreenRoomDatabasePlugin.swift", "58102c8bedf915111585252d591abd4454eb207d1e3f6a9628920a13a0d41c4b"],
+  ["App/ContainedBridgeViewController.swift", "7106dcea2ebfdf4dbbb09746b692fc0e4252b7b96b511145c6ab7b29ccb6183f"],
+  ["App/GreenRoomDatabasePlugin.swift", "e5d1dc2fdba33d714d0403265b290aef159322d43cc7faecd175ce891c721168"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -165,7 +166,7 @@ function verifyWebAssets(root, relativeDirectory) {
   requireCondition(!/<script\b(?![^>]*\bsrc=)[^>]*>/iu.test(html), `${relativeDirectory} contains inline script`);
   requireCondition(!/<style\b|\bon[a-z]+\s*=|javascript:/iu.test(html), `${relativeDirectory} contains inline executable content`);
   requireCondition(!REMOTE_URL_PATTERN.test(html), `${relativeDirectory} contains a remote URL`);
-  for (const name of ["personas.js", "room-runtime.js", "shell.css"]) {
+  for (const name of ["director.js", "personas.js", "room-runtime.js", "shell.css"]) {
     const text = readText(join(directory, name), root);
     requireCondition(!REMOTE_URL_PATTERN.test(text), `${relativeDirectory}/${name} contains a remote URL`);
   }
@@ -203,6 +204,7 @@ export function verifySource(root = process.cwd()) {
     "capacitor.config.ts",
     "package.json",
     "ios-web/index.html",
+    "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
     "ios-web/shell.css",
@@ -213,6 +215,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/GreenRoomDatabasePlugin.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
+    "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",

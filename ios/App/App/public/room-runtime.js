@@ -1,11 +1,14 @@
 import { BUNDLED_PERSONAS } from "./personas.js";
+import { DIRECTOR_REASON, Director, TrustedEventAdapter } from "./director.js";
 
 const CONTRACT_VERSION = "iphone-native-bridge/1.0";
 const MAX_CAST = 3;
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
+const DIRECTOR_REASONS = new Set(Object.values(DIRECTOR_REASON));
 let activeRoom = null;
+let activeEvents = Object.freeze([]);
 
 function exactRecord(value, keys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
@@ -40,7 +43,7 @@ function parseRoom(value) {
   if (typeof encoded !== "string" || encoded.length > 64 * 1024) throw new Error("Invalid local room projection.");
   const room = JSON.parse(encoded);
   if (!exactRecord(room, ["generation", "id", "participants", "status", "title"]) ||
-      !ROOM_ID.test(room.id) || room.status !== "active" || room.generation !== 0 ||
+      !ROOM_ID.test(room.id) || room.status !== "active" || !Number.isSafeInteger(room.generation) || room.generation < 0 ||
       typeof room.title !== "string" || room.title.length < 1 || room.title.length > 128 ||
       !Array.isArray(room.participants) || room.participants.length < 2 || room.participants.length > 4) {
     throw new Error("Invalid local room projection.");
@@ -59,6 +62,31 @@ async function readCurrentRoom(plugin, uuid) {
   return parseRoom(await invoke(plugin, "database.query", { sqlId: "current_room", parameters: [] }, uuid));
 }
 
+function parseEvent(record, index) {
+  if (!exactRecord(record, ["event", "sequence"]) || record.sequence !== index + 1 || !Number.isSafeInteger(record.sequence)) {
+    throw new Error("Invalid local event projection.");
+  }
+  const event = record.event;
+  if (event?.type === "human_message") {
+    if (!exactRecord(event, ["participantId", "text", "type"]) || typeof event.participantId !== "string" ||
+        typeof event.text !== "string" || event.text.length < 1 || event.text.length > 16_384) {
+      throw new Error("Invalid local event projection.");
+    }
+    return record;
+  }
+  if (event?.type === "director_decision") {
+    if (!exactRecord(event, ["generation", "reason", "sourceEventSequence", "speaker", "type"]) ||
+        !Number.isSafeInteger(event.generation) || event.generation < 0 ||
+        !Number.isSafeInteger(event.sourceEventSequence) || event.sourceEventSequence < 1 ||
+        event.sourceEventSequence >= record.sequence || !DIRECTOR_REASONS.has(event.reason) ||
+        !(event.speaker === null || typeof event.speaker === "string")) {
+      throw new Error("Invalid local event projection.");
+    }
+    return record;
+  }
+  throw new Error("Invalid local event projection.");
+}
+
 async function readRoomEvents(plugin, roomId, uuid) {
   const value = await invoke(plugin, "database.query", { sqlId: "room_events", parameters: [roomId] }, uuid);
   if (!exactRecord(value, ["columns", "rows"]) || !Array.isArray(value.rows) || value.rows.length > 100) {
@@ -67,19 +95,48 @@ async function readRoomEvents(plugin, roomId, uuid) {
   return value.rows.map((row, index) => {
     const encoded = row?.[0];
     if (typeof encoded !== "string" || encoded.length > 20_000) throw new Error("Invalid local event projection.");
-    const record = JSON.parse(encoded);
-    if (!exactRecord(record, ["event", "sequence"]) || record.sequence !== index + 1 ||
-        !exactRecord(record.event, ["participantId", "text", "type"]) ||
-        record.event.type !== "human_message" || typeof record.event.participantId !== "string" ||
-        typeof record.event.text !== "string" || record.event.text.length < 1 || record.event.text.length > 16_384) {
-      throw new Error("Invalid local event projection.");
-    }
-    return record;
+    return parseEvent(JSON.parse(encoded), index);
   });
 }
 
+function parseDirectorContext(value, room) {
+  if (!exactRecord(value, ["columns", "rows"]) || !Array.isArray(value.rows) || value.rows.length !== 1) {
+    throw new Error("Invalid native director projection.");
+  }
+  const encoded = value.rows[0]?.[0];
+  if (typeof encoded !== "string" || encoded.length > 128 * 1024) throw new Error("Invalid native director projection.");
+  const context = JSON.parse(encoded);
+  if (!exactRecord(context, ["generation", "nextEventSequence", "personas", "roomId", "state"]) ||
+      context.roomId !== room.id || context.generation !== room.generation ||
+      !Number.isSafeInteger(context.generation) || context.generation < 0 ||
+      !Number.isSafeInteger(context.nextEventSequence) || context.nextEventSequence < 1 ||
+      !Array.isArray(context.personas) || context.personas.length < 1 || context.personas.length > MAX_CAST) {
+    throw new Error("Invalid native director projection.");
+  }
+  for (const [index, persona] of context.personas.entries()) {
+    if (!exactRecord(persona, ["displayName", "id", "muted", "personaSlug", "sortOrder"]) ||
+        typeof persona.id !== "string" || persona.id.length < 1 || persona.id.length > 256 ||
+        !CATALOG.has(persona.personaSlug) || typeof persona.displayName !== "string" ||
+        typeof persona.muted !== "boolean" || persona.sortOrder !== index + 1) {
+      throw new Error("Invalid native director projection.");
+    }
+  }
+  if (new Set(context.personas.map(({ id }) => id)).size !== context.personas.length ||
+      new Set(context.personas.map(({ personaSlug }) => personaSlug)).size !== context.personas.length) {
+    throw new Error("Invalid native director projection.");
+  }
+  return context;
+}
+
+async function readDirectorContext(plugin, room, uuid) {
+  return parseDirectorContext(
+    await invoke(plugin, "database.query", { sqlId: "director_context", parameters: [room.id] }, uuid),
+    room,
+  );
+}
+
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 2 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 3 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
   return Object.freeze({ events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
@@ -104,8 +161,7 @@ export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.
     { sqlId: "create_room", parameters: [roomId, castTitle(personas)] },
     { sqlId: "create_human", parameters: [humanId, roomId, "You"] },
     ...personas.map((persona, index) => ({
-      sqlId: "create_persona",
-      parameters: [persona.slug, roomId, persona.name, index + 1, persona.slug],
+      sqlId: "create_persona", parameters: [persona.slug, roomId, persona.name, index + 1, persona.slug],
     })),
     { sqlId: "create_director_state", parameters: [roomId] },
     { sqlId: "select_room", parameters: [roomId] },
@@ -116,46 +172,118 @@ export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.
   return Object.freeze({ events: Object.freeze([]), room, source: "created" });
 }
 
-export async function sendLocalMessage(plugin, room, text, uuid = () => crypto.randomUUID()) {
+export async function sendLocalMessage(
+  plugin,
+  room,
+  text,
+  uuid = () => crypto.randomUUID(),
+  options = {},
+) {
   if (typeof text !== "string" || text.trim().length === 0 || text.length > 16_384) {
     throw new TypeError("Message must be nonblank and at most 16,384 characters.");
   }
+  if (!exactRecord(options, Object.keys(options)) ||
+      Object.keys(options).some((key) => key !== "requestId" && key !== "wantsResponse") ||
+      (options.wantsResponse !== undefined && typeof options.wantsResponse !== "boolean")) {
+    throw new TypeError("Invalid message options.");
+  }
   const human = room?.participants?.find(({ kind }) => kind === "human");
   if (!human || !ROOM_ID.test(room.id)) throw new TypeError("A valid open room is required.");
-  const eventJson = JSON.stringify({ participantId: human.id, text, type: "human_message" });
-  await invoke(plugin, "database.executeBatch", {
-    transactionId: `message-${nextUuid(uuid)}`,
-    statements: [{ sqlId: "append_event", parameters: [eventJson, room.id] }],
+  const requestId = options.requestId ?? nextUuid(uuid);
+  if (!UUID.test(requestId)) throw new TypeError("requestId must be a UUID.");
+
+  const events = await readRoomEvents(plugin, room.id, uuid);
+  const context = await readDirectorContext(plugin, room, uuid);
+  if (context.nextEventSequence !== events.length + 1) throw new Error("Invalid native director sequence projection.");
+  const personaIds = context.personas.map(({ id }) => id);
+  const director = context.state === null
+    ? new Director(personaIds)
+    : Director.restore(personaIds, context.state);
+  for (const persona of context.personas) director.setMuted(persona.id, persona.muted);
+  const decision = director.schedule(
+    new TrustedEventAdapter(`iphone-room:${room.id}`).humanEvent(
+      requestId,
+      text,
+      options.wantsResponse ?? true,
+    ),
+  );
+  if (decision.reason === DIRECTOR_REASON.DUPLICATE) {
+    return Object.freeze({ decision, events: Object.freeze(events) });
+  }
+
+  const humanSequence = context.nextEventSequence;
+  const directorSequence = humanSequence + 1;
+  const humanEvent = { participantId: human.id, text, type: "human_message" };
+  const directorEvent = {
+    generation: context.generation,
+    reason: decision.reason,
+    sourceEventSequence: humanSequence,
+    speaker: decision.speaker,
+    type: "director_decision",
+  };
+  const snapshot = director.snapshot();
+  const result = await invoke(plugin, "database.executeBatch", {
+    transactionId: `message-${requestId}`,
+    statements: [
+      { sqlId: "update_director_state", parameters: [
+        JSON.stringify(snapshot), humanSequence, decision.speaker, decision.speaker,
+        snapshot.autonomousTurns, context.generation, room.id, context.generation, humanSequence,
+      ] },
+      { sqlId: "append_event", parameters: [JSON.stringify(humanEvent), room.id] },
+      { sqlId: "append_event", parameters: [JSON.stringify(directorEvent), room.id] },
+    ],
   }, uuid);
-  return Object.freeze(await readRoomEvents(plugin, room.id, uuid));
+  if (!exactRecord(result, ["changes"]) || !Number.isSafeInteger(result.changes) || result.changes < 3) {
+    throw new Error("Invalid native transaction result.");
+  }
+  const committed = Object.freeze([
+    ...events,
+    Object.freeze({ event: Object.freeze(humanEvent), sequence: humanSequence }),
+    Object.freeze({ event: Object.freeze(directorEvent), sequence: directorSequence }),
+  ]);
+  return Object.freeze({ decision, events: committed });
 }
 
 function monogram(name) {
   return name.split(/\s+/u).map((part) => part[0]).join("").slice(0, 3).toUpperCase();
 }
 
-function renderEvents(events) {
-  const transcript = document.getElementById("transcript");
+function directorReason(reason) {
+  return String(reason).replaceAll("_", " ");
+}
+
+export function renderEvents(events, documentRoot = document, room = activeRoom) {
+  const transcript = documentRoot.getElementById("transcript");
   transcript.replaceChildren(...events.map((record) => {
-    const item = document.createElement("li");
-    const sequence = document.createElement("span");
+    const item = documentRoot.createElement("li");
+    const sequence = documentRoot.createElement("span");
     sequence.className = "event-sequence";
     sequence.textContent = `#${String(record.sequence).padStart(3, "0")}`;
-    const copy = document.createElement("div");
-    const speaker = document.createElement("strong");
-    speaker.textContent = "You";
-    const text = document.createElement("p");
-    text.textContent = record.event.text;
+    const copy = documentRoot.createElement("div");
+    const speaker = documentRoot.createElement("strong");
+    const text = documentRoot.createElement("p");
+    if (record.event.type === "human_message") {
+      speaker.textContent = "You";
+      text.textContent = record.event.text;
+    } else if (record.event.speaker !== null) {
+      const participant = room?.participants?.find(({ id }) => id === record.event.speaker);
+      speaker.textContent = `Director → ${participant?.displayName ?? "Selected character"}`;
+      text.textContent = "Selected to speak. Response generation is not enabled yet.";
+    } else {
+      speaker.textContent = "Director";
+      text.textContent = `Silence: ${directorReason(record.event.reason)}.`;
+    }
     copy.append(speaker, text);
     item.append(sequence, copy);
     return item;
   }));
-  document.getElementById("empty-transcript").hidden = events.length > 0;
+  documentRoot.getElementById("empty-transcript").hidden = events.length > 0;
 }
 
 function renderRoom(opened) {
   const room = opened.room;
   activeRoom = room;
+  activeEvents = opened.events ?? Object.freeze([]);
   const cast = room.participants.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => CATALOG.get(personaSlug));
   document.getElementById("room-title").textContent = room.title;
   document.getElementById("room-state").textContent = opened.source === "created" ? "New local room created." : "Saved local room reopened.";
@@ -177,10 +305,11 @@ function renderRoom(opened) {
   }));
   document.getElementById("room-view").hidden = false;
   document.getElementById("picker-view").hidden = true;
-  renderEvents(opened.events ?? []);
+  renderEvents(activeEvents);
   document.documentElement.dataset.localRoomBoot = "open";
   document.documentElement.dataset.localRoomSource = opened.source;
   document.documentElement.dataset.localRoomCastCount = String(cast.length);
+  document.documentElement.dataset.localRoomEventCount = String(activeEvents.length);
 }
 
 function pickerController(plugin, currentRoom, uuid = () => crypto.randomUUID()) {
@@ -233,7 +362,7 @@ function pickerController(plugin, currentRoom, uuid = () => crypto.randomUUID())
     try { renderRoom(await createLocalRoom(plugin, [...selected], uuid)); }
     catch { document.getElementById("picker-status").textContent = "The local room could not be created."; refresh(); }
   });
-  cancel.addEventListener("click", () => renderRoom({ room: currentRoom, source: "reopened" }));
+  cancel.addEventListener("click", () => renderRoom({ events: activeEvents, room: currentRoom, source: "reopened" }));
   refresh();
 }
 
@@ -257,14 +386,17 @@ async function boot() {
       const status = document.getElementById("message-status");
       if (activeRoom === null) return;
       input.disabled = true;
-      status.textContent = "Committing your line…";
+      status.textContent = "Committing your line and director decision…";
       try {
-        const events = await sendLocalMessage(plugin, activeRoom, input.value);
+        const committed = await sendLocalMessage(plugin, activeRoom, input.value);
         input.value = "";
-        renderEvents(events);
-        status.textContent = "Saved locally. No AI response requested in this milestone.";
+        activeEvents = committed.events;
+        renderEvents(activeEvents);
+        status.textContent = committed.decision.speaker === null
+          ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
+          : "Saved locally. A character was selected; response generation is not enabled yet.";
       } catch {
-        status.textContent = "Your line was not committed.";
+        status.textContent = "Your line and director decision were not committed.";
       } finally {
         input.disabled = false;
         input.focus();

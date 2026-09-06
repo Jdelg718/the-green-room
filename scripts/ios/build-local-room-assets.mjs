@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { copyFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -21,4 +21,12 @@ const personas = catalog.personas.map((persona) => ({
 }));
 const source = `export const BUNDLED_PERSONAS = Object.freeze(${JSON.stringify(personas, null, 2)}.map(Object.freeze));\n`;
 writeFileSync(join(root, "ios-web/personas.js"), source);
-console.log(JSON.stringify({ status: "PASS", personas: personas.length, output: "ios-web/personas.js" }));
+copyFileSync(
+  join(root, "dist/packages/core/src/director.js"),
+  join(root, "ios-web/director.js"),
+);
+console.log(JSON.stringify({
+  status: "PASS",
+  personas: personas.length,
+  outputs: ["ios-web/personas.js", "ios-web/director.js"],
+}));
