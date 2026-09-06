@@ -59,7 +59,7 @@ function probeLockState(deviceIdentifier, name = "lock-state") {
 }
 
 async function waitForLockState(deviceIdentifier, expectedLocked, label) {
-  const deadline = Date.now() + 5 * 60 * 1_000;
+  const deadline = Date.now() + 10 * 60 * 1_000;
   while (Date.now() < deadline) {
     try {
       if (probeLockState(deviceIdentifier, "lock-state-wait") === expectedLocked) return;

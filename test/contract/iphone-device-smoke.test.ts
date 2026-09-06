@@ -19,11 +19,13 @@ const candidate = (identifier: string): Device => ({
 });
 const noDelay = async (): Promise<void> => {};
 
-test("lock-state parsing accepts supported nested variants and fails closed on ambiguity", () => {
+test("lock-state parsing accepts Xcode 26.6 and nested variants and fails closed on ambiguity", () => {
   assert.equal(logic.readLockState({ result: { lockState: "locked" } }), true);
   assert.equal(logic.readLockState({ result: { device: { isLocked: false } } }), false);
   assert.equal(logic.readLockState({ lock_state: "UN_LOCKED" }), false);
-  assert.equal(logic.readLockState({ passcodeRequired: true }), undefined);
+  assert.equal(logic.readLockState({ result: { passcodeRequired: true, unlockedSinceBoot: true } }), true);
+  assert.equal(logic.readLockState({ result: { passcodeRequired: false, unlockedSinceBoot: true } }), false);
+  assert.equal(logic.readLockState({ passcodeRequired: true, isLocked: false }), undefined);
   assert.equal(logic.readLockState({ isLocked: true, nested: { lockState: "unlocked" } }), undefined);
   assert.equal(logic.readLockState({ lockState: "unknown" }), undefined);
 });

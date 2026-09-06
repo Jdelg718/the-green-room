@@ -14,7 +14,7 @@ export function readLockState(value) {
   const visit = (node) => {
     if (!node || typeof node !== "object") return;
     for (const [key, child] of Object.entries(node)) {
-      if (key === "isLocked" && typeof child === "boolean") observed.add(child);
+      if ((key === "isLocked" || key === "passcodeRequired") && typeof child === "boolean") observed.add(child);
       if (key.replace(/[\s_-]/gu, "").toLowerCase() === "lockstate" && typeof child === "string") {
         const normalized = child.replace(/[\s_-]/gu, "").toLowerCase();
         if (normalized === "locked") observed.add(true);

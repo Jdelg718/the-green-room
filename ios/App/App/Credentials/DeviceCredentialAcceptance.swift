@@ -67,7 +67,7 @@ final class DeviceCredentialAcceptance {
                 Task { @MainActor in self?.finishBackgroundTask(application: application) }
             }
         }
-        observeLockedDenial(application: application, attemptsRemaining: 50)
+        observeLockedDenial(application: application, attemptsRemaining: 250)
     }
 
     func protectedDataDidBecomeAvailable(application: UIApplication) {
