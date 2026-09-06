@@ -57,7 +57,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/ContainedBridgeViewController.swift", "ea017915fee83bee84430895cbd6de30154452c56169f4b88e5a1042eb3f9bdd"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
-  ["App/Credentials/DeviceCredentialAcceptance.swift", "e35c6feb53d55ebb4cf70cfec8fb11443bbf3e3780a0365e746db1ff1cd4d67f"],
+  ["App/Credentials/DeviceCredentialAcceptance.swift", "10721b8097feb5b5493e58af48a83cc13ee9888b48afcb87c3513fa822e37032"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "61067242a8da6ad5a07a21fa79e9c512aceb8b6f4815e4a1524aa6dc4015c39c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
