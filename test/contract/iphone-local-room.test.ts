@@ -27,7 +27,8 @@ function uuids(): () => string {
 
 async function runtime(): Promise<{
   createLocalRoom(plugin: object, slugs: string[], uuid?: () => string): Promise<{ room: Record<string, any>; source: string }>;
-  openLocalRoom(plugin: object, uuid?: () => string): Promise<{ room: Record<string, any> | null; source: string }>;
+  openLocalRoom(plugin: object, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any> | null; source: string }>;
+  sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string): Promise<any[]>;
 }> {
   return import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as never;
 }
@@ -36,6 +37,7 @@ test("iPhone local-room milestone has a native migration and bundled runtime", (
   for (const path of [
     "ios/App/App/GreenRoomDatabasePlugin.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
+    "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
@@ -47,13 +49,19 @@ test("iPhone local-room milestone has a native migration and bundled runtime", (
     assert.match(migration, new RegExp(`CREATE TABLE ${table}`, "u"));
   }
   assert.doesNotMatch(migration, /INSERT INTO rooms/u);
+  const secondMigration = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0002-ordered-events.sql"), "utf8");
+  assert.match(secondMigration, /CREATE TRIGGER room_event_advances_sequence/u);
   const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
   assert.deepEqual(manifest, {
-    schema: 1,
+    schema: 2,
     migrations: [{
       version: 1,
       file: "0001-iphone-alpha.sql",
       sha256: createHash("sha256").update(migration).digest("hex"),
+    }, {
+      version: 2,
+      file: "0002-ordered-events.sql",
+      sha256: createHash("sha256").update(secondMigration).digest("hex"),
     }],
   });
 });
@@ -92,6 +100,9 @@ test("the picker upgrade reopens the stable room created by the prior milestone"
   const plugin = {
     async open(call: NativeEnvelope) { return success(call, { schema: 1 }); },
     async query(call: NativeEnvelope) {
+      if ((call.payload as { sqlId?: string }).sqlId === "room_events") {
+        return success(call, { columns: ["event_record_json"], rows: [] });
+      }
       return success(call, { columns: ["room_json"], rows: [[JSON.stringify(legacyRoom)]] });
     },
   };
@@ -101,9 +112,10 @@ test("the picker upgrade reopens the stable room created by the prior milestone"
 });
 
 test("one-to-three selected bundled characters create a new authoritative room and reopen", async () => {
-  const { createLocalRoom, openLocalRoom } = await runtime();
+  const { createLocalRoom, openLocalRoom, sendLocalMessage } = await runtime();
   const calls: NativeEnvelope[] = [];
   let room: Record<string, unknown> | undefined;
+  const events: Array<{ event: Record<string, unknown>; sequence: number }> = [];
   const plugin = {
     async open(call: NativeEnvelope) {
       calls.push(call);
@@ -112,6 +124,10 @@ test("one-to-three selected bundled characters create a new authoritative room a
     async executeBatch(call: NativeEnvelope) {
       calls.push(call);
       const statements = call.payload.statements as Array<{ sqlId: string; parameters: any[] }>;
+      if (statements.length === 1 && statements[0]?.sqlId === "append_event") {
+        events.push({ event: JSON.parse(statements[0].parameters[0]), sequence: events.length + 1 });
+        return success(call, { changes: 1 });
+      }
       const roomStatement = statements.find(({ sqlId }) => sqlId === "create_room")!;
       const human = statements.find(({ sqlId }) => sqlId === "create_human")!;
       const personas = statements.filter(({ sqlId }) => sqlId === "create_persona");
@@ -132,6 +148,9 @@ test("one-to-three selected bundled characters create a new authoritative room a
     },
     async query(call: NativeEnvelope) {
       calls.push(call);
+      if ((call.payload as { sqlId?: string }).sqlId === "room_events") {
+        return success(call, { columns: ["event_record_json"], rows: events.map((event) => [JSON.stringify(event)]) });
+      }
       return success(call, { columns: ["room_json"], rows: room === undefined ? [] : [[JSON.stringify(room)]] });
     },
   };
@@ -150,9 +169,16 @@ test("one-to-three selected bundled characters create a new authoritative room a
   assert.equal(calls.filter(({ method }) => method === "database.executeBatch").length, 1);
   assert.equal((calls.find(({ method }) => method === "database.executeBatch")!.payload.statements as unknown[]).length, 7);
 
+  const localEvents = await sendLocalMessage(plugin, created.room, "Hello from the iPhone.", uuids());
+  assert.deepEqual(localEvents, [{
+    sequence: 1,
+    event: { participantId: created.room.participants[0].id, text: "Hello from the iPhone.", type: "human_message" },
+  }]);
+
   const reopened = await openLocalRoom(plugin, uuids());
   assert.equal(reopened.source, "reopened");
   assert.deepEqual(reopened.room, created.room);
+  assert.deepEqual(reopened.events, localEvents);
   assert.ok(calls.every(({ contractVersion }) => contractVersion === "iphone-native-bridge/1.0"));
 });
 

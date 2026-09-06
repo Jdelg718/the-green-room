@@ -19,7 +19,7 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try lock.withLock {
-            guard expectedSchema == 1 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 2 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -113,39 +113,56 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func query(sqlId: String, parameters: [Any]) throws -> [String: Any] {
         try lock.withLock {
-            guard parameters.count <= 64, let database, sqlId == "current_room" else {
+            guard parameters.count <= 64, let database else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            let sql = """
-            SELECT json_object(
-              'id', room.id,
-              'title', room.title,
-              'status', room.status,
-              'generation', room.generation,
-              'participants', json((
-                SELECT json_group_array(json_object(
-                  'id', participant.id,
-                  'kind', participant.kind,
-                  'displayName', participant.display_name,
-                  'muted', json(CASE participant.muted WHEN 1 THEN 'true' ELSE 'false' END),
-                  'sortOrder', participant.sort_order,
-                  'personaSlug', participant.persona_slug
-                ))
-                FROM (SELECT * FROM participants WHERE room_id = room.id ORDER BY sort_order) AS participant
-              ))
-            ) AS room_json
-            FROM current_room current
-            JOIN rooms room ON room.id = current.room_id
-            WHERE current.singleton = 1
-            """
+            let sql: String
+            let column: String
+            switch sqlId {
+            case "current_room":
+                sql = """
+                SELECT json_object(
+                  'id', room.id,
+                  'title', room.title,
+                  'status', room.status,
+                  'generation', room.generation,
+                  'participants', json((
+                    SELECT json_group_array(json_object(
+                      'id', participant.id,
+                      'kind', participant.kind,
+                      'displayName', participant.display_name,
+                      'muted', json(CASE participant.muted WHEN 1 THEN 'true' ELSE 'false' END),
+                      'sortOrder', participant.sort_order,
+                      'personaSlug', participant.persona_slug
+                    ))
+                    FROM (SELECT * FROM participants WHERE room_id = room.id ORDER BY sort_order) AS participant
+                  ))
+                ) AS room_json
+                FROM current_room current
+                JOIN rooms room ON room.id = current.room_id
+                WHERE current.singleton = 1
+                """
+                column = "room_json"
+            case "room_events":
+                sql = """
+                SELECT json_object('sequence', sequence, 'event', json(event_json)) AS event_record_json
+                FROM events WHERE room_id = ? ORDER BY sequence LIMIT 100
+                """
+                column = "event_record_json"
+            default:
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
             let prepared = try prepare(sql, on: database)
             defer { sqlite3_finalize(prepared) }
+            guard sqlite3_bind_parameter_count(prepared) == parameters.count else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
             try bind(parameters, to: prepared)
             var rows: [[Any]] = []
             while true {
                 let step = sqlite3_step(prepared)
                 if step == SQLITE_DONE { break }
-                guard step == SQLITE_ROW, rows.count < 500 else {
+                guard step == SQLITE_ROW, rows.count < 100 else {
                     throw DatabaseFailure(code: "result_too_large", retryable: false)
                 }
                 guard let value = sqlite3_column_text(prepared, 0) else {
@@ -153,11 +170,12 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                 }
                 rows.append([String(cString: value)])
             }
-            return ["columns": ["room_json"], "rows": rows]
+            return ["columns": [column], "rows": rows]
         }
     }
 
     private static let statements = [
+        "append_event": "INSERT INTO events(room_id, sequence, event_json) SELECT id, next_event_sequence, ? FROM rooms WHERE id = ?",
         "create_room": "INSERT INTO rooms(id, title, status) VALUES (?, ?, 'active')",
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
@@ -191,32 +209,41 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 
     private func migrate(_ database: OpaquePointer) throws {
-        let current = try scalarInt("PRAGMA user_version", on: database)
-        guard current <= 1 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
-        if current == 1 { return }
-        guard let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Migrations"),
-              let migrationURL = Bundle.main.url(forResource: "0001-iphone-alpha", withExtension: "sql", subdirectory: "Migrations"),
+        var current = try scalarInt("PRAGMA user_version", on: database)
+        guard current <= 2,
+              let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Migrations"),
               let manifestData = try? Data(contentsOf: manifestURL),
-              let migrationData = try? Data(contentsOf: migrationURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 1,
-              let migrations = manifest["migrations"] as? [[String: Any]], migrations.count == 1,
-              migrations[0]["version"] as? Int == 1,
-              migrations[0]["file"] as? String == "0001-iphone-alpha.sql",
-              let expected = migrations[0]["sha256"] as? String,
-              expected == SHA256.hash(data: migrationData).map({ String(format: "%02x", $0) }).joined(),
-              let sql = String(data: migrationData, encoding: .utf8) else {
+              manifest["schema"] as? Int == 2,
+              let migrations = manifest["migrations"] as? [[String: Any]],
+              migrations.count == 2 else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
         }
-        try execute("BEGIN IMMEDIATE", on: database)
-        do {
-            try execute(sql, on: database)
-            try execute("PRAGMA user_version = 1", on: database)
-            try execute("COMMIT", on: database)
-        } catch {
-            _ = try? execute("ROLLBACK", on: database)
-            throw DatabaseFailure(code: "migration_rejected", retryable: false)
+        for (index, migration) in migrations.enumerated() {
+            let version = index + 1
+            guard migration["version"] as? Int == version,
+                  let file = migration["file"] as? String,
+                  file == (version == 1 ? "0001-iphone-alpha.sql" : "0002-ordered-events.sql"),
+                  let expected = migration["sha256"] as? String,
+                  let migrationURL = Bundle.main.url(forResource: file.replacingOccurrences(of: ".sql", with: ""), withExtension: "sql", subdirectory: "Migrations"),
+                  let migrationData = try? Data(contentsOf: migrationURL),
+                  expected == SHA256.hash(data: migrationData).map({ String(format: "%02x", $0) }).joined(),
+                  let sql = String(data: migrationData, encoding: .utf8) else {
+                throw DatabaseFailure(code: "migration_rejected", retryable: false)
+            }
+            if version <= current { continue }
+            try execute("BEGIN IMMEDIATE", on: database)
+            do {
+                try execute(sql, on: database)
+                try execute("PRAGMA user_version = \(version)", on: database)
+                try execute("COMMIT", on: database)
+                current = version
+            } catch {
+                _ = try? execute("ROLLBACK", on: database)
+                throw DatabaseFailure(code: "migration_rejected", retryable: false)
+            }
         }
+        guard current == 2 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func execute(_ sql: String, on database: OpaquePointer) throws -> Void {

@@ -1,10 +1,15 @@
 {
-  "schema": 1,
+  "schema": 2,
   "migrations": [
     {
       "version": 1,
       "file": "0001-iphone-alpha.sql",
       "sha256": "474b538898ae28b35c19daf9360f4ce55b42a25d5b7192b95c9305630e4881fe"
+    },
+    {
+      "version": 2,
+      "file": "0002-ordered-events.sql",
+      "sha256": "64583eb10f9771cd3344b37af2442965dd6a500eaee1543601d9a118b3a860d3"
     }
   ]
 }

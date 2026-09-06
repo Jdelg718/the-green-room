@@ -25,6 +25,17 @@
       <p id="room-state" class="lede" role="status" aria-live="polite">Opening saved room…</p>
       <div class="section-heading"><p>Call board</p><h2>On deck</h2></div>
       <ul id="room-cast" class="room-cast" aria-label="Selected characters"></ul>
+      <section class="transcript-panel" aria-labelledby="transcript-title">
+        <div class="section-heading"><p>Ordered events</p><h2 id="transcript-title">Transcript</h2></div>
+        <p id="empty-transcript" class="empty-transcript">The room is quiet. Set the first cue.</p>
+        <ol id="transcript" class="transcript" aria-live="polite"></ol>
+      </section>
+      <form id="message-form" class="composer">
+        <label for="message-text">Your line</label>
+        <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
+        <button class="button" type="submit">Save your line</button>
+        <p id="message-status" class="message-status" role="status" aria-live="polite">Human lines save locally. AI replies are not enabled yet.</p>
+      </form>
       <div class="room-actions">
         <button id="new-room" class="button" type="button">Create another room</button>
       </div>

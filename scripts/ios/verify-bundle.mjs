@@ -40,15 +40,15 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const REVIEWED_WEB_SHA256 = new Map([
-  ["index.html", "6eb38412a10f5113e28d7ec4322c4dccbe255c941d0867586fda871d7225ec2c"],
+  ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
   ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
-  ["room-runtime.js", "ba5e8e109f0dc5746df85f6f09ee035e5ce119e552cc35345eb1ae42b66f9a8f"],
-  ["shell.css", "71c7a03f0a2b6fc2bd4157d5f8f4c9836638ff3bf6ad04ad707341d5cd6d7a52"],
+  ["room-runtime.js", "3bc58cfe76a4fe9042d2a43ad2c7cce794435c35a4d4fb2c59a346b19476868e"],
+  ["shell.css", "db40b8af8478a57034d9328b953b298fbc0b54cba768bdb1eb1d3e1a52c6c319"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
   ["App/ContainedBridgeViewController.swift", "beac4a1027fc9b18e33bf1177c2be973268a18322019db7612ecb4bf0163b15f"],
-  ["App/GreenRoomDatabasePlugin.swift", "4634fcdcc76eded5231a24a5d8b4cc74961335253660671cff98b5e85be5cfea"],
+  ["App/GreenRoomDatabasePlugin.swift", "58102c8bedf915111585252d591abd4454eb207d1e3f6a9628920a13a0d41c4b"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -212,6 +212,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/ContainedBridgeViewController.swift",
     "ios/App/App/GreenRoomDatabasePlugin.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
+    "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",

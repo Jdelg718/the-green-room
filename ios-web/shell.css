@@ -68,6 +68,18 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .room-cast strong, .room-cast span { display: block; }
 .room-cast strong { font: 1.35rem/1 var(--display); text-transform: uppercase; }
 .room-cast div > span { margin-top: .35rem; font-size: .78rem; }
+.transcript { margin: 0; padding: 0; border-top: var(--rule); list-style: none; }
+.transcript li { display: grid; grid-template-columns: 3rem 1fr; gap: .75rem; padding: 1rem .25rem; border-bottom: 2px solid var(--ink); }
+.event-sequence { font: 800 .68rem/1 var(--mono); }
+.transcript strong { font: 1.2rem/1 var(--display); text-transform: uppercase; }
+.transcript p { margin: .35rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.empty-transcript { padding: 1rem; border: var(--rule); background: var(--white); font-weight: 700; }
+.composer { display: grid; gap: .7rem; margin-top: 1.4rem; padding: 1rem; border: var(--rule); background: var(--acid); box-shadow: var(--shadow); }
+.composer label { font: 800 .7rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.composer textarea { width: 100%; min-height: 6rem; resize: vertical; padding: .8rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.4 var(--sans); }
+.composer textarea:focus { outline: 4px solid var(--blue); outline-offset: 2px; }
+.composer .button { justify-self: start; box-shadow: 5px 5px 0 var(--paper); }
+.message-status { min-height: 1.25rem; margin: .25rem 0 0; font: 700 .68rem/1.4 var(--mono); }
 .room-actions { margin-top: 1.25rem; }
 .button { min-height: 3rem; padding: .8rem 1rem; border: var(--rule); border-radius: 0; background: var(--ink); color: var(--paper); box-shadow: 5px 5px 0 var(--acid); font: 800 .72rem/1 var(--mono); text-transform: uppercase; }
 .button:disabled { opacity: .45; box-shadow: none; }
