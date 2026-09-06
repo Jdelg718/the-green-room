@@ -40,7 +40,7 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const REVIEWED_WEB_SHA256 = new Map([
-  ["director.js", "281aed2c35b9a9d7d8dc90e820098ea8182e17747ffbbda9cb435248017edf47"],
+  ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
   ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
   ["room-runtime.js", "7228795405783fd9b1920e64b3567602b9d74fa23494319a959a2a5752a6935c"],

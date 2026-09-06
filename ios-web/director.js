@@ -216,12 +216,23 @@ export class Director {
             (this.#autonomousTurns === 0) !== (this.#lastSelectedAt.size === 0)) {
             throw new TypeError("snapshot selection history is inconsistent");
         }
-        if (this.#autonomousTurns > 0) {
+        if (this.#autonomousTurns === 0) {
+            if (this.#fallbackIndex !== 0) {
+                throw new TypeError("snapshot fallbackIndex is inconsistent with selection history");
+            }
+        }
+        else {
             const latestSelection = [...this.#lastSelectedAt.entries()].reduce((latest, entry) => entry[1] > latest[1] ? entry : latest);
+            if (latestSelection[1] < this.#autonomousTurns) {
+                throw new TypeError("snapshot selection history is inconsistent");
+            }
             const expectedFallback = (this.#personas.indexOf(latestSelection[0]) + 1) % this.#personas.length;
             if (this.#fallbackIndex !== expectedFallback) {
                 throw new TypeError("snapshot fallbackIndex is inconsistent with selection history");
             }
+        }
+        if (snapshot.seen.length < Math.min(this.#acceptedHumanEventNumber, DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES)) {
+            throw new TypeError("snapshot seen history is inconsistent");
         }
         for (const entry of snapshot.seen) {
             if (!Array.isArray(entry) || entry.length !== 2)
