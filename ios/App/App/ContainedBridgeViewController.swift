@@ -11,6 +11,7 @@ final class ContainedBridgeViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
+        bridge?.registerPluginInstance(GreenRoomDatabasePlugin())
         guard let webView, let capacitorDelegate = webView.navigationDelegate as? WebViewDelegationHandler else {
             preconditionFailure("Capacitor WebView delegate was not installed")
         }
@@ -82,18 +83,39 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
         Task { @MainActor [weak webView] in
             guard let webView,
                   webView.url?.scheme == localOrigin?.scheme,
-                  webView.url?.host == localOrigin?.host,
-                  let marker = try? await webView.evaluateJavaScript("document.documentElement.dataset.shellBoot"),
-                  marker as? String == "contained",
-                  ProcessInfo.processInfo.environment["GREENROOM_NETWORK_AUDIT_LOADED"] == "true",
-                  ProcessInfo.processInfo.environment["GREENROOM_NETWORK_ATTEMPT"] == nil else {
+                  webView.url?.host == localOrigin?.host else {
                 return
             }
-            let evidence = Data("{\"interposerLoaded\":true,\"networkPolicy\":\"denied\",\"origin\":\"capacitor://localhost\",\"status\":\"ready\"}\n".utf8)
-            try? evidence.write(
-                to: FileManager.default.temporaryDirectory.appendingPathComponent("contained-shell-evidence.json"),
-                options: .atomic
-            )
+            for _ in 0..<50 {
+                let marker = try? await webView.evaluateJavaScript(
+                    "JSON.stringify({boot:document.documentElement.dataset.localRoomBoot||'',source:document.documentElement.dataset.localRoomSource||''})"
+                )
+                if let marker = marker as? String,
+                   let data = marker.data(using: .utf8),
+                   let state = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                   state["boot"] == "open",
+                   let source = state["source"],
+                   source == "created" || source == "reopened" {
+                    let environment = ProcessInfo.processInfo.environment
+                    let networkAudit = environment["GREENROOM_NETWORK_AUDIT_LOADED"] == "true" && environment["GREENROOM_NETWORK_ATTEMPT"] == nil
+                    let deviceAcceptance = environment["GREENROOM_DEVICE_ACCEPTANCE"] == "true"
+                    guard networkAudit || deviceAcceptance else { return }
+                    let evidence: [String: Any] = [
+                        "networkPolicy": networkAudit ? "denied" : "not-measured",
+                        "origin": "capacitor://localhost",
+                        "roomSource": source,
+                        "status": "room-open"
+                    ]
+                    if let encoded = try? JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]) {
+                        try? encoded.write(
+                            to: FileManager.default.temporaryDirectory.appendingPathComponent("local-room-evidence.json"),
+                            options: .atomic
+                        )
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
         }
     }
 

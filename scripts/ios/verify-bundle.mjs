@@ -40,13 +40,15 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const REVIEWED_WEB_SHA256 = new Map([
-  ["index.html", "06075660bbfe6bce12acb462199e7ccecd60bb805f9b6918d020bcbffadffb58"],
-  ["shell.css", "3c3b7fb96d32110d2d7dce627bc22c12fd87c246142481ec0afa91d5824f9638"],
-  ["shell.js", "f3a6b226e9f36f9f299b171cc743f96ecc3d5a798c1eab44866efb58f0940898"],
+  ["index.html", "0638870ac7a109dc092c38953fe3c3ed46129cd899ac94ddc1c30020f6b1554f"],
+  ["personas.js", "5fb5ae2239b30d69f1d498477d695afd052b0e399ce8d59c4f28e038c7368559"],
+  ["room-runtime.js", "06f25b02e8f4901fc73f9cd0124ca44029610a3980e4b8602d63f06000d55902"],
+  ["shell.css", "f8508d2427fda020248ece9c5eb3aa057c9a738e2a240186a6392d56dd8c527d"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
-  ["App/ContainedBridgeViewController.swift", "81a6f4daca218c3530d6b82bd87b6d73a4ce3a2b6b21607a3df870cc101a0243"],
+  ["App/ContainedBridgeViewController.swift", "30de84880bb57db04f00541c8bfe289ba18d8951d585f8a1154c7fbc159c0b33"],
+  ["App/GreenRoomDatabasePlugin.swift", "4e7dc2c9dffdcc4593fb19c273cfe86a841de15adebeac47b82e16744c1db58c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -154,7 +156,7 @@ function verifyWebAssets(root, relativeDirectory) {
   const directory = join(root, relativeDirectory);
   const entries = walkNoFollow(directory, { maxEntries: 32 });
   const files = entries.filter(({ stats }) => stats.isFile()).map(({ relativePath }) => relativePath).sort();
-  requireCondition(JSON.stringify(files) === JSON.stringify(["index.html", "shell.css", "shell.js"]), `${relativeDirectory} inventory must be exactly index.html, shell.css, shell.js`);
+  requireCondition(JSON.stringify(files) === JSON.stringify([...REVIEWED_WEB_SHA256.keys()].sort()), `${relativeDirectory} inventory must match the reviewed local-room assets`);
   for (const [name, expected] of REVIEWED_WEB_SHA256) {
     requireReviewedBytes(join(directory, name), root, expected, `${relativeDirectory}/${name}`);
   }
@@ -163,11 +165,11 @@ function verifyWebAssets(root, relativeDirectory) {
   requireCondition(!/<script\b(?![^>]*\bsrc=)[^>]*>/iu.test(html), `${relativeDirectory} contains inline script`);
   requireCondition(!/<style\b|\bon[a-z]+\s*=|javascript:/iu.test(html), `${relativeDirectory} contains inline executable content`);
   requireCondition(!REMOTE_URL_PATTERN.test(html), `${relativeDirectory} contains a remote URL`);
-  for (const name of ["shell.css", "shell.js"]) {
+  for (const name of ["personas.js", "room-runtime.js", "shell.css"]) {
     const text = readText(join(directory, name), root);
     requireCondition(!REMOTE_URL_PATTERN.test(text), `${relativeDirectory}/${name} contains a remote URL`);
   }
-  requireCondition(/Bundled shell ready — no server required\./u.test(readText(join(directory, "shell.js"), root)), `${relativeDirectory} lacks deterministic contained-boot evidence`);
+  requireCondition(/dataset\.localRoomBoot = "open"/u.test(readText(join(directory, "room-runtime.js"), root)), `${relativeDirectory} lacks deterministic local-room boot evidence`);
 }
 
 function verifyPrivacyManifest(path, root) {
@@ -201,12 +203,16 @@ export function verifySource(root = process.cwd()) {
     "capacitor.config.ts",
     "package.json",
     "ios-web/index.html",
+    "ios-web/personas.js",
+    "ios-web/room-runtime.js",
     "ios-web/shell.css",
-    "ios-web/shell.js",
     "ios/App/App.xcodeproj/project.pbxproj",
     "ios/App/App/AppDelegate.swift",
     "ios/App/App/SceneDelegate.swift",
     "ios/App/App/ContainedBridgeViewController.swift",
+    "ios/App/App/GreenRoomDatabasePlugin.swift",
+    "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
+    "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios/App/App/capacitor.config.json",
@@ -267,10 +273,10 @@ export function verifySource(root = process.cwd()) {
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
   requireCondition((project.match(/isa = XCLocalSwiftPackageReference;/gu) ?? []).length === 1 && /relativePath = "CapApp-SPM";/u.test(project), "Xcode project must reference only the local Capacitor package adapter");
-  requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project), "containment source or privacy manifest is not in the target");
+  requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /GreenRoomDatabasePlugin\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project) && /Migrations in Resources/u.test(project), "local-room native source or resources are not in the target");
   const sourcesPhase = project.match(/\/\* Begin PBXSourcesBuildPhase section \*\/[\s\S]*?\/\* End PBXSourcesBuildPhase section \*\//u)?.[0] ?? "";
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "SceneDelegate.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift"]), "declared Swift Sources build phase inventory is not exact");
 
   const swiftPackage = readText(join(sourceRoot, "ios/App/CapApp-SPM/Package.swift"), sourceRoot);
   requireCondition(/platforms: \[\.iOS\("18\.6"\)\],/u.test(swiftPackage), "native package platform must be exactly iOS 18.6");

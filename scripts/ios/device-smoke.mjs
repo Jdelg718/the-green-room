@@ -42,6 +42,30 @@ function findProcessIdentifier(value) {
   return undefined;
 }
 
+function readDeviceEvidence(deviceIdentifier, name, expectedSource) {
+  const destination = join(work, `${name}-evidence.json`);
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    rmSync(destination, { force: true });
+    const copy = spawnSync("/usr/bin/xcrun", [
+      "devicectl", "device", "copy", "from",
+      "--device", deviceIdentifier,
+      "--source", "tmp/local-room-evidence.json",
+      "--destination", destination,
+      "--domain-type", "appDataContainer",
+      "--domain-identifier", BUNDLE_ID,
+      "--quiet",
+    ], { encoding: "utf8", env: process.env });
+    if (copy.status === 0) {
+      try {
+        const evidence = JSON.parse(readFileSync(destination, "utf8"));
+        if (expectedSource === undefined || evidence.roomSource === expectedSource) return evidence;
+      } catch {}
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  throw new Error("physical iPhone did not produce the expected local-room UI evidence");
+}
+
 try {
   if (process.platform !== "darwin") throw new Error("physical iPhone smoke requires Darwin/Xcode");
   const listing = devicectlJson(["list", "devices"], "devices");
@@ -74,9 +98,20 @@ try {
   if (devices.length > 1) throw new Error("signed bundle verified, but multiple paired available iPhones were found; leave exactly one connected, then rerun npm run ios:device-smoke");
   const deviceIdentifier = devices[0].identifier;
   devicectlJson(["device", "install", "app", "--device", deviceIdentifier, APP], "install");
-  const launch = devicectlJson(["device", "process", "launch", "--device", deviceIdentifier, "--terminate-existing", BUNDLE_ID], "launch");
+  const launch = devicectlJson(["device", "process", "launch", "--device", deviceIdentifier, "--terminate-existing", "--environment-variables", '{"GREENROOM_DEVICE_ACCEPTANCE":"true"}', BUNDLE_ID], "launch");
   const processIdentifier = findProcessIdentifier(launch.result);
   if (!processIdentifier) throw new Error("physical launch succeeded without verifiable process evidence");
+  const firstEvidence = readDeviceEvidence(deviceIdentifier, "first-launch");
+  if (firstEvidence.status !== "room-open" || !["created", "reopened"].includes(firstEvidence.roomSource)) {
+    throw new Error("physical iPhone did not open the local room on first launch");
+  }
+  devicectlJson(["device", "process", "terminate", "--device", deviceIdentifier, "--pid", String(processIdentifier), "--kill"], "force-terminate");
+  const relaunch = devicectlJson(["device", "process", "launch", "--device", deviceIdentifier, "--environment-variables", '{"GREENROOM_DEVICE_ACCEPTANCE":"true"}', BUNDLE_ID], "relaunch");
+  if (!findProcessIdentifier(relaunch.result)) throw new Error("physical relaunch succeeded without verifiable process evidence");
+  const secondEvidence = readDeviceEvidence(deviceIdentifier, "second-launch", "reopened");
+  if (secondEvidence.status !== "room-open" || secondEvidence.roomSource !== "reopened") {
+    throw new Error("physical iPhone did not reopen the persisted local room after force termination");
+  }
 
   console.log(JSON.stringify({
     status: "PASS",
@@ -89,7 +124,9 @@ try {
       installed: true,
       launched: true,
       processConfirmed: true,
-      bundledContainedShell: true,
+      bundledLocalRoom: true,
+      forceTerminated: true,
+      persistence: secondEvidence.roomSource,
       remainsInstalled: true,
     },
     signing: verified.signing,

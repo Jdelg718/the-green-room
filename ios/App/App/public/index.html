@@ -4,16 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'none'; media-src 'none'; object-src 'none'; connect-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'">
-  <title>Green Room Shell</title>
+  <title>The Green Room</title>
   <link rel="stylesheet" href="shell.css">
-  <script src="shell.js" defer></script>
+  <script type="module" src="room-runtime.js"></script>
 </head>
 <body>
-  <main aria-labelledby="shell-title">
-    <p class="eyebrow">Contained iPhone shell</p>
-    <h1 id="shell-title">Green Room</h1>
-    <p id="boot-state" role="status">Loading bundled shell…</p>
-    <p class="scope">Phase 0 infrastructure only — no product interface.</p>
+  <header class="masthead">
+    <p class="eyebrow">Standalone iPhone room</p>
+    <p class="brand">GR<span aria-hidden="true">//</span></p>
+  </header>
+  <main aria-labelledby="room-title">
+    <section class="stage-card">
+      <p class="kicker">Room 01 · local authority</p>
+      <h1 id="room-title">Opening your Green Room…</h1>
+      <p id="room-state" role="status" aria-live="polite">Opening app-private room storage…</p>
+      <div class="rule" aria-hidden="true"></div>
+      <p class="label">On deck</p>
+      <article class="character-card" aria-labelledby="character-name">
+        <span class="monogram" aria-hidden="true">AL</span>
+        <div>
+          <h2 id="character-name">Bundled character</h2>
+          <p id="character-summary">Loading the signed character bundle…</p>
+        </div>
+      </article>
+      <p id="character-notice" class="notice"></p>
+      <p class="boundary"><strong>Private rehearsal.</strong> This room lives on this iPhone. Provider conversation is not part of this milestone.</p>
+    </section>
   </main>
 </body>
 </html>
