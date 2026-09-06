@@ -95,6 +95,7 @@ test("repository text sources never retain private physical-device identifiers",
   const violations: string[] = [];
   for (const relativePath of paths) {
     const path = join(ROOT, relativePath);
+    if (!existsSync(path)) continue;
     const stats = lstatSync(path);
     if (!stats.isFile()) continue;
     const bytes = readFileSync(path);

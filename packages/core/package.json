@@ -1,0 +1,8 @@
+{
+  "name": "@greenroom/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./director": "./src/director.ts"
+  }
+}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#b9ff29">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'none'; media-src 'none'; object-src 'none'; connect-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'">
+  <title>The Green Room</title>
+  <link rel="stylesheet" href="shell.css">
+  <script type="module" src="room-runtime.js"></script>
+</head>
+<body>
+  <div class="topline" aria-hidden="true"></div>
+  <header class="masthead">
+    <div class="mark" aria-hidden="true">GR//</div>
+    <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
+  </header>
+
+  <main>
+    <p id="boot-error" class="error" role="alert" hidden>The app-private room database could not be opened.</p>
+
+    <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
+      <div class="eyebrow">Room open · local authority</div>
+      <h1 id="room-title">The Green Room</h1>
+      <p id="room-state" class="lede" role="status" aria-live="polite">Opening saved room…</p>
+      <div class="section-heading"><p>Call board</p><h2>On deck</h2></div>
+      <ul id="room-cast" class="room-cast" aria-label="Selected characters"></ul>
+      <section class="transcript-panel" aria-labelledby="transcript-title">
+        <div class="section-heading"><p>Ordered events</p><h2 id="transcript-title">Transcript</h2></div>
+        <p id="empty-transcript" class="empty-transcript">The room is quiet. Set the first cue.</p>
+        <ol id="transcript" class="transcript" aria-live="polite"></ol>
+      </section>
+      <form id="message-form" class="composer">
+        <label for="message-text">Your line</label>
+        <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
+        <button class="button" type="submit">Save your line</button>
+        <p id="message-status" class="message-status" role="status" aria-live="polite">Human lines save locally. AI replies are not enabled yet.</p>
+      </form>
+      <div class="room-actions">
+        <button id="new-room" class="button" type="button">Create another room</button>
+      </div>
+      <p class="boundary"><strong>Private rehearsal.</strong> Rooms live on this iPhone. Conversation and provider setup are not part of this milestone.</p>
+    </section>
+
+    <section id="picker-view" class="picker-view" aria-labelledby="picker-title" hidden>
+      <div class="eyebrow">New saved room</div>
+      <h1 id="picker-title" tabindex="-1">Choose the conversation</h1>
+      <p class="lede">Pick one to three bundled perspectives. Your existing room stays saved.</p>
+      <div class="catalog-reality"><strong>Candidate · draft catalog.</strong> Eighteen historical interpretations and one creator-authorized original. None is claimed as an Official Catalog release.</div>
+      <div class="picker-bar">
+        <p id="selection-count" role="status" aria-live="polite">0 of 3 selected</p>
+        <div>
+          <button id="cancel-picker" class="button button-paper" type="button">Cancel</button>
+          <button id="create-room" class="button" type="button" disabled>Create room</button>
+        </div>
+      </div>
+      <p id="picker-status" class="picker-status" role="status" aria-live="polite"></p>
+      <div id="persona-grid" class="persona-grid" aria-label="Bundled characters"></div>
+    </section>
+  </main>
+</body>
+</html>

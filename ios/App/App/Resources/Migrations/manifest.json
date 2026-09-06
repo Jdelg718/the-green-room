@@ -1,0 +1,25 @@
+{
+  "schema": 4,
+  "migrations": [
+    {
+      "version": 1,
+      "file": "0001-iphone-alpha.sql",
+      "sha256": "474b538898ae28b35c19daf9360f4ce55b42a25d5b7192b95c9305630e4881fe"
+    },
+    {
+      "version": 2,
+      "file": "0002-ordered-events.sql",
+      "sha256": "64583eb10f9771cd3344b37af2442965dd6a500eaee1543601d9a118b3a860d3"
+    },
+    {
+      "version": 3,
+      "file": "0003-shared-director-state.sql",
+      "sha256": "31919295f1fb72c8d3da0d7ec15d0e494db8412629c5f98c8c19351a877825b7"
+    },
+    {
+      "version": 4,
+      "file": "0004-transaction-replay.sql",
+      "sha256": "6fadc829372de8edbedcade072d8f60522b2e0303c44c77b7f9ae40e9f781f35"
+    }
+  ]
+}
