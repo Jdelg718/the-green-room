@@ -15,8 +15,16 @@ mkdirSync(outputDirectory, { recursive: true });
 const compile = spawnSync("/usr/bin/xcrun", [
   "swiftc",
   "-strict-concurrency=complete",
+  "-module-cache-path",
+  join(outputDirectory, "module-cache"),
   "ios/App/App/GreenRoomDatabasePlugin.swift",
+  "ios/App/App/Credentials/GreenRoomCredentialLifecycle.swift",
+  "ios/App/App/Credentials/SecurityCredentialStore.swift",
+  "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift",
   "ios/Tests/NativeDatabaseTests.swift",
+  "ios/Tests/CredentialStoreTests.swift",
+  "-framework",
+  "Security",
   "-o",
   executable,
 ], { cwd: root, stdio: "inherit", env: { ...process.env, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" } });

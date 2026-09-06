@@ -12,6 +12,7 @@ final class ContainedBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         bridge?.registerPluginInstance(GreenRoomDatabasePlugin())
+        bridge?.registerPluginInstance(GreenRoomCredentialPlugin())
         guard let webView, let capacitorDelegate = webView.navigationDelegate as? WebViewDelegationHandler else {
             preconditionFailure("Capacitor WebView delegate was not installed")
         }

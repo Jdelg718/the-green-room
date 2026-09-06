@@ -8,7 +8,7 @@ const result = spawnSync("/usr/bin/xcodebuild", [
   "-configuration", "Debug",
   "-destination", "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.6",
   "-derivedDataPath", ".build/ios",
-  "CODE_SIGNING_ALLOWED=NO",
+  "CODE_SIGNING_ALLOWED=YES",
 ], {
   encoding: "utf8",
   env: process.env,
@@ -18,4 +18,4 @@ if (result.status !== 0) {
   console.error("iOS Simulator build failed (xcodebuild output withheld to prevent device-identifier disclosure)");
   process.exit(result.status ?? 1);
 }
-console.log(JSON.stringify({ status: "PASS", build: "unsigned iOS Simulator", model: "iPhone 16 Pro", os: "18.6", derivedData: ".build/ios" }, null, 2));
+console.log(JSON.stringify({ status: "PASS", build: "ad hoc signed iOS Simulator", model: "iPhone 16 Pro", os: "18.6", derivedData: ".build/ios" }, null, 2));

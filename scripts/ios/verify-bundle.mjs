@@ -43,13 +43,16 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
   ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
-  ["room-runtime.js", "630bf50f2507cfb0ae4f1ac1f0282bb5df0b9da5a03f984f8624ec09826e3bc9"],
+  ["room-runtime.js", "9873d9abb9c9b144017c8d28608cfe7c87745bc6e580e9baf30ce2d720d7686d"],
   ["shell.css", "db40b8af8478a57034d9328b953b298fbc0b54cba768bdb1eb1d3e1a52c6c319"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
-  ["App/ContainedBridgeViewController.swift", "7106dcea2ebfdf4dbbb09746b692fc0e4252b7b96b511145c6ab7b29ccb6183f"],
-  ["App/GreenRoomDatabasePlugin.swift", "bf7d0b06a7e008e85632a3270f665cbb078d118923b4a9deeaa828c4a4acfdd9"],
+  ["App/ContainedBridgeViewController.swift", "ea017915fee83bee84430895cbd6de30154452c56169f4b88e5a1042eb3f9bdd"],
+  ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
+  ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
+  ["App/Credentials/SecurityCredentialStore.swift", "bd711949e52d07a86d61959740a871252824dfb55d9f3df8b96881c41c2aa1e7"],
+  ["App/GreenRoomDatabasePlugin.swift", "e3ca699bdcc9ef519d08ff9e2dfcdd6751630ea2737a3093b439c1daaf10a1b9"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -213,10 +216,14 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/SceneDelegate.swift",
     "ios/App/App/ContainedBridgeViewController.swift",
     "ios/App/App/GreenRoomDatabasePlugin.swift",
+    "ios/App/App/Credentials/GreenRoomCredentialLifecycle.swift",
+    "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift",
+    "ios/App/App/Credentials/SecurityCredentialStore.swift",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
+    "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",
@@ -277,11 +284,20 @@ export function verifySource(root = process.cwd()) {
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 2, "development team must be exact");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
+  const projectFrameworkNames = [...project.matchAll(/\b([A-Z][A-Za-z0-9_.-]+\.framework)\b/gu)].map((match) => match[1]);
+  requireCondition(projectFrameworkNames.length === 7 && projectFrameworkNames.every((name) => name === "Security.framework"), "Xcode project framework references must be system Security.framework only");
+  requireCondition(/path = System\/Library\/Frameworks\/Security\.framework; sourceTree = SDKROOT;/u.test(project), "Security.framework must resolve only from the iOS SDK");
   requireCondition((project.match(/isa = XCLocalSwiftPackageReference;/gu) ?? []).length === 1 && /relativePath = "CapApp-SPM";/u.test(project), "Xcode project must reference only the local Capacitor package adapter");
-  requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /GreenRoomDatabasePlugin\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project) && /Migrations in Resources/u.test(project), "local-room native source or resources are not in the target");
+  requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /GreenRoomDatabasePlugin\.swift in Sources/u.test(project) && /GreenRoomCredentialPlugin\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project) && /Migrations in Resources/u.test(project), "local-room native source or resources are not in the target");
   const sourcesPhase = project.match(/\/\* Begin PBXSourcesBuildPhase section \*\/[\s\S]*?\/\* End PBXSourcesBuildPhase section \*\//u)?.[0] ?? "";
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+
+  const credentialStore = readText(join(sourceRoot, "ios/App/App/Credentials/SecurityCredentialStore.swift"), sourceRoot);
+  for (const token of ["import Security", "kSecClassGenericPassword", "kSecAttrAccessibleWhenUnlockedThisDeviceOnly", "kSecAttrSynchronizable", "kCFBooleanFalse", "SecItemAdd", "SecItemCopyMatching", "SecItemDelete"]) {
+    requireCondition(credentialStore.includes(token), `Security.framework adapter is missing ${token}`);
+  }
+  requireCondition(!/(?:KeychainAccess|Valet|SAMKeychain|SwiftKeychainWrapper|SecureStorage)/u.test(credentialStore), "third-party secure storage marker is forbidden");
 
   const swiftPackage = readText(join(sourceRoot, "ios/App/CapApp-SPM/Package.swift"), sourceRoot);
   requireCondition(/platforms: \[\.iOS\("18\.6"\)\],/u.test(swiftPackage), "native package platform must be exactly iOS 18.6");

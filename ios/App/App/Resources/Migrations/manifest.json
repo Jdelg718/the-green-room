@@ -1,5 +1,5 @@
 {
-  "schema": 4,
+  "schema": 5,
   "migrations": [
     {
       "version": 1,
@@ -20,6 +20,11 @@
       "version": 4,
       "file": "0004-transaction-replay.sql",
       "sha256": "6fadc829372de8edbedcade072d8f60522b2e0303c44c77b7f9ae40e9f781f35"
+    },
+    {
+      "version": 5,
+      "file": "0005-credential-lifecycle.sql",
+      "sha256": "0e61fe8ddafc53fdd94a9358a6ed6e5e611cfb5f24036d5f9f72298f347fdd7a"
     }
   ]
 }

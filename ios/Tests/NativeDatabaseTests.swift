@@ -72,7 +72,7 @@ struct NativeDatabaseTests {
             migrationsDirectory: migrations,
             fileProtector: protection.protect
         )
-        require(try store!.open(expectedSchema: 4)["schema"] as? Int == 4, "schema four did not open")
+        require(try store!.open(expectedSchema: 5)["schema"] as? Int == 5, "schema five did not open")
 
         let callId = "00000000-0000-4000-8000-000000000001"
         require(canonicalBridgeCallId(callId) == callId, "canonical call ID was rejected")
@@ -169,7 +169,7 @@ struct NativeDatabaseTests {
         _ = try store!.close()
         store = nil
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 4)
+        _ = try store!.open(expectedSchema: 5)
         _ = try store!.executeBatch(transactionId: "message-1", statements: messageStatements())
         let existingA = rowStrings(try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]))
         require(existingA.count == 2, "relaunch retry duplicated message pair")
@@ -188,7 +188,7 @@ struct NativeDatabaseTests {
         require(try JSONSerialization.data(withJSONObject: boundaryResult, options: [.sortedKeys]).count == valueBudget, "boundary fixture is not exact")
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 3, json_object('participantId','human-1','text', printf('%.*c', \(boundaryPadding), 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 4)
+        _ = try store!.open(expectedSchema: 5)
         let exactResult = try store!.query(
             sqlId: "room_events",
             parameters: ["room-00000000-0000-4000-8000-000000000001"],
@@ -200,7 +200,7 @@ struct NativeDatabaseTests {
         store = nil
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 4, json_object('participantId','human-1','text','one-more-row','type','human_message')); INSERT INTO events(room_id, sequence, event_json) VALUES ('\(roomB)', 1, json_object('participantId','human-2','text', printf('%.*c', 300000, 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 4)
+        _ = try store!.open(expectedSchema: 5)
         expectFailure("result_too_large") {
             _ = try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])
         }
@@ -208,6 +208,7 @@ struct NativeDatabaseTests {
             _ = try store!.query(sqlId: "room_events", parameters: [roomB])
         }
 
-        print("PASS native database: byte budgets, exact UTF-8 binding, pre-commit rollback, durable replay, relaunch replay, and DB/WAL/SHM protection")
+        try runCredentialStoreTests()
+        print("PASS native database and credential lifecycle: byte budgets, durable replay, tombstone ordering, reconciliation, and sentinel confinement")
     }
 }
