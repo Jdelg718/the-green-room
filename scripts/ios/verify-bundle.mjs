@@ -51,8 +51,8 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/ContainedBridgeViewController.swift", "ea017915fee83bee84430895cbd6de30154452c56169f4b88e5a1042eb3f9bdd"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
-  ["App/Credentials/SecurityCredentialStore.swift", "bd711949e52d07a86d61959740a871252824dfb55d9f3df8b96881c41c2aa1e7"],
-  ["App/GreenRoomDatabasePlugin.swift", "e3ca699bdcc9ef519d08ff9e2dfcdd6751630ea2737a3093b439c1daaf10a1b9"],
+  ["App/Credentials/SecurityCredentialStore.swift", "e63e05aa6807578178f31438acde31ba057eb38f1b617fd2d8c490486c64111b"],
+  ["App/GreenRoomDatabasePlugin.swift", "61067242a8da6ad5a07a21fa79e9c512aceb8b6f4815e4a1524aa6dc4015c39c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";

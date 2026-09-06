@@ -57,14 +57,15 @@ final class SecurityCredentialStore: CredentialSecureStore, @unchecked Sendable 
 
     func inspectMetadata(credentialRef: String) throws -> CredentialMetadataInspection {
         var result: CFTypeRef?
-        var query = Self.scopedQuery(service: service, credentialRef: credentialRef)
+        var query = Self.deletionQuery(service: service, credentialRef: credentialRef)
         query[kSecReturnAttributes] = kCFBooleanTrue
-        query[kSecMatchLimit] = kSecMatchLimitOne
+        query[kSecMatchLimit] = kSecMatchLimitAll
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return .missing }
-        guard status == errSecSuccess, let attributes = result as? [CFString: Any] else {
+        guard status == errSecSuccess, let rows = result as? [[CFString: Any]] else {
             throw DatabaseFailure(code: "credential_unavailable", retryable: true)
         }
+        guard rows.count == 1, let attributes = rows.first else { return .invalid }
         return Self.inspectAttributes(attributes, service: service, credentialRef: credentialRef)
     }
 

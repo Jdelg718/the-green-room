@@ -347,6 +347,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                     WHERE profile.profile_id = credential_revisions.profile_id
                       AND profile.profile_revision = credential_revisions.profile_revision
                       AND profile.provider_id = credential_revisions.provider_id
+                      AND (profile.tombstoned = 0 OR credential_revisions.tombstoned = 1)
                       AND profile.profile_revision = (
                         SELECT max(current.profile_revision)
                         FROM connection_profile_revisions current
@@ -503,6 +504,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                     WHERE profile.profile_id = current.profile_id
                       AND profile.profile_revision = current.profile_revision
                       AND profile.provider_id = current.provider_id
+                      AND (profile.tombstoned = 0 OR current.tombstoned = 1)
                       AND profile.profile_revision = (
                         SELECT max(latest.profile_revision)
                         FROM connection_profile_revisions latest

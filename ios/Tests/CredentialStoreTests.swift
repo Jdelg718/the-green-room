@@ -12,9 +12,11 @@ private final class FakeCredentialSecureStore: CredentialSecureStore, @unchecked
     var failDelete = false
     var failInventory = false
     var inventoryOverride: [CredentialStoredItem]?
+    var metadataInspectionOverride: [String: CredentialMetadataInspection] = [:]
 
     func inspectMetadata(credentialRef: String) throws -> CredentialMetadataInspection {
         metadataReads += 1
+        if let override = metadataInspectionOverride[credentialRef] { return override }
         guard let value = values[credentialRef] else { return .missing }
         guard let metadata = value.metadata else { return .invalid }
         return .valid(metadata)
@@ -384,6 +386,22 @@ func runCredentialStoreTests() throws {
     }
     credentialRequire(keychain.uses == 1, "pending reservation reached credential bytes")
 
+    let synchronizedSave = CredentialMutationRequest(
+        profileId: "groq.synchronized", profileRevision: 1, providerId: "groq",
+        credentialRef: "credential:groq.synchronized:1",
+        mutationId: "32000000-0000-4000-8000-000000000003"
+    )
+    try reserve(database, synchronizedSave, transaction: "reserve-groq-synchronized-1")
+    keychain.values[synchronizedSave.credentialRef] = .init(
+        secret: Data("synchronized-invalid".utf8), metadata: nil
+    )
+    keychain.metadataInspectionOverride[synchronizedSave.credentialRef] = .invalid
+    let writesBeforeSynchronizedSave = keychain.writes
+    credentialFailure("credential_unavailable") { _ = try lifecycle.prepareSave(synchronizedSave) }
+    keychain.metadataInspectionOverride.removeValue(forKey: synchronizedSave.credentialRef)
+    credentialRequire(keychain.values[synchronizedSave.credentialRef] == nil, "synchronizable save variant survived preflight")
+    credentialRequire(keychain.writes == writesBeforeSynchronizedSave, "synchronizable save variant allowed a second Keychain write")
+
     let duplicateReference = CredentialMutationRequest(
         profileId: "groq.duplicate", profileRevision: 1, providerId: "groq",
         credentialRef: "credential:groq.duplicate:1",
@@ -469,6 +487,54 @@ func runCredentialStoreTests() throws {
     let reinstall = GreenRoomCredentialLifecycle(database: reinstallDatabase, secureStore: keychain)
     try reinstall.reconcileAtDatabaseOpen()
     credentialRequire(keychain.values[crashRequest.credentialRef] == nil, "fresh database did not remove uninstall-persisted orphan")
+
+    let independentlyTombstonedRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-independent-tombstone-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: independentlyTombstonedRoot) }
+    try FileManager.default.createDirectory(at: independentlyTombstonedRoot, withIntermediateDirectories: true)
+    let independentlyTombstonedDatabase = GreenRoomDatabaseStore(
+        directory: independentlyTombstonedRoot, migrationsDirectory: migrations, fileProtector: { _ in }
+    )
+    _ = try independentlyTombstonedDatabase.open(expectedSchema: 5)
+    let independentlyTombstonedKeychain = FakeCredentialSecureStore()
+    let independentlyTombstonedLifecycle = GreenRoomCredentialLifecycle(
+        database: independentlyTombstonedDatabase, secureStore: independentlyTombstonedKeychain
+    )
+    let independentlyTombstoned = CredentialMutationRequest(
+        profileId: "openai.disabled", profileRevision: 1, providerId: "openai",
+        credentialRef: "credential:openai.disabled:1",
+        mutationId: "71000000-0000-4000-8000-000000000007"
+    )
+    try reserve(independentlyTombstonedDatabase, independentlyTombstoned, transaction: "reserve-openai-disabled-1")
+    var independentlyTombstonedSecret = Data("independently-tombstoned".utf8)
+    _ = try independentlyTombstonedLifecycle.completeSave(
+        independentlyTombstoned, secret: &independentlyTombstonedSecret
+    )
+    _ = try independentlyTombstonedDatabase.close()
+    var rawDatabase: OpaquePointer?
+    let rawPath = independentlyTombstonedRoot.appendingPathComponent("greenroom.sqlite").path
+    credentialRequire(sqlite3_open_v2(rawPath, &rawDatabase, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "could not open tombstone regression database")
+    defer { if let rawDatabase { sqlite3_close_v2(rawDatabase) } }
+    credentialRequire(
+        sqlite3_exec(
+            rawDatabase,
+            "UPDATE connection_profile_revisions SET tombstoned = 1 WHERE profile_id = 'openai.disabled' AND profile_revision = 1",
+            nil, nil, nil
+        ) == SQLITE_OK,
+        "could not create independently tombstoned profile regression"
+    )
+    if let rawDatabase { sqlite3_close_v2(rawDatabase) }
+    rawDatabase = nil
+    _ = try independentlyTombstonedDatabase.open(expectedSchema: 5)
+    credentialFailure("credential_unavailable") {
+        try independentlyTombstonedLifecycle.performWithReadyCredential(independentlyTombstoned) { _ in
+            fatalError("independently tombstoned profile reached credential bytes")
+        }
+    }
+    try independentlyTombstonedLifecycle.reconcileAtDatabaseOpen()
+    credentialRequire(
+        independentlyTombstonedKeychain.values[independentlyTombstoned.credentialRef] == nil,
+        "independently tombstoned profile retained Keychain bytes"
+    )
 
     credentialFailure("invalid_call") {
         _ = try validateCredentialIdentity(CredentialMutationRequest(
