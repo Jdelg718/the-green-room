@@ -170,6 +170,13 @@ h1 {
 .cast-grid strong a { display: flex; min-height: 2.75rem; align-items: center; }
 .cast-grid small { display: block; margin-top: 0.55rem; color: var(--muted); font: 700 0.68rem/1.35 var(--mono); }
 .split { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(20rem, 1.15fr); gap: clamp(2rem, 6vw, 5rem); align-items: start; }
+.split > * { min-width: 0; }
+.split > :first-child { container-type: inline-size; }
+.split .section-title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(3.1rem, 15cqi, 6rem);
+}
 .rule-list { margin: 0; padding: 0; list-style: none; border-top: var(--rule); }
 .rule-list li { padding: 1rem 0; border-bottom: var(--rule); font-weight: 700; }
 .rule-list strong { display: block; color: var(--muted); font: 800 0.7rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
@@ -328,6 +335,7 @@ h1 {
 .portrait--ludwig-von-mises { --crop: 50% 33%; --tone: #b0a51d; }
 .portrait--milton-friedman { --crop: 50% 30%; --tone: #ed4f37; }
 .portrait--john-maynard-keynes { --crop: 50% 27%; --tone: #6f87ff; }
+.portrait--ff2k { --crop: 50% 50%; --tone: #ff7a32; }
 
 @media (max-width: 56rem) {
   .profile-hero { grid-template-columns: 1fr; }

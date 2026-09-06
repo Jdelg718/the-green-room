@@ -16,6 +16,7 @@ EXPECTED_PROFILES = {
     "benjamin-franklin": "Benjamin Franklin",
     "elizabeth-i": "Elizabeth I",
     "frederick-douglass": "Frederick Douglass",
+    "ff2k": "FF2K",
     "galileo-galilei": "Galileo Galilei",
     "george-washington": "George Washington",
     "hal-finney": "Hal Finney",
@@ -151,8 +152,22 @@ class StaticPolicyTests(unittest.TestCase):
             f"characters/{slug}/index.html" for slug in EXPECTED_PROFILES
         }
         self.assertTrue(expected_pages.issubset(validate.PAGES))
-        self.assertEqual(len(validate.CHARACTER_PROFILES), 18)
-        self.assertEqual(len(validate.PORTRAIT_ASSETS), 18)
+        self.assertEqual(len(validate.CHARACTER_PROFILES), 19)
+        self.assertEqual(len(validate.HISTORICAL_PROFILES), 18)
+        self.assertEqual(validate.ORIGINAL_PROFILES, {"ff2k": "FF2K"})
+        self.assertEqual(len(validate.PORTRAIT_ASSETS), 19)
+
+    def test_shared_split_layout_has_container_safe_typography_hooks(self) -> None:
+        stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
+        for hook in (
+            ".split > * { min-width: 0; }",
+            ".split > :first-child { container-type: inline-size; }",
+            ".split .section-title",
+            "overflow-wrap: anywhere;",
+            "15cqi",
+        ):
+            with self.subTest(hook=hook):
+                self.assertIn(hook, stylesheet)
 
     def test_new_profiles_reject_public_safety_and_accuracy_failures(self) -> None:
         fixtures = {
@@ -197,7 +212,7 @@ class StaticPolicyTests(unittest.TestCase):
 
     def test_character_index_requires_exact_cards_and_promoted_status_labels(self) -> None:
         mutations = {
-            "exactly 18 cast cards": (
+            "exactly 19 cast cards": (
                 "</ul>",
                 '<li class="cast-card"><a href="/characters/hal-finney/">Duplicate</a></li></ul>',
             ),
@@ -208,6 +223,10 @@ class StaticPolicyTests(unittest.TestCase):
             "visible promoted status label for Hal Finney": (
                 "<small>Preinstalled candidate · not Official Catalog admitted</small>",
                 '<div aria-hidden="true"><small>Preinstalled candidate · not Official Catalog admitted</small></div>',
+            ),
+            "promoted status label for FF2K": (
+                "Creator-authorized pseudonymous original candidate · not Official Catalog admitted",
+                "Creator-authorized original",
             ),
         }
         for reason, (old, new) in mutations.items():
@@ -664,8 +683,8 @@ class StaticPolicyTests(unittest.TestCase):
                 "not authentic portraits",
                 "authentic portraits",
             ),
-            "not Official Catalog admission": (
-                "not Official Catalog admission",
+            "no Official Catalog admission": (
+                "no Official Catalog admission",
                 "Official Catalog admission",
             ),
             "remain in development": (
