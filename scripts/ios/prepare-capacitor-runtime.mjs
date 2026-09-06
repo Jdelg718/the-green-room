@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, lstatSync, mkdtempSync, openSync, readSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, renameSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +61,10 @@ try {
   const manifestFd = openSync(join(work, "Package.swift"), "wx", 0o600);
   writeSync(manifestFd, manifest);
   closeSync(manifestFd);
+  const outputParent = dirname(OUTPUT);
+  mkdirSync(outputParent, { recursive: true, mode: 0o700 });
+  const parentStats = lstatSync(outputParent);
+  if (!parentStats.isDirectory() || parentStats.isSymbolicLink()) throw new Error(".build parent must be a real directory");
   rmSync(OUTPUT, { recursive: true, force: true });
   renameSync(work, OUTPUT);
   console.log(JSON.stringify({ status: "PASS", capacitorVersion: "8.5.1", artifacts: artifacts.map(({ name, sha256 }) => ({ name, sha256 })) }, null, 2));

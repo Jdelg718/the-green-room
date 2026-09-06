@@ -20,6 +20,13 @@ function simctl(arguments_) {
   });
 }
 
+function simctlIgnoringFailure(arguments_) {
+  spawnSync("/usr/bin/xcrun", ["simctl", ...arguments_], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+  });
+}
+
 writeFileSync(source, String.raw`#include <arpa/inet.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -83,8 +90,8 @@ try {
     simctl(["boot", selected.udid]);
   }
   simctl(["bootstatus", selected.udid, "-b"]);
-  try { simctl(["terminate", selected.udid, BUNDLE_ID]); } catch {}
-  try { simctl(["uninstall", selected.udid, BUNDLE_ID]); } catch {}
+  simctlIgnoringFailure(["terminate", selected.udid, BUNDLE_ID]);
+  simctlIgnoringFailure(["uninstall", selected.udid, BUNDLE_ID]);
   simctl(["install", selected.udid, APP]);
 
   const launch = execFileSync("/usr/bin/xcrun", ["simctl", "launch", selected.udid, BUNDLE_ID], {
@@ -129,7 +136,7 @@ try {
   }, null, 2));
 } finally {
   if (selected) {
-    try { simctl(["terminate", selected.udid, BUNDLE_ID]); } catch {}
+    simctlIgnoringFailure(["terminate", selected.udid, BUNDLE_ID]);
   }
   rmSync(work, { recursive: true, force: true });
 }

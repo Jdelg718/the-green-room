@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   fstatSync,
   lstatSync,
@@ -38,6 +39,17 @@ const REQUIRED_CSP = new Map([
 const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appflow|ionic-deploy|cordova-plugin-ionic|codepush|hot-code|hot-update)/iu;
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
+const REVIEWED_WEB_SHA256 = new Map([
+  ["index.html", "06075660bbfe6bce12acb462199e7ccecd60bb805f9b6918d020bcbffadffb58"],
+  ["shell.css", "3c3b7fb96d32110d2d7dce627bc22c12fd87c246142481ec0afa91d5824f9638"],
+  ["shell.js", "f3a6b226e9f36f9f299b171cc743f96ecc3d5a798c1eab44866efb58f0940898"],
+]);
+const REVIEWED_SWIFT_SHA256 = new Map([
+  ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
+  ["App/ContainedBridgeViewController.swift", "81a6f4daca218c3530d6b82bd87b6d73a4ce3a2b6b21607a3df870cc101a0243"],
+  ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
+]);
+const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
 
 function fail(message) {
   throw new Error(`iPhone bundle boundary: ${message}`);
@@ -77,6 +89,11 @@ function readText(path, root, maxBytes = 2 * 1024 * 1024) {
   const text = bytes.toString("utf8");
   requireCondition(!text.includes("\uFFFD"), `invalid UTF-8 in ${portable(root, path)}`);
   return text;
+}
+
+function requireReviewedBytes(path, root, expected, label) {
+  const actual = createHash("sha256").update(checkedRegularFile(path, root)).digest("hex");
+  requireCondition(actual === expected, `${label} does not match reviewed bytes`);
 }
 
 function walkNoFollow(root, { maxEntries = MAX_ENTRIES } = {}) {
@@ -138,6 +155,9 @@ function verifyWebAssets(root, relativeDirectory) {
   const entries = walkNoFollow(directory, { maxEntries: 32 });
   const files = entries.filter(({ stats }) => stats.isFile()).map(({ relativePath }) => relativePath).sort();
   requireCondition(JSON.stringify(files) === JSON.stringify(["index.html", "shell.css", "shell.js"]), `${relativeDirectory} inventory must be exactly index.html, shell.css, shell.js`);
+  for (const [name, expected] of REVIEWED_WEB_SHA256) {
+    requireReviewedBytes(join(directory, name), root, expected, `${relativeDirectory}/${name}`);
+  }
   const html = readText(join(directory, "index.html"), root);
   parseCsp(html, relativeDirectory);
   requireCondition(!/<script\b(?![^>]*\bsrc=)[^>]*>/iu.test(html), `${relativeDirectory} contains inline script`);
@@ -151,6 +171,7 @@ function verifyWebAssets(root, relativeDirectory) {
 }
 
 function verifyPrivacyManifest(path, root) {
+  requireReviewedBytes(path, root, REVIEWED_PRIVACY_SHA256, "privacy manifest");
   const text = readText(path, root);
   for (const key of ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTrackingDomains", "NSPrivacyTracking"]) {
     requireCondition((text.match(new RegExp(`<key>${key}</key>`, "gu")) ?? []).length === 1, `privacy manifest must contain ${key} exactly once`);
@@ -225,6 +246,11 @@ export function verifySource(root = process.cwd()) {
 
   const appTree = walkNoFollow(join(sourceRoot, "ios/App"));
   verifySourceExecutables(sourceRoot, appTree);
+  const swiftSources = appTree.filter(({ relativePath, stats }) => stats.isFile() && relativePath.startsWith("App/") && relativePath.endsWith(".swift")).map(({ relativePath }) => relativePath).sort();
+  requireCondition(JSON.stringify(swiftSources) === JSON.stringify([...REVIEWED_SWIFT_SHA256.keys()].sort()), "Swift source inventory is not exact");
+  for (const [relativePath, expected] of REVIEWED_SWIFT_SHA256) {
+    requireReviewedBytes(join(sourceRoot, "ios/App", relativePath), sourceRoot, expected, `${relativePath} Swift source`);
+  }
   for (const { relativePath, stats } of appTree) {
     if (!stats.isDirectory()) continue;
     requireCondition(!/\.(?:framework|xcframework|bundle|plugin)$/iu.test(relativePath), `undeclared native bundle in source: ${relativePath}`);
@@ -242,6 +268,9 @@ export function verifySource(root = process.cwd()) {
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
   requireCondition((project.match(/isa = XCLocalSwiftPackageReference;/gu) ?? []).length === 1 && /relativePath = "CapApp-SPM";/u.test(project), "Xcode project must reference only the local Capacitor package adapter");
   requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project), "containment source or privacy manifest is not in the target");
+  const sourcesPhase = project.match(/\/\* Begin PBXSourcesBuildPhase section \*\/[\s\S]*?\/\* End PBXSourcesBuildPhase section \*\//u)?.[0] ?? "";
+  const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ContainedBridgeViewController.swift", "SceneDelegate.swift"]), "declared Swift Sources build phase inventory is not exact");
 
   const swiftPackage = readText(join(sourceRoot, "ios/App/CapApp-SPM/Package.swift"), sourceRoot);
   requireCondition(/platforms: \[\.iOS\("18\.6"\)\],/u.test(swiftPackage), "native package platform must be exactly iOS 18.6");
@@ -304,11 +333,23 @@ export function verifyBuiltApp(appPath) {
   requireCondition(isMachO(executable, appRoot), "main app executable is not Mach-O");
   const allowedMachO = new Set([portable(appRoot, executable)]);
   const allowedFrameworks = new Set(["Capacitor.framework", "Cordova.framework"]);
+  const actualFrameworks = entries.filter(({ relativePath, stats }) => stats.isDirectory() && /^Frameworks\/[^/]+\.framework$/u.test(relativePath)).map(({ path }) => basename(path)).sort();
+  requireCondition(JSON.stringify(actualFrameworks) === JSON.stringify([...allowedFrameworks].sort()), "built framework inventory must be exactly Capacitor.framework and Cordova.framework");
+  const allowedExecutableFiles = new Set([
+    portable(appRoot, executable),
+    "Frameworks/Capacitor.framework/Capacitor",
+    "Frameworks/Cordova.framework/Cordova",
+  ]);
   for (const { path, relativePath, stats } of entries) {
     const name = basename(path);
     requireCondition(!FORBIDDEN_EXECUTABLE_NAME.test(name), `forbidden Node/Python executable: ${relativePath}`);
     if (stats.isDirectory() && /\.(?:framework|xcframework|bundle|plugin)$/iu.test(name)) {
       requireCondition(name.endsWith(".framework") && allowedFrameworks.has(name), `undeclared framework/plugin bundle: ${relativePath}`);
+    }
+    if (stats.isFile()) {
+      const prefix = checkedRegularFile(path, appRoot, MAX_FILE_BYTES, true).subarray(0, 64);
+      requireCondition(prefix.subarray(0, 2).toString("ascii") !== "#!", `script payload is forbidden in built app: ${relativePath}`);
+      requireCondition((stats.mode & 0o111) === 0 || allowedExecutableFiles.has(relativePath), `unexpected executable mode in built app: ${relativePath}`);
     }
     if (stats.isFile() && isMachO(path, appRoot)) {
       const frameworkMatch = relativePath.match(/^Frameworks\/([^/]+\.framework)\/([^/]+)$/u);
@@ -346,8 +387,59 @@ export function verifyBuiltApp(appPath) {
   return { bundleIdentifier: BUNDLE_ID, minimumOS: MINIMUM_IOS, deviceFamily: [1], builtEntries: entries.length, linkedLibraries: libraries };
 }
 
+export function verifySignedDeviceApp(appPath) {
+  requireCondition(process.platform === "darwin", "signed device verification requires Darwin");
+  const built = verifyBuiltApp(appPath);
+  const appRoot = resolve(appPath);
+  const signature = spawnSync("/usr/bin/codesign", ["--display", "--verbose=4", "--entitlements", ":-", appRoot], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  requireCondition(signature.status === 0, "codesign could not inspect device app");
+  const details = `${signature.stdout}\n${signature.stderr}`;
+  requireCondition(/^Identifier=net\.greenroomai\.GreenRoom$/mu.test(details), "codesign Identifier is not exact");
+  requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(details), "codesign TeamIdentifier is not exact");
+  requireCondition(/Sealed Resources version=/u.test(details), "sealed resource signature is missing");
+  requireCondition(/<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>/u.test(details), "signed application entitlement is not exact");
+  const strict = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", appRoot], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  requireCondition(strict.status === 0, "sealed signature verification failed");
+
+  const profilePath = join(appRoot, "embedded.mobileprovision");
+  checkedRegularFile(profilePath, appRoot, 4 * 1024 * 1024);
+  const cms = execFileSync("/usr/bin/security", ["cms", "-D", "-i", profilePath], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  const profileTeam = execFileSync("/usr/bin/plutil", ["-extract", "TeamIdentifier.0", "raw", "-o", "-", "-"], {
+    input: cms,
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 4 * 1024 * 1024,
+  }).trim();
+  const expiration = execFileSync("/usr/bin/plutil", ["-extract", "ExpirationDate", "raw", "-o", "-", "-"], {
+    input: cms,
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 4 * 1024 * 1024,
+  }).trim();
+  requireCondition(profileTeam === "JZ233HBW3Z", "provisioning profile team is not exact");
+  const exactProfileAppId = /<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>/u.test(cms);
+  const teamWildcardProfile = /<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.\*<\/string>/u.test(cms);
+  requireCondition(exactProfileAppId || teamWildcardProfile, "provisioning profile does not authorize the exact application identifier");
+  requireCondition(/<key>com\.apple\.developer\.team-identifier<\/key>\s*<string>JZ233HBW3Z<\/string>/u.test(cms), "provisioning entitlement team is not exact");
+  requireCondition(/<key>ProvisionedDevices<\/key>\s*<array>\s*<string>[^<]+<\/string>/u.test(cms), "development provisioning profile has no devices");
+  requireCondition(new Date(expiration).getTime() > Date.now(), "provisioning profile is expired");
+  return { ...built, signing: { identifier: BUNDLE_ID, teamIdentifier: "JZ233HBW3Z", sealed: true, developmentProfile: true, profileApplicationIdentifier: exactProfileAppId ? `JZ233HBW3Z.${BUNDLE_ID}` : "JZ233HBW3Z.*" } };
+}
+
 function usage() {
-  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app");
+  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app | --signed-device-app path/to/App.app");
   process.exit(64);
 }
 
@@ -357,6 +449,7 @@ if (invoked) {
     let result;
     if (process.argv[2] === "--source") result = verifySource(process.argv[3] ?? process.cwd());
     else if (process.argv[2] === "--app" && process.argv[3]) result = verifyBuiltApp(process.argv[3]);
+    else if (process.argv[2] === "--signed-device-app" && process.argv[3]) result = verifySignedDeviceApp(process.argv[3]);
     else usage();
     console.log(JSON.stringify({ status: "PASS", ...result }, null, 2));
   } catch (error) {
