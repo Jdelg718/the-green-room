@@ -1,25 +1,67 @@
+#if canImport(Capacitor)
 import Capacitor
+#endif
 import CryptoKit
 import Foundation
 import SQLite3
 
 private let bridgeContractVersion = "iphone-native-bridge/1.0"
+private let bridgeMaximumBytes = 256 * 1024
+private let maximumQueryRows = 500
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-private struct DatabaseFailure: Error {
+struct DatabaseFailure: Error {
     let code: String
     let retryable: Bool
 }
 
-private final class GreenRoomDatabaseStore: @unchecked Sendable {
+func encodedBridgeJSONObject(_ value: Any, code: String, maximumBytes: Int = bridgeMaximumBytes) throws -> Data {
+    guard JSONSerialization.isValidJSONObject(value),
+          let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+          data.count <= maximumBytes else {
+        throw DatabaseFailure(code: code, retryable: false)
+    }
+    return data
+}
+
+func bridgeSuccessValueBudget(callId: String) throws -> Int {
+    let placeholder: [String: Any] = ["callId": callId, "ok": true, "value": NSNull()]
+    let encoded = try encodedBridgeJSONObject(placeholder, code: "result_too_large")
+    return bridgeMaximumBytes - (encoded.count - 4)
+}
+
+func canonicalBridgeCallId(_ value: Any?) -> String {
+    guard let supplied = value as? String,
+          supplied.count == 36,
+          supplied == supplied.lowercased(),
+          UUID(uuidString: supplied)?.uuidString.lowercased() == supplied else {
+        return "invalid"
+    }
+    return supplied
+}
+
+final class GreenRoomDatabaseStore: @unchecked Sendable {
     private var database: OpaquePointer?
     private let lock = NSLock()
+    private let directoryOverride: URL?
+    private let migrationsDirectoryOverride: URL?
+    private let fileProtector: (URL) throws -> Void
+
+    init(
+        directory: URL? = nil,
+        migrationsDirectory: URL? = nil,
+        fileProtector: ((URL) throws -> Void)? = nil
+    ) {
+        self.directoryOverride = directory
+        self.migrationsDirectoryOverride = migrationsDirectory
+        self.fileProtector = fileProtector ?? Self.applyDatabaseFileProtection
+    }
 
     deinit { if let database { sqlite3_close_v2(database) } }
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try lock.withLock {
-            guard expectedSchema == 3 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 4 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -74,14 +116,24 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func executeBatch(transactionId: String, statements: [[String: Any]]) throws -> [String: Any] {
         try lock.withLock {
-            guard !transactionId.isEmpty, transactionId.count <= 256,
+            guard !transactionId.isEmpty, transactionId.utf8.count <= 256,
+                  transactionId.trimmingCharacters(in: .whitespacesAndNewlines) == transactionId,
                   !statements.isEmpty, statements.count <= 64,
                   let database else {
                 throw DatabaseFailure(code: "transaction_rejected", retryable: false)
             }
+            try requireEncodedBudget(["transactionId": transactionId, "statements": statements], code: "invalid_call")
+            let requestDigest = try digest(statements)
             try execute("BEGIN IMMEDIATE", on: database)
             var changes = 0
             do {
+                if let prior = try priorTransaction(transactionId, on: database) {
+                    guard prior.digest == requestDigest else {
+                        throw DatabaseFailure(code: "transaction_rejected", retryable: false)
+                    }
+                    try execute("ROLLBACK", on: database)
+                    return prior.result
+                }
                 for statement in statements {
                     guard Set(statement.keys) == Set(["sqlId", "parameters"]),
                           let sqlId = statement["sqlId"] as? String,
@@ -105,9 +157,21 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                     }
                     changes += statementChanges
                 }
-                try execute("COMMIT", on: database)
+                let result: [String: Any] = ["changes": changes]
+                let resultData = try encodedJSONObject(result, code: "result_too_large")
+                let resultJSON = String(decoding: resultData, as: UTF8.self)
+                let registration = try prepare(
+                    "INSERT INTO bridge_transactions(transaction_id, request_digest, result_json) VALUES (?, ?, ?)",
+                    on: database
+                )
+                defer { sqlite3_finalize(registration) }
+                try bind([transactionId, requestDigest, resultJSON], to: registration)
+                guard sqlite3_step(registration) == SQLITE_DONE else {
+                    throw DatabaseFailure(code: "transaction_rejected", retryable: false)
+                }
                 try protectDatabaseFiles(try databaseURL())
-                return ["changes": changes]
+                try execute("COMMIT", on: database)
+                return result
             } catch {
                 _ = try? execute("ROLLBACK", on: database)
                 throw error
@@ -115,11 +179,16 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
-    func query(sqlId: String, parameters: [Any]) throws -> [String: Any] {
+    func query(
+        sqlId: String,
+        parameters: [Any],
+        maximumResultBytes: Int = bridgeMaximumBytes
+    ) throws -> [String: Any] {
         try lock.withLock {
             guard parameters.count <= 64, let database else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
+            try requireEncodedBudget(["sqlId": sqlId, "parameters": parameters], code: "invalid_call")
             let sql: String
             let column: String
             switch sqlId {
@@ -192,15 +261,31 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
             while true {
                 let step = sqlite3_step(prepared)
                 if step == SQLITE_DONE { break }
-                guard step == SQLITE_ROW, rows.count < 100 else {
+                guard step == SQLITE_ROW, rows.count < maximumQueryRows else {
                     throw DatabaseFailure(code: "result_too_large", retryable: false)
                 }
                 guard let value = sqlite3_column_text(prepared, 0) else {
                     throw DatabaseFailure(code: "internal_failure", retryable: false)
                 }
-                rows.append([String(cString: value)])
+                let byteCount = Int(sqlite3_column_bytes(prepared, 0))
+                guard byteCount <= bridgeMaximumBytes else {
+                    throw DatabaseFailure(code: "result_too_large", retryable: false)
+                }
+                let bytes = UnsafeRawBufferPointer(start: value, count: byteCount)
+                guard let decoded = String(bytes: bytes, encoding: .utf8) else {
+                    throw DatabaseFailure(code: "internal_failure", retryable: false)
+                }
+                let candidate = rows + [[decoded]]
+                try requireEncodedBudget(
+                    ["columns": [column], "rows": candidate],
+                    code: "result_too_large",
+                    maximumBytes: maximumResultBytes
+                )
+                rows.append([decoded])
             }
-            return ["columns": [column], "rows": rows]
+            let result: [String: Any] = ["columns": [column], "rows": rows]
+            try requireEncodedBudget(result, code: "result_too_large", maximumBytes: maximumResultBytes)
+            return result
         }
     }
 
@@ -228,6 +313,10 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
     ])
 
     private func applicationDirectory() throws -> URL {
+        if let directoryOverride {
+            try FileManager.default.createDirectory(at: directoryOverride, withIntermediateDirectories: true)
+            return directoryOverride
+        }
         let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let directory = root.appendingPathComponent("GreenRoom", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
@@ -243,6 +332,10 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 
     private func protectDatabaseFiles(_ databaseURL: URL) throws {
+        try fileProtector(databaseURL)
+    }
+
+    private static func applyDatabaseFileProtection(_ databaseURL: URL) throws {
         for url in [databaseURL, URL(fileURLWithPath: databaseURL.path + "-wal"), URL(fileURLWithPath: databaseURL.path + "-shm")] where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
             var values = URLResourceValues()
@@ -254,22 +347,22 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     private func migrate(_ database: OpaquePointer) throws {
         var current = try scalarInt("PRAGMA user_version", on: database)
-        guard current <= 3,
-              let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Migrations"),
+        guard current <= 4,
+              let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 3,
+              manifest["schema"] as? Int == 4,
               let migrations = manifest["migrations"] as? [[String: Any]],
-              migrations.count == 3 else {
+              migrations.count == 4 else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
         }
         for (index, migration) in migrations.enumerated() {
             let version = index + 1
             guard migration["version"] as? Int == version,
                   let file = migration["file"] as? String,
-                  file == ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql"][index],
+                  file == ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql"][index],
                   let expected = migration["sha256"] as? String,
-                  let migrationURL = Bundle.main.url(forResource: file.replacingOccurrences(of: ".sql", with: ""), withExtension: "sql", subdirectory: "Migrations"),
+                  let migrationURL = migrationURL(file: file),
                   let migrationData = try? Data(contentsOf: migrationURL),
                   expected == SHA256.hash(data: migrationData).map({ String(format: "%02x", $0) }).joined(),
                   let sql = String(data: migrationData, encoding: .utf8) else {
@@ -287,7 +380,16 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 3 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 4 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+    }
+
+    private func migrationURL(file: String) -> URL? {
+        if let migrationsDirectoryOverride {
+            return migrationsDirectoryOverride.appendingPathComponent(file)
+        }
+        let extensionName = (file as NSString).pathExtension
+        let resource = (file as NSString).deletingPathExtension
+        return Bundle.main.url(forResource: resource, withExtension: extensionName, subdirectory: "Migrations")
     }
 
     private func execute(_ sql: String, on database: OpaquePointer) throws -> Void {
@@ -303,6 +405,51 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
         return Int(sqlite3_column_int64(statement, 0))
     }
 
+    private func encodedJSONObject(_ value: Any, code: String) throws -> Data {
+        try encodedBridgeJSONObject(value, code: code)
+    }
+
+    private func requireEncodedBudget(
+        _ value: Any,
+        code: String,
+        maximumBytes: Int = bridgeMaximumBytes
+    ) throws {
+        _ = try encodedBridgeJSONObject(value, code: code, maximumBytes: maximumBytes)
+    }
+
+    private func digest(_ statements: [[String: Any]]) throws -> String {
+        let data = try encodedJSONObject(statements, code: "transaction_rejected")
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func priorTransaction(
+        _ transactionId: String,
+        on database: OpaquePointer
+    ) throws -> (digest: String, result: [String: Any])? {
+        let statement = try prepare(
+            "SELECT request_digest, result_json FROM bridge_transactions WHERE transaction_id = ?",
+            on: database
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind([transactionId], to: statement)
+        let step = sqlite3_step(statement)
+        if step == SQLITE_DONE { return nil }
+        guard step == SQLITE_ROW,
+              let digestBytes = sqlite3_column_text(statement, 0),
+              let resultBytes = sqlite3_column_text(statement, 1) else {
+            throw DatabaseFailure(code: "database_unavailable", retryable: true)
+        }
+        let digest = String(cString: digestBytes)
+        let resultLength = Int(sqlite3_column_bytes(statement, 1))
+        guard resultLength <= bridgeMaximumBytes,
+              let result = try? JSONSerialization.jsonObject(
+                with: Data(bytes: resultBytes, count: resultLength)
+              ) as? [String: Any] else {
+            throw DatabaseFailure(code: "database_unavailable", retryable: false)
+        }
+        return (digest, result)
+    }
+
     private func prepare(_ sql: String, on database: OpaquePointer) throws -> OpaquePointer {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
@@ -316,7 +463,23 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
             let index = Int32(offset + 1)
             let result: Int32
             if let value = value as? String {
-                result = sqlite3_bind_text(statement, index, value, -1, sqliteTransient)
+                let data = Data(value.utf8)
+                guard data.count <= bridgeMaximumBytes else {
+                    throw DatabaseFailure(code: "invalid_call", retryable: false)
+                }
+                if data.isEmpty {
+                    result = sqlite3_bind_text(statement, index, "", 0, sqliteTransient)
+                } else {
+                    result = data.withUnsafeBytes { bytes in
+                        sqlite3_bind_text(
+                            statement,
+                            index,
+                            bytes.baseAddress!.assumingMemoryBound(to: CChar.self),
+                            Int32(data.count),
+                            sqliteTransient
+                        )
+                    }
+                }
             } else if let value = value as? NSNumber {
                 result = sqlite3_bind_int64(statement, index, value.int64Value)
             } else if value is NSNull {
@@ -329,6 +492,7 @@ private final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 }
 
+#if canImport(Capacitor)
 @objc(GreenRoomDatabasePlugin)
 final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "GreenRoomDatabasePlugin"
@@ -383,22 +547,31 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
                   let parameters = payload["parameters"] as? [Any] else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            return try self.store.query(sqlId: sqlId, parameters: parameters)
+            let options = call.options as? [String: Any] ?? [:]
+            let callId = options["callId"] as? String ?? "invalid"
+            return try self.store.query(
+                sqlId: sqlId,
+                parameters: parameters,
+                maximumResultBytes: bridgeSuccessValueBudget(callId: callId)
+            )
         }
     }
 
     private func respond(_ call: CAPPluginCall, method: String, operation: ([String: Any]) throws -> [String: Any]) {
         let options = call.options as? [String: Any] ?? [:]
-        let callId = options["callId"] as? String ?? "invalid"
+        let callId = canonicalBridgeCallId(options["callId"])
         do {
             guard Set(options.keys) == Set(["contractVersion", "callId", "method", "payload"]),
                   options["contractVersion"] as? String == bridgeContractVersion,
                   options["method"] as? String == method,
-                  callId.count == 36, UUID(uuidString: callId) != nil,
+                  callId != "invalid",
                   let payload = options["payload"] as? [String: Any] else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            call.resolve(["callId": callId, "ok": true, "value": try operation(payload)])
+            _ = try encodedBridgeJSONObject(options, code: "invalid_call")
+            let response: [String: Any] = ["callId": callId, "ok": true, "value": try operation(payload)]
+            _ = try encodedBridgeJSONObject(response, code: "result_too_large")
+            call.resolve(response)
         } catch let failure as DatabaseFailure {
             call.resolve(["callId": callId, "ok": false, "error": ["code": failure.code, "retryable": failure.retryable]])
         } catch {
@@ -406,3 +579,4 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 }
+#endif

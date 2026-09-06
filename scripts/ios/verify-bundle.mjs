@@ -43,13 +43,13 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
   ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
-  ["room-runtime.js", "7228795405783fd9b1920e64b3567602b9d74fa23494319a959a2a5752a6935c"],
+  ["room-runtime.js", "630bf50f2507cfb0ae4f1ac1f0282bb5df0b9da5a03f984f8624ec09826e3bc9"],
   ["shell.css", "db40b8af8478a57034d9328b953b298fbc0b54cba768bdb1eb1d3e1a52c6c319"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "86fc61bc362ffd04df59201708675c7cd2d94dd04b74fa844fc7da6fee677c5b"],
   ["App/ContainedBridgeViewController.swift", "7106dcea2ebfdf4dbbb09746b692fc0e4252b7b96b511145c6ab7b29ccb6183f"],
-  ["App/GreenRoomDatabasePlugin.swift", "f4651e17c9fe0f3f49595179619a087307b5d36354652b1bfe4a4f1ce24a1db8"],
+  ["App/GreenRoomDatabasePlugin.swift", "bf7d0b06a7e008e85632a3270f665cbb078d118923b4a9deeaa828c4a4acfdd9"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -216,6 +216,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
+    "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",

@@ -4,12 +4,18 @@ import { DIRECTOR_REASON, Director, TrustedEventAdapter } from "./director.js";
 const CONTRACT_VERSION = "iphone-native-bridge/1.0";
 const MAX_CAST = 3;
 const MAX_EVENT_PAGE = 100;
+const MAX_BRIDGE_BYTES = 256 * 1024;
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
 const DIRECTOR_REASONS = new Set(Object.values(DIRECTOR_REASON));
 let activeRoom = null;
 let activeEvents = Object.freeze([]);
+let activeViewToken = 0;
+
+function encodedBytes(value) {
+  return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value)).byteLength;
+}
 
 function exactRecord(value, keys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
@@ -26,7 +32,10 @@ async function invoke(plugin, method, payload, uuid) {
   const action = method.split(".").at(-1);
   if (!action || typeof plugin?.[action] !== "function") throw new Error("The native room database is unavailable.");
   const callId = nextUuid(uuid);
-  const response = await plugin[action]({ contractVersion: CONTRACT_VERSION, callId, method, payload });
+  const request = { contractVersion: CONTRACT_VERSION, callId, method, payload };
+  if (encodedBytes(request) > MAX_BRIDGE_BYTES) throw new Error("Native room database failed: invalid_call");
+  const response = await plugin[action](request);
+  if (encodedBytes(response) > MAX_BRIDGE_BYTES) throw new Error("Native room database failed: result_too_large");
   if (!exactRecord(response, response?.ok === true ? ["callId", "ok", "value"] : ["callId", "error", "ok"]) ||
       response.callId !== callId || typeof response.ok !== "boolean") {
     throw new Error("Invalid native bridge response.");
@@ -109,7 +118,7 @@ function parseDirectorContext(value, room) {
     throw new Error("Invalid native director projection.");
   }
   const encoded = value.rows[0]?.[0];
-  if (typeof encoded !== "string" || encoded.length > 128 * 1024) throw new Error("Invalid native director projection.");
+  if (typeof encoded !== "string" || encodedBytes(encoded) > MAX_BRIDGE_BYTES) throw new Error("Invalid native director projection.");
   const context = JSON.parse(encoded);
   if (!exactRecord(context, ["generation", "nextEventSequence", "personas", "roomId", "state"]) ||
       context.roomId !== room.id || context.generation !== room.generation ||
@@ -141,7 +150,7 @@ async function readDirectorContext(plugin, room, uuid) {
 }
 
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 3 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 4 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
   return Object.freeze({ events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
@@ -195,7 +204,7 @@ export async function sendLocalMessage(
   const human = room?.participants?.find(({ kind }) => kind === "human");
   if (!human || !ROOM_ID.test(room.id)) throw new TypeError("A valid open room is required.");
   const requestId = options.requestId ?? nextUuid(uuid);
-  if (!UUID.test(requestId)) throw new TypeError("requestId must be a UUID.");
+  if (!UUID.test(requestId)) throw new TypeError("requestId must be a canonical lowercase UUID.");
 
   const events = await readRoomEvents(plugin, room.id, uuid);
   const context = await readDirectorContext(plugin, room, uuid);
@@ -286,8 +295,9 @@ export function renderEvents(events, documentRoot = document, room = activeRoom)
   documentRoot.getElementById("empty-transcript").hidden = events.length > 0;
 }
 
-function renderRoom(opened) {
+export function renderRoom(opened) {
   const room = opened.room;
+  activeViewToken += 1;
   activeRoom = room;
   activeEvents = opened.events ?? Object.freeze([]);
   const cast = room.participants.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => CATALOG.get(personaSlug));
@@ -311,6 +321,10 @@ function renderRoom(opened) {
   }));
   document.getElementById("room-view").hidden = false;
   document.getElementById("picker-view").hidden = true;
+  const input = document.getElementById("message-text");
+  input.disabled = false;
+  input.value = "";
+  document.getElementById("message-status").textContent = "Human lines save locally. AI replies are not enabled yet.";
   renderEvents(activeEvents);
   document.documentElement.dataset.localRoomBoot = "open";
   document.documentElement.dataset.localRoomSource = opened.source;
@@ -318,13 +332,13 @@ function renderRoom(opened) {
   document.documentElement.dataset.localRoomEventCount = String(activeEvents.length);
 }
 
-function pickerController(plugin, currentRoom, uuid = () => crypto.randomUUID()) {
+export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
   const selected = new Set();
   const grid = document.getElementById("persona-grid");
   const count = document.getElementById("selection-count");
   const create = document.getElementById("create-room");
   const cancel = document.getElementById("cancel-picker");
-  cancel.hidden = currentRoom === null;
+  cancel.hidden = activeRoom === null;
 
   function refresh() {
     count.textContent = `${selected.size} of ${MAX_CAST} selected`;
@@ -368,44 +382,88 @@ function pickerController(plugin, currentRoom, uuid = () => crypto.randomUUID())
     try { renderRoom(await createLocalRoom(plugin, [...selected], uuid)); }
     catch { document.getElementById("picker-status").textContent = "The local room could not be created."; refresh(); }
   });
-  cancel.addEventListener("click", () => renderRoom({ events: activeEvents, room: currentRoom, source: "reopened" }));
+  cancel.addEventListener("click", async () => {
+    try {
+      if (!await reopenAuthoritativeRoom(plugin, uuid)) {
+        document.getElementById("picker-status").textContent = "The current local room changed; reopen it again.";
+      }
+    } catch {
+      document.getElementById("picker-status").textContent = "The current local room could not be reopened.";
+    }
+  });
   refresh();
 }
 
-function showPicker() {
+export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.randomUUID()) {
+  const pickerToken = activeViewToken;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const room = await readCurrentRoom(plugin, uuid);
+    if (room === null || activeViewToken !== pickerToken) return false;
+    const events = await readRoomEvents(plugin, room.id, uuid);
+    const confirmed = await readCurrentRoom(plugin, uuid);
+    if (activeViewToken !== pickerToken) return false;
+    if (confirmed?.id === room.id) {
+      renderRoom({ events: Object.freeze(events), room, source: "reopened" });
+      return true;
+    }
+  }
+  return false;
+}
+
+export function showPicker() {
+  activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = false;
   document.documentElement.dataset.localRoomBoot = "picker";
   document.documentElement.dataset.localRoomSource = "empty";
+  document.getElementById("cancel-picker").hidden = activeRoom === null;
   document.getElementById("picker-title").focus();
+}
+
+export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID()) {
+  if (activeRoom === null) throw new TypeError("A valid open room is required.");
+  const room = activeRoom;
+  const token = activeViewToken;
+  return Object.freeze({
+    room,
+    committed: sendLocalMessage(plugin, room, text, uuid),
+    isCurrent: () => activeViewToken === token && activeRoom?.id === room.id,
+  });
 }
 
 async function boot() {
   try {
     const plugin = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
     const opened = await openLocalRoom(plugin);
-    pickerController(plugin, opened.room);
+    pickerController(plugin);
     document.getElementById("new-room").addEventListener("click", showPicker);
     document.getElementById("message-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const input = document.getElementById("message-text");
       const status = document.getElementById("message-status");
       if (activeRoom === null) return;
+      const pending = beginActiveRoomSend(plugin, input.value);
       input.disabled = true;
       status.textContent = "Committing your line and director decision…";
       try {
-        const committed = await sendLocalMessage(plugin, activeRoom, input.value);
-        input.value = "";
-        activeEvents = committed.events;
-        renderEvents(activeEvents);
-        status.textContent = committed.decision.speaker === null
-          ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
-          : "Saved locally. A character was selected; response generation is not enabled yet.";
+        const committed = await pending.committed;
+        if (pending.isCurrent()) {
+          input.value = "";
+          activeEvents = committed.events;
+          renderEvents(activeEvents);
+          status.textContent = committed.decision.speaker === null
+            ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
+            : "Saved locally. A character was selected; response generation is not enabled yet.";
+        }
       } catch {
-        status.textContent = "Your line and director decision were not committed.";
+        if (pending.isCurrent()) {
+          status.textContent = "Your line and director decision were not committed.";
+        }
       } finally {
-        input.disabled = false;
-        input.focus();
+        if (pending.isCurrent()) {
+          input.disabled = false;
+          input.focus();
+        }
       }
     });
     if (opened.room === null) showPicker(); else renderRoom(opened);
