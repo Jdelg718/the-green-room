@@ -5,6 +5,7 @@
   --acid: #b9ff29;
   --red: #ed4f37;
   --blue: #3d5afe;
+  --amber: #f0b323;
   --muted: #655f51;
   --white: #fffdf4;
   --rule: 3px solid var(--ink);
@@ -255,6 +256,7 @@ h1 {
   place-items: center;
   margin: 0;
   overflow: hidden;
+  border-top: 0.6rem solid var(--tone);
   border-bottom: var(--rule);
   background: var(--ink);
 }
@@ -269,7 +271,7 @@ h1 {
   object-position: var(--crop);
   color: transparent;
   font-size: 0;
-  filter: contrast(1.08) saturate(0.82);
+  filter: contrast(1.04) saturate(1.05);
 }
 .portrait::before {
   content: "";
@@ -278,7 +280,7 @@ h1 {
   inset: 0;
   background: var(--tone);
   mix-blend-mode: color;
-  opacity: 0.2;
+  opacity: 0.06;
   pointer-events: none;
 }
 .portrait::after {
@@ -314,7 +316,7 @@ h1 {
 .cast-copy { min-width: 0; padding: 1rem; }
 .profile-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.43fr); gap: clamp(2rem, 6vw, 5rem); align-items: center; }
 .profile-hero-copy { min-width: 0; }
-.profile-portrait { width: min(100%, 25rem); justify-self: end; border: var(--rule); box-shadow: var(--shadow); transform: rotate(1deg); }
+.profile-portrait { width: min(100%, 25rem); justify-self: end; border: var(--rule); border-top: 0.6rem solid var(--tone); box-shadow: var(--shadow); transform: rotate(1deg); }
 .profile-portrait figcaption { display: block; }
 .profile-portrait figcaption span { display: block; margin-top: 0.25rem; }
 .portrait--ada-lovelace { --crop: 50% 33%; --tone: #ed4f37; }
