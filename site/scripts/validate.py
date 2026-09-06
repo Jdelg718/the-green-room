@@ -755,7 +755,18 @@ def validate_character_index(parser: PageParser, errors: list[str]) -> None:
         ]
         if len(matching_cards) != 1:
             fail(errors, f"characters/index.html: expected one cast card for {name}")
-        elif slug in CAST_STATUS_LABELS:
+        else:
+            card = matching_cards[0]
+            card_classes = set(element_attrs(parser.elements[card]).get("class", "").split())
+            portrait_classes = {"portrait", f"portrait--{slug}"}
+            portraits = [
+                set(element_attrs(element).get("class", "").split())
+                for _, element in scoped_elements(parser, "figure", card)
+            ]
+            if f"portrait--{slug}" in card_classes or portraits != [portrait_classes]:
+                fail(errors, f"characters/index.html: portrait tone class must be on the figure for {name}")
+
+        if len(matching_cards) == 1 and slug in CAST_STATUS_LABELS:
             status_labels = [
                 index
                 for index, element in scoped_elements(parser, "small", matching_cards[0])

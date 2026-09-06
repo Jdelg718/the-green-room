@@ -169,6 +169,18 @@ class StaticPolicyTests(unittest.TestCase):
             with self.subTest(hook=hook):
                 self.assertIn(hook, stylesheet)
 
+    def test_amber_token_is_synchronized_across_site_app_and_ios_stylesheets(self) -> None:
+        root = validate.SITE.parent
+        for relative in (
+            "site/assets/site.css",
+            "public/styles.css",
+            "ios-web/shell.css",
+            "ios/App/App/public/shell.css",
+        ):
+            with self.subTest(relative=relative):
+                stylesheet = (root / relative).read_text(encoding="utf-8")
+                self.assertEqual(stylesheet.count("--amber: #f0b323;"), 1)
+
     def test_new_profiles_reject_public_safety_and_accuracy_failures(self) -> None:
         fixtures = {
             "hal-finney": ("Satoshi identity speculation", "<p>Hal Finney was Satoshi Nakamoto.</p>"),
@@ -238,6 +250,18 @@ class StaticPolicyTests(unittest.TestCase):
                 self.assertIn(old, source)
                 page.write_text(source.replace(old, new, 1), encoding="utf-8")
                 self.assert_rejected(validate.collect_errors(site), reason)
+
+    def test_character_index_rejects_portrait_tone_class_on_card_instead_of_figure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "characters" / "index.html"
+            source = page.read_text(encoding="utf-8")
+            correct = '<li class="cast-card"><figure class="portrait portrait--ada-lovelace">'
+            misplaced = '<li class="cast-card portrait--ada-lovelace"><figure class="portrait">'
+            self.assertIn(correct, source)
+            page.write_text(source.replace(correct, misplaced, 1), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "portrait tone class must be on the figure for Ada Lovelace")
 
     def test_profile_fields_must_be_semantic_not_incidental_text(self) -> None:
         mutations = {
