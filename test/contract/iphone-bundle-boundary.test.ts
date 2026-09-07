@@ -47,6 +47,7 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     "ios/App/App.xcodeproj/project.pbxproj",
     "ios/App/App/ContainedBridgeViewController.swift",
     "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
+    "ios/App/App/Providers/ApprovedProviderDefinitions.swift",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios-web/index.html",
     "scripts/ios/verify-bundle.mjs",
@@ -176,6 +177,24 @@ test("wrong bundle identifier, minimum OS, and device family fail closed", (cont
   cpSync(join(ROOT, "ios/App/App.xcodeproj/project.pbxproj"), join(root, "ios/App/App.xcodeproj/project.pbxproj"));
   rewrite(root, "ios/App/App.xcodeproj/project.pbxproj", (source) => source.replace("TARGETED_DEVICE_FAMILY = 1", 'TARGETED_DEVICE_FAMILY = "1,2"'));
   rejects(root, /iPhone-only/u);
+});
+
+test("approved provider definitions are reviewed bytes and an exact target source", (context) => {
+  const root = fixture(context);
+  const providerSource = "ios/App/App/Providers/ApprovedProviderDefinitions.swift";
+  rewrite(root, providerSource, (source) => source.replace("api.openai.com", "evil.invalid"));
+  rejects(root, /ApprovedProviderDefinitions\.swift.*reviewed bytes/u);
+
+  cpSync(join(ROOT, providerSource), join(root, providerSource));
+  rmSync(join(root, providerSource));
+  rejects(root, /missing required file.*ApprovedProviderDefinitions\.swift/u);
+
+  cpSync(join(ROOT, providerSource), join(root, providerSource));
+  rewrite(root, "ios/App/App.xcodeproj/project.pbxproj", (source) => source.replace(
+    /^\s*A1600000000000000000000A \/\* ApprovedProviderDefinitions\.swift in Sources \*\/,.*\n/mu,
+    "",
+  ));
+  rejects(root, /ApprovedProviderDefinitions\.swift must occur exactly once in the Xcode Sources build phase/u);
 });
 
 test("symlinks and linked escape payloads fail closed without following", (context) => {

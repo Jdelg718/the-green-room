@@ -1,48 +1,21 @@
 import { isBoundedOpaqueModelId } from "./opaque-model-id.js";
 import { isOrdinaryDataArray, isOrdinaryDataObject } from "./plain-data.js";
+import {
+  getProviderDefinition,
+  type ApprovedCloudProviderId,
+} from "../../packages/core/src/providers/provider-definitions.js";
 
-export const APPROVED_CLOUD_PROVIDER_IDS = Object.freeze([
-  "openrouter", "openai", "xai", "groq", "together",
-] as const);
-export type ApprovedCloudProviderId = (typeof APPROVED_CLOUD_PROVIDER_IDS)[number];
-export type OutputTokenField = "max_tokens" | "max_completion_tokens";
-export type ModelParser = "data-id" | "array-id";
-
-export interface CloudProviderDefinition {
-  readonly id: ApprovedCloudProviderId;
-  readonly version: 1;
-  readonly adapter: "openai-compatible";
-  readonly scheme: "https";
-  readonly hostname: string;
-  readonly port: 443;
-  readonly basePath: string;
-  readonly modelsPath: string;
-  readonly chatPath: string;
-  readonly authorization: Readonly<{ scheme: "Bearer"; header: "authorization" }>;
-  readonly outputTokenField: OutputTokenField;
-  readonly modelParser: ModelParser;
-}
-
-const auth = (): CloudProviderDefinition["authorization"] => Object.freeze({ scheme: "Bearer", header: "authorization" });
-function definition(id: ApprovedCloudProviderId, hostname: string, basePath: string, outputTokenField: OutputTokenField, modelParser: ModelParser): CloudProviderDefinition {
-  return Object.freeze({ id, version: 1, adapter: "openai-compatible", scheme: "https", hostname, port: 443, basePath,
-    modelsPath: `${basePath}/models`, chatPath: `${basePath}/chat/completions`, authorization: auth(), outputTokenField, modelParser });
-}
-const DEFINITIONS: Readonly<Record<ApprovedCloudProviderId, CloudProviderDefinition>> = Object.freeze({
-  openrouter: definition("openrouter", "openrouter.ai", "/api/v1", "max_tokens", "data-id"),
-  openai: definition("openai", "api.openai.com", "/v1", "max_completion_tokens", "data-id"),
-  xai: definition("xai", "api.x.ai", "/v1", "max_tokens", "data-id"),
-  groq: definition("groq", "api.groq.com", "/openai/v1", "max_completion_tokens", "data-id"),
-  together: definition("together", "api.together.ai", "/v1", "max_tokens", "array-id"),
-});
-
-export function isApprovedCloudProviderId(value: unknown): value is ApprovedCloudProviderId {
-  return typeof value === "string" && (APPROVED_CLOUD_PROVIDER_IDS as readonly string[]).includes(value);
-}
-export function getProviderDefinition(id: ApprovedCloudProviderId): CloudProviderDefinition {
-  if (!isApprovedCloudProviderId(id)) throw new TypeError("cloud provider definition is not approved");
-  return DEFINITIONS[id];
-}
+export {
+  APPROVED_CLOUD_PROVIDER_DEFINITIONS,
+  APPROVED_CLOUD_PROVIDER_IDS,
+  getProviderDefinition,
+  isApprovedCloudProviderId,
+  parseProviderDefinitionsFixture,
+  type ApprovedCloudProviderId,
+  type CloudProviderDefinition,
+  type ModelParser,
+  type OutputTokenField,
+} from "../../packages/core/src/providers/provider-definitions.js";
 
 function opaqueModelId(value: unknown): string {
   if (!isBoundedOpaqueModelId(value)) {

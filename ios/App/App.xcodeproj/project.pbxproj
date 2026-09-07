@@ -25,6 +25,7 @@
 		A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000017 /* SecurityCredentialStore.swift */; };
 		A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */; };
 		A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000021 /* DeviceCredentialAcceptance.swift */; };
+		A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000022 /* ApprovedProviderDefinitions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 		A16000000000000000000017 /* SecurityCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityCredentialStore.swift; sourceTree = "<group>"; };
 		A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialPlugin.swift; sourceTree = "<group>"; };
 		A16000000000000000000021 /* DeviceCredentialAcceptance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialAcceptance.swift; sourceTree = "<group>"; };
+		A16000000000000000000022 /* ApprovedProviderDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovedProviderDefinitions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -86,6 +88,7 @@
 				A16000000000000000000011 /* ContainedBridgeViewController.swift */,
 				A16000000000000000000013 /* GreenRoomDatabasePlugin.swift */,
 				A16000000000000000000020 /* Credentials */,
+				A16000000000000000000023 /* Providers */,
 				A16000000000000000000014 /* Migrations */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -117,6 +120,14 @@
 				A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */,
 			);
 			path = Credentials;
+			sourceTree = "<group>";
+		};
+		A16000000000000000000023 /* Providers */ = {
+			isa = PBXGroup;
+			children = (
+				A16000000000000000000022 /* ApprovedProviderDefinitions.swift */,
+			);
+			path = Providers;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -210,6 +221,7 @@
 				A16000000000000000000007 /* SecurityCredentialStore.swift in Sources */,
 				A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */,
 				A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */,
+				A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

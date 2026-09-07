@@ -1,0 +1,87 @@
+[
+  {
+    "id": "openrouter",
+    "version": 1,
+    "adapter": "openai-compatible",
+    "scheme": "https",
+    "hostname": "openrouter.ai",
+    "port": 443,
+    "basePath": "/api/v1",
+    "modelsPath": "/api/v1/models",
+    "chatPath": "/api/v1/chat/completions",
+    "authorization": {
+      "scheme": "Bearer",
+      "header": "authorization"
+    },
+    "outputTokenField": "max_tokens",
+    "modelParser": "data-id"
+  },
+  {
+    "id": "openai",
+    "version": 1,
+    "adapter": "openai-compatible",
+    "scheme": "https",
+    "hostname": "api.openai.com",
+    "port": 443,
+    "basePath": "/v1",
+    "modelsPath": "/v1/models",
+    "chatPath": "/v1/chat/completions",
+    "authorization": {
+      "scheme": "Bearer",
+      "header": "authorization"
+    },
+    "outputTokenField": "max_completion_tokens",
+    "modelParser": "data-id"
+  },
+  {
+    "id": "xai",
+    "version": 1,
+    "adapter": "openai-compatible",
+    "scheme": "https",
+    "hostname": "api.x.ai",
+    "port": 443,
+    "basePath": "/v1",
+    "modelsPath": "/v1/models",
+    "chatPath": "/v1/chat/completions",
+    "authorization": {
+      "scheme": "Bearer",
+      "header": "authorization"
+    },
+    "outputTokenField": "max_tokens",
+    "modelParser": "data-id"
+  },
+  {
+    "id": "groq",
+    "version": 1,
+    "adapter": "openai-compatible",
+    "scheme": "https",
+    "hostname": "api.groq.com",
+    "port": 443,
+    "basePath": "/openai/v1",
+    "modelsPath": "/openai/v1/models",
+    "chatPath": "/openai/v1/chat/completions",
+    "authorization": {
+      "scheme": "Bearer",
+      "header": "authorization"
+    },
+    "outputTokenField": "max_completion_tokens",
+    "modelParser": "data-id"
+  },
+  {
+    "id": "together",
+    "version": 1,
+    "adapter": "openai-compatible",
+    "scheme": "https",
+    "hostname": "api.together.ai",
+    "port": 443,
+    "basePath": "/v1",
+    "modelsPath": "/v1/models",
+    "chatPath": "/v1/chat/completions",
+    "authorization": {
+      "scheme": "Bearer",
+      "header": "authorization"
+    },
+    "outputTokenField": "max_tokens",
+    "modelParser": "array-id"
+  }
+]

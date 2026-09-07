@@ -351,9 +351,9 @@ the protection attribute; no physical iOS 18.6 test is claimed.
 **Objective:** Match desktop provider destinations without accepting caller URLs.
 
 **Files:**
-- Create: `ios/Packages/GreenRoomNativeBridge/Sources/Providers/**`
+- Create: `ios/App/App/Providers/ApprovedProviderDefinitions.swift`
 - Generate from: `packages/core/src/providers/provider-definitions.ts`
-- Test: `ios/App/AppTests/ProviderDefinitionTests.swift`
+- Test: `ios/Tests/ProviderDefinitionTests.swift`
 
 **Steps:**
 1. Generate or fixture-check provider ID → host/path/token-field/parser mappings for all five providers.
