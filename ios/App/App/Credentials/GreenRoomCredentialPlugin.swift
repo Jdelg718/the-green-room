@@ -158,10 +158,9 @@ final class GreenRoomCredentialPlugin: CAPPlugin, CAPBridgedPlugin {
                 throw DatabaseFailure(code: "credential_unavailable", retryable: true)
             }
             completionOwnsCallId = true
-            NativeCredentialAlertSource(presenter: presenter).requestSecret(for: request) { [weak self, weak call] outcome in
+            NativeCredentialAlertSource(presenter: presenter).requestSecret(for: request) { [weak self] outcome in
                 guard let self else { return }
                 defer { self.inFlightCalls.finish(callId) }
-                guard let call else { return }
                 switch outcome {
                 case .success(var secret):
                     do {

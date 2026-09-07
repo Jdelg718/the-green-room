@@ -96,6 +96,14 @@ test("Objective-C save-sheet bridge entry is nonisolated and hops explicitly to 
   assert.ok(presenterRead > nativeSource.indexOf("private func presentSaveSheetOnMain"));
 });
 
+test("credential save retains its bridge call until the native sheet resolves", () => {
+  const nativeSource = readFileSync(join(ROOT, "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift"), "utf8");
+  const entry = nativeSource.match(/@objc nonisolated func presentSaveSheet[\s\S]*?private func presentSaveSheetOnMain/u)?.[0] ?? "";
+  assert.match(entry, /DispatchQueue\.main\.async/u);
+  assert.doesNotMatch(nativeSource, /requestSecret\([^)]*\)\s*\{\s*\[weak self, weak call\]/u);
+  assert.match(nativeSource, /requestSecret\([^)]*\)\s*\{\s*\[weak self\]/u);
+});
+
 test("synthetic credential sentinel is confined to constructed native test memory", () => {
   const exactSentinel = ["NATIVE", "ONLY", "CREDENTIAL", "SENTINEL"].join("_");
   const tracked = execFileSync("/usr/bin/git", ["ls-files", "-co", "--exclude-standard", "-z"], {
