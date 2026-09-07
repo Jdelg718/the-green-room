@@ -209,6 +209,7 @@ struct NativeDatabaseTests {
         }
 
         try runCredentialStoreTests()
-        print("PASS native database and credential lifecycle: byte budgets, durable replay, tombstone ordering, reconciliation, and sentinel confinement")
+        try runProviderDefinitionTests()
+        print("PASS native database, credential lifecycle, and fixed provider definitions: byte budgets, durable replay, tombstone ordering, reconciliation, destination validation, and sentinel confinement")
     }
 }
