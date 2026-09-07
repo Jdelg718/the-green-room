@@ -643,6 +643,22 @@ class StaticPolicyTests(unittest.TestCase):
                 "restrictive content-security-policy policy",
             )
 
+    def test_requires_exact_restrictive_hsts_policy(self) -> None:
+        expected = "  Strict-Transport-Security: max-age=31536000\n"
+        mutations = ("", "  Strict-Transport-Security: max-age=300\n")
+        for replacement in mutations:
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                headers = site / "_headers"
+                source = headers.read_text(encoding="utf-8")
+                self.assertIn(expected, source)
+                headers.write_text(source.replace(expected, replacement, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "restrictive strict-transport-security policy",
+                )
+
     def test_portrait_bytes_are_pinned_and_originals_are_not_public_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"

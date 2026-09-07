@@ -1326,11 +1326,21 @@ def collect_errors(site: Path = SITE) -> list[str]:
             "referrer-policy:": ("no-referrer",),
             "x-content-type-options:": ("nosniff",),
             "permissions-policy:": ("camera=()", "microphone=()", "payment=()"),
+            "strict-transport-security:": ("max-age=31536000",),
         }
         for header, directives in required_headers.items():
-            if header not in headers_source or not all(
-                directive in headers_source for directive in directives
-            ):
+            if header == "strict-transport-security:":
+                policy_is_restrictive = bool(
+                    re.search(
+                        r"(?m)^\s*strict-transport-security\s*:\s*max-age=31536000\s*$",
+                        headers_source,
+                    )
+                )
+            else:
+                policy_is_restrictive = header in headers_source and all(
+                    directive in headers_source for directive in directives
+                )
+            if not policy_is_restrictive:
                 fail(errors, f"_headers: missing restrictive {header[:-1]} policy")
 
     readme = site / "README.md"
