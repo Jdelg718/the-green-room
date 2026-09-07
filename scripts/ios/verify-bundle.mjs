@@ -54,13 +54,14 @@ const REVIEWED_WEB_SHA256 = new Map([
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "f2dd61c55131b1a27e0dc1773f0907f3a01a06e4c425b9da7b35d78e8fad26ea"],
-  ["App/ContainedBridgeViewController.swift", "ea017915fee83bee84430895cbd6de30154452c56169f4b88e5a1042eb3f9bdd"],
+  ["App/ContainedBridgeViewController.swift", "18048502d82273a5fa4c1229811737e7216a554c0634d802d2ae607ce769a9f0"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
   ["App/Credentials/DeviceCredentialAcceptance.swift", "10721b8097feb5b5493e58af48a83cc13ee9888b48afcb87c3513fa822e37032"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
-  ["App/GreenRoomDatabasePlugin.swift", "61067242a8da6ad5a07a21fa79e9c512aceb8b6f4815e4a1524aa6dc4015c39c"],
+  ["App/GreenRoomDatabasePlugin.swift", "6b8743dc990a71293e767deb88654dc5b72fb33378a582dc17a6452695c9cb54"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "e8272a9f71a66377e2290a6323a4db83aa622af0d2c15b741a189fc145b4c98c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
@@ -301,10 +302,12 @@ export function verifySource(root = process.cwd()) {
   requireCondition(/ContainedBridgeViewController\.swift in Sources/u.test(project) && /GreenRoomDatabasePlugin\.swift in Sources/u.test(project) && /GreenRoomCredentialPlugin\.swift in Sources/u.test(project) && /ApprovedProviderDefinitions\.swift in Sources/u.test(project) && /PrivacyInfo\.xcprivacy in Resources/u.test(project) && /Migrations in Resources/u.test(project), "local-room native source or resources are not in the target");
   requireCondition((project.match(/A1600000000000000000000A \/\* ApprovedProviderDefinitions\.swift in Sources \*\/ = \{isa = PBXBuildFile; fileRef = A16000000000000000000022 \/\* ApprovedProviderDefinitions\.swift \*\/; \};/gu) ?? []).length === 1, "ApprovedProviderDefinitions.swift must have one exact Xcode build-file mapping");
   requireCondition((project.match(/A16000000000000000000022 \/\* ApprovedProviderDefinitions\.swift \*\/ = \{isa = PBXFileReference; lastKnownFileType = sourcecode\.swift; path = ApprovedProviderDefinitions\.swift; sourceTree = "<group>"; \};/gu) ?? []).length === 1, "ApprovedProviderDefinitions.swift must have one exact Xcode file reference");
+  requireCondition((project.match(/A16000000000000000000024 \/\* GreenRoomProviderPlugin\.swift \*\/ = \{isa = PBXFileReference; lastKnownFileType = sourcecode\.swift; path = GreenRoomProviderPlugin\.swift; sourceTree = "<group>"; \};/gu) ?? []).length === 1, "GreenRoomProviderPlugin.swift must have one exact Xcode file reference");
   const sourcesPhase = project.match(/\/\* Begin PBXSourcesBuildPhase section \*\/[\s\S]*?\/\* End PBXSourcesBuildPhase section \*\//u)?.[0] ?? "";
   requireCondition((sourcesPhase.match(/A1600000000000000000000A \/\* ApprovedProviderDefinitions\.swift in Sources \*\//gu) ?? []).length === 1, "ApprovedProviderDefinitions.swift must occur exactly once in the Xcode Sources build phase");
+  requireCondition((sourcesPhase.match(/A1600000000000000000000B \/\* GreenRoomProviderPlugin\.swift in Sources \*\//gu) ?? []).length === 1, "GreenRoomProviderPlugin.swift must occur exactly once in the Xcode Sources build phase");
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "GreenRoomProviderPlugin.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
 
   const acceptance = readText(join(sourceRoot, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), sourceRoot);
   requireCondition(acceptance.startsWith("#if DEBUG\n") && acceptance.trimEnd().endsWith("#endif"), "device credential acceptance source must be wholly Debug-only");
