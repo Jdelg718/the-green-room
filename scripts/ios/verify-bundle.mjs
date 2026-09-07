@@ -48,7 +48,7 @@ const DEBUG_ACCEPTANCE_MARKERS = [
 const REVIEWED_WEB_SHA256 = new Map([
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
-  ["personas.js", "93f2118d195e6542d0a0083666b87ec2c595886e59610a0f9d41dbb047646057"],
+  ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["room-runtime.js", "9873d9abb9c9b144017c8d28608cfe7c87745bc6e580e9baf30ce2d720d7686d"],
   ["shell.css", "cbc04c3ce3055f659aa80759e45e50fc058e8f752beaca7ebabb35de34846451"],
 ]);

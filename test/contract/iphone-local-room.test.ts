@@ -218,18 +218,45 @@ test("iPhone local-room milestone has schema-four replay migration and bundled r
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql"), "utf8"), /credential_tombstones/u);
 });
 
-test("the iPhone picker is generated from the exact existing nineteen-character catalog", async () => {
+test("the iPhone picker carries all nineteen desktop prompts exactly in source and synced assets", async () => {
   const { BUNDLED_PERSONAS } = await import(pathToFileURL(join(ROOT, "ios-web/personas.js")).href) as {
+    BUNDLED_PERSONAS: Array<Record<string, unknown>>;
+  };
+  const { BUNDLED_PERSONAS: SYNCED_PERSONAS } = await import(
+    pathToFileURL(join(ROOT, "ios/App/App/public/personas.js")).href
+  ) as {
     BUNDLED_PERSONAS: Array<Record<string, unknown>>;
   };
   const catalog = loadBundledPersonaCatalog({
     historicalRoot: join(ROOT, "personas/historical"), originalRoot: join(ROOT, "personas/original"),
   });
-  assert.equal(BUNDLED_PERSONAS.length, 19);
-  assert.deepEqual(BUNDLED_PERSONAS, catalog.personas.map((persona) => ({
+  const desktopPersonas = catalog.personas.map((persona) => ({
     slug: persona.slug, name: persona.name, catalogKind: persona.catalogKind, status: "candidate · draft",
     summary: persona.summary, notice: persona.educationalNotice,
-  })));
+  }));
+  assert.equal(desktopPersonas.length, 19);
+  assert.equal(BUNDLED_PERSONAS.length, 19);
+  assert.equal(SYNCED_PERSONAS.length, 19);
+  for (const [index, persona] of desktopPersonas.entries()) {
+    const sourcePersona = BUNDLED_PERSONAS[index]!;
+    const syncedPersona = SYNCED_PERSONAS[index]!;
+    const { prompt: sourcePrompt, ...sourceMetadata } = sourcePersona;
+    const { prompt: syncedPrompt, ...syncedMetadata } = syncedPersona;
+    const desktopPrompt = catalog.resolvePrompt(persona.slug);
+    assert.deepEqual(sourceMetadata, persona);
+    assert.deepEqual(syncedMetadata, persona);
+    assert.equal(typeof sourcePrompt, "string", `${persona.slug} source prompt is not text`);
+    assert.equal(typeof syncedPrompt, "string", `${persona.slug} synced prompt is not text`);
+    assert.equal(desktopPrompt.trim().length > 0, true, `${persona.slug} desktop prompt is empty`);
+    assert.equal((sourcePrompt as string).trim().length > 0, true, `${persona.slug} source prompt is empty`);
+    assert.equal((syncedPrompt as string).trim().length > 0, true, `${persona.slug} synced prompt is empty`);
+    assert.equal(sourcePrompt === desktopPrompt, true, `${persona.slug} source prompt differs from desktop`);
+    assert.equal(syncedPrompt === desktopPrompt, true, `${persona.slug} synced prompt differs from desktop`);
+  }
+  assert.equal(
+    readFileSync(join(ROOT, "ios-web/personas.js"), "utf8"),
+    readFileSync(join(ROOT, "ios/App/App/public/personas.js"), "utf8"),
+  );
 });
 
 test("one-to-three unique cast remains enforced", async () => {

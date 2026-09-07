@@ -18,6 +18,7 @@ const personas = catalog.personas.map((persona) => ({
   status: "candidate · draft",
   summary: persona.summary,
   notice: persona.educationalNotice,
+  prompt: catalog.resolvePrompt(persona.slug),
 }));
 const source = `export const BUNDLED_PERSONAS = Object.freeze(${JSON.stringify(personas, null, 2)}.map(Object.freeze));\n`;
 writeFileSync(join(root, "ios-web/personas.js"), source);
