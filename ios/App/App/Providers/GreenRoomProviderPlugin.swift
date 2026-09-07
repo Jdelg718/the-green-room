@@ -387,10 +387,9 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
                 options, code: "invalid_call", maximumBytes: providerMaximumEnvelopeBytes
             )
             let envelope = try ProviderBridgeCodec.decodeGenerate(data)
-            service.generate(envelope.payload) { [weak self, weak call] result in
+            service.generate(envelope.payload) { [weak self] result in
                 guard let self else { return }
                 defer { self.inFlightCalls.finish(callId) }
-                guard let call else { return }
                 switch result {
                 case .success(let text): self.resolve(call, callId: callId, text: text)
                 case .failure(let failure): self.reject(call, callId: callId, failure: failure)
