@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "migrations": [
     {
       "version": 1,
@@ -25,6 +25,11 @@
       "version": 5,
       "file": "0005-credential-lifecycle.sql",
       "sha256": "0e61fe8ddafc53fdd94a9358a6ed6e5e611cfb5f24036d5f9f72298f347fdd7a"
+    },
+    {
+      "version": 6,
+      "file": "0006-room-talk.sql",
+      "sha256": "aa213b30cbbf9af668e0ab62c3eed93fe5538ee81bf887f88d30b3625c93dd45"
     }
   ]
 }

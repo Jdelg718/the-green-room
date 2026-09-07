@@ -61,6 +61,45 @@ private func rawExecute(_ sql: String) {
     require(sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK, "raw SQL failed")
 }
 
+private func runRoomTalkTests() throws {
+    let roomTalkRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-room-talk-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: roomTalkRoot) }
+    let store = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
+    _ = try store.open(expectedSchema: 6)
+    _ = try store.executeBatch(transactionId: "room-talk-create", statements: createStatements(title: "Room Talk"))
+    _ = try store.executeBatch(transactionId: "room-talk-human", statements: messageStatements(text: "What should we test?"))
+    let reply = "{\"generation\":0,\"personaSlug\":\"ada-lovelace\",\"sourceEventSequence\":1,\"text\":\"Test the mechanism.\",\"type\":\"persona_message\"}"
+    _ = try store.executeBatch(transactionId: "room-talk-reply", statements: [[
+        "sqlId": "append_persona_event",
+        "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "ada-lovelace"],
+    ]])
+    let events = rowStrings(try store.query(
+        sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]
+    ))
+    require(events.count == 3 && events.last?.contains("persona_message") == true, "persona reply was not durable")
+    expectFailure("transaction_rejected") {
+        _ = try store.executeBatch(transactionId: "room-talk-stale", statements: [[
+            "sqlId": "append_persona_event",
+            "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "ada-lovelace"],
+        ]])
+    }
+    let profile = "iphone.openrouter"
+    let mutation = "83000000-0000-4000-8000-000000000001"
+    _ = try store.executeBatch(transactionId: "room-talk-provider", statements: [
+        ["sqlId": "create_connection_profile_revision", "parameters": [profile, 1, "openrouter", NSNull()]],
+        ["sqlId": "reserve_credential", "parameters": [profile, 1, "openrouter", "credential:iphone.openrouter:1", NSNull(), mutation]],
+        ["sqlId": "save_provider_selection", "parameters": ["openrouter", profile, 1, "openai/gpt-oss-20b", profile, 1, "openrouter"]],
+    ])
+    let selection = rowStrings(try store.query(sqlId: "provider_selection", parameters: []))
+    require(selection.count == 1 && selection[0].contains("openai/gpt-oss-20b") && !selection[0].contains("credential:"), "non-secret provider selection mismatch")
+    require(rowStrings(try store.query(sqlId: "room_list", parameters: [])).first?.contains("Room Talk") == true, "room activity list missing")
+    _ = try store.close()
+    let reopened = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
+    _ = try reopened.open(expectedSchema: 6)
+    require(rowStrings(try reopened.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])).count == 3, "force-relaunch lost persona reply")
+    require(rowStrings(try reopened.query(sqlId: "provider_selection", parameters: [])).count == 1, "force-relaunch lost provider selection")
+}
+
 @main
 struct NativeDatabaseTests {
     static func main() throws {
@@ -72,7 +111,7 @@ struct NativeDatabaseTests {
             migrationsDirectory: migrations,
             fileProtector: protection.protect
         )
-        require(try store!.open(expectedSchema: 5)["schema"] as? Int == 5, "schema five did not open")
+        require(try store!.open(expectedSchema: 6)["schema"] as? Int == 6, "schema six did not open")
 
         let callId = "00000000-0000-4000-8000-000000000001"
         require(canonicalBridgeCallId(callId) == callId, "canonical call ID was rejected")
@@ -169,7 +208,7 @@ struct NativeDatabaseTests {
         _ = try store!.close()
         store = nil
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 5)
+        _ = try store!.open(expectedSchema: 6)
         _ = try store!.executeBatch(transactionId: "message-1", statements: messageStatements())
         let existingA = rowStrings(try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]))
         require(existingA.count == 2, "relaunch retry duplicated message pair")
@@ -188,7 +227,7 @@ struct NativeDatabaseTests {
         require(try JSONSerialization.data(withJSONObject: boundaryResult, options: [.sortedKeys]).count == valueBudget, "boundary fixture is not exact")
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 3, json_object('participantId','human-1','text', printf('%.*c', \(boundaryPadding), 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 5)
+        _ = try store!.open(expectedSchema: 6)
         let exactResult = try store!.query(
             sqlId: "room_events",
             parameters: ["room-00000000-0000-4000-8000-000000000001"],
@@ -200,7 +239,7 @@ struct NativeDatabaseTests {
         store = nil
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 4, json_object('participantId','human-1','text','one-more-row','type','human_message')); INSERT INTO events(room_id, sequence, event_json) VALUES ('\(roomB)', 1, json_object('participantId','human-2','text', printf('%.*c', 300000, 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 5)
+        _ = try store!.open(expectedSchema: 6)
         expectFailure("result_too_large") {
             _ = try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])
         }
@@ -208,6 +247,7 @@ struct NativeDatabaseTests {
             _ = try store!.query(sqlId: "room_events", parameters: [roomB])
         }
 
+        try runRoomTalkTests()
         try runCredentialStoreTests()
         try runProviderDefinitionTests()
         try runProviderTransportTests()

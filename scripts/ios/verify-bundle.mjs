@@ -47,19 +47,19 @@ const DEBUG_ACCEPTANCE_MARKERS = [
 ];
 const REVIEWED_WEB_SHA256 = new Map([
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
-  ["index.html", "fd664526d428935492ba07d493c1ac2e4253b3910d07ab73773160e4cddba3b2"],
+  ["index.html", "fe4096f9370e62eae4a0864631cf7cb122df8ac41a14d5f4237e60e9e1bf0e4f"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
-  ["room-runtime.js", "9873d9abb9c9b144017c8d28608cfe7c87745bc6e580e9baf30ce2d720d7686d"],
-  ["shell.css", "cbc04c3ce3055f659aa80759e45e50fc058e8f752beaca7ebabb35de34846451"],
+  ["room-runtime.js", "bad1b572cb5b70e703dfb071691ce5b59bba181b26e50c83a50d550abb596b1c"],
+  ["shell.css", "d3a805258c9fa04c58023bc8217d11fa5badd9d8a4e96a1581957546be364b4d"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "f2dd61c55131b1a27e0dc1773f0907f3a01a06e4c425b9da7b35d78e8fad26ea"],
-  ["App/ContainedBridgeViewController.swift", "18048502d82273a5fa4c1229811737e7216a554c0634d802d2ae607ce769a9f0"],
+  ["App/ContainedBridgeViewController.swift", "a419cca7367dc62fccf6672e54033f8b1e250bb5794b29840cbab345c42fa754"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
-  ["App/Credentials/DeviceCredentialAcceptance.swift", "10721b8097feb5b5493e58af48a83cc13ee9888b48afcb87c3513fa822e37032"],
+  ["App/Credentials/DeviceCredentialAcceptance.swift", "226d5d095d667d0337cfeb8ab363eed695abd8b5a10600dcf520613c93737bc1"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
-  ["App/GreenRoomDatabasePlugin.swift", "6b8743dc990a71293e767deb88654dc5b72fb33378a582dc17a6452695c9cb54"],
+  ["App/GreenRoomDatabasePlugin.swift", "c058f42dd6b5662648f8e473dfd405eed122ff941d54dfde0fd1e314bf0a61a5"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
   ["App/Providers/GreenRoomProviderPlugin.swift", "e8272a9f71a66377e2290a6323a4db83aa622af0d2c15b741a189fc145b4c98c"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
@@ -235,6 +235,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
+    "ios/App/App/Resources/Migrations/0006-room-talk.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/PrivacyInfo.xcprivacy",

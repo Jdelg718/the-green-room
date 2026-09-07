@@ -14,6 +14,8 @@
   <header class="masthead">
     <div class="mark" aria-hidden="true">GR//</div>
     <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
+    <button id="rooms-button" class="header-button" type="button">Rooms</button>
+    <button id="provider-button" class="header-button" type="button">Provider</button>
   </header>
 
   <main>
@@ -34,12 +36,15 @@
         <label for="message-text">Your line</label>
         <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
         <button class="button" type="submit">Save your line</button>
-        <p id="message-status" class="message-status" role="status" aria-live="polite">Human lines save locally. AI replies are not enabled yet.</p>
+        <p id="reply-pending" class="reply-pending" role="status" aria-live="polite" hidden>Character …</p>
+        <p id="reply-error" class="reply-error" role="alert" hidden>Reply failed.</p>
+        <button id="retry-reply" class="button button-paper" type="button" hidden>Retry</button>
+        <p id="message-status" class="message-status" role="status" aria-live="polite">Ready. Lines and replies save locally.</p>
       </form>
       <div class="room-actions">
         <button id="new-room" class="button" type="button">Create another room</button>
       </div>
-      <p class="boundary"><strong>Private rehearsal.</strong> Rooms live on this iPhone. Conversation and provider setup are not part of this milestone.</p>
+      <p class="boundary"><strong>Private rehearsal.</strong> Rooms and non-secret provider choices live on this iPhone. A selected provider receives bounded persona and transcript context; credentials stay in this iPhone’s Keychain.</p>
     </section>
 
     <section id="picker-view" class="picker-view" aria-labelledby="picker-title" hidden>
@@ -56,6 +61,42 @@
       </div>
       <p id="picker-status" class="picker-status" role="status" aria-live="polite"></p>
       <div id="persona-grid" class="persona-grid" aria-label="Bundled characters"></div>
+    </section>
+
+    <section id="rooms-view" class="picker-view" aria-labelledby="rooms-title" hidden>
+      <div class="eyebrow">Saved locally</div>
+      <h1 id="rooms-title" tabindex="-1">Rooms</h1>
+      <p class="lede">Most recently active rooms appear first.</p>
+      <div class="picker-bar">
+        <button id="rooms-cancel" class="button button-paper" type="button">Cancel</button>
+        <button id="rooms-new" class="button" type="button">New room</button>
+      </div>
+      <p id="rooms-status" class="picker-status" role="status" aria-live="polite"></p>
+      <div id="room-list" class="room-list"></div>
+    </section>
+
+    <section id="provider-view" class="picker-view" aria-labelledby="provider-title" hidden>
+      <div class="eyebrow">Native credential · approved destinations</div>
+      <h1 id="provider-title" tabindex="-1">Provider</h1>
+      <p class="lede">Choose one approved provider and its exact model ID. Credential entry opens in a native Keychain sheet.</p>
+      <form id="provider-form" class="setup-form">
+        <label for="provider-id">Provider</label>
+        <select id="provider-id" required>
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai">OpenAI</option>
+          <option value="xai">xAI</option>
+          <option value="groq">Groq</option>
+          <option value="together">Together</option>
+        </select>
+        <label for="provider-model">Model ID</label>
+        <input id="provider-model" type="text" maxlength="256" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+        <div class="setup-actions">
+          <button id="provider-cancel" class="button button-paper" type="button">Cancel</button>
+          <button id="provider-save" class="button" type="submit">Save credential</button>
+        </div>
+        <p id="provider-status" class="picker-status" role="status" aria-live="polite"></p>
+      </form>
+      <p class="boundary">Green Room never receives the credential in JavaScript or SQLite. The native provider bridge resolves it only for calls to the selected pinned provider.</p>
     </section>
   </main>
 </body>

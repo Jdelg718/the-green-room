@@ -83,7 +83,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try serializationLock.withLock {
-            guard expectedSchema == 5 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 6 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -270,6 +270,54 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 WHERE room.id = ?
                 """
                 column = "director_context_json"
+            case "room_list":
+                sql = """
+                SELECT json_object(
+                  'id', room.id,
+                  'title', room.title,
+                  'lastActivityOrder', room.last_activity_order
+                ) AS room_summary_json
+                FROM rooms room
+                WHERE room.status = 'active'
+                ORDER BY room.last_activity_order DESC, room.rowid DESC
+                LIMIT 100
+                """
+                column = "room_summary_json"
+            case "provider_selection":
+                sql = """
+                SELECT json_object(
+                  'providerId', selection.provider_id,
+                  'profileId', selection.profile_id,
+                  'profileRevision', selection.profile_revision,
+                  'model', selection.model
+                ) AS provider_selection_json
+                FROM iphone_provider_selection selection
+                WHERE selection.singleton = 1
+                """
+                column = "provider_selection_json"
+            case "provider_profile":
+                sql = """
+                SELECT json_object(
+                  'providerId', profile.provider_id,
+                  'profileId', profile.profile_id,
+                  'profileRevision', profile.profile_revision,
+                  'mutationId', credential.mutation_id,
+                  'state', credential.lifecycle_state,
+                  'tombstoned', json(CASE credential.tombstoned WHEN 1 THEN 'true' ELSE 'false' END)
+                ) AS provider_profile_json
+                FROM connection_profile_revisions profile
+                JOIN credential_revisions credential
+                  ON credential.profile_id = profile.profile_id
+                 AND credential.profile_revision = profile.profile_revision
+                 AND credential.provider_id = profile.provider_id
+                WHERE profile.profile_id = ?
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
+                """
+                column = "provider_profile_json"
             default:
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
@@ -634,7 +682,24 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     private static let statements = [
         "append_event": "INSERT INTO events(room_id, sequence, event_json) SELECT id, next_event_sequence, ? FROM rooms WHERE id = ?",
-        "create_room": "INSERT INTO rooms(id, title, status) VALUES (?, ?, 'active')",
+        "append_persona_event": """
+          INSERT INTO events(room_id, sequence, event_json)
+          SELECT room.id, room.next_event_sequence, ?
+          FROM rooms room
+          WHERE room.id = ? AND room.status = 'active'
+            AND room.generation = ? AND room.next_event_sequence = ?
+            AND EXISTS (SELECT 1 FROM current_room WHERE singleton = 1 AND room_id = room.id)
+            AND EXISTS (
+              SELECT 1 FROM events decision
+              WHERE decision.room_id = room.id AND decision.sequence = ?
+                AND json_extract(decision.event_json, '$.type') = 'director_decision'
+                AND json_extract(decision.event_json, '$.reason') = 'selected'
+                AND json_extract(decision.event_json, '$.generation') = room.generation
+                AND json_extract(decision.event_json, '$.sourceEventSequence') = ?
+                AND json_extract(decision.event_json, '$.speaker') = ?
+            )
+          """,
+        "create_room": "INSERT INTO rooms(id, title, status, last_activity_order) SELECT ?, ?, 'active', COALESCE(max(last_activity_order), 0) + 1 FROM rooms",
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
@@ -648,6 +713,28 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             profile_id, profile_revision, provider_id, credential_ref,
             expected_prior_revision, mutation_id, lifecycle_state
           ) VALUES (?, ?, ?, ?, ?, ?, 'credential_pending')
+          """,
+        "save_provider_selection": """
+          INSERT INTO iphone_provider_selection(
+            singleton, provider_id, profile_id, profile_revision, model, updated_at
+          )
+          SELECT 1, ?, ?, ?, ?, CURRENT_TIMESTAMP
+          WHERE EXISTS (
+            SELECT 1 FROM connection_profile_revisions profile
+            WHERE profile.profile_id = ? AND profile.profile_revision = ?
+              AND profile.provider_id = ? AND profile.tombstoned = 0
+              AND profile.profile_revision = (
+                SELECT max(current.profile_revision)
+                FROM connection_profile_revisions current
+                WHERE current.profile_id = profile.profile_id
+              )
+          )
+          ON CONFLICT(singleton) DO UPDATE SET
+            provider_id = excluded.provider_id,
+            profile_id = excluded.profile_id,
+            profile_revision = excluded.profile_revision,
+            model = excluded.model,
+            updated_at = CURRENT_TIMESTAMP
           """,
         "tombstone_credential": """
           INSERT INTO credential_tombstones(
@@ -668,8 +755,8 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     ]
 
     private static let requiredSingleChangeStatements = Set([
-        "append_event", "update_director_state", "create_connection_profile_revision", "reserve_credential",
-        "tombstone_credential"
+        "append_event", "append_persona_event", "update_director_state", "create_connection_profile_revision",
+        "reserve_credential", "save_provider_selection", "tombstone_credential"
     ])
 
     private func applicationDirectory() throws -> URL {
@@ -710,13 +797,13 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         let expectedFiles = [
             "0001-iphone-alpha.sql", "0002-ordered-events.sql",
             "0003-shared-director-state.sql", "0004-transaction-replay.sql",
-            "0005-credential-lifecycle.sql"
+            "0005-credential-lifecycle.sql", "0006-room-talk.sql"
         ]
-        guard current <= 5,
+        guard current <= 6,
               let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 5,
+              manifest["schema"] as? Int == 6,
               let migrations = manifest["migrations"] as? [[String: Any]],
               migrations.count == expectedFiles.count else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
@@ -745,7 +832,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 5 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 6 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func migrationURL(file: String) -> URL? {

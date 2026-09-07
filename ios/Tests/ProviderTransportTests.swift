@@ -219,7 +219,7 @@ func runProviderTransportTests() throws {
     )
     let credentialStore = ProviderCredentialStore()
     let authority = GreenRoomNativeAuthority(database: database, secureStore: credentialStore)
-    _ = try authority.openDatabase(expectedSchema: 5)
+    _ = try authority.openDatabase(expectedSchema: 6)
     _ = try database.executeBatch(transactionId: "provider-room", statements: [
         ["sqlId": "create_room", "parameters": [payload.roomId, "Provider room"]],
         ["sqlId": "create_human", "parameters": ["human-1", payload.roomId, "You"]],
@@ -255,7 +255,7 @@ func runProviderTransportTests() throws {
         "could not change room generation"
     )
     sqlite3_close_v2(raw)
-    _ = try authority.openDatabase(expectedSchema: 5)
+    _ = try authority.openDatabase(expectedSchema: 6)
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
     ))
