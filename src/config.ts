@@ -11,6 +11,7 @@ import { resolveDataRoot, type RuntimeMode } from "./platform/paths.js";
 export interface AppConfig {
   readonly acceptanceFixture: "first-playable-v1" | null;
   readonly allowedOrigin: string;
+  readonly credentialStoreMode: "file" | null;
   readonly dataDir: string;
   readonly host: string;
   readonly lmStudioModel: string;
@@ -117,6 +118,23 @@ export function httpOrigin(
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
+
+function credentialStoreMode(
+  value: string | undefined,
+  runtimeMode: RuntimeMode,
+  platform: NodeJS.Platform,
+): "file" | null {
+  if (value === undefined) return null;
+  if (value !== "file") {
+    throw new Error("GREENROOM_CREDENTIAL_STORE must be file when set");
+  }
+  if (runtimeMode !== "source" || platform === "darwin") {
+    throw new Error(
+      "GREENROOM_CREDENTIAL_STORE=file is available only in source mode on non-darwin platforms",
+    );
+  }
+  return "file";
+}
 
 const PACKAGE_PATH_KEYS = Object.freeze([
   "GREENROOM_PACKAGE_PAYLOAD_ROOT",
@@ -261,6 +279,11 @@ export function loadConfig(
     allowedOrigin: allowedOrigin(
       environment.GREENROOM_ALLOWED_ORIGIN,
       httpOrigin({ host, port }),
+    ),
+    credentialStoreMode: credentialStoreMode(
+      environment.GREENROOM_CREDENTIAL_STORE,
+      runtimeMode,
+      platform,
     ),
     dataDir,
     host,

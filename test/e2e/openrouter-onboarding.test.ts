@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 import { buildApp } from "../../src/app.js";
 import { openGreenRoomDatabase } from "../../src/db/index.js";
-import type { CredentialStore } from "../../src/providers/credential-store.js";
+import { FileCredentialStore } from "../../src/providers/credential-store.js";
 import type { CloudTransport, CloudTransportRequest } from "../../src/providers/openai-compatible-cloud.js";
 import { DeterministicMockProvider } from "../../src/providers/mock.js";
 
@@ -14,19 +14,6 @@ const HOST = "127.0.0.1:8787";
 const ORIGIN = `http://${HOST}`;
 const MODEL = "anthropic/claude-3.5-sonnet";
 const SECRET = "mock-openrouter-key-never-networked";
-
-class RestartCredentials implements CredentialStore {
-  readonly values = new Map<string, Buffer>();
-  async put(reference: string, secret: Buffer): Promise<void> {
-    try { this.values.set(reference, Buffer.from(secret)); } finally { secret.fill(0); }
-  }
-  async get(reference: string): Promise<Buffer | null> {
-    const value = this.values.get(reference);
-    return value === undefined ? null : Buffer.from(value);
-  }
-  async replace(reference: string, secret: Buffer): Promise<void> { await this.put(reference, secret); }
-  async delete(reference: string): Promise<boolean> { return this.values.delete(reference); }
-}
 
 class OpenRouterFixtureTransport implements CloudTransport {
   readonly requests: CloudTransportRequest[] = [];
@@ -53,13 +40,13 @@ function json(value: unknown) {
   };
 }
 
-async function openRuntime(dataDir: string, credentials: CredentialStore, transport: CloudTransport) {
+async function openRuntime(dataDir: string, transport: CloudTransport) {
   const store = openGreenRoomDatabase({ dataDir, migrationsDir: resolve("migrations") });
   const app = buildApp({
     allowedOrigin: ORIGIN,
     database: store.database,
     provider: new DeterministicMockProvider(),
-    providerCredentials: credentials,
+    providerCredentials: new FileCredentialStore(dataDir),
     cloudTransport: transport,
   });
   await app.ready();
@@ -85,11 +72,10 @@ async function closeRuntime(runtime: Awaited<ReturnType<typeof openRuntime>>) {
 }
 
 test("mocked OpenRouter onboarding survives restart and performs one exact attempt per generation", async (context) => {
-  const dataDir = mkdtempSync(join(tmpdir(), "green-room-openrouter-e2e-"));
+  const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "green-room-openrouter-e2e-")));
   context.after(() => rmSync(dataDir, { recursive: true, force: true }));
-  const credentials = new RestartCredentials();
   const transport = new OpenRouterFixtureTransport();
-  let runtime = await openRuntime(dataDir, credentials, transport);
+  let runtime = await openRuntime(dataDir, transport);
 
   const connection = await runtime.mutate("/api/providers/connections", {
     id: "openrouter-main", definitionId: "openrouter", credential: SECRET, acknowledgedConnectionRevision: 1,
@@ -118,7 +104,7 @@ test("mocked OpenRouter onboarding survives restart and performs one exact attem
   assert.equal(JSON.stringify(first).includes(SECRET), false);
 
   await closeRuntime(runtime);
-  runtime = await openRuntime(dataDir, credentials, transport);
+  runtime = await openRuntime(dataDir, transport);
   context.after(async () => closeRuntime(runtime));
   const current = await runtime.app.inject({ method: "GET", url: "/api/rooms/current", headers: { host: HOST } });
   const selectionRevision = current.json<{ revision: number }>().revision;
