@@ -40,6 +40,11 @@ async function runtime(): Promise<{
     room: Record<string, any>; committed: Promise<any>; isCurrent(): boolean;
   };
   sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string, options?: { requestId?: string; wantsResponse?: boolean }): Promise<{ decision: { speaker: string | null; reason: string }; events: any[] }>;
+  generatePersonaReply(database: object, provider: object, room: Record<string, any>, events: any[], selection: Record<string, any>, uuid?: () => string): Promise<{ events: any[]; reply: any }>;
+  saveProviderSetup(database: object, credential: object, providerId: string, model: string, uuid?: () => string): Promise<Record<string, any>>;
+  readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
+  listLocalRooms(database: object, uuid?: () => string): Promise<Record<string, any>[]>;
+  reopenLocalRoom(database: object, roomId: string, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
 }> {
   return import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as never;
 }
@@ -52,10 +57,14 @@ class MemoryPlugin {
   failDirectorWrite = false;
   malformedDirectorProjection: unknown;
   readonly calls: NativeEnvelope[] = [];
+  readonly rooms = new Map<string, { room: Record<string, any>; events: Array<{ event: Record<string, any>; sequence: number }>; nextEventSequence: number }>();
+  readonly profiles = new Map<string, Record<string, any>>();
+  providerSelection: Record<string, any> | null = null;
+  activityOrder = 0;
 
   async open(call: NativeEnvelope) {
     this.calls.push(call);
-    return success(call, { schema: 5 });
+    return success(call, { schema: 6 });
   }
 
   async executeBatch(call: NativeEnvelope) {
@@ -72,8 +81,10 @@ class MemoryPlugin {
       for (const statement of statements) {
         if (statement.sqlId === "create_room") {
           draft.room = {
-            id: statement.parameters[0], title: statement.parameters[1], status: "active", generation: 0, participants: [],
+            id: statement.parameters[0], title: statement.parameters[1], status: "active", generation: 0, participants: [], lastActivityOrder: ++this.activityOrder,
           };
+          draft.events = [];
+          draft.nextEventSequence = 1;
         } else if (statement.sqlId === "create_human") {
           if (draft.room === undefined) throw new Error("room missing");
           draft.room.participants.push({
@@ -89,7 +100,14 @@ class MemoryPlugin {
         } else if (statement.sqlId === "create_director_state") {
           draft.directorState = null;
         } else if (statement.sqlId === "select_room") {
-          // The in-memory fixture has only one selected room.
+          if (draft.room?.id !== statement.parameters[0]) {
+            const selected = this.rooms.get(statement.parameters[0]);
+            if (!selected) throw new Error("room missing");
+            draft.room = structuredClone(selected.room);
+            draft.events = structuredClone(selected.events);
+            draft.nextEventSequence = selected.nextEventSequence;
+            draft.directorState = null;
+          }
         } else if (statement.sqlId === "update_director_state") {
           const [encoded, , , , , generation, roomId, expectedGeneration, expectedSequence] = statement.parameters;
           if (draft.room === undefined || draft.room.id !== roomId || draft.room.generation !== generation ||
@@ -103,6 +121,26 @@ class MemoryPlugin {
           const event = JSON.parse(statement.parameters[0]);
           draft.events.push({ event, sequence: draft.nextEventSequence });
           draft.nextEventSequence += 1;
+          if (draft.room) draft.room.lastActivityOrder = ++this.activityOrder;
+        } else if (statement.sqlId === "append_persona_event") {
+          const [encoded, roomId, generation, expectedSequence, decisionSequence, sourceSequence, personaSlug] = statement.parameters;
+          const decision = draft.events.find(({ sequence }) => sequence === decisionSequence)?.event;
+          const draftRoom = draft.room;
+          if (draftRoom === undefined || draftRoom.id !== roomId || draftRoom.generation !== generation ||
+              draft.nextEventSequence !== expectedSequence || decision?.type !== "director_decision" ||
+              decision.reason !== "selected" || decision.sourceEventSequence !== sourceSequence ||
+              decision.speaker !== personaSlug) throw new Error("stale persona reply");
+          draft.events.push({ event: JSON.parse(encoded), sequence: draft.nextEventSequence++ });
+          draftRoom.lastActivityOrder = ++this.activityOrder;
+        } else if (statement.sqlId === "create_connection_profile_revision") {
+          const [profileId, profileRevision, providerId] = statement.parameters;
+          this.profiles.set(profileId, { profileId, profileRevision, providerId });
+        } else if (statement.sqlId === "reserve_credential") {
+          const [profileId, profileRevision, providerId, , , mutationId] = statement.parameters;
+          this.profiles.set(profileId, { profileId, profileRevision, providerId, mutationId, state: "credential_pending", tombstoned: false });
+        } else if (statement.sqlId === "save_provider_selection") {
+          const [providerId, profileId, profileRevision, model] = statement.parameters;
+          this.providerSelection = { providerId, profileId, profileRevision, model };
         } else {
           throw new Error("unknown statement");
         }
@@ -114,6 +152,9 @@ class MemoryPlugin {
     this.events = draft.events;
     this.directorState = draft.directorState;
     this.nextEventSequence = draft.nextEventSequence;
+    if (this.room) this.rooms.set(this.room.id, {
+      room: structuredClone(this.room), events: structuredClone(this.events), nextEventSequence: this.nextEventSequence,
+    });
     return success(call, { changes: statements.length });
   }
 
@@ -121,9 +162,11 @@ class MemoryPlugin {
     this.calls.push(call);
     const sqlId = call.payload.sqlId;
     if (sqlId === "room_events") {
+      const selected = this.rooms.get(call.payload.parameters[0]);
+      const events = selected?.events ?? (this.room?.id === call.payload.parameters[0] ? this.events : []);
       return success(call, {
         columns: ["event_record_json"],
-        rows: this.events.slice(-100).map((event) => [JSON.stringify(event)]),
+        rows: events.slice(-100).map((event) => [JSON.stringify(event)]),
       });
     }
     if (sqlId === "director_context") {
@@ -139,7 +182,24 @@ class MemoryPlugin {
         personas,
       })]] });
     }
-    return success(call, { columns: ["room_json"], rows: this.room === undefined ? [] : [[JSON.stringify(this.room)]] });
+    if (sqlId === "provider_selection") return success(call, {
+      columns: ["provider_selection_json"], rows: this.providerSelection === null ? [] : [[JSON.stringify(this.providerSelection)]],
+    });
+    if (sqlId === "provider_profile") {
+      const profile = this.profiles.get(call.payload.parameters[0]);
+      return success(call, { columns: ["provider_profile_json"], rows: profile ? [[JSON.stringify(profile)]] : [] });
+    }
+    if (sqlId === "room_list") {
+      const rooms = [...this.rooms.values()].map(({ room }) => ({
+        id: room.id, title: room.title, lastActivityOrder: room.lastActivityOrder ?? 0,
+      })).sort((left, right) => right.lastActivityOrder - left.lastActivityOrder);
+      return success(call, { columns: ["room_summary_json"], rows: rooms.map((room) => [JSON.stringify(room)]) });
+    }
+    const roomProjection = this.room === undefined ? undefined : (() => {
+      const { lastActivityOrder: _activity, ...room } = this.room;
+      return room;
+    })();
+    return success(call, { columns: ["room_json"], rows: roomProjection === undefined ? [] : [[JSON.stringify(roomProjection)]] });
   }
 }
 
@@ -191,7 +251,7 @@ async function createdRoom(slugs = ["ada-lovelace", "isaac-newton", "ff2k"]) {
   return { api, created, plugin };
 }
 
-test("iPhone local-room milestone has schema-four replay migration and bundled runtime", () => {
+test("iPhone local-room milestone has schema-six room-talk migration and bundled runtime", () => {
   for (const path of [
     "packages/core/src/director.ts",
     "ios/App/App/GreenRoomDatabasePlugin.swift",
@@ -200,15 +260,16 @@ test("iPhone local-room milestone has schema-four replay migration and bundled r
     "ios/App/App/Resources/Migrations/0003-shared-director-state.sql",
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
+    "ios/App/App/Resources/Migrations/0006-room-talk.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
   ]) assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
 
-  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql"];
+  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql", "0006-room-talk.sql"];
   const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
-  assert.equal(manifest.schema, 5);
+  assert.equal(manifest.schema, 6);
   assert.deepEqual(manifest.migrations, files.map((file, index) => {
     const source = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations", file), "utf8");
     return { version: index + 1, file, sha256: createHash("sha256").update(source).digest("hex") };
@@ -216,6 +277,7 @@ test("iPhone local-room milestone has schema-four replay migration and bundled r
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0003-shared-director-state.sql"), "utf8"), /state_json/u);
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0004-transaction-replay.sql"), "utf8"), /bridge_transactions/u);
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql"), "utf8"), /credential_tombstones/u);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0006-room-talk.sql"), "utf8"), /iphone_provider_selection/u);
 });
 
 test("the iPhone picker carries all nineteen desktop prompts exactly in source and synced assets", async () => {
@@ -499,7 +561,7 @@ test("delayed A send commits to A but cannot replace active B transcript or stat
   assert.equal(get("transcript").children.length, 0);
   assert.equal(get("message-text").disabled, false);
   assert.equal(get("message-text").value, "");
-  assert.equal(get("message-status").textContent, "Human lines save locally. AI replies are not enabled yet.");
+  assert.equal(get("message-status").textContent, "Ready. Lines and replies save locally.");
 });
 
 test("rendering uses text APIs for human, selected-speaker, and silence events", async () => {
@@ -523,11 +585,13 @@ test("rendering uses text APIs for human, selected-speaker, and silence events",
     { sequence: 1, event: { participantId: "human", text: "<script>alert(1)</script>", type: "human_message" } },
     { sequence: 2, event: { generation: 0, reason: "selected", sourceEventSequence: 1, speaker: "ada-lovelace", type: "director_decision" } },
     { sequence: 3, event: { generation: 0, reason: "deliberate_silence", sourceEventSequence: 1, speaker: null, type: "director_decision" } },
+    { sequence: 4, event: { generation: 0, personaSlug: "ada-lovelace", sourceEventSequence: 1, text: "<Reply & proof>", type: "persona_message" } },
   ], fakeDocument, room);
   const renderedText = JSON.stringify(transcript);
   assert.match(renderedText, /<script>alert\(1\)<\/script>/u);
   assert.match(renderedText, /Director → <Ada & Co>/u);
-  assert.match(renderedText, /Response generation is not enabled yet/u);
+  assert.match(renderedText, /Selected to speak/u);
+  assert.match(renderedText, /<Reply & proof>/u);
   assert.match(renderedText, /Silence: deliberate silence/u);
   assert.doesNotMatch(readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8"), /innerHTML/u);
 });
@@ -538,4 +602,108 @@ test("malformed bridge envelopes are rejected", async () => {
     async open(call: NativeEnvelope) { return { callId: `${call.callId}-wrong`, ok: true, value: { schema: 3 } }; },
   };
   await assert.rejects(openLocalRoom(plugin, uuids()), /native bridge response/u);
+});
+
+test("selected persona generates through the exact A2 envelope and persists one immutable reply", async () => {
+  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
+  const sent = await api.sendLocalMessage(plugin, created.room, "What should we test?", uuids(), {
+    requestId: "81000000-0000-4000-8000-000000000001",
+  });
+  const calls: NativeEnvelope[] = [];
+  const provider = { async generate(call: NativeEnvelope) {
+    calls.push(call);
+    return success(call, { text: "Test the mechanism before the prophecy." });
+  } };
+  const selection = { model: "openai/gpt-oss-20b", profileId: "iphone.openrouter", profileRevision: 1, providerId: "openrouter" };
+  const generated = await api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids());
+  assert.equal(calls.length, 1);
+  assert.deepEqual(Object.keys(calls[0]!).sort(), ["callId", "contractVersion", "method", "payload"]);
+  assert.equal(calls[0]!.method, "provider.generate");
+  assert.deepEqual(Object.keys(calls[0]!.payload).sort(), [
+    "maxOutputTokens", "messages", "model", "personaSlug", "profileId", "roomId", "sourceEventSequence", "temperature",
+  ]);
+  const catalog = await import(pathToFileURL(join(ROOT, "ios-web/personas.js")).href) as { BUNDLED_PERSONAS: any[] };
+  assert.equal(calls[0]!.payload.messages[0].role, "system");
+  assert.equal(calls[0]!.payload.messages[0].content, catalog.BUNDLED_PERSONAS.find(({ slug }) => slug === "ada-lovelace").prompt);
+  assert.equal(calls[0]!.payload.messages.at(-1).content, "What should we test?");
+  assert.deepEqual(generated.reply, {
+    generation: 0, personaSlug: "ada-lovelace", sourceEventSequence: 1,
+    text: "Test the mechanism before the prophecy.", type: "persona_message",
+  });
+  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
+  const replyBatch = plugin.calls.filter(({ method }) => method === "database.executeBatch").at(-1)!;
+  assert.equal(replyBatch.payload.statements[0].sqlId, "append_persona_event");
+});
+
+test("provider failure retries only generation and stale room persistence is refused", async () => {
+  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
+  const sent = await api.sendLocalMessage(plugin, created.room, "Retry this", uuids(), {
+    requestId: "82000000-0000-4000-8000-000000000001",
+  });
+  let attempts = 0;
+  const provider = { async generate(call: NativeEnvelope) {
+    attempts += 1;
+    return attempts === 1
+      ? failure(call, "provider_unreachable")
+      : success(call, { text: "The retry arrived once." });
+  } };
+  const selection = { model: "model-v1", profileId: "iphone.openai", profileRevision: 1, providerId: "openai" };
+  await assert.rejects(api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()), /provider_unreachable/u);
+  assert.equal(plugin.events.length, 2, "network failure duplicated or advanced the committed pair");
+  const retried = await api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids());
+  assert.equal(attempts, 2);
+  assert.equal(retried.events.length, 3);
+  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
+  plugin.nextEventSequence += 1;
+  await assert.rejects(api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()), /stale|canceled|transaction_rejected/u);
+  assert.equal(plugin.events.filter(({ event }) => event.type === "persona_message").length, 1);
+});
+
+test("provider/model selection and room activity survive relaunch with ordered reopen", async () => {
+  const source = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
+  assert.doesNotMatch(source, /type=["']password["']|(?:id|name)=["'][^"']*(?:key|secret|credential)[^"']*["']/i);
+  for (const marker of [
+    'id="provider-button"', 'id="reply-pending"', '>Character …<', 'id="reply-error"',
+    'id="retry-reply"', '>Retry<', 'id="rooms-button"', 'id="room-list"',
+  ]) assert.ok(source.includes(marker), `missing visible A3 UI marker ${marker}`);
+  assert.deepEqual([...source.matchAll(/<option value="([^"]+)">/gu)].map((match) => match[1]), [
+    "openrouter", "openai", "xai", "groq", "together",
+  ]);
+  const runtimeSource = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
+  assert.equal((runtimeSource.match(/(?:AI replies are not enabled yet|Response generation is not enabled yet|response generation is not enabled yet)/gu) ?? []).length, 0);
+
+  const database: any = new MemoryPlugin();
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async presentSaveSheet(call: NativeEnvelope) {
+    credentialCalls.push(call);
+    return success(call, { credentialRef: "credential:iphone.groq:1", state: "ready" });
+  } };
+  const api = await runtime();
+  const saved = await api.saveProviderSetup(database, credential, "groq", "llama-3.3-70b-versatile", uuids());
+  assert.deepEqual(saved, {
+    model: "llama-3.3-70b-versatile", profileId: "iphone.groq", profileRevision: 1, providerId: "groq",
+  });
+  assert.deepEqual(credentialCalls[0], {
+    contractVersion: "iphone-native-bridge/1.0",
+    callId: credentialCalls[0]!.callId,
+    method: "credential.presentSaveSheet",
+    payload: {
+      mutationId: credentialCalls[0]!.payload.mutationId,
+      profileId: "iphone.groq", profileRevision: 1, providerId: "groq",
+    },
+  });
+  assert.equal(Object.keys(credentialCalls[0]!.payload).some((key) => /key|secret|credential/i.test(key)), false);
+  assert.deepEqual(await api.readProviderSelection(database, uuids()), saved);
+
+  const roomUuid = uuids();
+  const first = await api.createLocalRoom(database, ["ada-lovelace"], roomUuid);
+  const second = await api.createLocalRoom(database, ["isaac-newton"], roomUuid);
+  const selectedFirst = await api.reopenLocalRoom(database, first.room.id, roomUuid);
+  await api.sendLocalMessage(database, selectedFirst.room, "Make the first room newest", roomUuid, { wantsResponse: false });
+  const rooms = await api.listLocalRooms(database, uuids());
+  assert.deepEqual(rooms.map(({ id }) => id), [first.room.id, second.room.id]);
+  const reopened = await api.reopenLocalRoom(database, first.room.id, uuids());
+  assert.equal(reopened.room.id, first.room.id);
+  assert.equal(reopened.events[0].event.text, "Make the first room newest");
+  assert.deepEqual(await api.readProviderSelection(database, uuids()), saved);
 });

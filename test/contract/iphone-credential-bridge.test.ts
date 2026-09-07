@@ -75,14 +75,16 @@ test("credential envelope byte bound is exact and responses never accept credent
   }), /invalid_call/u);
 });
 
-test("credential implementation exposes no browser value entry or read/export method", () => {
+test("credential implementation exposes native save but no browser secret entry or read/export method", () => {
   const bridgeSource = readFileSync(join(ROOT, "packages/core/src/iphone-credential-bridge.ts"), "utf8");
   const nativeSource = readFileSync(join(ROOT, "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift"), "utf8");
   const webSources = ["ios-web/room-runtime.js", "ios/App/App/public/room-runtime.js", "ios-web/index.html"]
     .map((path) => readFileSync(join(ROOT, path), "utf8")).join("\n");
   assert.doesNotMatch(bridgeSource, /credential\.(?:get|read|export)|readonly\s+(?:key|secret|token)\s*:/iu);
   assert.doesNotMatch(nativeSource, /CAPPluginMethod\(name:\s*"(?:get|read|export)"/u);
-  assert.doesNotMatch(webSources, /type=["']password["']|credential\.(?:presentSaveSheet|status|delete)|GreenRoomCredential/u);
+  assert.match(webSources, /GreenRoomCredential/u);
+  assert.match(webSources, /credential\.presentSaveSheet/u);
+  assert.doesNotMatch(webSources, /type=["']password["']|(?:id|name)=["'][^"']*(?:api[-_]?key|secret|credential)[^"']*["']|credential\.(?:get|read|export)/iu);
 });
 
 test("synthetic credential sentinel is confined to constructed native test memory", () => {

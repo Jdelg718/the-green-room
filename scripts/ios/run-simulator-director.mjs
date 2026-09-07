@@ -28,7 +28,7 @@ function waitForEvidence(path, expectedSource) {
     try {
       const evidence = JSON.parse(readFileSync(path, "utf8"));
       if (evidence.status === "room-open" && evidence.roomSource === expectedSource &&
-          evidence.castCount === 2 && evidence.eventCount === 2) return evidence;
+          evidence.castCount === 2 && evidence.eventCount === 3) return evidence;
     } catch {}
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
@@ -49,9 +49,11 @@ function databaseState(path) {
   if (rows.length !== 1) throw new Error("Simulator director database projection is missing");
   const state = JSON.parse(rows[0].state_json);
   const events = JSON.parse(rows[0].events);
-  if (rows[0].next_event_sequence !== 3 || rows[0].scheduling_window_generation !== 0 ||
-      events.length !== 2 || events[0]?.type !== "human_message" || events[1]?.type !== "director_decision" ||
+  if (rows[0].next_event_sequence !== 4 || rows[0].scheduling_window_generation !== 0 ||
+      events.length !== 3 || events[0]?.type !== "human_message" || events[1]?.type !== "director_decision" ||
       events[1]?.sourceEventSequence !== 1 || events[1]?.speaker !== "ada-lovelace" ||
+      events[2]?.type !== "persona_message" || events[2]?.sourceEventSequence !== 1 ||
+      events[2]?.personaSlug !== "ada-lovelace" || events[2]?.text !== "A stubbed reply crossed the signed room runtime." ||
       state.version !== 1 || state.autonomousTurns !== 1 || state.seen?.length !== 1) {
     throw new Error("Simulator director transaction did not match the shared contract");
   }
@@ -69,7 +71,6 @@ try {
   if (device.state !== "Booted") simctl(["boot", device.udid]);
   simctl(["bootstatus", device.udid, "-b"]);
   ignore(["terminate", device.udid, BUNDLE_ID]);
-  ignore(["uninstall", device.udid, BUNDLE_ID]);
   simctl(["install", device.udid, APP]);
 } catch (error) {
   if (device) ignore(["terminate", device.udid, BUNDLE_ID]);
@@ -105,9 +106,9 @@ try {
   console.log(JSON.stringify({
     status: "PASS",
     simulator: { model: DEVICE_NAME, os: "18.6", identifierRedacted: true },
-    transaction: { humanEvents: 1, directorDecisions: 1, selectedSpeaker: "ada-lovelace", nextEventSequence: 3 },
+    transaction: { humanEvents: 1, directorDecisions: 1, personaMessages: 1, selectedSpeaker: "ada-lovelace", nextEventSequence: 4 },
     lifecycle: { forceTerminated: true, reopened: secondEvidence.roomSource, stateUnchanged: true, automaticRetry: false },
-    rendering: { eventCount: firstEvidence.eventCount },
+    rendering: { eventCount: firstEvidence.eventCount, stubbedReply: true, liveNetwork: false, realCredential: false },
   }, null, 2));
 } finally {
   if (device) ignore(["terminate", device.udid, BUNDLE_ID]);

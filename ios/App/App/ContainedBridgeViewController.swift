@@ -101,12 +101,36 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                   opened = await runtime.createLocalRoom(plugin, ['ada-lovelace', 'isaac-newton']);
                 }
                 if (opened.events.length === 0) {
-                  await runtime.sendLocalMessage(
+                  const sent = await runtime.sendLocalMessage(
                     plugin,
                     opened.room,
                     'Simulator director continuity proof',
                     undefined,
                     { requestId: '40000000-0000-4000-8000-000000000001' }
+                  );
+                  opened = { ...opened, events: sent.events };
+                }
+                if (!opened.events.some(({ event }) => event.type === 'persona_message')) {
+                  const stubProvider = {
+                    async generate(call) {
+                      return {
+                        callId: call.callId,
+                        ok: true,
+                        value: { text: 'A stubbed reply crossed the signed room runtime.' }
+                      };
+                    }
+                  };
+                  await runtime.generatePersonaReply(
+                    plugin,
+                    stubProvider,
+                    opened.room,
+                    opened.events,
+                    {
+                      model: 'simulator-stub-v1',
+                      profileId: 'iphone.openrouter',
+                      profileRevision: 1,
+                      providerId: 'openrouter'
+                    }
                   );
                 }
                 return true;
