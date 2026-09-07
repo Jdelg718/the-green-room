@@ -10,6 +10,7 @@ test("config uses private loopback defaults", () => {
   assert.deepEqual(config, {
     acceptanceFixture: null,
     allowedOrigin: "http://127.0.0.1:8787",
+    credentialStoreMode: null,
     dataDir: "/tmp/green-room-checkout/.local/first-playable",
     host: "127.0.0.1",
     lmStudioModel: "qwen/qwen3.6-35b-a3b",
@@ -35,6 +36,41 @@ test("config uses private loopback defaults", () => {
     },
     runtimeMode: "source",
   });
+});
+
+test("file credential storage is an explicit non-darwin source mode", () => {
+  assert.equal(
+    loadConfig(
+      { GREENROOM_CREDENTIAL_STORE: "file" },
+      "/tmp/green-room-checkout",
+      "linux",
+    ).credentialStoreMode,
+    "file",
+  );
+  assert.equal(
+    loadConfig({}, "/tmp/green-room-checkout", "linux").credentialStoreMode,
+    null,
+  );
+
+  for (const value of ["", "FILE", "secret-key-value"]) {
+    assert.throws(
+      () => loadConfig(
+        { GREENROOM_CREDENTIAL_STORE: value },
+        "/tmp/green-room-checkout",
+        "linux",
+      ),
+      /GREENROOM_CREDENTIAL_STORE/,
+      value,
+    );
+  }
+  assert.throws(
+    () => loadConfig(
+      { GREENROOM_CREDENTIAL_STORE: "file" },
+      "/tmp/green-room-checkout",
+      "darwin",
+    ),
+    /GREENROOM_CREDENTIAL_STORE.*non-darwin/,
+  );
 });
 
 test("config selects only mock or LM Studio and validates the optional model", () => {

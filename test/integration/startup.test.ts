@@ -6,6 +6,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -22,9 +23,13 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 
+import { buildApp } from "../../src/app.js";
+import { loadConfig } from "../../src/config.js";
 import { loadBundledPersonaCatalog } from "../../src/personas/bundled-persona-catalog.js";
 import { loadHistoricalCatalog } from "../../src/personas/historical-catalog.js";
 import { verifyPackagedRuntimeAssets } from "../../src/platform/runtime-assets.js";
+import { FILE_CREDENTIAL_STORE_NOTICE } from "../../src/providers/credential-store.js";
+import { sourceCredentialRuntime } from "../../src/providers/source-credential-runtime.js";
 import {
   CHALLENGE_FRAME_BYTES,
   READY_FRAME_BYTES,
@@ -422,6 +427,54 @@ test("compiled server starts from a non-repository cwd with packaged migrations,
   const promotedPortraitResponse = await fetch(`http://127.0.0.1:${port}/assets/portraits/hal-finney.webp`);
   assert.equal(promotedPortraitResponse.status, 200);
   assert.equal((await promotedPortraitResponse.arrayBuffer()).byteLength, 52_462);
+});
+
+test("non-darwin source runtime enables cloud setup only with explicit file credential mode", async () => {
+  const temporaryRoot = realpathSync(mkdtempSync(join(tmpdir(), "green-room-file-store-startup-")));
+  const dataDir = join(temporaryRoot, "data");
+  mkdirSync(dataDir);
+  try {
+    const disabledConfig = loadConfig(
+      { GREENROOM_DATA_DIR: dataDir },
+      temporaryRoot,
+      "linux",
+    );
+    assert.equal(sourceCredentialRuntime(disabledConfig), undefined);
+    const disabledApp = buildApp();
+    await disabledApp.ready();
+    assert.deepEqual((await disabledApp.inject({
+      method: "GET",
+      url: "/api/bootstrap",
+      headers: { host: "127.0.0.1:8787" },
+    })).json<{
+      capabilities: { providerSetup: { cloud: boolean; lmStudio: boolean } };
+    }>().capabilities.providerSetup, { cloud: false, lmStudio: false });
+    await disabledApp.close();
+
+    const enabledConfig = loadConfig(
+      { GREENROOM_CREDENTIAL_STORE: "file", GREENROOM_DATA_DIR: dataDir },
+      temporaryRoot,
+      "linux",
+    );
+    const runtime = sourceCredentialRuntime(enabledConfig);
+    assert.ok(runtime);
+    const enabledApp = buildApp(runtime);
+    await enabledApp.ready();
+    assert.deepEqual((await enabledApp.inject({
+      method: "GET",
+      url: "/api/bootstrap",
+      headers: { host: "127.0.0.1:8787" },
+    })).json<{
+      capabilities: { providerSetup: { cloud: boolean; lmStudio: boolean } };
+    }>().capabilities.providerSetup, { cloud: true, lmStudio: false });
+    await enabledApp.close();
+
+    assert.equal(lstatSync(join(dataDir, "credentials")).mode & 0o777, 0o700);
+    assert.equal(FILE_CREDENTIAL_STORE_NOTICE, "Credential store: file-based and dev-grade.");
+    assert.equal(FILE_CREDENTIAL_STORE_NOTICE.includes(dataDir), false);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("local-source launcher inspects a real pack from a foreign cwd and cleans up on SIGTERM", async () => {

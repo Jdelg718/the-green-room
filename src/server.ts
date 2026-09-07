@@ -10,9 +10,13 @@ import { selectProvider } from "./providers/select-provider.js";
 import { LMStudioProvider } from "./providers/lm-studio.js";
 import { verifyPackagedRuntimeAssets } from "./platform/runtime-assets.js";
 import { credentialHelperTrust } from "./platform/runtime-assets.js";
-import { KeychainCredentialStore } from "./providers/credential-store.js";
+import {
+  FILE_CREDENTIAL_STORE_NOTICE,
+  KeychainCredentialStore,
+} from "./providers/credential-store.js";
 import { KeychainHelperClient } from "./providers/keychain-helper-client.js";
 import { createSecureHttpTransport } from "./providers/secure-http-transport.js";
+import { sourceCredentialRuntime } from "./providers/source-credential-runtime.js";
 import {
   acquireDataRootWriterLock,
   DataRootInUseError,
@@ -132,7 +136,7 @@ try {
         ),
         cloudTransport: createSecureHttpTransport(),
       }
-    : undefined;
+    : sourceCredentialRuntime(config);
   app = buildApp({
     allowedOrigin: config.allowedOrigin,
     database: store.database,
@@ -158,6 +162,9 @@ try {
   });
 
   await app.listen({ host: config.host, port: config.port });
+  if (config.credentialStoreMode === "file") {
+    process.stdout.write(`${FILE_CREDENTIAL_STORE_NOTICE}\n`);
+  }
   if (readiness) {
     const currentReadiness = readiness;
     await currentReadiness.proveReady();
