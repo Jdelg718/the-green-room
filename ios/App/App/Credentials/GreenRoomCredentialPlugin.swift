@@ -107,6 +107,16 @@ private final class NativeCredentialAlertSource: NativeCredentialSecretSource {
 
 @objc(GreenRoomCredentialPlugin)
 final class GreenRoomCredentialPlugin: CAPPlugin, CAPBridgedPlugin {
+    private final class SaveSheetInvocation: @unchecked Sendable {
+        let plugin: GreenRoomCredentialPlugin
+        let call: CAPPluginCall
+
+        init(plugin: GreenRoomCredentialPlugin, call: CAPPluginCall) {
+            self.plugin = plugin
+            self.call = call
+        }
+    }
+
     let identifier = "GreenRoomCredentialPlugin"
     let jsName = "GreenRoomCredential"
     let pluginMethods: [CAPPluginMethod] = [
@@ -117,7 +127,15 @@ final class GreenRoomCredentialPlugin: CAPPlugin, CAPBridgedPlugin {
     private let lifecycle = GreenRoomNativeAuthority.shared.credentials
     private let inFlightCalls = GreenRoomNativeAuthority.shared.inFlightCalls
 
-    @objc @MainActor func presentSaveSheet(_ call: CAPPluginCall) {
+    @objc nonisolated func presentSaveSheet(_ call: CAPPluginCall) {
+        let invocation = SaveSheetInvocation(plugin: self, call: call)
+        DispatchQueue.main.async {
+            invocation.plugin.presentSaveSheetOnMain(invocation.call)
+        }
+    }
+
+    @MainActor
+    private func presentSaveSheetOnMain(_ call: CAPPluginCall) {
         let callId = canonicalBridgeCallId((call.options as? [String: Any])?["callId"])
         guard callId != "invalid", inFlightCalls.begin(callId) else {
             reject(call, callId: callId, failure: DatabaseFailure(code: "invalid_call", retryable: false))

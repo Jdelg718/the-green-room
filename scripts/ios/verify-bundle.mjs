@@ -46,17 +46,37 @@ const DEBUG_ACCEPTANCE_MARKERS = [
   "credential-acceptance-evidence.json",
 ];
 const REVIEWED_WEB_SHA256 = new Map([
+  ["assets/portraits/ada-lovelace.webp", "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2"],
+  ["assets/portraits/benjamin-franklin.webp", "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0"],
+  ["assets/portraits/elizabeth-i.webp", "4436884480fe701940d8c9bd695940bc238e99ab71c65eacd9ba55fc4c77220c"],
+  ["assets/portraits/ff2k.webp", "3fab908a6d5737e106da37787baecb8830e051ad7671ca87135da6bec8e51fd8"],
+  ["assets/portraits/frederick-douglass.webp", "e445dd92b3c36e4dff5bc920b408bfc239fabfe6f6ad60d0e22e4a4b93892b2b"],
+  ["assets/portraits/galileo-galilei.webp", "81c1826e479b4b8b6357e69da3bd9142c34f7f47a8742b8386ce4b78b3603605"],
+  ["assets/portraits/george-washington.webp", "3883588e3ac035deed560893b1ddc1bca34c356c197c0094f179365d4b7a3a03"],
+  ["assets/portraits/hal-finney.webp", "c7fbba95125c66f95704c6a7105865a2f3caef5946188bc6388759655d4ba8bd"],
+  ["assets/portraits/isaac-newton.webp", "b666032239adf370bfb187b612506466fabfa6d6d3272179d3055ef236c57466"],
+  ["assets/portraits/jane-austen.webp", "abf73e727337eb88b99dfbe2f318bced75e2ce9ef34689e96dd26758879345ea"],
+  ["assets/portraits/john-maynard-keynes.webp", "d3acbd1029883d596528f4afa93cac219d59248fe16353992c31b4e0e867ca80"],
+  ["assets/portraits/len-sassaman.webp", "03d11b0b62d26621d3f975585ac264785efb2cf68076e91a727f1b62f12a924c"],
+  ["assets/portraits/leonardo-da-vinci.webp", "6340c0f43e05e46175bfaad85f200d4e8cd1be2754cac3f2a3843df294842acd"],
+  ["assets/portraits/ludwig-von-mises.webp", "3f23a8fa49a200610be7267ab00f98223de86a148345f0f9e3f875ab7fe3bb75"],
+  ["assets/portraits/mary-shelley.webp", "6030a58352b00b3fea02b7e950d2a58fa464c51efbdd453933e68312486a633f"],
+  ["assets/portraits/milton-friedman.webp", "9d3eccbd3e702d1877fe9302f0c6515774204bf73a81c37e330483e6c5b4b2f6"],
+  ["assets/portraits/nicolaus-copernicus.webp", "f7536c02c87c15fc238ca3b528bf4f17146cf814b3ffdbd486094948af1ebf6e"],
+  ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
+  ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "433838132c096335d05077f0f667873a1ec96140ff26d3fd0fdb5bee15e6dea8"],
   ["index.html", "fe4096f9370e62eae4a0864631cf7cb122df8ac41a14d5f4237e60e9e1bf0e4f"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
-  ["room-runtime.js", "bad1b572cb5b70e703dfb071691ce5b59bba181b26e50c83a50d550abb596b1c"],
-  ["shell.css", "d3a805258c9fa04c58023bc8217d11fa5badd9d8a4e96a1581957546be364b4d"],
+  ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
+  ["room-runtime.js", "4dee03307822c5e17e118e2f84b42b1956384f55de92831faa1dccf6f062e2c9"],
+  ["shell.css", "bb93cb68c18458a76257de663eafb252d11634d7e5521ed264ad2b6f35e048fb"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "f2dd61c55131b1a27e0dc1773f0907f3a01a06e4c425b9da7b35d78e8fad26ea"],
   ["App/ContainedBridgeViewController.swift", "a419cca7367dc62fccf6672e54033f8b1e250bb5794b29840cbab345c42fa754"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
-  ["App/Credentials/GreenRoomCredentialPlugin.swift", "c41bd425761b6e18f8b81dc662651e7a591fa3ee1d9ab0b845f76aa08e0cc531"],
+  ["App/Credentials/GreenRoomCredentialPlugin.swift", "d807f754ecc8ac03836424bf52c7a60d5a881238e8adbcad048db825fe1698f3"],
   ["App/Credentials/DeviceCredentialAcceptance.swift", "226d5d095d667d0337cfeb8ab363eed695abd8b5a10600dcf520613c93737bc1"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "c058f42dd6b5662648f8e473dfd405eed122ff941d54dfde0fd1e314bf0a61a5"],
@@ -167,7 +187,7 @@ function parseCsp(html, label) {
 
 function verifyWebAssets(root, relativeDirectory) {
   const directory = join(root, relativeDirectory);
-  const entries = walkNoFollow(directory, { maxEntries: 32 });
+  const entries = walkNoFollow(directory, { maxEntries: 64 });
   const files = entries.filter(({ stats }) => stats.isFile()).map(({ relativePath }) => relativePath).sort();
   requireCondition(JSON.stringify(files) === JSON.stringify([...REVIEWED_WEB_SHA256.keys()].sort()), `${relativeDirectory} inventory must match the reviewed local-room assets`);
   for (const [name, expected] of REVIEWED_WEB_SHA256) {
@@ -178,7 +198,7 @@ function verifyWebAssets(root, relativeDirectory) {
   requireCondition(!/<script\b(?![^>]*\bsrc=)[^>]*>/iu.test(html), `${relativeDirectory} contains inline script`);
   requireCondition(!/<style\b|\bon[a-z]+\s*=|javascript:/iu.test(html), `${relativeDirectory} contains inline executable content`);
   requireCondition(!REMOTE_URL_PATTERN.test(html), `${relativeDirectory} contains a remote URL`);
-  for (const name of ["director.js", "personas.js", "room-runtime.js", "shell.css"]) {
+  for (const name of ["director.js", "personas.js", "portraits.js", "room-runtime.js", "shell.css"]) {
     const text = readText(join(directory, name), root);
     requireCondition(!REMOTE_URL_PATTERN.test(text), `${relativeDirectory}/${name} contains a remote URL`);
   }
@@ -218,6 +238,7 @@ export function verifySource(root = process.cwd()) {
     "ios-web/index.html",
     "ios-web/director.js",
     "ios-web/personas.js",
+    "ios-web/portraits.js",
     "ios-web/room-runtime.js",
     "ios-web/shell.css",
     "ios/App/App.xcodeproj/project.pbxproj",

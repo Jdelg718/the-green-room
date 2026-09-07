@@ -67,7 +67,10 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .room-cast { margin: 0; padding: 0; border-top: var(--rule); border-left: var(--rule); list-style: none; }
 .room-cast li { display: flex; gap: .85rem; align-items: center; padding: 1rem; border-right: var(--rule); border-bottom: var(--rule); background: var(--white); }
 .room-cast li:nth-child(odd) { background: var(--acid); }
-.monogram { display: grid; flex: 0 0 3rem; width: 3rem; height: 3rem; place-items: center; border: var(--rule); background: var(--ink); color: var(--acid); font: 800 .9rem/1 var(--mono); }
+.persona-portrait { position: relative; display: grid; flex: 0 0 auto; min-width: 0; overflow: hidden; place-items: center; border: var(--rule); background: var(--ink); color: var(--acid); }
+.portrait-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.portrait-fallback { font: 800 .9rem/1 var(--mono); }
+.portrait-roster { width: 4.5rem; height: 4.5rem; }
 .room-cast strong, .room-cast span { display: block; }
 .room-cast strong { font: 1.35rem/1 var(--display); text-transform: uppercase; }
 .room-cast div > span { margin-top: .35rem; font-size: .78rem; }
@@ -96,11 +99,12 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .picker-bar p { margin: 0; font: 800 .72rem/1.2 var(--mono); text-transform: uppercase; }
 .picker-bar div { display: flex; gap: .45rem; }
 .persona-grid { display: grid; grid-template-columns: 1fr; border-top: var(--rule); border-left: var(--rule); }
-.persona-card { display: grid; grid-template-columns: 2.5rem 1fr; gap: .2rem .75rem; min-width: 0; min-height: 7.5rem; padding: .9rem; border: 0; border-right: var(--rule); border-bottom: var(--rule); background: var(--white); color: var(--ink); text-align: left; }
+.persona-card { display: grid; grid-template-columns: 5.25rem minmax(0, 1fr); gap: .2rem .75rem; min-width: 0; min-height: 8.5rem; padding: .9rem; border: 0; border-right: var(--rule); border-bottom: var(--rule); background: var(--white); color: var(--ink); text-align: left; }
 .persona-card:nth-child(odd) { background: var(--paper-deep); }
 .persona-card.selected { background: var(--acid); }
 .persona-card:disabled:not(.selected) { opacity: .42; }
-.persona-number { grid-row: 1 / span 3; font: 800 .72rem/1 var(--mono); }
+.portrait-card { grid-row: 1 / span 4; width: 5.25rem; max-width: 100%; aspect-ratio: 4 / 5; align-self: start; }
+.persona-number { font: 800 .72rem/1 var(--mono); }
 .persona-card strong { font: 1.45rem/.95 var(--display); text-transform: uppercase; }
 .persona-kind { color: var(--muted); font: 800 .62rem/1.2 var(--mono); text-transform: uppercase; }
 .persona-summary { font-size: .78rem; line-height: 1.35; }
@@ -116,5 +120,6 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .error { padding: 1rem; border: var(--rule); background: var(--red); color: white; font-weight: 800; }
 [hidden] { display: none !important; }
 @media (min-width: 38rem) { .persona-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 23rem) { .persona-card { grid-template-columns: 4.25rem minmax(0, 1fr); padding: .7rem; } .portrait-card { width: 4.25rem; } .portrait-roster { width: 3.75rem; height: 3.75rem; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .mark, .eyebrow, .button, .persona-card, .catalog-reality { border: 2px solid CanvasText; } }

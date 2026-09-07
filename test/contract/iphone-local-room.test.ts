@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -208,6 +208,7 @@ class FakeElement {
   dataset: Record<string, string> = {};
   disabled = false;
   hidden = false;
+  style = { objectPosition: "" };
   textContent = "";
   type = "";
   value = "";
@@ -319,6 +320,57 @@ test("the iPhone picker carries all nineteen desktop prompts exactly in source a
     readFileSync(join(ROOT, "ios-web/personas.js"), "utf8"),
     readFileSync(join(ROOT, "ios/App/App/public/personas.js"), "utf8"),
   );
+});
+
+test("the iPhone bundle maps and copies exactly the nineteen trusted catalog portraits", async () => {
+  const catalog = loadBundledPersonaCatalog({
+    historicalRoot: join(ROOT, "personas/historical"), originalRoot: join(ROOT, "personas/original"),
+  });
+  const expectedSlugs = catalog.personas.map(({ slug }) => slug).sort();
+  const source = await import(pathToFileURL(join(ROOT, "ios-web/portraits.js")).href) as {
+    TRUSTED_PERSONA_PORTRAITS: Record<string, { alt: string; objectPosition: string; sha256: string; src: string }>;
+  };
+  const synced = await import(pathToFileURL(join(ROOT, "ios/App/App/public/portraits.js")).href) as typeof source;
+  assert.deepEqual(Object.keys(source.TRUSTED_PERSONA_PORTRAITS).sort(), expectedSlugs);
+  assert.deepEqual(synced.TRUSTED_PERSONA_PORTRAITS, source.TRUSTED_PERSONA_PORTRAITS);
+  for (const root of ["ios-web", "ios/App/App/public"]) {
+    assert.deepEqual(readdirSync(join(ROOT, root, "assets/portraits")).sort(), expectedSlugs.map((slug) => `${slug}.webp`));
+    for (const slug of expectedSlugs) {
+      const trusted = source.TRUSTED_PERSONA_PORTRAITS[slug]!;
+      assert.equal(trusted.src, `./assets/portraits/${slug}.webp`);
+      assert.ok(trusted.alt.length > 0);
+      assert.match(trusted.objectPosition, /^\d+% \d+%$/u);
+      const publicBytes = readFileSync(join(ROOT, `public/assets/portraits/${slug}.webp`));
+      const iphoneBytes = readFileSync(join(ROOT, root, `assets/portraits/${slug}.webp`));
+      assert.deepEqual(iphoneBytes, publicBytes);
+      assert.equal(createHash("sha256").update(iphoneBytes).digest("hex"), trusted.sha256);
+    }
+  }
+  for (const excluded of ["detective", "fixer", "optimist"]) {
+    assert.equal(Object.hasOwn(source.TRUSTED_PERSONA_PORTRAITS, excluded), false);
+  }
+});
+
+test("picker cards and room roster render trusted images with monogram failure fallback", async () => {
+  const { get } = fakeRoomDocument();
+  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
+  api.pickerController(plugin, uuids());
+  const pickerPortrait = get("persona-grid").children[0]!.children[0]!;
+  const pickerFallback = pickerPortrait.children[0]!;
+  const pickerImage = pickerPortrait.children[1]! as FakeElement & { alt: string; src: string };
+  assert.equal(pickerPortrait.className, "persona-portrait portrait-card");
+  assert.equal(pickerFallback.textContent, "AL");
+  assert.equal(pickerImage.src, "./assets/portraits/ada-lovelace.webp");
+  assert.match(pickerImage.alt, /Ada Lovelace/u);
+  assert.equal(pickerImage.hidden, false);
+  await pickerImage.dispatch("error");
+  assert.equal(pickerImage.hidden, true);
+  assert.equal(pickerFallback.textContent, "AL");
+
+  api.renderRoom(created);
+  const rosterPortrait = get("room-cast").children[0]!.children[0]!;
+  assert.equal(rosterPortrait.className, "persona-portrait portrait-roster");
+  assert.equal((rosterPortrait.children[1] as FakeElement & { src: string }).src, "./assets/portraits/ada-lovelace.webp");
 });
 
 test("one-to-three unique cast remains enforced", async () => {
