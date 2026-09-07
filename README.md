@@ -36,6 +36,26 @@ The command builds the app, exercises a fresh private room through the compiled
 loopback server, restarts it against the same temporary data, and removes its
 temporary data before exiting. A passing run ends with a single JSON summary.
 
+## Linux source launch (development-grade)
+
+Install Node 24.20.0 and npm 11.19.0, then run these exact commands from a
+fresh clone:
+
+```bash
+git clone https://github.com/Jdelg718/the-green-room.git
+cd the-green-room
+npm ci --strict-allow-scripts=true --foreground-scripts
+npm run build
+npm run start:linux
+```
+
+Open `http://127.0.0.1:8787` in a browser. Add a supported cloud provider and
+its key through the local setup UI; `start:linux` does not accept provider keys
+in environment variables or command-line arguments. This explicit Linux source
+mode stores credentials under `<data-root>/credentials` with directory mode
+`0700` and credential-file mode `0600`. It is file-based, development-grade
+storage—not an installer, packaged release, or production credential vault.
+
 ## Run from a clean source checkout with persona inspection
 
 Node 24, exact npm 11.19.0, and `uv` are required. From a fresh checkout,

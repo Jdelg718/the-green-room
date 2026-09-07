@@ -39,6 +39,16 @@ GREENROOM_DATA_DIR="$HOME/greenroom-operator-alpha-data" npm run start:local
 
 `start:local` resolves the checkout validator to an absolute executable. The server binds to loopback by default, acquires the data-root writer lock before validator directories or SQLite are opened, and exits with `data_root_in_use` if another writer owns that root.
 
+For the development-grade Linux cloud-provider path, use:
+
+```bash
+npm ci --strict-allow-scripts=true --foreground-scripts
+npm run build
+npm run start:linux
+```
+
+Open `http://127.0.0.1:8787` and add the provider through the local UI. The launcher refuses provider keys in arguments or environment variables and enables the explicit file credential store under the data root: the `credentials` directory is `0700` and each credential file is `0600`. This is source-mode convenience, not a packaged credential vault.
+
 For deterministic private acceptance, use the repository acceptance command separately:
 
 ```bash
