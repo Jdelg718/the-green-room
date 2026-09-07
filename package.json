@@ -59,6 +59,7 @@
     "deploy:site": "wrangler deploy",
     "preflight:source": "node scripts/source-clean-host.mjs",
     "start": "node dist/src/server.js",
+    "start:linux": "node scripts/start-linux.mjs",
     "start:local": "node scripts/start-local.mjs",
     "dev": "npm run build && node --watch dist/src/server.js",
     "acceptance": "node scripts/accept-first-playable.mjs"
