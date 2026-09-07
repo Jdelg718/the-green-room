@@ -39,7 +39,8 @@ The validator uses only the Python standard library. It checks required pages an
 The live bytes were deployed separately. Merging this source and its Cloudflare configuration must not redeploy them. Any later operator-approved publication should:
 
 - serve these files as immutable static content with directory indexes;
-- redirect HTTP to HTTPS and set HSTS only after HTTPS is verified;
+- serve the repository-owned `Strict-Transport-Security: max-age=31536000` policy on an operator-approved publication; it intentionally omits `includeSubDomains` and `preload` and is not evidence of deployment;
+- keep Cloudflare **Always Use HTTPS** as a separate operational gate. This change does not alter HTTP redirects; a source-controlled `workers.dev` redirect would require a larger Worker entry point;
 - set `Content-Security-Policy: default-src 'self'; base-uri 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'` (the pages also carry a compatible meta policy where supported);
 - set `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and a restrictive `Permissions-Policy`;
 - avoid analytics, cookies, injected scripts, remote fonts, remote images, forms, and request logging that captures sensitive query data;
