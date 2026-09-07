@@ -148,6 +148,23 @@ test("CSP weakening and remote shell assets fail closed", (context) => {
   rejects(root, /reviewed bytes|CSP/u);
 });
 
+test("missing, mismatched, and non-catalog iPhone portrait bytes fail closed", (context) => {
+  const root = fixture(context);
+  const portrait = "ios-web/assets/portraits/ada-lovelace.webp";
+  writeFileSync(join(root, portrait), "not the reviewed portrait");
+  rejects(root, /reviewed bytes/u);
+
+  cpSync(join(ROOT, portrait), join(root, portrait));
+  rmSync(join(root, "ios/App/App/public/assets/portraits/ff2k.webp"));
+  rejects(root, /inventory|missing required file/u);
+
+  cpSync(
+    join(ROOT, "public/assets/portraits/detective.webp"),
+    join(root, "ios/App/App/public/assets/portraits/detective.webp"),
+  );
+  rejects(root, /inventory/u);
+});
+
 test("navigation delegate weakening and window escape fail closed", (context) => {
   const root = fixture(context);
   rewrite(root, "ios/App/App/ContainedBridgeViewController.swift", (source) => source.replace("candidate.scheme == localOrigin.scheme", "candidate.scheme == \"https\""));

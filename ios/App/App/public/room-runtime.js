@@ -1,4 +1,5 @@
 import { BUNDLED_PERSONAS } from "./personas.js";
+import { TRUSTED_PERSONA_PORTRAITS } from "./portraits.js";
 import { DIRECTOR_REASON, Director, TrustedEventAdapter } from "./director.js";
 
 const CONTRACT_VERSION = "iphone-native-bridge/1.0";
@@ -479,6 +480,27 @@ function monogram(name) {
   return name.split(/\s+/u).map((part) => part[0]).join("").slice(0, 3).toUpperCase();
 }
 
+function personaPortrait(persona, className, documentRoot = document) {
+  const trusted = TRUSTED_PERSONA_PORTRAITS[persona.slug];
+  if (!trusted) throw new Error("The bundled character portrait is unavailable.");
+  const portrait = documentRoot.createElement("span");
+  portrait.className = `persona-portrait ${className}`;
+  const fallback = documentRoot.createElement("span");
+  fallback.className = "portrait-fallback";
+  fallback.setAttribute("aria-hidden", "true");
+  fallback.textContent = monogram(persona.name);
+  const image = documentRoot.createElement("img");
+  image.className = "portrait-image";
+  image.src = trusted.src;
+  image.alt = trusted.alt;
+  image.loading = className === "portrait-card" ? "lazy" : "eager";
+  image.decoding = "async";
+  image.style.objectPosition = trusted.objectPosition;
+  image.addEventListener("error", () => { image.hidden = true; });
+  portrait.append(fallback, image);
+  return portrait;
+}
+
 function directorReason(reason) {
   return String(reason).replaceAll("_", " ");
 }
@@ -527,10 +549,7 @@ export function renderRoom(opened) {
   const roster = document.getElementById("room-cast");
   roster.replaceChildren(...cast.map((persona) => {
     const item = document.createElement("li");
-    const badge = document.createElement("span");
-    badge.className = "monogram";
-    badge.setAttribute("aria-hidden", "true");
-    badge.textContent = monogram(persona.name);
+    const badge = personaPortrait(persona, "portrait-roster");
     const copy = document.createElement("div");
     const name = document.createElement("strong");
     name.textContent = persona.name;
@@ -583,6 +602,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     button.className = "persona-card";
     button.dataset.slug = persona.slug;
     button.setAttribute("aria-pressed", "false");
+    const portrait = personaPortrait(persona, "portrait-card");
     const number = document.createElement("span");
     number.className = "persona-number";
     number.textContent = String(index + 1).padStart(2, "0");
@@ -594,7 +614,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     const summary = document.createElement("span");
     summary.className = "persona-summary";
     summary.textContent = persona.summary;
-    button.append(number, name, kind, summary);
+    button.append(portrait, number, name, kind, summary);
     button.addEventListener("click", () => {
       selected.has(persona.slug) ? selected.delete(persona.slug) : selected.add(persona.slug);
       refresh();

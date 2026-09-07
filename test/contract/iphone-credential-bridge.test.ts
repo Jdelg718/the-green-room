@@ -87,6 +87,15 @@ test("credential implementation exposes native save but no browser secret entry 
   assert.doesNotMatch(webSources, /type=["']password["']|(?:id|name)=["'][^"']*(?:api[-_]?key|secret|credential)[^"']*["']|credential\.(?:get|read|export)/iu);
 });
 
+test("Objective-C save-sheet bridge entry is nonisolated and hops explicitly to a private MainActor implementation", () => {
+  const nativeSource = readFileSync(join(ROOT, "ios/App/App/Credentials/GreenRoomCredentialPlugin.swift"), "utf8");
+  assert.match(nativeSource, /@objc\s+nonisolated\s+func presentSaveSheet\(_ call: CAPPluginCall\)\s*\{[\s\S]*?SaveSheetInvocation\(plugin: self, call: call\)[\s\S]*?DispatchQueue\.main\.async[\s\S]*?presentSaveSheetOnMain\(invocation\.call\)[\s\S]*?\n\s*\}/u);
+  assert.doesNotMatch(nativeSource, /@objc[^\n]*@MainActor[^\n]*func presentSaveSheet|@MainActor[^\n]*@objc[^\n]*func presentSaveSheet/u);
+  assert.match(nativeSource, /@MainActor\s+private func presentSaveSheetOnMain\(_ call: CAPPluginCall\)/u);
+  const presenterRead = nativeSource.indexOf("bridge?.viewController");
+  assert.ok(presenterRead > nativeSource.indexOf("private func presentSaveSheetOnMain"));
+});
+
 test("synthetic credential sentinel is confined to constructed native test memory", () => {
   const exactSentinel = ["NATIVE", "ONLY", "CREDENTIAL", "SENTINEL"].join("_");
   const tracked = execFileSync("/usr/bin/git", ["ls-files", "-co", "--exclude-standard", "-z"], {
