@@ -645,7 +645,18 @@ class StaticPolicyTests(unittest.TestCase):
 
     def test_requires_exact_restrictive_hsts_policy(self) -> None:
         expected = "  Strict-Transport-Security: max-age=31536000\n"
-        mutations = ("", "  Strict-Transport-Security: max-age=300\n")
+        mutations = (
+            "",
+            "  Strict-Transport-Security: max-age=300\n",
+            "  Strict-Transport-Security: Max-Age=31536000\n",
+            "  Strict-Transport-Security: max-age =31536000\n",
+            "  Strict-Transport-Security:\u00a0max-age=31536000\n",
+            "  Strict-Transport-Security: max-age=31536000\u00a0\n",
+            "  Strict-Transport-Security: max-age=31536000\n    ; includeSubDomains\n",
+            "  Strict-Transport-Security: max-age=31536000\n  ; includeSubDomains: yes\n",
+            "  Strict-Transport-Security:\n    max-age=31536000\n",
+            "    Strict-Transport-Security: max-age=31536000\n",
+        )
         for replacement in mutations:
             with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as temporary:
                 site = Path(temporary) / "site"
@@ -658,6 +669,47 @@ class StaticPolicyTests(unittest.TestCase):
                     validate.collect_errors(site),
                     "restrictive strict-transport-security policy",
                 )
+
+    def test_rejects_ambiguous_or_non_global_hsts_declarations(self) -> None:
+        expected = "  Strict-Transport-Security: max-age=31536000\n"
+        mutations = {
+            "second includeSubDomains declaration": expected
+            + "  Strict-Transport-Security: max-age=31536000; includeSubDomains\n",
+            "second preload declaration": expected
+            + "  Strict-Transport-Security: max-age=31536000; preload\n",
+            "duplicate exact declaration": expected + expected,
+            "additional declaration outside global rule": expected
+            + "/private/*\n  Strict-Transport-Security: max-age=31536000\n",
+            "exact declaration outside global rule": (
+                expected.replace("  Strict-Transport-Security", "/private/*\n  Strict-Transport-Security")
+            ),
+        }
+        for attack, replacement in mutations.items():
+            with self.subTest(attack=attack), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                headers = site / "_headers"
+                source = headers.read_text(encoding="utf-8")
+                self.assertEqual(source.count(expected), 1)
+                headers.write_text(source.replace(expected, replacement, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "restrictive strict-transport-security policy",
+                )
+
+    def test_hsts_field_name_is_case_insensitive_and_value_is_trimmed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            headers = site / "_headers"
+            source = headers.read_text(encoding="utf-8")
+            source = source.replace(
+                "  Strict-Transport-Security: max-age=31536000\n",
+                "  sTrIcT-tRaNsPoRt-SeCuRiTy:   max-age=31536000  \n",
+                1,
+            )
+            headers.write_text(source, encoding="utf-8")
+            self.assertEqual(validate.collect_errors(site), [])
 
     def test_portrait_bytes_are_pinned_and_originals_are_not_public_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
