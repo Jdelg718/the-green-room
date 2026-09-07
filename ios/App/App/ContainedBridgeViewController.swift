@@ -3,8 +3,8 @@ import Foundation
 import WebKit
 
 /// Keeps every WebKit document inside Capacitor's signed, bundled origin.
-/// Provider networking is introduced later through a separate native bridge;
-/// the shell itself has no external-navigation handoff or browser surface.
+/// Provider networking is isolated in a separate native bridge; the shell
+/// itself has no external-navigation handoff or browser surface.
 @MainActor
 final class ContainedBridgeViewController: CAPBridgeViewController {
     private var containmentDelegate: LocalOnlyWebViewDelegate?
@@ -13,6 +13,7 @@ final class ContainedBridgeViewController: CAPBridgeViewController {
         super.capacitorDidLoad()
         bridge?.registerPluginInstance(GreenRoomDatabasePlugin())
         bridge?.registerPluginInstance(GreenRoomCredentialPlugin())
+        bridge?.registerPluginInstance(GreenRoomProviderPlugin())
         guard let webView, let capacitorDelegate = webView.navigationDelegate as? WebViewDelegationHandler else {
             preconditionFailure("Capacitor WebView delegate was not installed")
         }

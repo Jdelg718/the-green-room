@@ -15,6 +15,11 @@ struct DatabaseFailure: Error {
     let retryable: Bool
 }
 
+struct ProviderRequestAuthority: Sendable {
+    let reservation: CredentialReservation
+    let definition: ApprovedProviderDefinition
+}
+
 func encodedBridgeJSONObject(_ value: Any, code: String, maximumBytes: Int = bridgeMaximumBytes) throws -> Data {
     guard JSONSerialization.isValidJSONObject(value),
           let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
@@ -370,6 +375,101 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 mutationId: columnText(statement, 4),
                 lifecycleState: columnText(statement, 5),
                 tombstoned: sqlite3_column_int(statement, 6) == 1
+            )
+        }
+    }
+
+    func providerRequestAuthority(
+        roomId: String,
+        sourceEventSequence: Int,
+        personaSlug: String,
+        profileId: String
+    ) throws -> ProviderRequestAuthority {
+        try serializationLock.withLock {
+            guard let database else {
+                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+            }
+            let roomStatement = try prepare(
+                """
+                SELECT room.generation, room.next_event_sequence, decision.event_json
+                FROM rooms room
+                JOIN participants persona
+                  ON persona.room_id = room.id AND persona.kind = 'persona'
+                 AND persona.persona_slug = ? AND persona.muted = 0
+                JOIN events decision
+                  ON decision.room_id = room.id AND decision.sequence = ?
+                WHERE room.id = ? AND room.status = 'active'
+                  AND room.next_event_sequence = ?
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(roomStatement) }
+            try bind([
+                personaSlug, sourceEventSequence + 1, roomId, sourceEventSequence + 2,
+            ], to: roomStatement)
+            guard sqlite3_step(roomStatement) == SQLITE_ROW else {
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            }
+            let roomGeneration = Int(sqlite3_column_int64(roomStatement, 0))
+            let decisionText = columnText(roomStatement, 2)
+            guard let decisionData = decisionText.data(using: .utf8),
+                  let decision = try? JSONSerialization.jsonObject(with: decisionData) as? [String: Any],
+                  Set(decision.keys) == Set([
+                    "generation", "reason", "sourceEventSequence", "speaker", "type",
+                  ]),
+                  decision["type"] as? String == "director_decision",
+                  decision["reason"] as? String == "selected",
+                  decision["generation"] as? Int == roomGeneration,
+                  decision["sourceEventSequence"] as? Int == sourceEventSequence,
+                  decision["speaker"] as? String == personaSlug else {
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            }
+
+            let profileStatement = try prepare(
+                """
+                SELECT credential.profile_revision, credential.provider_id,
+                       credential.credential_ref, credential.mutation_id,
+                       credential.lifecycle_state, credential.tombstoned, profile.tombstoned
+                FROM connection_profile_revisions profile
+                JOIN credential_revisions credential
+                  ON credential.profile_id = profile.profile_id
+                 AND credential.profile_revision = profile.profile_revision
+                 AND credential.provider_id = profile.provider_id
+                WHERE profile.profile_id = ?
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(profileStatement) }
+            try bind([profileId], to: profileStatement)
+            guard sqlite3_step(profileStatement) == SQLITE_ROW else {
+                throw DatabaseFailure(code: "credential_missing", retryable: true)
+            }
+            let providerId = columnText(profileStatement, 1)
+            let reservation = CredentialReservation(
+                profileId: profileId,
+                profileRevision: Int(sqlite3_column_int64(profileStatement, 0)),
+                providerId: providerId,
+                credentialRef: columnText(profileStatement, 2),
+                mutationId: columnText(profileStatement, 3),
+                lifecycleState: columnText(profileStatement, 4),
+                tombstoned: sqlite3_column_int(profileStatement, 5) == 1
+            )
+            guard reservation.lifecycleState == "ready", !reservation.tombstoned,
+                  sqlite3_column_int(profileStatement, 6) == 0,
+                  reservation.credentialRef == canonicalCredentialReference(
+                    profileId: profileId, revision: reservation.profileRevision
+                  ),
+                  let provider = ApprovedProviderID(rawValue: providerId) else {
+                throw DatabaseFailure(code: "credential_missing", retryable: true)
+            }
+            return ProviderRequestAuthority(
+                reservation: reservation,
+                definition: ApprovedProviderDefinitions.definition(for: provider)
             )
         }
     }

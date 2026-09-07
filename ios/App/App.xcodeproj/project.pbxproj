@@ -26,6 +26,7 @@
 		A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */; };
 		A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000021 /* DeviceCredentialAcceptance.swift */; };
 		A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000022 /* ApprovedProviderDefinitions.swift */; };
+		A1600000000000000000000B /* GreenRoomProviderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000024 /* GreenRoomProviderPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 		A16000000000000000000018 /* GreenRoomCredentialPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomCredentialPlugin.swift; sourceTree = "<group>"; };
 		A16000000000000000000021 /* DeviceCredentialAcceptance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialAcceptance.swift; sourceTree = "<group>"; };
 		A16000000000000000000022 /* ApprovedProviderDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovedProviderDefinitions.swift; sourceTree = "<group>"; };
+		A16000000000000000000024 /* GreenRoomProviderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomProviderPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +128,7 @@
 			isa = PBXGroup;
 			children = (
 				A16000000000000000000022 /* ApprovedProviderDefinitions.swift */,
+				A16000000000000000000024 /* GreenRoomProviderPlugin.swift */,
 			);
 			path = Providers;
 			sourceTree = "<group>";
@@ -222,6 +225,7 @@
 				A16000000000000000000008 /* GreenRoomCredentialPlugin.swift in Sources */,
 				A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */,
 				A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */,
+				A1600000000000000000000B /* GreenRoomProviderPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
