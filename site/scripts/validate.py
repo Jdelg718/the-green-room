@@ -407,6 +407,56 @@ def fail(errors: list[str], message: str) -> None:
     errors.append(message)
 
 
+def has_singular_global_hsts_policy(source: str) -> bool:
+    """Accept only one unambiguous HSTS field in one exact global rule."""
+    current_rule: str | None = None
+    global_rule_count = 0
+    declarations: list[tuple[str | None, str, bool]] = []
+    ambiguous_continuation = False
+
+    for raw_line in source.splitlines():
+        stripped = raw_line.strip(" \t")
+        if not stripped:
+            continue
+
+        if not raw_line[0].isspace():
+            current_rule = stripped
+            if current_rule == "/*":
+                global_rule_count += 1
+            if "strict-transport-security" in stripped.casefold():
+                declarations.append((current_rule, "", False))
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" \t"))
+        header_is_well_formed = bool(
+            indent == 2
+            and re.fullmatch(r"[A-Za-z0-9-]+:.*", stripped, flags=re.ASCII)
+        )
+        if current_rule == "/*" and not header_is_well_formed:
+            ambiguous_continuation = True
+
+        field, separator, value = stripped.partition(":")
+        is_hsts = field.strip(" \t").casefold() == "strict-transport-security"
+        mentions_hsts = "strict-transport-security" in stripped.casefold()
+        if is_hsts or mentions_hsts:
+            exact_field_syntax = bool(
+                header_is_well_formed
+                and separator
+                and re.fullmatch(
+                    r"strict-transport-security:[ \t]*max-age=31536000[ \t]*",
+                    stripped,
+                    flags=re.IGNORECASE | re.ASCII,
+                )
+            )
+            declarations.append((current_rule, value.strip(" \t"), exact_field_syntax))
+
+    return (
+        global_rule_count == 1
+        and not ambiguous_continuation
+        and declarations == [("/*", "max-age=31536000", True)]
+    )
+
+
 def display_path(path: Path, site: Path) -> str:
     try:
         return path.relative_to(site).as_posix()
@@ -1309,7 +1359,8 @@ def collect_errors(site: Path = SITE) -> list[str]:
     if not headers_file.is_file():
         fail(errors, "missing static response policy: _headers")
     else:
-        headers_source = headers_file.read_text(encoding="utf-8").lower()
+        raw_headers_source = headers_file.read_text(encoding="utf-8")
+        headers_source = raw_headers_source.lower()
         if "/*" not in headers_source or not re.search(
             r"cache-control\s*:\s*[^\n]*\bno-transform\b",
             headers_source,
@@ -1328,10 +1379,13 @@ def collect_errors(site: Path = SITE) -> list[str]:
             "permissions-policy:": ("camera=()", "microphone=()", "payment=()"),
         }
         for header, directives in required_headers.items():
-            if header not in headers_source or not all(
+            policy_is_restrictive = header in headers_source and all(
                 directive in headers_source for directive in directives
-            ):
+            )
+            if not policy_is_restrictive:
                 fail(errors, f"_headers: missing restrictive {header[:-1]} policy")
+        if not has_singular_global_hsts_policy(raw_headers_source):
+            fail(errors, "_headers: missing restrictive strict-transport-security policy")
 
     readme = site / "README.md"
     if not readme.is_file():
