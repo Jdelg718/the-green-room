@@ -73,6 +73,12 @@ test("provider generate rejects extra fields, secrets, and caller destinations",
   }), /invalid_call/u);
 });
 
+test("provider bridge retains its call until asynchronous generation resolves", () => {
+  const plugin = readFileSync(join(ROOT, "ios/App/App/Providers/GreenRoomProviderPlugin.swift"), "utf8");
+  assert.doesNotMatch(plugin, /service\.generate\([^)]*\)\s*\{\s*\[weak self, weak call\]/u);
+  assert.match(plugin, /service\.generate\([^)]*\)\s*\{\s*\[weak self\]/u);
+});
+
 test("provider bridge is registered and compiled exactly once", () => {
   const plugin = readFileSync(join(ROOT, "ios/App/App/Providers/GreenRoomProviderPlugin.swift"), "utf8");
   const controller = readFileSync(join(ROOT, "ios/App/App/ContainedBridgeViewController.swift"), "utf8");

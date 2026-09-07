@@ -81,7 +81,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "c058f42dd6b5662648f8e473dfd405eed122ff941d54dfde0fd1e314bf0a61a5"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "e8272a9f71a66377e2290a6323a4db83aa622af0d2c15b741a189fc145b4c98c"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "0ef6ec3eed52e4c01c0f0bfff6170f92890f29587431555022203b2b072d432f"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
