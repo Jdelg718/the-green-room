@@ -580,20 +580,23 @@ func runProviderTransportTests() throws {
                         "queued deadline created a task or returned the wrong failure")
     deadlineRegistry.cancelAllAndFence()
 
-    var controlledNow: TimeInterval = 0
+    var controlledUptime: TimeInterval = 1_000
+    var controlledWallClock: TimeInterval = 5_000
     let lateRegistry = ProviderTaskRegistry(
         maximumConcurrent: 1, maximumQueued: 1, totalDeadline: 60,
-        now: { controlledNow }
+        now: { controlledUptime }
     )
     let lateEpoch = lateRegistry.lifecycleSnapshot()!
-    let lateTask = ProviderRetainedTaskStub()
+    var lateTask: ProviderRetainedTaskStub? = ProviderRetainedTaskStub()
+    weak let releasedLateTask = lateTask
     var lateFailure: String?
     _ = lateRegistry.install(
         requestId: "81100000-0000-4000-8000-000000000001", attemptEpoch: 1,
         lifecycleEpoch: lateEpoch,
         start: { _ in
+            guard let task = lateTask else { fatalError("credential-bearing task released before start") }
             _ = try! lateRegistry.beginNetwork(
-                lateTask, requestId: "81100000-0000-4000-8000-000000000001",
+                task, requestId: "81100000-0000-4000-8000-000000000001",
                 attemptEpoch: 1, lifecycleEpoch: lateEpoch, beforeResume: {}
             )
         },
@@ -613,18 +616,25 @@ func runProviderTransportTests() throws {
             lateQueuedFailure = failure.code
         }
     )
-    controlledNow = 60
+    controlledWallClock = -50_000
+    controlledUptime = 1_060
     providerTestRequire(
         !lateRegistry.claimCompletion(
             requestId: "81100000-0000-4000-8000-000000000001", attemptEpoch: 1,
             lifecycleEpoch: lateEpoch
         ),
-        "provider completion at the absolute deadline was accepted before timer delivery"
+        "provider completion at the monotonic deadline was accepted after wall-clock rollback and delayed timer delivery"
+    )
+    let lateTaskCancelCount = lateTask?.cancelCount
+    lateTask = nil
+    providerTestRequire(
+        controlledWallClock == -50_000 && lateFailure == "timeout" && lateTaskCancelCount == 1 &&
+            lateQueuedFailure == "timeout" && lateQueuedStarts == 0,
+        "wall-clock rollback changed monotonic expiry or promoted queued work"
     )
     providerTestRequire(
-        lateFailure == "timeout" && lateTask.cancelCount == 1 &&
-            lateQueuedFailure == "timeout" && lateQueuedStarts == 0,
-        "late completion did not expire active and queued resources without promotion"
+        releasedLateTask == nil,
+        "deadline registry retained a credential-bearing task after monotonic expiry"
     )
     providerTestRequire(
         !lateRegistry.cancel(requestId: "81100000-0000-4000-8000-000000000001") &&

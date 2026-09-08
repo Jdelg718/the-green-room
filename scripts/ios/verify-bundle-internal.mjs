@@ -90,7 +90,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/GreenRoomDatabasePlugin.swift", "5852742480fe0e8231038042c9ab7515ccec2a4859c7cfa704dfecaeb3689b0f"],
   ["App/NativeLifecycleCoordinator.swift", "d7daa29eb5e2385faafbb1ff711f481fecfea8b68a948327eaca1b618c5d4eb6"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "6657a4a591651d77638c62da6238848109e343b2e9fd1d02f38fc24451889627"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "a9cbc8345101072f1c76149e61c8ff78058fa329d064827e7f109dc8e1193a11"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const PRIVACY_KEYS = ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTracking", "NSPrivacyTrackingDomains"];

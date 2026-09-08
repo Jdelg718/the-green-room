@@ -918,7 +918,7 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         maximumConcurrent: Int = providerMaximumConcurrentRequests,
         maximumQueued: Int = providerMaximumQueuedRequests,
         totalDeadline: TimeInterval = providerTotalDeadline,
-        now: @escaping () -> TimeInterval = { Date.timeIntervalSinceReferenceDate }
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.maximumConcurrent = maximumConcurrent
         self.maximumQueued = maximumQueued
