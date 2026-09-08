@@ -169,9 +169,29 @@ func runProviderTransportTests() throws {
     ProviderURLProtocolStub.install(.failure(.timedOut))
     expectProviderFailure("timeout", transport, payload: payload, label: "timeout")
 
+    ProviderURLProtocolStub.install(.failure(.notConnectedToInternet))
+    expectProviderFailure("offline", transport, payload: payload, label: "offline")
+
+    ProviderURLProtocolStub.install(.failure(.cannotConnectToHost))
+    expectProviderFailure("provider_unreachable", transport, payload: payload, label: "unreachable")
+
     ProviderURLProtocolStub.install(.redirect(URL(string: "https://evil.invalid/redirect")!))
     expectProviderFailure("provider_rejected", transport, payload: payload, label: "redirect")
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "redirect was followed")
+
+    let openAITransport = ProviderTransport(
+        definition: ApprovedProviderDefinitions.openai,
+        configuration: configuration,
+        authorizationValue: "Bearer native-test-value"
+    )
+    let openAIPayload = ProviderGeneratePayload(
+        roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug, messages: payload.messages,
+        model: "gpt-4.1-mini", temperature: payload.temperature,
+        maxOutputTokens: payload.maxOutputTokens, profileId: "openai.primary"
+    )
+    let openAIBody = try JSONSerialization.jsonObject(with: openAITransport.requestBody(openAIPayload)) as! [String: Any]
+    providerTestRequire(openAIBody["model"] as? String == "gpt-4.1-mini", "OpenAI model ID was prefixed or rewritten")
 
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"],

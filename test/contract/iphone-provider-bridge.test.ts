@@ -49,6 +49,15 @@ test("provider generate uses the exact closed A2 request and response envelope",
     ok: false,
     error: { code: "provider_unreachable", retryable: true },
   });
+  assert.deepEqual(parseProviderGenerateResponse(CALL_ID, {
+    callId: CALL_ID,
+    ok: false,
+    error: { code: "offline", retryable: true },
+  }), {
+    callId: CALL_ID,
+    ok: false,
+    error: { code: "offline", retryable: true },
+  });
 });
 
 test("provider generate rejects extra fields, secrets, and caller destinations", () => {

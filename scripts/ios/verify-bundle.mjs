@@ -66,10 +66,10 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "ed6ab3c81847df1689b78104b1b2164998c12ca7a58ae44215d853e01cd86c9e"],
+  ["index.html", "0067db7e4cead83a65feb55383e0f8b7e7cbd8c9abb40139eb1bda61668f6ceb"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "61266bbd8b10badf340698f81ce65f48501cf8dc27d959595c23057c1d942737"],
+  ["room-runtime.js", "48df3f54bf524338d9ea1a13dd7490bb79e6a80b0866735c60daafec455700be"],
   ["shell.css", "2d0cf30c977337f6288f7ff2d3fce513175399a7fcf47e1063b162fe933a5c84"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
@@ -81,7 +81,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "9e883baa603de1e5ab687a2c922d435c80a4aa95af074f836da66f20d823e4bc"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "0ef6ec3eed52e4c01c0f0bfff6170f92890f29587431555022203b2b072d432f"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "d144ef90edb69075ef24773c556b21bf345f24788e00b728d9f90f7334f8c194"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
 const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";

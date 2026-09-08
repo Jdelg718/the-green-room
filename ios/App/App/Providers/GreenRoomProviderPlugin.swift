@@ -168,8 +168,13 @@ private final class ProviderRequestDelegate: NSObject, URLSessionDataDelegate, U
             if redirected {
                 return .failure(DatabaseFailure(code: "provider_rejected", retryable: false))
             }
-            if let urlError = error as? URLError, urlError.code == .timedOut {
-                return .failure(DatabaseFailure(code: "timeout", retryable: true))
+            if let urlError = error as? URLError {
+                if urlError.code == .notConnectedToInternet {
+                    return .failure(DatabaseFailure(code: "offline", retryable: true))
+                }
+                if urlError.code == .timedOut {
+                    return .failure(DatabaseFailure(code: "timeout", retryable: true))
+                }
             }
             if error != nil {
                 return .failure(DatabaseFailure(code: "provider_unreachable", retryable: true))
