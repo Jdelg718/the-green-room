@@ -59,7 +59,11 @@ npm run ios:audit-archive -- \
   --expected-commit "${COMMIT}"
 ```
 
-- [ ] Audit passes identity, exact source commit, minimum OS/iPhone-only, encryption/privacy manifests, framework/Mach-O/link inventory, sealed signature/team/profile, entitlement, endpoint, listener, downloaded-code, analytics, embedded executable/plugin, and Node/Python gates.
+- [ ] Audit passes identity, exact source commit, minimum OS/iPhone-only, encryption/privacy manifests, framework/Mach-O/link inventory, sealed signature/team/profile consistency, entitlement, endpoint, listener, downloaded-code, analytics, embedded executable/plugin, and Node/Python gates.
+- [ ] Treat this as a **pre-export archive audit**, not a TestFlight-readiness verdict. Xcode may legitimately produce either:
+  - an Apple Development archive with `get-task-allow=true`, no `beta-reports-active`, and a matching development profile containing provisioned devices; or
+  - an Apple Distribution archive with `get-task-allow=false`, `beta-reports-active=true`, and a matching distribution profile without provisioned devices.
+- [ ] The bounded JSON must classify that evidence under `archiveSigning`, leave `exportSigning` as `null`, and report `testflightReady=false`. Contradictory identity/entitlement/profile combinations are failures; accepting a development archive does not permit ad hoc, enterprise, legacy, wrong-team, or otherwise downgraded signing.
 
 ## Reproducible no-upload export and readback
 
@@ -79,7 +83,9 @@ npm run ios:audit-archive -- \
 ```
 
 - [ ] Exactly one IPA exists; do not parse or publish verbose `Packaging.log`.
-- [ ] Export audit proves distribution signing, `get-task-allow=false`, `beta-reports-active=true`, exact keychain group, internal-only export configuration, and matching distribution summary.
+- [ ] The export/IPA is the authoritative distribution artifact. Re-audit all app content and exact identity/version/build/source provenance from that extracted IPA; do not infer distribution readiness from the archive's signing kind.
+- [ ] Export audit proves an Apple Distribution identity and matching distribution profile, exact team/bundle/keychain group, `get-task-allow=false`, `beta-reports-active=true`, internal-only export configuration, and matching distribution summary. A development-signed export always fails, while a valid development-signed archive does not make a correctly re-signed export fail.
+- [ ] Bounded JSON reports distinct `archiveSigning` and `exportSigning` objects and sets `testflightReady=true` only after every export gate passes.
 - [ ] Record only the audit's bounded JSON summary and artifact checksum; never credential/session/log contents.
 
 ## Authorized upload gate — separate side effect

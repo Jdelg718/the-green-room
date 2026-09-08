@@ -59,6 +59,29 @@ const distributionEntitlements = {
   "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"],
 };
 
+const developmentEntitlements = {
+  "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom",
+  "com.apple.developer.team-identifier": "JZ233HBW3Z",
+  "get-task-allow": true,
+  "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"],
+};
+
+const developmentProfile = {
+  TeamIdentifier: ["JZ233HBW3Z"],
+  ExpirationDate: "2099-01-01T00:00:00.000Z",
+  ProvisionedDevices: ["fixture-device"],
+  Entitlements: developmentEntitlements,
+};
+
+const distributionProfile = {
+  TeamIdentifier: ["JZ233HBW3Z"],
+  ExpirationDate: "2099-01-01T00:00:00.000Z",
+  Entitlements: distributionEntitlements,
+};
+
+const developmentIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Development: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
+const distributionIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
+
 test("repository TestFlight declarations are semantic and exact", () => {
   assert.doesNotThrow(() => auditor.validateAppPrivacyManifest(appPrivacy, "app privacy"));
   assert.doesNotThrow(() => auditor.validateFrameworkPrivacyManifest(frameworkPrivacy, "Capacitor privacy"));
@@ -119,6 +142,7 @@ test("distribution entitlements reject debug, push, background, and unexpected k
     { ...distributionEntitlements, "beta-reports-active": false },
     { ...distributionEntitlements, "aps-environment": "production" },
     { ...distributionEntitlements, "keychain-access-groups": ["JZ233HBW3Z.*"] },
+    Object.fromEntries(Object.entries(distributionEntitlements).filter(([key]) => key !== "keychain-access-groups")),
   ]) {
     assert.throws(() => auditor.validateDistributionEntitlements(malformed), /entitlements/u);
   }
@@ -130,6 +154,75 @@ test("distribution entitlements reject debug, push, background, and unexpected k
       <key>get-task-allow</key><true/>
     </dict></plist>
   `), /distribution summary/u);
+});
+
+test("development archive is valid archive evidence but is not TestFlight ready", () => {
+  const archiveSigning = auditor.validateArchiveSigningEvidence({
+    identityDetails: developmentIdentity,
+    entitlements: developmentEntitlements,
+    profile: developmentProfile,
+  });
+  assert.deepEqual(archiveSigning, {
+    kind: "development",
+    teamIdentifier: "JZ233HBW3Z",
+    getTaskAllow: true,
+    betaReportsActive: false,
+  });
+  assert.deepEqual(auditor.summarizeSigningPhases(archiveSigning), {
+    archiveSigning,
+    exportSigning: null,
+    testflightReady: false,
+  });
+});
+
+test("development archive plus distribution export is TestFlight ready", () => {
+  const archiveSigning = auditor.validateArchiveSigningEvidence({
+    identityDetails: developmentIdentity,
+    entitlements: developmentEntitlements,
+    profile: developmentProfile,
+  });
+  const exportSigning = auditor.validateDistributionSigningEvidence({
+    identityDetails: distributionIdentity,
+    entitlements: distributionEntitlements,
+    profile: distributionProfile,
+  });
+  assert.deepEqual(auditor.summarizeSigningPhases(archiveSigning, exportSigning), {
+    archiveSigning,
+    exportSigning,
+    testflightReady: true,
+  });
+});
+
+test("development-signed export is rejected", () => {
+  assert.throws(() => auditor.validateDistributionSigningEvidence({
+    identityDetails: developmentIdentity,
+    entitlements: developmentEntitlements,
+    profile: developmentProfile,
+  }), /distribution signing|get-task-allow|beta-reports-active/u);
+});
+
+test("archive rejects malformed or contradictory signing and profile evidence", () => {
+  const malformedCases = [
+    { identityDetails: developmentIdentity, entitlements: distributionEntitlements, profile: distributionProfile },
+    { identityDetails: distributionIdentity, entitlements: developmentEntitlements, profile: developmentProfile },
+    { identityDetails: developmentIdentity, entitlements: developmentEntitlements, profile: distributionProfile },
+    { identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=iPhone Developer: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z", entitlements: developmentEntitlements, profile: developmentProfile },
+    { identityDetails: developmentIdentity, entitlements: { ...developmentEntitlements, "beta-reports-active": true }, profile: developmentProfile },
+    { identityDetails: distributionIdentity, entitlements: { ...distributionEntitlements, "beta-reports-active": false }, profile: distributionProfile },
+  ];
+  for (const evidence of malformedCases) {
+    assert.throws(() => auditor.validateArchiveSigningEvidence(evidence), /signing|entitlements|profile/u);
+  }
+});
+
+test("distribution archive is valid but readiness still requires an audited export", () => {
+  const archiveSigning = auditor.validateArchiveSigningEvidence({
+    identityDetails: distributionIdentity,
+    entitlements: distributionEntitlements,
+    profile: distributionProfile,
+  });
+  assert.equal(archiveSigning.kind, "distribution");
+  assert.equal(auditor.summarizeSigningPhases(archiveSigning).testflightReady, false);
 });
 
 test("archive string audit rejects listeners, downloaded code, analytics, Node, Python, and arbitrary endpoints", () => {

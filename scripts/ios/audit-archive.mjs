@@ -92,21 +92,82 @@ export function validateExportOptions(value) {
   }
 }
 
-function validateBaseEntitlements(value, { distribution }) {
+function validateCommonEntitlements(value) {
   requireCondition(value && typeof value === "object" && !Array.isArray(value), "entitlements must be a dictionary");
   for (const key of Object.keys(value)) requireCondition(ALLOWED_ENTITLEMENT_KEYS.has(key), `entitlements contain unexpected ${key}`);
   requireCondition(value["application-identifier"] === `${TEAM_ID}.${BUNDLE_ID}`, "entitlements application identifier is not exact");
   requireCondition(value["com.apple.developer.team-identifier"] === TEAM_ID, "entitlements team identifier is not exact");
-  requireCondition(value["get-task-allow"] === false, "entitlements get-task-allow must be Boolean false");
-  if ("keychain-access-groups" in value) {
-    requireCondition(JSON.stringify(value["keychain-access-groups"]) === JSON.stringify([`${TEAM_ID}.${BUNDLE_ID}`]), "entitlements keychain access group is unexpected");
+  requireCondition(JSON.stringify(value["keychain-access-groups"]) === JSON.stringify([`${TEAM_ID}.${BUNDLE_ID}`]), "entitlements keychain access group is not exact");
+}
+
+function classifyArchiveEntitlements(value) {
+  validateCommonEntitlements(value);
+  if (value["get-task-allow"] === true) {
+    requireCondition(!("beta-reports-active" in value), "development archive entitlements must not contain beta-reports-active");
+    return "development";
   }
-  if (distribution) requireCondition(value["beta-reports-active"] === true, "entitlements beta-reports-active must be Boolean true");
-  else requireCondition(!("beta-reports-active" in value) || value["beta-reports-active"] === true, "archive entitlements beta-reports-active is malformed");
+  requireCondition(value["get-task-allow"] === false, "archive entitlements get-task-allow must be Boolean true or false");
+  requireCondition(value["beta-reports-active"] === true, "distribution archive entitlements beta-reports-active must be Boolean true");
+  return "distribution";
 }
 
 export function validateDistributionEntitlements(value) {
-  validateBaseEntitlements(value, { distribution: true });
+  validateCommonEntitlements(value);
+  requireCondition(value["get-task-allow"] === false, "distribution entitlements get-task-allow must be Boolean false");
+  requireCondition(value["beta-reports-active"] === true, "distribution entitlements beta-reports-active must be Boolean true");
+}
+
+function classifySigningIdentity(details) {
+  requireCondition(/^Identifier=net\.greenroomai\.GreenRoom$/mu.test(details), "codesign identifier is not exact");
+  requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(details), "codesign team identifier is not exact");
+  const match = details.match(/^Authority=(Apple Development|Apple Distribution): .+ \(JZ233HBW3Z\)$/mu);
+  requireCondition(match, "codesign signing identity is not an exact Apple Development or Apple Distribution identity for the expected team");
+  return match[1] === "Apple Development" ? "development" : "distribution";
+}
+
+function classifyProfile(profile, phase) {
+  requireCondition(profile && typeof profile === "object" && !Array.isArray(profile), "provisioning profile must be a dictionary");
+  requireCondition(JSON.stringify(profile.TeamIdentifier) === JSON.stringify([TEAM_ID]), "provisioning profile team is not exact");
+  requireCondition(typeof profile.ExpirationDate === "string" && Number.isFinite(new Date(profile.ExpirationDate).getTime()) && new Date(profile.ExpirationDate).getTime() > Date.now(), "provisioning profile is expired or malformed");
+  requireCondition(!("ProvisionsAllDevices" in profile), "enterprise provisioning profiles are not permitted");
+  const kind = phase === "export" ? (validateDistributionEntitlements(profile.Entitlements), "distribution") : classifyArchiveEntitlements(profile.Entitlements);
+  if (kind === "development") {
+    requireCondition(Array.isArray(profile.ProvisionedDevices) && profile.ProvisionedDevices.length > 0, "development provisioning profile must contain provisioned devices");
+  } else {
+    requireCondition(!("ProvisionedDevices" in profile), "distribution provisioning profile unexpectedly contains provisioned devices");
+  }
+  return kind;
+}
+
+function signingSummary(kind, entitlements) {
+  return {
+    kind,
+    teamIdentifier: TEAM_ID,
+    getTaskAllow: entitlements["get-task-allow"],
+    betaReportsActive: entitlements["beta-reports-active"] === true,
+  };
+}
+
+export function validateArchiveSigningEvidence({ identityDetails, entitlements, profile }) {
+  const identityKind = classifySigningIdentity(identityDetails);
+  const entitlementKind = classifyArchiveEntitlements(entitlements);
+  const profileKind = classifyProfile(profile, "archive");
+  requireCondition(identityKind === entitlementKind && entitlementKind === profileKind, "archive signing identity, entitlements, and provisioning profile are contradictory");
+  return signingSummary(entitlementKind, entitlements);
+}
+
+export function validateDistributionSigningEvidence({ identityDetails, entitlements, profile }) {
+  const identityKind = classifySigningIdentity(identityDetails);
+  validateDistributionEntitlements(entitlements);
+  const profileKind = classifyProfile(profile, "export");
+  requireCondition(identityKind === "distribution" && profileKind === "distribution", "export must use an Apple Distribution signing identity and distribution provisioning profile");
+  return signingSummary("distribution", entitlements);
+}
+
+export function summarizeSigningPhases(archiveSigning, exportSigning = null) {
+  requireCondition(archiveSigning?.kind === "development" || archiveSigning?.kind === "distribution", "archive signing summary is malformed");
+  requireCondition(exportSigning === null || exportSigning?.kind === "distribution", "export signing summary is malformed");
+  return { archiveSigning, exportSigning, testflightReady: exportSigning !== null };
 }
 
 export function validateDistributionSummaryXml(xml) {
@@ -197,7 +258,7 @@ function singleApp(directory, label) {
   return join(directory, apps[0].name);
 }
 
-function signedEntitlements(appPath, { distribution }) {
+function inspectSigning(appPath, phase) {
   const verify = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", appPath], {
     encoding: "utf8",
     env: trustedEnvironment(),
@@ -210,9 +271,7 @@ function signedEntitlements(appPath, { distribution }) {
     maxBuffer: 8 * 1024 * 1024,
   });
   requireCondition(display.status === 0, "codesign identity inspection failed");
-  const details = `${display.stdout}\n${display.stderr}`;
-  requireCondition(/^Identifier=net\.greenroomai\.GreenRoom$/mu.test(details), "codesign identifier is not exact");
-  requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(details), "codesign team identifier is not exact");
+  const identityDetails = `${display.stdout}\n${display.stderr}`;
   const entitlementsResult = spawnSync("/usr/bin/codesign", ["--display", "--entitlements", ":-", appPath], {
     encoding: "utf8",
     env: trustedEnvironment(),
@@ -220,24 +279,18 @@ function signedEntitlements(appPath, { distribution }) {
   });
   requireCondition(entitlementsResult.status === 0, "codesign entitlement inspection failed");
   const entitlements = plistJsonInput(entitlementsResult.stdout, "signed entitlements");
-  validateBaseEntitlements(entitlements, { distribution });
-  return entitlements;
-}
 
-function verifyProfile(appPath, { distribution }) {
-  const profile = join(appPath, "embedded.mobileprovision");
-  requireCondition(existsSync(profile), "embedded provisioning profile is missing");
-  const result = spawnSync("/usr/bin/security", ["cms", "-D", "-i", profile], {
+  const profilePath = join(appPath, "embedded.mobileprovision");
+  requireCondition(existsSync(profilePath), "embedded provisioning profile is missing");
+  const profileResult = spawnSync("/usr/bin/security", ["cms", "-D", "-i", profilePath], {
     encoding: "utf8",
     env: trustedEnvironment(),
     maxBuffer: 8 * 1024 * 1024,
   });
-  requireCondition(result.status === 0, "provisioning profile CMS inspection failed");
-  const value = plistJsonInput(result.stdout, "provisioning profile");
-  requireCondition(JSON.stringify(value.TeamIdentifier) === JSON.stringify([TEAM_ID]), "provisioning profile team is not exact");
-  requireCondition(new Date(value.ExpirationDate).getTime() > Date.now(), "provisioning profile is expired");
-  validateBaseEntitlements(value.Entitlements, { distribution });
-  if (distribution) requireCondition(!("ProvisionedDevices" in value), "distribution profile unexpectedly contains provisioned devices");
+  requireCondition(profileResult.status === 0, "provisioning profile CMS inspection failed");
+  const profile = plistJsonInput(profileResult.stdout, "provisioning profile");
+  const evidence = { identityDetails, entitlements, profile };
+  return phase === "export" ? validateDistributionSigningEvidence(evidence) : validateArchiveSigningEvidence(evidence);
 }
 
 function auditApp(appPath, expectedCommit, { distribution }) {
@@ -271,9 +324,8 @@ function auditApp(appPath, expectedCommit, { distribution }) {
     maxBuffer: 32 * 1024 * 1024,
   });
   validateReleaseStrings(strings);
-  signedEntitlements(appPath, { distribution });
-  verifyProfile(appPath, { distribution });
-  return built;
+  const signing = inspectSigning(appPath, distribution ? "export" : "archive");
+  return { ...built, signing };
 }
 
 function auditExport(exportPath, expectedCommit, work) {
@@ -290,18 +342,18 @@ function auditExport(exportPath, expectedCommit, work) {
   });
   requireCondition(unzip.status === 0, "Apple ditto rejected exported IPA");
   const payloadApp = singleApp(join(extracted, "Payload"), "exported IPA Payload");
-  auditApp(payloadApp, expectedCommit, { distribution: true });
+  const exportedApp = auditApp(payloadApp, expectedCommit, { distribution: true });
   const summaryPath = join(exportPath, "DistributionSummary.plist");
   requireCondition(existsSync(summaryPath), "export is missing DistributionSummary.plist");
   validateDistributionSummaryXml(plistXml(summaryPath));
-  return { ipa: ipas[0], distribution: "internal TestFlight only" };
+  return { ipa: ipas[0], distribution: "internal TestFlight only", signing: exportedApp.signing };
 }
 
 export function auditArchive({ archivePath, sourceRoot = process.cwd(), expectedCommit, exportPath, exportOptionsPath = join(sourceRoot, "ios/ExportOptions.plist") }) {
   requireCondition(process.platform === "darwin", "archive auditing requires trusted Apple tools on Darwin");
   const root = realpathSync(resolve(sourceRoot));
   verifySource(root);
-  validateExportOptions(plistJson(resolve(exportOptionsPath)));
+  if (exportPath) validateExportOptions(plistJson(resolve(exportOptionsPath)));
   const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
     cwd: root,
     encoding: "utf8",
@@ -319,7 +371,9 @@ export function auditArchive({ archivePath, sourceRoot = process.cwd(), expected
   const archiveResult = auditApp(appPath, expectedCommit, { distribution: false });
   const work = mkdtempSync(join(tmpdir(), "greenroom-ios-archive-audit-"));
   try {
-    const exported = exportPath ? auditExport(resolve(exportPath), expectedCommit, work) : undefined;
+    const exportedAudit = exportPath ? auditExport(resolve(exportPath), expectedCommit, work) : undefined;
+    const signingPhases = summarizeSigningPhases(archiveResult.signing, exportedAudit?.signing ?? null);
+    const exported = exportedAudit ? { ipa: exportedAudit.ipa, distribution: exportedAudit.distribution } : null;
     return {
       bundleIdentifier: BUNDLE_ID,
       version: VERSION,
@@ -328,6 +382,9 @@ export function auditArchive({ archivePath, sourceRoot = process.cwd(), expected
       deviceFamily: [1],
       sourceCommit: expectedCommit,
       archiveEntries: archiveResult.builtEntries,
+      archiveSigning: signingPhases.archiveSigning,
+      exportSigning: signingPhases.exportSigning,
+      testflightReady: signingPhases.testflightReady,
       exported,
     };
   } finally {
