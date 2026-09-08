@@ -70,6 +70,17 @@ enum ProviderBridgeCodec {
         func matches(_ expression: NSRegularExpression, _ value: String) -> Bool {
             expression.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
         }
+        func isForbiddenModelScalar(_ scalar: Unicode.Scalar) -> Bool {
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                return true
+            }
+            switch scalar.properties.generalCategory {
+            case .control, .format, .surrogate, .privateUse, .unassigned:
+                return true
+            default:
+                return false
+            }
+        }
         let modelScalars = payload.model.unicodeScalars
         guard matches(roomPattern, payload.roomId),
               matches(profilePattern, payload.profileId),
@@ -79,11 +90,9 @@ enum ProviderBridgeCodec {
               payload.temperature.isFinite, (0...2).contains(payload.temperature),
               (1...32_768).contains(payload.maxOutputTokens),
               !payload.model.isEmpty,
-              payload.model.precomposedStringWithCanonicalMapping == payload.model,
+              payload.model.utf8.elementsEqual(payload.model.precomposedStringWithCanonicalMapping.utf8),
               payload.model.utf8.count <= 256,
-              !modelScalars.contains(where: {
-                  CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0)
-              }),
+              !modelScalars.contains(where: isForbiddenModelScalar),
               (1...providerMaximumMessageCount).contains(payload.messages.count) else {
             throw DatabaseFailure(code: "invalid_call", retryable: false)
         }
@@ -168,8 +177,13 @@ private final class ProviderRequestDelegate: NSObject, URLSessionDataDelegate, U
             if redirected {
                 return .failure(DatabaseFailure(code: "provider_rejected", retryable: false))
             }
-            if let urlError = error as? URLError, urlError.code == .timedOut {
-                return .failure(DatabaseFailure(code: "timeout", retryable: true))
+            if let urlError = error as? URLError {
+                if urlError.code == .notConnectedToInternet {
+                    return .failure(DatabaseFailure(code: "offline", retryable: true))
+                }
+                if urlError.code == .timedOut {
+                    return .failure(DatabaseFailure(code: "timeout", retryable: true))
+                }
             }
             if error != nil {
                 return .failure(DatabaseFailure(code: "provider_unreachable", retryable: true))

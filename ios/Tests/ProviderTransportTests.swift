@@ -169,9 +169,29 @@ func runProviderTransportTests() throws {
     ProviderURLProtocolStub.install(.failure(.timedOut))
     expectProviderFailure("timeout", transport, payload: payload, label: "timeout")
 
+    ProviderURLProtocolStub.install(.failure(.notConnectedToInternet))
+    expectProviderFailure("offline", transport, payload: payload, label: "offline")
+
+    ProviderURLProtocolStub.install(.failure(.cannotConnectToHost))
+    expectProviderFailure("provider_unreachable", transport, payload: payload, label: "unreachable")
+
     ProviderURLProtocolStub.install(.redirect(URL(string: "https://evil.invalid/redirect")!))
     expectProviderFailure("provider_rejected", transport, payload: payload, label: "redirect")
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "redirect was followed")
+
+    let openAITransport = ProviderTransport(
+        definition: ApprovedProviderDefinitions.openai,
+        configuration: configuration,
+        authorizationValue: "Bearer native-test-value"
+    )
+    let openAIPayload = ProviderGeneratePayload(
+        roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug, messages: payload.messages,
+        model: "gpt-4.1-mini", temperature: payload.temperature,
+        maxOutputTokens: payload.maxOutputTokens, profileId: "openai.primary"
+    )
+    let openAIBody = try JSONSerialization.jsonObject(with: openAITransport.requestBody(openAIPayload)) as! [String: Any]
+    providerTestRequire(openAIBody["model"] as? String == "gpt-4.1-mini", "OpenAI model ID was prefixed or rewritten")
 
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"],
@@ -196,6 +216,39 @@ func runProviderTransportTests() throws {
     ]
     let encoded = try JSONSerialization.data(withJSONObject: closedEnvelope)
     providerTestRequire(try ProviderBridgeCodec.decodeGenerate(encoded).payload == payload, "closed bridge decode mismatch")
+
+    func envelopeData(model: String) throws -> Data {
+        var envelope = closedEnvelope
+        var modelPayload = envelope["payload"] as! [String: Any]
+        modelPayload["model"] = model
+        envelope["payload"] = modelPayload
+        return try JSONSerialization.data(withJSONObject: envelope)
+    }
+    func expectModelAccepted(_ model: String, label: String) throws {
+        let decoded = try ProviderBridgeCodec.decodeGenerate(envelopeData(model: model))
+        providerTestRequire(decoded.payload.model == model, "\(label) model changed during decode")
+    }
+    func expectModelRejected(_ model: String, label: String) throws {
+        do {
+            _ = try ProviderBridgeCodec.decodeGenerate(envelopeData(model: model))
+            fatalError("\(label) model was accepted")
+        } catch let failure as DatabaseFailure {
+            providerTestRequire(failure.code == "invalid_call", "\(label) failure was not sanitized")
+        }
+    }
+
+    try expectModelAccepted("provider/valid-model_1", label: "ordinary valid")
+    try expectModelAccepted(String(repeating: "a", count: 256), label: "256-byte ASCII boundary")
+    try expectModelAccepted(String(repeating: "🟢", count: 64), label: "256-byte multibyte boundary")
+    try expectModelRejected(String(repeating: "a", count: 257), label: "257-byte")
+    try expectModelRejected("model id", label: "whitespace")
+    try expectModelRejected("model\u{0000}id", label: "control U+0000")
+    try expectModelRejected("model\u{200B}id", label: "format U+200B")
+    try expectModelRejected("model\u{200D}id", label: "format U+200D")
+    try expectModelRejected("model\u{E000}id", label: "private-use U+E000")
+    try expectModelRejected("model\u{0378}id", label: "unassigned U+0378")
+    try expectModelRejected("modele\u{0301}", label: "non-NFC")
+
     var withSecret = closedEnvelope
     var secretPayload = withSecret["payload"] as! [String: Any]
     secretPayload["secret"] = "forbidden"

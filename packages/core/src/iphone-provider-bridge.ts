@@ -30,7 +30,7 @@ const PROFILE_ID = /^[a-z][a-z0-9._-]{0,127}$/u;
 const PERSONA_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const FAILURE_CODES = new Set([
   "invalid_call", "incompatible_contract", "credential_unavailable", "credential_missing",
-  "provider_unreachable", "provider_rejected", "invalid_response", "response_too_large",
+  "offline", "provider_unreachable", "provider_rejected", "invalid_response", "response_too_large",
   "timeout", "capacity_rejected", "canceled", "internal_failure",
 ]);
 

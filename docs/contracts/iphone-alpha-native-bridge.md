@@ -133,7 +133,7 @@ The plugin obtains key bytes directly from Keychain, creates the Authorization h
 
 The TypeScript core may build the bounded role/content messages and interpret only the sanitized result. Before first use it shows a provider-specific disclosure that the selected provider receives those messages. No project service receives them.
 
-Required failure codes: `invalid_call`, `incompatible_contract`, `credential_unavailable`, `credential_missing`, `provider_unreachable`, `provider_rejected`, `invalid_response`, `response_too_large`, `timeout`, `capacity_rejected`, `canceled`, `internal_failure`.
+Required failure codes: `invalid_call`, `incompatible_contract`, `credential_unavailable`, `credential_missing`, `offline`, `provider_unreachable`, `provider_rejected`, `invalid_response`, `response_too_large`, `timeout`, `capacity_rejected`, `canceled`, `internal_failure`. Native transport maps `URLError.notConnectedToInternet` to retryable `offline`; no raw `URLError`, provider status, or response body crosses the bridge.
 
 ## WebView containment
 

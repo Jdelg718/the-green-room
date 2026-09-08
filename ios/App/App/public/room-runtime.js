@@ -9,7 +9,14 @@ const MAX_BRIDGE_BYTES = 256 * 1024;
 const MAX_PROVIDER_MESSAGE_BYTES = 64 * 1024;
 const MAX_PROVIDER_MESSAGES = 32;
 const PROVIDERS = new Set(["openrouter", "openai", "xai", "groq", "together"]);
-const MODEL_ID = /^\S{1,256}$/u;
+const NATIVE_FAILURE_CODES = new Set([
+  "invalid_call", "incompatible_contract", "database_locked", "database_unavailable",
+  "migration_rejected", "transaction_rejected", "result_too_large", "credential_unavailable",
+  "credential_missing", "credential_write_failed", "offline", "provider_unreachable",
+  "provider_rejected", "invalid_response", "response_too_large", "timeout",
+  "capacity_rejected", "canceled", "internal_failure",
+]);
+const DEFAULT_PROVIDER_SETUP = Object.freeze({ providerId: "openai", model: "gpt-4.1-mini" });
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
@@ -23,9 +30,57 @@ function encodedBytes(value) {
   return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value)).byteLength;
 }
 
+function isCanonicalModelId(value) {
+  return typeof value === "string" && value.length > 0 && value.normalize("NFC") === value &&
+    encodedBytes(value) <= 256 && !/[\p{C}\s]/u.test(value);
+}
+
 function exactRecord(value, keys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
     Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+
+export class NativeBridgeError extends Error {
+  constructor(code, retryable) {
+    super(`Native operation failed: ${code}`);
+    this.name = "NativeBridgeError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+function nativeFailure(value) {
+  return value instanceof NativeBridgeError && NATIVE_FAILURE_CODES.has(value.code) &&
+    typeof value.retryable === "boolean"
+    ? { code: value.code, retryable: value.retryable }
+    : null;
+}
+
+export function providerSetupDefaults() {
+  return DEFAULT_PROVIDER_SETUP;
+}
+
+export function providerSetupFailureMessage(failure) {
+  return nativeFailure(failure)?.code === "canceled"
+    ? "Credential entry canceled. Return to Provider when you’re ready to finish setup."
+    : "Provider setup failed. Try again.";
+}
+
+export function generationFailurePresentation(failure) {
+  if (failure instanceof Error && failure.message === "Provider setup is required.") {
+    return Object.freeze({ message: "Set up a provider to generate replies.", retryable: false });
+  }
+  const native = nativeFailure(failure);
+  const messages = {
+    offline: "You’re offline. Reconnect, then retry the reply.",
+    provider_rejected: "The provider rejected the request. Check the credential and model in Provider settings.",
+    timeout: "The provider took too long to reply. Retry when ready.",
+    provider_unreachable: "The provider could not be reached. Check your connection, then retry.",
+  };
+  return Object.freeze({
+    message: messages[native?.code] ?? "Reply failed. Review Provider settings, then try again.",
+    retryable: native?.retryable ?? false,
+  });
 }
 
 function nextUuid(uuid) {
@@ -46,7 +101,14 @@ async function invoke(plugin, method, payload, uuid) {
       response.callId !== callId || typeof response.ok !== "boolean") {
     throw new Error("Invalid native bridge response.");
   }
-  if (!response.ok) throw new Error(`Native room database failed: ${String(response.error?.code ?? "internal_failure")}`);
+  if (!response.ok) {
+    if (!exactRecord(response.error, ["code", "retryable"]) ||
+        typeof response.error.code !== "string" || !NATIVE_FAILURE_CODES.has(response.error.code) ||
+        typeof response.error.retryable !== "boolean") {
+      throw new NativeBridgeError("internal_failure", false);
+    }
+    throw new NativeBridgeError(response.error.code, response.error.retryable);
+  }
   return response.value;
 }
 
@@ -304,7 +366,7 @@ function parseProviderSelection(value) {
   if (!exactRecord(value, ["model", "profileId", "profileRevision", "providerId"]) ||
       !PROVIDERS.has(value.providerId) || value.profileId !== `iphone.${value.providerId}` ||
       !Number.isSafeInteger(value.profileRevision) || value.profileRevision < 1 ||
-      typeof value.model !== "string" || !MODEL_ID.test(value.model) || value.model.normalize("NFC") !== value.model) {
+      !isCanonicalModelId(value.model)) {
     throw new Error("Invalid provider selection projection.");
   }
   return Object.freeze(value);
@@ -346,7 +408,7 @@ export async function saveProviderSetup(
   model,
   uuid = () => crypto.randomUUID(),
 ) {
-  if (!PROVIDERS.has(providerId) || typeof model !== "string" || !MODEL_ID.test(model) || model.normalize("NFC") !== model) {
+  if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
     throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
   }
   const profileId = `iphone.${providerId}`;
@@ -731,13 +793,16 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID()) {
   document.getElementById("rooms-status").textContent = rooms.length === 0 ? "No saved rooms yet." : "";
 }
 
-async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()) {
+export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()) {
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = false;
   const selection = await readProviderSelection(plugin, uuid);
+  document.getElementById("provider-id").value = DEFAULT_PROVIDER_SETUP.providerId;
+  document.getElementById("provider-model").value = DEFAULT_PROVIDER_SETUP.model;
+  document.getElementById("provider-status").textContent = "Recommended starting point loaded; provider and model stay editable.";
   if (selection !== null) {
     document.getElementById("provider-id").value = selection.providerId;
     document.getElementById("provider-model").value = selection.model;
@@ -755,6 +820,55 @@ export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID
     committed: sendLocalMessage(plugin, room, text, uuid, options),
     isCurrent: () => activeViewToken === token && activeRoom?.id === room.id,
   });
+}
+
+export async function runGeneration(database, provider, pending, committed) {
+  const input = document.getElementById("message-text");
+  const target = document.getElementById("message-target");
+  const status = document.getElementById("message-status");
+  const indicator = document.getElementById("reply-pending");
+  const error = document.getElementById("reply-error");
+  const retry = document.getElementById("retry-reply");
+  if (!pending.isCurrent()) return;
+  const participant = pending.room.participants.find(({ id }) => id === committed.decision.speaker);
+  indicator.textContent = `${participant?.displayName ?? "Character"} …`;
+  indicator.hidden = false;
+  error.hidden = true;
+  retry.hidden = true;
+  status.textContent = "Generating a bounded provider reply…";
+  try {
+    const selection = await readProviderSelection(database);
+    const generated = await generatePersonaReply(database, provider, pending.room, committed.events, selection);
+    if (!pending.isCurrent()) return;
+    activeEvents = generated.events;
+    renderEvents(activeEvents);
+    activeGenerationRetry = null;
+    status.textContent = "Reply saved locally.";
+  } catch (failure) {
+    if (!pending.isCurrent()) return;
+    const presentation = generationFailurePresentation(failure);
+    error.textContent = presentation.message;
+    error.hidden = false;
+    retry.hidden = !presentation.retryable;
+    status.textContent = "Your line and director decision remain saved.";
+    activeGenerationRetry = presentation.retryable
+      ? () => runGeneration(database, provider, pending, committed)
+      : null;
+  } finally {
+    if (pending.isCurrent()) {
+      indicator.hidden = true;
+      input.disabled = false;
+      target.disabled = false;
+      input.focus();
+    }
+  }
+}
+
+export async function retryActiveGeneration() {
+  const retry = activeGenerationRetry;
+  if (retry === null) return;
+  document.getElementById("message-text").disabled = true;
+  await retry();
 }
 
 async function boot() {
@@ -796,56 +910,15 @@ async function boot() {
         status.textContent = "Provider and model saved. Credential is ready in Keychain.";
         if (activeRoom !== null) await reopenAuthoritativeRoom(database);
       } catch (error) {
-        status.textContent = String(error).includes("canceled") ? "Credential entry canceled." : "Provider setup failed.";
+        status.textContent = providerSetupFailureMessage(error);
       } finally {
         save.disabled = false;
       }
     });
 
-    async function runGeneration(pending, committed) {
-      const input = document.getElementById("message-text");
-      const target = document.getElementById("message-target");
-      const status = document.getElementById("message-status");
-      const indicator = document.getElementById("reply-pending");
-      const error = document.getElementById("reply-error");
-      const retry = document.getElementById("retry-reply");
-      if (!pending.isCurrent()) return;
-      const participant = pending.room.participants.find(({ id }) => id === committed.decision.speaker);
-      indicator.textContent = `${participant?.displayName ?? "Character"} …`;
-      indicator.hidden = false;
-      error.hidden = true;
-      retry.hidden = true;
-      status.textContent = "Generating a bounded provider reply…";
-      try {
-        const selection = await readProviderSelection(database);
-        const generated = await generatePersonaReply(database, provider, pending.room, committed.events, selection);
-        if (!pending.isCurrent()) return;
-        activeEvents = generated.events;
-        renderEvents(activeEvents);
-        activeGenerationRetry = null;
-        status.textContent = "Reply saved locally.";
-      } catch (failure) {
-        if (!pending.isCurrent()) return;
-        error.textContent = String(failure).includes("Provider setup") ? "Set up a provider to generate replies." : "Reply failed.";
-        error.hidden = false;
-        retry.hidden = false;
-        status.textContent = "Your line and director decision remain saved.";
-        activeGenerationRetry = () => runGeneration(pending, committed);
-      } finally {
-        if (pending.isCurrent()) {
-          indicator.hidden = true;
-          input.disabled = false;
-          target.disabled = false;
-          input.focus();
-        }
-      }
-    }
 
     document.getElementById("retry-reply").addEventListener("click", async () => {
-      const retry = activeGenerationRetry;
-      if (retry === null) return;
-      document.getElementById("message-text").disabled = true;
-      await retry();
+      await retryActiveGeneration();
     });
     document.getElementById("message-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -874,7 +947,7 @@ async function boot() {
             ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
             : "Saved locally. A character was selected.";
           if (committed.decision.speaker !== null) {
-            await runGeneration(pending, committed);
+            await runGeneration(database, provider, pending, committed);
           }
         }
       } catch {

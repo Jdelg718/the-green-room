@@ -29,7 +29,7 @@ function uuids(): () => string {
   return () => `00000000-0000-4000-8000-${String(++value).padStart(12, "0")}`;
 }
 
-async function runtime(): Promise<{
+async function runtime(cacheKey = ""): Promise<{
   createLocalRoom(plugin: object, slugs: string[], uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
   openLocalRoom(plugin: object, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any> | null; source: string }>;
   renderEvents(events: any[], documentRoot?: any, room?: Record<string, any>): void;
@@ -40,14 +40,23 @@ async function runtime(): Promise<{
   beginActiveRoomSend(plugin: object, text: string, uuid?: () => string): {
     room: Record<string, any>; committed: Promise<any>; isCurrent(): boolean;
   };
+  runGeneration(database: object, provider: object, pending: { room: Record<string, any>; isCurrent(): boolean }, committed: any): Promise<void>;
+  retryActiveGeneration(): Promise<void>;
   sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string, options?: { requestId?: string; targetPersonaSlug?: string; wantsResponse?: boolean }): Promise<{ decision: { speaker: string | null; reason: string }; events: any[] }>;
   generatePersonaReply(database: object, provider: object, room: Record<string, any>, events: any[], selection: Record<string, any>, uuid?: () => string): Promise<{ events: any[]; reply: any }>;
   saveProviderSetup(database: object, credential: object, providerId: string, model: string, uuid?: () => string): Promise<Record<string, any>>;
   readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
+  providerSetupDefaults(): { providerId: string; model: string };
+  providerSetupFailureMessage(failure: unknown): string;
+  generationFailurePresentation(failure: unknown): { message: string; retryable: boolean };
+  NativeBridgeError: new(code: string, retryable: boolean) => Error & { code: string; retryable: boolean };
+  showProviderSetup(plugin: object, uuid?: () => string): Promise<void>;
   listLocalRooms(database: object, uuid?: () => string): Promise<Record<string, any>[]>;
   reopenLocalRoom(database: object, roomId: string, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
 }> {
-  return import(pathToFileURL(join(ROOT, "ios-web/room-runtime.js")).href) as never;
+  const url = pathToFileURL(join(ROOT, "ios-web/room-runtime.js"));
+  if (cacheKey !== "") url.searchParams.set("test-relaunch", cacheKey);
+  return import(url.href) as never;
 }
 
 class MemoryPlugin {
@@ -782,6 +791,172 @@ test("provider failure retries only generation and stale room persistence is ref
   assert.equal(plugin.events.filter(({ event }) => event.type === "persona_message").length, 1);
 });
 
+test("native bridge preserves closed failure code and retryability without provider details", async () => {
+  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
+  const sent = await api.sendLocalMessage(plugin, created.room, "Preserve this failure", uuids());
+  const provider = { async generate(call: NativeEnvelope) {
+    return { callId: call.callId, ok: false, error: { code: "offline", retryable: true } };
+  } };
+  const selection = { model: "gpt-4.1-mini", profileId: "iphone.openai", profileRevision: 1, providerId: "openai" };
+  await assert.rejects(
+    api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()),
+    (error: any) => error?.name === "NativeBridgeError" && error?.code === "offline" && error?.retryable === true &&
+      !JSON.stringify(error).includes("status") && !JSON.stringify(error).includes("credential"),
+  );
+  const malformedProvider = { async generate(call: NativeEnvelope) {
+    return { callId: call.callId, ok: false, error: { code: "Bearer secret status 401", retryable: true } };
+  } };
+  await assert.rejects(
+    api.generatePersonaReply(plugin, malformedProvider, created.room, sent.events, selection, uuids()),
+    (error: any) => error?.code === "internal_failure" && error?.retryable === false &&
+      !String(error).includes("Bearer") && !String(error).includes("401"),
+  );
+  assert.equal(plugin.events.length, 2, "failed generation changed the committed human/director pair");
+});
+
+test("provider UX maps required failures to distinct actionable sanitized messages", async () => {
+  const api = await runtime();
+  const nativeFailure = (code: string, retryable: boolean) => new api.NativeBridgeError(code, retryable);
+  assert.deepEqual([
+    api.generationFailurePresentation(new Error("Provider setup is required.")),
+    api.generationFailurePresentation(nativeFailure("offline", true)),
+    api.generationFailurePresentation(nativeFailure("provider_rejected", false)),
+    api.generationFailurePresentation(nativeFailure("timeout", true)),
+    api.generationFailurePresentation(nativeFailure("provider_unreachable", true)),
+  ], [
+    { message: "Set up a provider to generate replies.", retryable: false },
+    { message: "You’re offline. Reconnect, then retry the reply.", retryable: true },
+    { message: "The provider rejected the request. Check the credential and model in Provider settings.", retryable: false },
+    { message: "The provider took too long to reply. Retry when ready.", retryable: true },
+    { message: "The provider could not be reached. Check your connection, then retry.", retryable: true },
+  ]);
+  assert.equal(
+    api.providerSetupFailureMessage(nativeFailure("canceled", true)),
+    "Credential entry canceled. Return to Provider when you’re ready to finish setup.",
+  );
+  assert.equal(api.providerSetupFailureMessage(new Error("Bearer secret status 401")), "Provider setup failed. Try again.");
+});
+
+test("fresh provider setup recommends editable OpenAI gpt-4.1-mini while saved custom choices override it", async () => {
+  const api = await runtime();
+  assert.deepEqual(api.providerSetupDefaults(), { providerId: "openai", model: "gpt-4.1-mini" });
+  const source = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
+  assert.match(source, /<option value="openai" selected>OpenAI \(recommended\)<\/option>/u);
+  assert.match(source, /<input id="provider-model"[^>]*value="gpt-4\.1-mini"[^>]*>/u);
+  assert.doesNotMatch(source, /id="provider-model"[^>]*(?:maxlength|readonly|disabled)/u);
+  assert.match(source, /Recommended starting point[^<]*You can edit the model ID/u);
+
+  const database: any = new MemoryPlugin();
+  const { get } = fakeRoomDocument();
+  get("provider-id").value = "stale-provider";
+  get("provider-model").value = "stale-model";
+  await api.showProviderSetup(database, uuids());
+  assert.equal(get("provider-id").value, "openai");
+  assert.equal(get("provider-model").value, "gpt-4.1-mini");
+  assert.equal(get("provider-status").textContent, "Recommended starting point loaded; provider and model stay editable.");
+
+  database.providerSelection = {
+    providerId: "groq", profileId: "iphone.groq", profileRevision: 3, model: "custom-model-v3",
+  };
+  get("provider-id").value = "openai";
+  get("provider-model").value = "gpt-4.1-mini";
+  await api.showProviderSetup(database, uuids());
+  assert.equal(get("provider-id").value, "groq");
+  assert.equal(get("provider-model").value, "custom-model-v3");
+});
+
+test("provider setup enforces the closed model ID contract before persistence", async () => {
+  const api = await runtime();
+  const database: any = new MemoryPlugin();
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async presentSaveSheet(call: NativeEnvelope) {
+    credentialCalls.push(call);
+    return success(call, { credentialRef: "credential:iphone.openai:1", state: "ready" });
+  } };
+  const exact = "é".repeat(128);
+  const oversized = `${exact}a`;
+  assert.equal(new TextEncoder().encode(exact).byteLength, 256);
+  assert.equal(new TextEncoder().encode(oversized).byteLength, 257);
+
+  const saved = await api.saveProviderSetup(database, credential, "openai", exact, uuids());
+  assert.equal(saved.model, exact);
+  const rejectedModels = [
+    { label: "257 UTF-8 bytes", value: oversized },
+    { label: "non-NFC text", value: "e\u0301" },
+    { label: "Unicode Cc", value: "model\0id" },
+    { label: "Unicode whitespace", value: "model id" },
+    { label: "U+200B ZERO WIDTH SPACE", value: "model\u200Bid" },
+    { label: "U+200D ZERO WIDTH JOINER", value: "model\u200Did" },
+  ];
+
+  for (const [index, rejected] of rejectedModels.entries()) {
+    const databaseCallsBefore = database.calls.length;
+    const credentialCallsBefore = credentialCalls.length;
+    await assert.rejects(
+      api.saveProviderSetup(database, credential, "openai", rejected.value, uuids()),
+      /plain-text model ID without spaces/u,
+      rejected.label,
+    );
+    assert.equal(database.calls.length, databaseCallsBefore, `${rejected.label} reached database persistence`);
+    assert.equal(credentialCalls.length, credentialCallsBefore, `${rejected.label} opened credential entry`);
+    assert.equal(database.providerSelection?.model, exact, `${rejected.label} replaced the valid selection`);
+
+    const relaunchedDatabase = new MemoryPlugin();
+    relaunchedDatabase.providerSelection = structuredClone(database.providerSelection);
+    for (const [profileId, profile] of database.profiles) {
+      relaunchedDatabase.profiles.set(profileId, structuredClone(profile));
+    }
+    const relaunchedApi = await runtime(`rejected-model-${index}`);
+    const relaunchedSelection = await relaunchedApi.readProviderSelection(relaunchedDatabase, uuids());
+    assert.equal(relaunchedSelection?.model, exact, `${rejected.label} survived reconstructed runtime/store`);
+    assert.notEqual(relaunchedSelection?.model, rejected.value, `${rejected.label} appeared after reconstruction`);
+  }
+});
+
+test("generation UI offers Retry only for retryable failures without duplicating committed events", async () => {
+  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
+  const { get } = fakeRoomDocument();
+  api.renderRoom(created);
+  plugin.providerSelection = {
+    providerId: "openai", profileId: "iphone.openai", profileRevision: 1, model: "gpt-4.1-mini",
+  };
+
+  const pending = api.beginActiveRoomSend(plugin, "Try once", uuids());
+  const committed = await pending.committed;
+  let attempts = 0;
+  const retryableProvider = { async generate(call: NativeEnvelope) {
+    attempts += 1;
+    return attempts === 1
+      ? { callId: call.callId, ok: false, error: { code: "provider_unreachable", retryable: true } }
+      : success(call, { text: "Recovered once." });
+  } };
+  await api.runGeneration(plugin, retryableProvider, pending, committed);
+  assert.equal(get("retry-reply").hidden, false);
+  assert.equal(get("reply-error").textContent, "The provider could not be reached. Check your connection, then retry.");
+  await api.retryActiveGeneration();
+  assert.equal(attempts, 2);
+  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
+
+  const rejectedRoom = await createdRoom(["ada-lovelace"]);
+  rejectedRoom.api.renderRoom(rejectedRoom.created);
+  rejectedRoom.plugin.providerSelection = {
+    providerId: "openai", profileId: "iphone.openai", profileRevision: 1, model: "gpt-4.1-mini",
+  };
+  const nextPending = rejectedRoom.api.beginActiveRoomSend(rejectedRoom.plugin, "Do not retry", uuids());
+  const nextCommitted = await nextPending.committed;
+  let rejectedAttempts = 0;
+  const rejectedProvider = { async generate(call: NativeEnvelope) {
+    rejectedAttempts += 1;
+    return failure(call, "provider_rejected");
+  } };
+  await rejectedRoom.api.runGeneration(rejectedRoom.plugin, rejectedProvider, nextPending, nextCommitted);
+  assert.equal(get("retry-reply").hidden, true);
+  assert.equal(get("reply-error").textContent, "The provider rejected the request. Check the credential and model in Provider settings.");
+  await rejectedRoom.api.retryActiveGeneration();
+  assert.equal(rejectedAttempts, 1, "non-retryable failure retained a retry action");
+  assert.deepEqual(rejectedRoom.plugin.events.map(({ event }) => event.type), ["human_message", "director_decision"]);
+});
+
 test("provider/model selection and room activity survive relaunch with ordered reopen", async () => {
   const source = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
   assert.doesNotMatch(source, /type=["']password["']|(?:id|name)=["'][^"']*(?:key|secret|credential)[^"']*["']/i);
@@ -789,7 +964,7 @@ test("provider/model selection and room activity survive relaunch with ordered r
     'id="provider-button"', 'id="reply-pending"', '>Character …<', 'id="reply-error"',
     'id="retry-reply"', '>Retry<', 'id="rooms-button"', 'id="room-list"',
   ]) assert.ok(source.includes(marker), `missing visible A3 UI marker ${marker}`);
-  assert.deepEqual([...source.matchAll(/<option value="([^"]+)">/gu)].map((match) => match[1]), [
+  assert.deepEqual([...source.matchAll(/<option value="([^"]+)"[^>]*>/gu)].map((match) => match[1]), [
     "openrouter", "openai", "xai", "groq", "together",
   ]);
   const runtimeSource = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
