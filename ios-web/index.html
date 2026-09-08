@@ -41,10 +41,12 @@
         </div>
         <label for="message-text">Your line</label>
         <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
-        <button class="button" type="submit">Save your line</button>
+        <button id="send-line" class="button" type="submit">Send atomic turn</button>
         <p id="reply-pending" class="reply-pending" role="status" aria-live="polite" hidden>Character …</p>
         <p id="reply-error" class="reply-error" role="alert" hidden>Reply failed.</p>
-        <button id="retry-reply" class="button button-paper" type="button" hidden>Retry</button>
+        <button id="retry-reply" class="button button-paper" type="button" hidden>Retry exact command</button>
+        <button id="abandon-reply" class="button button-paper" type="button" hidden>Abandon</button>
+        <p class="boundary">Draft status: <strong>Not sent</strong>. Interrupted requests are never retried automatically. Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.</p>
         <p id="message-status" class="message-status" role="status" aria-live="polite">Ready. Lines and replies save locally.</p>
       </form>
       <div class="room-actions">

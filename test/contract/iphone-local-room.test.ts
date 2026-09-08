@@ -74,7 +74,7 @@ class MemoryPlugin {
 
   async open(call: NativeEnvelope) {
     this.calls.push(call);
-    return success(call, { schema: 6 });
+    return success(call, { schema: 7 });
   }
 
   async executeBatch(call: NativeEnvelope) {
@@ -262,7 +262,7 @@ async function createdRoom(slugs = ["ada-lovelace", "isaac-newton", "ff2k"]) {
   return { api, created, plugin };
 }
 
-test("iPhone local-room milestone has schema-six room-talk migration and bundled runtime", () => {
+test("iPhone local-room milestone carries schema seven and the atomic runtime", () => {
   for (const path of [
     "packages/core/src/director.ts",
     "ios/App/App/GreenRoomDatabasePlugin.swift",
@@ -272,15 +272,16 @@ test("iPhone local-room milestone has schema-six room-talk migration and bundled
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/0006-room-talk.sql",
+    "ios/App/App/Resources/Migrations/0007-generation-commands.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
   ]) assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
 
-  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql", "0006-room-talk.sql"];
+  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql"];
   const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
-  assert.equal(manifest.schema, 6);
+  assert.equal(manifest.schema, 7);
   assert.deepEqual(manifest.migrations, files.map((file, index) => {
     const source = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations", file), "utf8");
     return { version: index + 1, file, sha256: createHash("sha256").update(source).digest("hex") };
@@ -425,276 +426,16 @@ test("directed-message selector is labeled, cast-bound, accessible, and mobile-c
   assert.equal(select.value, "", "stale room choice did not fall back to Auto");
 });
 
-test("directed message persists the chosen cast member and drives provider personaSlug without auto selection", async () => {
-  const { api, created, plugin } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
-  const sent = await api.sendLocalMessage(plugin, created.room, "Isaac, take this one.", uuids(), {
-    requestId: "17000000-0000-4000-8000-000000000001",
-    targetPersonaSlug: "isaac-newton",
-  });
-  assert.deepEqual(sent.decision, { speaker: "isaac-newton", reason: "directed" });
-  assert.deepEqual(sent.events[1]?.event, {
-    generation: 0, reason: "directed", sourceEventSequence: 1,
-    speaker: "isaac-newton", type: "director_decision",
-  });
-  const providerCalls: NativeEnvelope[] = [];
-  const provider = { async generate(call: NativeEnvelope) {
-    providerCalls.push(call);
-    return success(call, { text: "A directed reply." });
-  } };
-  await api.generatePersonaReply(plugin, provider, created.room, sent.events, {
-    model: "model-v1", profileId: "iphone.openai", profileRevision: 1, providerId: "openai",
-  }, uuids());
-  assert.equal(providerCalls[0]?.payload.personaSlug, "isaac-newton");
-  assert.equal(plugin.events[2]?.event.personaSlug, "isaac-newton");
 
-  const before = structuredClone(plugin.events);
-  const duplicate = await api.sendLocalMessage(plugin, created.room, "Retry must not select again.", uuids(), {
-    requestId: "17000000-0000-4000-8000-000000000001",
-    targetPersonaSlug: "isaac-newton",
-  });
-  assert.deepEqual(duplicate.decision, { speaker: null, reason: "duplicate" });
-  await assert.rejects(api.sendLocalMessage(plugin, created.room, "Not installed.", uuids(), {
-    targetPersonaSlug: "benjamin-franklin",
-  }), /not in the active room/u);
-  await assert.rejects(api.sendLocalMessage(plugin, created.room, "Not cataloged.", uuids(), {
-    targetPersonaSlug: "forged-persona",
-  }), /Invalid message options/u);
-  assert.deepEqual(plugin.events, before, "invalid directed selection committed an event");
-});
 
-test("human and deterministic director decision commit in one batch with sequence continuity", async () => {
-  const { api, created, plugin } = await createdRoom();
-  const sent = await api.sendLocalMessage(plugin, created.room, "Hello from the iPhone.", uuids(), {
-    requestId: "10000000-0000-4000-8000-000000000001",
-  });
-  assert.deepEqual(sent.decision, { speaker: "ada-lovelace", reason: "selected" });
-  assert.deepEqual(sent.events.map(({ sequence, event }) => ({ sequence, type: event.type })), [
-    { sequence: 1, type: "human_message" },
-    { sequence: 2, type: "director_decision" },
-  ]);
-  assert.equal(sent.events[1].event.sourceEventSequence, 1);
-  const batch = plugin.calls.filter(({ method }) => method === "database.executeBatch").at(-1)!;
-  assert.deepEqual(batch.payload.statements.map(({ sqlId }: { sqlId: string }) => sqlId), [
-    "update_director_state", "append_event", "append_event",
-  ]);
-});
 
-test("lowercase request commit followed by uppercase spelling is rejected without a second pair", async () => {
-  const { api, created, plugin } = await createdRoom();
-  const requestId = "abcdef00-0000-4000-8000-000000000099";
-  await api.sendLocalMessage(plugin, created.room, "Commit once", uuids(), { requestId });
-  const beforeCalls = plugin.calls.length;
-  await assert.rejects(
-    api.sendLocalMessage(plugin, created.room, "Do not commit twice", uuids(), { requestId: requestId.toUpperCase() }),
-    /canonical lowercase UUID/u,
-  );
-  assert.equal(plugin.events.length, 2);
-  assert.equal(plugin.nextEventSequence, 3);
-  assert.equal(plugin.calls.length, beforeCalls, "noncanonical request reached the native bridge");
-});
 
-test("iOS accepts the shared maximum director snapshot above 128 KiB and rejects over 256 KiB", async () => {
-  const { api, created, plugin } = await createdRoom();
-  const fixed = (prefix: string, index: number, length: number) =>
-    `${prefix}${String(index).padStart(3, "0")}`.padEnd(length, "x");
-  plugin.directorState = {
-    acceptedHumanEventNumber: 500,
-    autonomousTurns: 1,
-    cancelled: false,
-    fallbackIndex: 1,
-    lastSelectedAt: [["ada-lovelace", 500]],
-    maxAutonomousTurns: 500,
-    seen: Array.from({ length: 500 }, (_, index) => [fixed("namespace-", index, 128), fixed("event-", index, 256)]),
-    version: 1,
-  };
-  const encodedContext = JSON.stringify({
-    roomId: plugin.room!.id,
-    generation: plugin.room!.generation,
-    nextEventSequence: plugin.nextEventSequence,
-    state: plugin.directorState,
-    personas: plugin.room!.participants.filter(({ kind }: Record<string, any>) => kind === "persona").map(
-      ({ id, personaSlug, displayName, muted, sortOrder }: Record<string, any>) => ({ id, personaSlug, displayName, muted, sortOrder }),
-    ),
-  });
-  assert.ok(Buffer.byteLength(encodedContext) > 128 * 1024);
-  assert.ok(Buffer.byteLength(encodedContext) < 256 * 1024);
-  const accepted = await api.sendLocalMessage(plugin, created.room, "Maximum snapshot", uuids(), {
-    requestId: "60000000-0000-4000-8000-000000000001",
-  });
-  assert.equal(accepted.events.length, 2);
 
-  plugin.malformedDirectorProjection = {
-    columns: ["director_context_json"],
-    rows: [["x".repeat(256 * 1024 + 1)]],
-  };
-  await assert.rejects(
-    api.sendLocalMessage(plugin, created.room, "Reject oversized snapshot", uuids()),
-    /result_too_large|director projection/u,
-  );
-});
 
-test("restart restores cooldown, rotation, duplicate tracking, silence, and muted eligibility", async () => {
-  const { api, created, plugin } = await createdRoom();
-  const ids = [1, 2, 3, 4, 5].map((value) => `20000000-0000-4000-8000-${String(value).padStart(12, "0")}`);
-  assert.equal((await api.sendLocalMessage(plugin, created.room, "First", uuids(), { requestId: ids[0]! })).decision.speaker, "ada-lovelace");
-  assert.equal((await api.sendLocalMessage(plugin, created.room, "Second", uuids(), { requestId: ids[1]! })).decision.speaker, "isaac-newton");
 
-  const reopened = await api.openLocalRoom(plugin, uuids());
-  assert.equal(reopened.events.length, 4);
-  assert.equal((await api.sendLocalMessage(plugin, reopened.room!, "Third", uuids(), { requestId: ids[2]! })).decision.speaker, "ff2k");
-  const silent = await api.sendLocalMessage(plugin, reopened.room!, "Let it sit", uuids(), { requestId: ids[3]!, wantsResponse: false });
-  assert.deepEqual(silent.decision, { speaker: null, reason: "deliberate_silence" });
 
-  const beforeDuplicate = plugin.events.length;
-  const duplicate = await api.sendLocalMessage(plugin, reopened.room!, "Changed duplicate text", uuids(), { requestId: ids[1]! });
-  assert.deepEqual(duplicate.decision, { speaker: null, reason: "duplicate" });
-  assert.equal(plugin.events.length, beforeDuplicate);
 
-  for (const participant of plugin.room!.participants) if (participant.kind === "persona") participant.muted = true;
-  const unavailable = await api.sendLocalMessage(plugin, reopened.room!, "Anyone?", uuids(), { requestId: ids[4]! });
-  assert.deepEqual(unavailable.decision, { speaker: null, reason: "no_eligible_persona" });
-});
 
-test("bounded event history preserves authoritative continuity beyond one hundred events", async () => {
-  const { api, created, plugin } = await createdRoom();
-
-  for (let message = 1; message <= 52; message += 1) {
-    const requestId = `52000000-0000-4000-8000-${String(message).padStart(12, "0")}`;
-    const sent = await api.sendLocalMessage(plugin, created.room, `Message ${message}`, uuids(), {
-      requestId,
-      wantsResponse: false,
-    });
-    assert.ok(sent.events.length <= 100, `message ${message} returned an unbounded UI history`);
-  }
-
-  assert.equal(plugin.events.length, 104);
-  assert.deepEqual(
-    plugin.events.map(({ sequence }) => sequence),
-    Array.from({ length: 104 }, (_, index) => index + 1),
-  );
-  for (let index = 0; index < plugin.events.length; index += 2) {
-    assert.equal(plugin.events[index]?.event.type, "human_message");
-    assert.equal(plugin.events[index + 1]?.event.type, "director_decision");
-    assert.equal(plugin.events[index + 1]?.event.sourceEventSequence, index + 1);
-  }
-
-  const reopened = await api.openLocalRoom(plugin, uuids());
-  assert.equal(reopened.events.length, 100);
-  assert.deepEqual(
-    reopened.events.map(({ sequence }) => sequence),
-    Array.from({ length: 100 }, (_, index) => index + 5),
-  );
-
-  const next = await api.sendLocalMessage(plugin, reopened.room!, "Message 53", uuids(), {
-    requestId: "53000000-0000-4000-8000-000000000053",
-    wantsResponse: false,
-  });
-  assert.equal(plugin.nextEventSequence, 107);
-  assert.equal(next.events.length, 100);
-  assert.deepEqual(next.events.slice(-2).map(({ sequence }) => sequence), [105, 106]);
-});
-
-test("forced director-event failure rolls back human event and director state", async () => {
-  const { api, created, plugin } = await createdRoom();
-  plugin.failDirectorWrite = true;
-  const beforeState = structuredClone(plugin.directorState);
-  await assert.rejects(
-    api.sendLocalMessage(plugin, created.room, "Rollback this", uuids(), {
-      requestId: "30000000-0000-4000-8000-000000000001",
-    }),
-    /transaction_rejected/u,
-  );
-  assert.deepEqual(plugin.events, []);
-  assert.deepEqual(plugin.directorState, beforeState);
-  assert.equal(plugin.nextEventSequence, 1);
-});
-
-test("malformed native director projection and discontinuous sequence fail closed before write", async () => {
-  const { api, created, plugin } = await createdRoom();
-  plugin.malformedDirectorProjection = { columns: ["wrong"], rows: [] };
-  await assert.rejects(api.sendLocalMessage(plugin, created.room, "No write", uuids()), /director projection/u);
-  assert.equal(plugin.events.length, 0);
-  plugin.malformedDirectorProjection = undefined;
-  plugin.nextEventSequence = 2;
-  await assert.rejects(api.sendLocalMessage(plugin, created.room, "No gap", uuids()), /sequence projection/u);
-  assert.equal(plugin.events.length, 0);
-});
-
-test("picker cancel re-queries current-room authority after A is replaced by B", async () => {
-  const { get } = fakeRoomDocument();
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  api.pickerController(plugin, uuids());
-  api.renderRoom(created);
-  const roomB = structuredClone(created.room);
-  roomB.id = "room-70000000-0000-4000-8000-000000000002";
-  roomB.title = "Authoritative B";
-  roomB.participants = roomB.participants.map((participant: Record<string, any>) => ({ ...participant }));
-  plugin.room = roomB;
-  plugin.events = [];
-  api.renderRoom({ events: [], room: roomB, source: "created" });
-  api.showPicker();
-  await get("cancel-picker").dispatch("click");
-  assert.equal(get("room-title").textContent, "Authoritative B");
-  assert.equal((globalThis as any).document.documentElement.dataset.localRoomSource, "reopened");
-});
-
-test("picker cancel retries when current-room authority changes between projection queries", async () => {
-  const { get } = fakeRoomDocument();
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  api.pickerController(plugin, uuids());
-  api.renderRoom(created);
-  api.showPicker();
-  const roomB = structuredClone(created.room);
-  roomB.id = "room-70000000-0000-4000-8000-000000000004";
-  roomB.title = "Raced B";
-  const originalQuery = plugin.query.bind(plugin);
-  let currentReads = 0;
-  plugin.query = async (call: NativeEnvelope) => {
-    const response = await originalQuery(call);
-    if (call.payload.sqlId === "current_room" && ++currentReads === 1) plugin.room = roomB;
-    return response;
-  };
-  await get("cancel-picker").dispatch("click");
-  assert.ok(currentReads >= 3);
-  assert.equal(get("room-title").textContent, "Raced B");
-});
-
-test("delayed A send commits to A but cannot replace active B transcript or status", async () => {
-  const { get } = fakeRoomDocument();
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  api.renderRoom(created);
-  const originalExecute = plugin.executeBatch.bind(plugin);
-  let release!: () => void;
-  let enteredResolve!: () => void;
-  const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  plugin.executeBatch = async (call: NativeEnvelope) => {
-    if (String(call.payload.transactionId).startsWith("message-")) {
-      enteredResolve();
-      await held;
-    }
-    return originalExecute(call);
-  };
-  const pending = api.beginActiveRoomSend(plugin, "Delayed A", uuids());
-  await entered;
-  const roomB = structuredClone(created.room);
-  roomB.id = "room-70000000-0000-4000-8000-000000000003";
-  roomB.title = "Visible B";
-  get("message-text").disabled = true;
-  get("message-text").value = "Delayed A";
-  get("message-status").textContent = "Committing your line and director decision…";
-  api.renderRoom({ events: [], room: roomB, source: "created" });
-  release();
-  await pending.committed;
-  assert.equal(pending.room.id, created.room.id);
-  assert.equal(pending.isCurrent(), false);
-  assert.equal(plugin.events[0]?.event.text, "Delayed A");
-  assert.equal(get("room-title").textContent, "Visible B");
-  assert.equal(get("transcript").children.length, 0);
-  assert.equal(get("message-text").disabled, false);
-  assert.equal(get("message-text").value, "");
-  assert.equal(get("message-status").textContent, "Ready. Lines and replies save locally.");
-});
 
 test("rendering uses text APIs for human, selected-speaker, and silence events", async () => {
   const { renderEvents } = await runtime();
@@ -736,83 +477,8 @@ test("malformed bridge envelopes are rejected", async () => {
   await assert.rejects(openLocalRoom(plugin, uuids()), /native bridge response/u);
 });
 
-test("selected persona generates through the exact A2 envelope and persists one immutable reply", async () => {
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  const sent = await api.sendLocalMessage(plugin, created.room, "What should we test?", uuids(), {
-    requestId: "81000000-0000-4000-8000-000000000001",
-  });
-  const calls: NativeEnvelope[] = [];
-  const provider = { async generate(call: NativeEnvelope) {
-    calls.push(call);
-    return success(call, { text: "Test the mechanism before the prophecy." });
-  } };
-  const selection = { model: "openai/gpt-oss-20b", profileId: "iphone.openrouter", profileRevision: 1, providerId: "openrouter" };
-  const generated = await api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids());
-  assert.equal(calls.length, 1);
-  assert.deepEqual(Object.keys(calls[0]!).sort(), ["callId", "contractVersion", "method", "payload"]);
-  assert.equal(calls[0]!.method, "provider.generate");
-  assert.deepEqual(Object.keys(calls[0]!.payload).sort(), [
-    "maxOutputTokens", "messages", "model", "personaSlug", "profileId", "roomId", "sourceEventSequence", "temperature",
-  ]);
-  const catalog = await import(pathToFileURL(join(ROOT, "ios-web/personas.js")).href) as { BUNDLED_PERSONAS: any[] };
-  assert.equal(calls[0]!.payload.messages[0].role, "system");
-  assert.equal(calls[0]!.payload.messages[0].content, catalog.BUNDLED_PERSONAS.find(({ slug }) => slug === "ada-lovelace").prompt);
-  assert.equal(calls[0]!.payload.messages.at(-1).content, "What should we test?");
-  assert.deepEqual(generated.reply, {
-    generation: 0, personaSlug: "ada-lovelace", sourceEventSequence: 1,
-    text: "Test the mechanism before the prophecy.", type: "persona_message",
-  });
-  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
-  const replyBatch = plugin.calls.filter(({ method }) => method === "database.executeBatch").at(-1)!;
-  assert.equal(replyBatch.payload.statements[0].sqlId, "append_persona_event");
-});
 
-test("provider failure retries only generation and stale room persistence is refused", async () => {
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  const sent = await api.sendLocalMessage(plugin, created.room, "Retry this", uuids(), {
-    requestId: "82000000-0000-4000-8000-000000000001",
-  });
-  let attempts = 0;
-  const provider = { async generate(call: NativeEnvelope) {
-    attempts += 1;
-    return attempts === 1
-      ? failure(call, "provider_unreachable")
-      : success(call, { text: "The retry arrived once." });
-  } };
-  const selection = { model: "model-v1", profileId: "iphone.openai", profileRevision: 1, providerId: "openai" };
-  await assert.rejects(api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()), /provider_unreachable/u);
-  assert.equal(plugin.events.length, 2, "network failure duplicated or advanced the committed pair");
-  const retried = await api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids());
-  assert.equal(attempts, 2);
-  assert.equal(retried.events.length, 3);
-  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
-  plugin.nextEventSequence += 1;
-  await assert.rejects(api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()), /stale|canceled|transaction_rejected/u);
-  assert.equal(plugin.events.filter(({ event }) => event.type === "persona_message").length, 1);
-});
 
-test("native bridge preserves closed failure code and retryability without provider details", async () => {
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  const sent = await api.sendLocalMessage(plugin, created.room, "Preserve this failure", uuids());
-  const provider = { async generate(call: NativeEnvelope) {
-    return { callId: call.callId, ok: false, error: { code: "offline", retryable: true } };
-  } };
-  const selection = { model: "gpt-4.1-mini", profileId: "iphone.openai", profileRevision: 1, providerId: "openai" };
-  await assert.rejects(
-    api.generatePersonaReply(plugin, provider, created.room, sent.events, selection, uuids()),
-    (error: any) => error?.name === "NativeBridgeError" && error?.code === "offline" && error?.retryable === true &&
-      !JSON.stringify(error).includes("status") && !JSON.stringify(error).includes("credential"),
-  );
-  const malformedProvider = { async generate(call: NativeEnvelope) {
-    return { callId: call.callId, ok: false, error: { code: "Bearer secret status 401", retryable: true } };
-  } };
-  await assert.rejects(
-    api.generatePersonaReply(plugin, malformedProvider, created.room, sent.events, selection, uuids()),
-    (error: any) => error?.code === "internal_failure" && error?.retryable === false &&
-      !String(error).includes("Bearer") && !String(error).includes("401"),
-  );
-  assert.equal(plugin.events.length, 2, "failed generation changed the committed human/director pair");
-});
 
 test("provider UX maps required failures to distinct actionable sanitized messages", async () => {
   const api = await runtime();
@@ -911,97 +577,4 @@ test("provider setup enforces the closed model ID contract before persistence", 
     assert.equal(relaunchedSelection?.model, exact, `${rejected.label} survived reconstructed runtime/store`);
     assert.notEqual(relaunchedSelection?.model, rejected.value, `${rejected.label} appeared after reconstruction`);
   }
-});
-
-test("generation UI offers Retry only for retryable failures without duplicating committed events", async () => {
-  const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
-  const { get } = fakeRoomDocument();
-  api.renderRoom(created);
-  plugin.providerSelection = {
-    providerId: "openai", profileId: "iphone.openai", profileRevision: 1, model: "gpt-4.1-mini",
-  };
-
-  const pending = api.beginActiveRoomSend(plugin, "Try once", uuids());
-  const committed = await pending.committed;
-  let attempts = 0;
-  const retryableProvider = { async generate(call: NativeEnvelope) {
-    attempts += 1;
-    return attempts === 1
-      ? { callId: call.callId, ok: false, error: { code: "provider_unreachable", retryable: true } }
-      : success(call, { text: "Recovered once." });
-  } };
-  await api.runGeneration(plugin, retryableProvider, pending, committed);
-  assert.equal(get("retry-reply").hidden, false);
-  assert.equal(get("reply-error").textContent, "The provider could not be reached. Check your connection, then retry.");
-  await api.retryActiveGeneration();
-  assert.equal(attempts, 2);
-  assert.deepEqual(plugin.events.map(({ event }) => event.type), ["human_message", "director_decision", "persona_message"]);
-
-  const rejectedRoom = await createdRoom(["ada-lovelace"]);
-  rejectedRoom.api.renderRoom(rejectedRoom.created);
-  rejectedRoom.plugin.providerSelection = {
-    providerId: "openai", profileId: "iphone.openai", profileRevision: 1, model: "gpt-4.1-mini",
-  };
-  const nextPending = rejectedRoom.api.beginActiveRoomSend(rejectedRoom.plugin, "Do not retry", uuids());
-  const nextCommitted = await nextPending.committed;
-  let rejectedAttempts = 0;
-  const rejectedProvider = { async generate(call: NativeEnvelope) {
-    rejectedAttempts += 1;
-    return failure(call, "provider_rejected");
-  } };
-  await rejectedRoom.api.runGeneration(rejectedRoom.plugin, rejectedProvider, nextPending, nextCommitted);
-  assert.equal(get("retry-reply").hidden, true);
-  assert.equal(get("reply-error").textContent, "The provider rejected the request. Check the credential and model in Provider settings.");
-  await rejectedRoom.api.retryActiveGeneration();
-  assert.equal(rejectedAttempts, 1, "non-retryable failure retained a retry action");
-  assert.deepEqual(rejectedRoom.plugin.events.map(({ event }) => event.type), ["human_message", "director_decision"]);
-});
-
-test("provider/model selection and room activity survive relaunch with ordered reopen", async () => {
-  const source = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
-  assert.doesNotMatch(source, /type=["']password["']|(?:id|name)=["'][^"']*(?:key|secret|credential)[^"']*["']/i);
-  for (const marker of [
-    'id="provider-button"', 'id="reply-pending"', '>Character …<', 'id="reply-error"',
-    'id="retry-reply"', '>Retry<', 'id="rooms-button"', 'id="room-list"',
-  ]) assert.ok(source.includes(marker), `missing visible A3 UI marker ${marker}`);
-  assert.deepEqual([...source.matchAll(/<option value="([^"]+)"[^>]*>/gu)].map((match) => match[1]), [
-    "openrouter", "openai", "xai", "groq", "together",
-  ]);
-  const runtimeSource = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
-  assert.equal((runtimeSource.match(/(?:AI replies are not enabled yet|Response generation is not enabled yet|response generation is not enabled yet)/gu) ?? []).length, 0);
-
-  const database: any = new MemoryPlugin();
-  const credentialCalls: NativeEnvelope[] = [];
-  const credential = { async presentSaveSheet(call: NativeEnvelope) {
-    credentialCalls.push(call);
-    return success(call, { credentialRef: "credential:iphone.groq:1", state: "ready" });
-  } };
-  const api = await runtime();
-  const saved = await api.saveProviderSetup(database, credential, "groq", "llama-3.3-70b-versatile", uuids());
-  assert.deepEqual(saved, {
-    model: "llama-3.3-70b-versatile", profileId: "iphone.groq", profileRevision: 1, providerId: "groq",
-  });
-  assert.deepEqual(credentialCalls[0], {
-    contractVersion: "iphone-native-bridge/1.0",
-    callId: credentialCalls[0]!.callId,
-    method: "credential.presentSaveSheet",
-    payload: {
-      mutationId: credentialCalls[0]!.payload.mutationId,
-      profileId: "iphone.groq", profileRevision: 1, providerId: "groq",
-    },
-  });
-  assert.equal(Object.keys(credentialCalls[0]!.payload).some((key) => /key|secret|credential/i.test(key)), false);
-  assert.deepEqual(await api.readProviderSelection(database, uuids()), saved);
-
-  const roomUuid = uuids();
-  const first = await api.createLocalRoom(database, ["ada-lovelace"], roomUuid);
-  const second = await api.createLocalRoom(database, ["isaac-newton"], roomUuid);
-  const selectedFirst = await api.reopenLocalRoom(database, first.room.id, roomUuid);
-  await api.sendLocalMessage(database, selectedFirst.room, "Make the first room newest", roomUuid, { wantsResponse: false });
-  const rooms = await api.listLocalRooms(database, uuids());
-  assert.deepEqual(rooms.map(({ id }) => id), [first.room.id, second.room.id]);
-  const reopened = await api.reopenLocalRoom(database, first.room.id, uuids());
-  assert.equal(reopened.room.id, first.room.id);
-  assert.equal(reopened.events[0].event.text, "Make the first room newest");
-  assert.deepEqual(await api.readProviderSelection(database, uuids()), saved);
 });

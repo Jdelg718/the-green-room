@@ -15,17 +15,9 @@ const REQUEST = {
   callId: CALL_ID,
   method: "provider.generate",
   payload: {
-    roomId: "room-00000000-0000-4000-8000-000000000001",
-    sourceEventSequence: 1,
-    personaSlug: "ada-lovelace",
-    messages: [
-      { role: "system", content: "You are Ada Lovelace." },
-      { role: "user", content: "Hello." },
-    ],
-    model: "openai/gpt-4.1-mini",
-    temperature: 0.7,
-    maxOutputTokens: 300,
-    profileId: "openrouter.primary",
+    requestId: "30000000-0000-4000-8000-000000000003",
+    commandId: "40000000-0000-4000-8000-000000000004",
+    requestDigest: "a".repeat(64),
   },
 } as const;
 
@@ -69,6 +61,8 @@ test("provider generate rejects extra fields, secrets, and caller destinations",
     ["host", "evil.invalid"],
     ["path", "/v1/chat/completions"],
     ["providerId", "openrouter"],
+    ["messages", [{ role: "user", content: "forbidden" }]],
+    ["model", "forbidden"],
   ] as const) {
     assert.throws(() => parseProviderGenerateCall({
       ...REQUEST,

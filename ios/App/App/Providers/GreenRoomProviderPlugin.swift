@@ -24,20 +24,27 @@ struct ProviderGeneratePayload: Codable, Equatable, Sendable {
     let temperature: Double
     let maxOutputTokens: Int
     let profileId: String
+    let profileRevision: Int
+    let providerId: String
+    let requestId: String
+    let kind: String
+}
+
+struct ProviderCommandPayload: Codable, Equatable, Sendable {
+    let requestId: String
+    let commandId: String
+    let requestDigest: String
 }
 
 struct ProviderGenerateEnvelope: Codable, Equatable, Sendable {
     let contractVersion: String
     let callId: String
     let method: String
-    let payload: ProviderGeneratePayload
+    let payload: ProviderCommandPayload
 }
 
 enum ProviderBridgeCodec {
-    private static let payloadKeys = Set([
-        "roomId", "sourceEventSequence", "personaSlug", "messages", "model",
-        "temperature", "maxOutputTokens", "profileId",
-    ])
+    private static let payloadKeys = Set(["requestId", "commandId", "requestDigest"])
 
     static func decodeGenerate(_ data: Data) throws -> ProviderGenerateEnvelope {
         guard data.count <= providerMaximumEnvelopeBytes,
@@ -46,9 +53,7 @@ enum ProviderBridgeCodec {
               object["method"] as? String == "provider.generate",
               canonicalBridgeCallId(object["callId"]) != "invalid",
               let payloadObject = object["payload"] as? [String: Any],
-              Set(payloadObject.keys) == payloadKeys,
-              let messageObjects = payloadObject["messages"] as? [[String: Any]],
-              messageObjects.allSatisfy({ Set($0.keys) == Set(["role", "content"]) }) else {
+              Set(payloadObject.keys) == payloadKeys else {
             throw DatabaseFailure(code: "invalid_call", retryable: false)
         }
         guard object["contractVersion"] as? String == bridgeContractVersion else {
@@ -57,8 +62,29 @@ enum ProviderBridgeCodec {
         guard let envelope = try? JSONDecoder().decode(ProviderGenerateEnvelope.self, from: data) else {
             throw DatabaseFailure(code: "invalid_call", retryable: false)
         }
-        try validate(envelope.payload)
+        guard canonicalBridgeCallId(envelope.payload.requestId) != "invalid",
+              canonicalBridgeCallId(envelope.payload.commandId) != "invalid",
+              envelope.payload.requestDigest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            throw DatabaseFailure(code: "invalid_call", retryable: false)
+        }
         return envelope
+    }
+
+    static func decodeRequestPlan(_ json: String) throws -> ProviderGeneratePayload {
+        guard let data = json.data(using: .utf8), data.count <= providerMaximumEnvelopeBytes,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set([
+                "kind", "requestId", "roomId", "sourceEventSequence", "personaSlug", "messages",
+                "model", "temperature", "maxOutputTokens", "profileId", "profileRevision", "providerId",
+              ]),
+              object["kind"] as? String == "provider",
+              let messageObjects = object["messages"] as? [[String: Any]],
+              messageObjects.allSatisfy({ Set($0.keys) == Set(["role", "content"]) }),
+              let plan = try? JSONDecoder().decode(ProviderGeneratePayload.self, from: data) else {
+            throw DatabaseFailure(code: "canceled", retryable: false)
+        }
+        try validate(plan)
+        return plan
     }
 
     private static func validate(_ payload: ProviderGeneratePayload) throws {
@@ -83,7 +109,11 @@ enum ProviderBridgeCodec {
         }
         let modelScalars = payload.model.unicodeScalars
         guard matches(roomPattern, payload.roomId),
+              payload.kind == "provider",
+              canonicalBridgeCallId(payload.requestId) != "invalid",
               matches(profilePattern, payload.profileId),
+              (1...2_147_483_647).contains(payload.profileRevision),
+              ApprovedProviderID(rawValue: payload.providerId) != nil,
               payload.personaSlug.unicodeScalars.count <= 128,
               matches(slugPattern, payload.personaSlug),
               (1...9_007_199_254_740_991).contains(payload.sourceEventSequence),
@@ -238,28 +268,38 @@ final class ProviderTransport: @unchecked Sendable {
         return configuration
     }
 
-    func generate(
+    func makeTask(
         _ payload: ProviderGeneratePayload,
         completion: @escaping (Result<String, DatabaseFailure>) -> Void
-    ) {
-        do {
-            let request = try makeRequest(payload)
-            var delegate: ProviderRequestDelegate?
-            delegate = ProviderRequestDelegate { [definition, model = payload.model] result in
-                defer { delegate = nil }
-                switch result {
-                case .failure(let failure): completion(.failure(failure))
-                case .success(let (response, data)):
-                    completion(Self.parse(response: response, data: data, model: model, definition: definition))
-                }
+    ) throws -> URLSessionDataTask {
+        let request = try makeRequest(payload)
+        var delegate: ProviderRequestDelegate?
+        delegate = ProviderRequestDelegate { [definition, model = payload.model] result in
+            defer { delegate = nil }
+            switch result {
+            case .failure(let failure): completion(.failure(failure))
+            case .success(let (response, data)):
+                completion(Self.parse(response: response, data: data, model: model, definition: definition))
             }
-            let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-            session.dataTask(with: request).resume()
+        }
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        return session.dataTask(with: request)
+    }
+
+    @discardableResult func generate(
+        _ payload: ProviderGeneratePayload,
+        completion: @escaping (Result<String, DatabaseFailure>) -> Void
+    ) -> URLSessionDataTask? {
+        do {
+            let task = try makeTask(payload, completion: completion)
+            task.resume()
+            return task
         } catch let failure as DatabaseFailure {
             completion(.failure(failure))
         } catch {
             completion(.failure(DatabaseFailure(code: "internal_failure", retryable: false)))
         }
+        return nil
     }
 
     private func makeRequest(_ payload: ProviderGeneratePayload) throws -> URLRequest {
@@ -340,41 +380,208 @@ final class GreenRoomProviderService: @unchecked Sendable {
     }
 
     func generate(
-        _ payload: ProviderGeneratePayload,
+        _ command: ProviderCommandPayload,
         completion: @escaping (Result<String, DatabaseFailure>) -> Void
     ) {
+        let completionGate = ProviderResultCompletion(completion)
+        var commandAuthority: ProviderCommandAuthority?
         do {
-            let plan = try authority.withReconciledDatabase(unavailableCode: "credential_unavailable") {
-                try authority.database.providerRequestAuthority(
-                    roomId: payload.roomId,
-                    sourceEventSequence: payload.sourceEventSequence,
-                    personaSlug: payload.personaSlug,
-                    profileId: payload.profileId
+            guard let lifecycleEpoch = ProviderTaskRegistry.shared.lifecycleSnapshot() else {
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            }
+            let loadedAuthority = try authority.withReconciledDatabase(unavailableCode: "credential_unavailable") {
+                try authority.database.providerCommandAuthority(
+                    commandId: command.commandId,
+                    requestId: command.requestId,
+                    requestDigest: command.requestDigest
                 )
             }
-            // TODO(release-hardening): Persist an immutable request plan and re-verify its digest, generation fence, and command claim before credential resolution and completion.
+            commandAuthority = loadedAuthority
+            let payload = try ProviderBridgeCodec.decodeRequestPlan(loadedAuthority.requestPlanJSON)
+            guard payload.requestId == command.requestId,
+                  payload.profileId == loadedAuthority.reservation.profileId,
+                  payload.profileRevision == loadedAuthority.reservation.profileRevision,
+                  payload.providerId == loadedAuthority.reservation.providerId else {
+                throw DatabaseFailure(code: "canceled", retryable: false)
+            }
             var transport: ProviderTransport?
-            try authority.credentials.performWithReadyCredential(plan.reservation.mutationRequest) { credential in
+            try authority.credentials.performWithReadyCredential(loadedAuthority.reservation.mutationRequest) { credential in
                 guard let value = String(data: credential, encoding: .utf8),
                       !value.isEmpty,
                       value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
                     throw DatabaseFailure(code: "credential_missing", retryable: true)
                 }
                 transport = ProviderTransport(
-                    definition: plan.definition,
+                    definition: loadedAuthority.definition,
                     configuration: configuration,
-                    authorizationValue: "\(plan.definition.authorization.scheme) \(value)"
+                    authorizationValue: "\(loadedAuthority.definition.authorization.scheme) \(value)"
                 )
             }
             guard let transport else {
                 throw DatabaseFailure(code: "credential_missing", retryable: true)
             }
-            transport.generate(payload, completion: completion)
+            let attemptEpoch = loadedAuthority.attemptEpoch + 1
+            let task = try transport.makeTask(payload) { [authority] result in
+                guard ProviderTaskRegistry.shared.claimCompletion(
+                    requestId: command.requestId,
+                    attemptEpoch: attemptEpoch,
+                    lifecycleEpoch: lifecycleEpoch
+                ) else {
+                    completionGate.finish(.failure(DatabaseFailure(code: "canceled", retryable: true)))
+                    return
+                }
+                switch result {
+                case .failure(let failure):
+                    try? authority.withReconciledDatabase {
+                        _ = try authority.database.executeBatch(
+                            transactionId: "native-interrupt-\(command.commandId)-\(attemptEpoch)",
+                            statements: [["sqlId": "interrupt_generation_command", "parameters": [
+                                failure.code, command.commandId, command.requestId, command.requestDigest, attemptEpoch,
+                            ]]]
+                        )
+                    }
+                    completionGate.finish(.failure(failure))
+                case .success(let text):
+                    let valid = (try? authority.withReconciledDatabase {
+                        try authority.database.generationCommandIsInFlight(
+                            commandId: command.commandId,
+                            requestId: command.requestId,
+                            requestDigest: command.requestDigest,
+                            attemptEpoch: attemptEpoch
+                        )
+                    }) == true
+                    completionGate.finish(valid ? .success(text) : .failure(DatabaseFailure(code: "canceled", retryable: true)))
+                }
+            }
+            _ = try authority.withReconciledDatabase {
+                try authority.database.executeBatch(
+                    transactionId: "native-begin-\(command.commandId)-\(attemptEpoch)",
+                    statements: [["sqlId": "begin_generation_command", "parameters": [
+                        command.commandId, command.requestId, command.requestDigest,
+                    ]]]
+                )
+            }
+            guard ProviderTaskRegistry.shared.install(
+                task,
+                requestId: command.requestId,
+                attemptEpoch: attemptEpoch,
+                lifecycleEpoch: lifecycleEpoch
+            ), ProviderTaskRegistry.shared.start(
+                requestId: command.requestId,
+                attemptEpoch: attemptEpoch,
+                lifecycleEpoch: lifecycleEpoch
+            ) else {
+                task.cancel()
+                try? authority.withReconciledDatabase {
+                    _ = try authority.database.executeBatch(
+                        transactionId: "native-interrupt-\(command.commandId)-\(attemptEpoch)",
+                        statements: [["sqlId": "interrupt_generation_command", "parameters": [
+                            "canceled", command.commandId, command.requestId, command.requestDigest, attemptEpoch,
+                        ]]]
+                    )
+                }
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            }
         } catch let failure as DatabaseFailure {
-            completion(.failure(failure))
+            if let commandAuthority, commandAuthority.attemptEpoch == 0 {
+                try? authority.withReconciledDatabase {
+                    _ = try authority.database.executeBatch(
+                        transactionId: "native-fail-\(command.commandId)-\(failure.code)",
+                        statements: [["sqlId": "fail_generation_command", "parameters": [
+                            failure.code, command.commandId, command.requestId, command.requestDigest, 0,
+                        ]]]
+                    )
+                }
+            }
+            completionGate.finish(.failure(failure))
         } catch {
-            completion(.failure(DatabaseFailure(code: "internal_failure", retryable: false)))
+            completionGate.finish(.failure(DatabaseFailure(code: "internal_failure", retryable: false)))
         }
+    }
+}
+
+private final class ProviderResultCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private let completion: (Result<String, DatabaseFailure>) -> Void
+
+    init(_ completion: @escaping (Result<String, DatabaseFailure>) -> Void) {
+        self.completion = completion
+    }
+
+    func finish(_ result: Result<String, DatabaseFailure>) {
+        let shouldFinish = lock.withLock { () -> Bool in
+            guard !completed else { return false }
+            completed = true
+            return true
+        }
+        if shouldFinish { completion(result) }
+    }
+}
+
+final class ProviderTaskRegistry: @unchecked Sendable {
+    static let shared = ProviderTaskRegistry()
+    private struct Entry {
+        let task: URLSessionTask
+        let attemptEpoch: Int
+        let lifecycleEpoch: Int
+    }
+    private let lock = NSLock()
+    private var tasks: [String: Entry] = [:]
+    private var lifecycleEpoch = 0
+    private var available = true
+
+    func lifecycleSnapshot() -> Int? {
+        lock.withLock { available ? lifecycleEpoch : nil }
+    }
+
+    func updateLifecycleAvailability(_ value: Bool) {
+        let canceled = lock.withLock { () -> [URLSessionTask] in
+            guard value != available else { return [] }
+            lifecycleEpoch += 1
+            available = value
+            guard !value else { return [] }
+            let canceled = tasks.values.map(\.task)
+            tasks.removeAll()
+            return canceled
+        }
+        canceled.forEach { $0.cancel() }
+    }
+
+    func install(_ task: URLSessionTask, requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
+        lock.withLock {
+            guard available, lifecycleEpoch == expected, tasks[requestId] == nil else { return false }
+            tasks[requestId] = Entry(task: task, attemptEpoch: attemptEpoch, lifecycleEpoch: expected)
+            return true
+        }
+    }
+
+    func start(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
+        lock.withLock {
+            guard available, lifecycleEpoch == expected, let entry = tasks[requestId],
+                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else { return false }
+            entry.task.resume()
+            return true
+        }
+    }
+
+    func claimCompletion(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
+        lock.withLock {
+            guard available, lifecycleEpoch == expected, let entry = tasks[requestId],
+                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else { return false }
+            tasks.removeValue(forKey: requestId)
+            return true
+        }
+    }
+
+    func cancel(requestId: String) -> Int? {
+        let entry = lock.withLock { tasks.removeValue(forKey: requestId) }
+        entry?.task.cancel()
+        return entry?.attemptEpoch
+    }
+
+    func cancelAllAndFence() {
+        updateLifecycleAvailability(false)
     }
 }
 
@@ -385,6 +592,7 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "GreenRoomProvider"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "generate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancel", returnType: CAPPluginReturnPromise),
     ]
     private let service = GreenRoomProviderService(authority: GreenRoomNativeAuthority.shared)
     private let inFlightCalls = GreenRoomNativeAuthority.shared.inFlightCalls
@@ -414,6 +622,34 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
             reject(call, callId: callId, failure: failure)
         } catch {
             inFlightCalls.finish(callId)
+            reject(call, callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false))
+        }
+    }
+
+    @objc func cancel(_ call: CAPPluginCall) {
+        let options = call.options as? [String: Any] ?? [:]
+        let callId = canonicalBridgeCallId(options["callId"])
+        do {
+            guard callId != "invalid", Set(options.keys) == Set(["contractVersion", "callId", "method", "payload"]),
+                  options["contractVersion"] as? String == bridgeContractVersion,
+                  options["method"] as? String == "provider.cancel",
+                  let payload = options["payload"] as? [String: Any], Set(payload.keys) == Set(["requestId"]),
+                  let requestId = payload["requestId"] as? String,
+                  canonicalBridgeCallId(requestId) != "invalid" else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            let attemptEpoch = ProviderTaskRegistry.shared.cancel(requestId: requestId)
+            if let attemptEpoch {
+                try? GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                    try GreenRoomNativeAuthority.shared.database.interruptGenerationCommand(
+                        requestId: requestId, attemptEpoch: attemptEpoch, failureCode: "canceled"
+                    )
+                }
+            }
+            call.resolve(["callId": callId, "ok": true, "value": ["canceled": attemptEpoch != nil]])
+        } catch let failure as DatabaseFailure {
+            reject(call, callId: callId, failure: failure)
+        } catch {
             reject(call, callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false))
         }
     }

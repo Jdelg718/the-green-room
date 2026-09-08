@@ -1,5 +1,5 @@
 {
-  "schema": 6,
+  "schema": 7,
   "migrations": [
     {
       "version": 1,
@@ -30,6 +30,11 @@
       "version": 6,
       "file": "0006-room-talk.sql",
       "sha256": "aa213b30cbbf9af668e0ab62c3eed93fe5538ee81bf887f88d30b3625c93dd45"
+    },
+    {
+      "version": 7,
+      "file": "0007-generation-commands.sql",
+      "sha256": "8ce64b5cd74294b78222cba8f963adf355daf367784fcc5e3f6f815608fe6171"
     }
   ]
 }

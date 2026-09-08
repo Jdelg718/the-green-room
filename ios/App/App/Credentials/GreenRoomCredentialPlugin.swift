@@ -27,6 +27,7 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
             let result = try database.open(expectedSchema: expectedSchema)
             do {
                 try credentials.reconcileAtDatabaseOpen()
+                try database.interruptInFlightGenerationCommands()
                 databaseReconciled = true
                 return result
             } catch {
@@ -34,6 +35,10 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
                 throw error
             }
         }
+    }
+
+    var isDatabaseReconciled: Bool {
+        database.serializationLock.withLock { databaseReconciled }
     }
 
     func closeDatabase() throws -> [String: Any] {

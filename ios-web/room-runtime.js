@@ -24,10 +24,31 @@ const DIRECTOR_REASONS = new Set(Object.values(DIRECTOR_REASON));
 let activeRoom = null;
 let activeEvents = Object.freeze([]);
 let activeViewToken = 0;
-let activeGenerationRetry = null;
+let activeCommand = null;
+let mutationGate = Object.freeze({ active: false, protectedDataAvailable: false, pathAvailable: false, databaseReady: false, epoch: 0 });
+let providerReady = false;
+let draftRevision = 0;
+let pendingDraft = null;
+let draftWriteRunning = false;
+
+export const UNCERTAIN_REQUEST_WARNING = "Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.";
 
 function encodedBytes(value) {
   return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value)).byteLength;
+}
+
+function canonicalJSON(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJSON(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(canonicalJSON(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function isCanonicalModelId(value) {
@@ -80,6 +101,41 @@ export function generationFailurePresentation(failure) {
   return Object.freeze({
     message: messages[native?.code] ?? "Reply failed. Review Provider settings, then try again.",
     retryable: native?.retryable ?? false,
+  });
+}
+
+function parseLifecycleStatus(value) {
+  if (!exactRecord(value, ["active", "databaseReady", "epoch", "pathAvailable", "protectedDataAvailable"]) ||
+      typeof value.active !== "boolean" || typeof value.databaseReady !== "boolean" ||
+      typeof value.pathAvailable !== "boolean" || typeof value.protectedDataAvailable !== "boolean" ||
+      !Number.isSafeInteger(value.epoch) || value.epoch < 0) {
+    throw new Error("Invalid native lifecycle status.");
+  }
+  return Object.freeze(value);
+}
+
+export async function readLifecycleStatus(plugin, uuid = () => crypto.randomUUID()) {
+  return parseLifecycleStatus(await invoke(plugin, "lifecycle.status", {}, uuid));
+}
+
+function lifecycleAllowsLocalWrites(status) {
+  return status.active && status.protectedDataAvailable && status.databaseReady;
+}
+
+function lifecycleAllowsNetworkMutation(status) {
+  return lifecycleAllowsLocalWrites(status) && status.pathAvailable;
+}
+
+export function mutationAvailability(status, hasReadyProvider, hasUnresolvedCommand) {
+  const local = lifecycleAllowsLocalWrites(parseLifecycleStatus(status));
+  const network = local && status.pathAvailable;
+  return Object.freeze({
+    abandon: local && hasUnresolvedCommand,
+    createRoom: network,
+    draft: local && !hasUnresolvedCommand,
+    providerSave: network,
+    retry: network && hasReadyProvider && hasUnresolvedCommand,
+    send: network && hasReadyProvider && !hasUnresolvedCommand,
   });
 }
 
@@ -141,6 +197,10 @@ function parseRoom(value) {
 
 async function readCurrentRoom(plugin, uuid) {
   return parseRoom(await invoke(plugin, "database.query", { sqlId: "current_room", parameters: [] }, uuid));
+}
+
+async function readRoomById(plugin, roomId, uuid) {
+  return parseRoom(await invoke(plugin, "database.query", { sqlId: "room_by_id", parameters: [roomId] }, uuid));
 }
 
 function parseSingleJsonRow(value, column, label) {
@@ -241,10 +301,41 @@ async function readDirectorContext(plugin, room, uuid) {
 }
 
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 6 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 7 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
-  return Object.freeze({ events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
+  const draft = room === null ? null : await loadLocalDraft(plugin, room.id, uuid);
+  const command = room === null ? null : await readUnresolvedGenerationCommand(plugin, room.id, uuid);
+  return Object.freeze({ command, draft, events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
+}
+
+export async function saveLocalDraft(plugin, roomId, text, uuid = () => crypto.randomUUID()) {
+  if (!ROOM_ID.test(roomId) || typeof text !== "string" || text.length > 16_384) throw new TypeError("Invalid local draft.");
+  if (text.length === 0) return deleteLocalDraft(plugin, roomId, uuid);
+  return invoke(plugin, "database.executeBatch", {
+    transactionId: `draft-save-${nextUuid(uuid)}`,
+    statements: [{ sqlId: "save_local_draft", parameters: [roomId, text] }],
+  }, uuid);
+}
+
+export async function deleteLocalDraft(plugin, roomId, uuid = () => crypto.randomUUID()) {
+  if (!ROOM_ID.test(roomId)) throw new TypeError("Invalid local draft room.");
+  return invoke(plugin, "database.executeBatch", {
+    transactionId: `draft-delete-${nextUuid(uuid)}`,
+    statements: [{ sqlId: "delete_local_draft", parameters: [roomId] }],
+  }, uuid);
+}
+
+export async function loadLocalDraft(plugin, roomId, uuid = () => crypto.randomUUID()) {
+  const value = parseSingleJsonRow(
+    await invoke(plugin, "database.query", { sqlId: "local_draft", parameters: [roomId] }, uuid),
+    "local_draft_json", "local draft",
+  );
+  if (value === null) return null;
+  if (!exactRecord(value, ["roomId", "text"]) || value.roomId !== roomId || typeof value.text !== "string" || value.text.length > 16_384) {
+    throw new Error("Invalid local draft projection.");
+  }
+  return Object.freeze(value);
 }
 
 function castTitle(personas) {
@@ -277,16 +368,7 @@ export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.
   return Object.freeze({ events: Object.freeze([]), room, source: "created" });
 }
 
-export async function sendLocalMessage(
-  plugin,
-  room,
-  text,
-  uuid = () => crypto.randomUUID(),
-  options = {},
-) {
-  if (typeof text !== "string" || text.trim().length === 0 || text.length > 16_384) {
-    throw new TypeError("Message must be nonblank and at most 16,384 characters.");
-  }
+function validateMessageOptions(options) {
   if (!exactRecord(options, Object.keys(options)) ||
       Object.keys(options).some((key) => key !== "requestId" && key !== "targetPersonaSlug" && key !== "wantsResponse") ||
       (options.wantsResponse !== undefined && typeof options.wantsResponse !== "boolean") ||
@@ -295,70 +377,6 @@ export async function sendLocalMessage(
       (options.targetPersonaSlug !== undefined && options.wantsResponse === false)) {
     throw new TypeError("Invalid message options.");
   }
-  const human = room?.participants?.find(({ kind }) => kind === "human");
-  if (!human || !ROOM_ID.test(room.id)) throw new TypeError("A valid open room is required.");
-  const requestId = options.requestId ?? nextUuid(uuid);
-  if (!UUID.test(requestId)) throw new TypeError("requestId must be a canonical lowercase UUID.");
-
-  const events = await readRoomEvents(plugin, room.id, uuid);
-  const context = await readDirectorContext(plugin, room, uuid);
-  const projectedNextSequence = events.length === 0 ? 1 : events.at(-1).sequence + 1;
-  if (context.nextEventSequence !== projectedNextSequence) throw new Error("Invalid native director sequence projection.");
-  const personaIds = context.personas.map(({ id }) => id);
-  const director = context.state === null
-    ? new Director(personaIds)
-    : Director.restore(personaIds, context.state);
-  for (const persona of context.personas) director.setMuted(persona.id, persona.muted);
-  const target = options.targetPersonaSlug === undefined
-    ? undefined
-    : context.personas.find(({ personaSlug }) => personaSlug === options.targetPersonaSlug);
-  if (options.targetPersonaSlug !== undefined && target === undefined) {
-    throw new TypeError("The selected character is not in the active room.");
-  }
-  if (target?.muted) throw new TypeError("The selected character is muted.");
-  const decision = director.schedule(
-    new TrustedEventAdapter(`iphone-room:${room.id}`).humanEvent(
-      requestId,
-      text,
-      options.wantsResponse ?? true,
-    ),
-    target?.id,
-  );
-  if (decision.reason === DIRECTOR_REASON.DUPLICATE) {
-    return Object.freeze({ decision, events: Object.freeze(events) });
-  }
-
-  const humanSequence = context.nextEventSequence;
-  const directorSequence = humanSequence + 1;
-  const humanEvent = { participantId: human.id, text, type: "human_message" };
-  const directorEvent = {
-    generation: context.generation,
-    reason: decision.reason,
-    sourceEventSequence: humanSequence,
-    speaker: decision.speaker,
-    type: "director_decision",
-  };
-  const snapshot = director.snapshot();
-  const result = await invoke(plugin, "database.executeBatch", {
-    transactionId: `message-${requestId}`,
-    statements: [
-      { sqlId: "update_director_state", parameters: [
-        JSON.stringify(snapshot), humanSequence, decision.speaker, decision.speaker,
-        snapshot.autonomousTurns, context.generation, room.id, context.generation, humanSequence,
-      ] },
-      { sqlId: "append_event", parameters: [JSON.stringify(humanEvent), room.id] },
-      { sqlId: "append_event", parameters: [JSON.stringify(directorEvent), room.id] },
-    ],
-  }, uuid);
-  if (!exactRecord(result, ["changes"]) || !Number.isSafeInteger(result.changes) || result.changes < 3) {
-    throw new Error("Invalid native transaction result.");
-  }
-  const committed = Object.freeze([
-    ...events,
-    Object.freeze({ event: Object.freeze(humanEvent), sequence: humanSequence }),
-    Object.freeze({ event: Object.freeze(directorEvent), sequence: directorSequence }),
-  ].slice(-MAX_EVENT_PAGE));
-  return Object.freeze({ decision, events: committed });
 }
 
 function parseProviderSelection(value) {
@@ -440,17 +458,6 @@ export async function saveProviderSetup(
   return selection;
 }
 
-function selectedDecision(events) {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const record = events[index];
-    if (record?.event?.type !== "director_decision" || record.event.speaker === null) continue;
-    const alreadyGenerated = events.some(({ event }) => event?.type === "persona_message" &&
-      event.sourceEventSequence === record.event.sourceEventSequence && event.generation === record.event.generation);
-    if (!alreadyGenerated) return record;
-  }
-  throw new Error("No selected speaker is awaiting generation.");
-}
-
 function providerMessages(persona, events, sourceEventSequence) {
   const system = { role: "system", content: persona.prompt };
   let bytes = encodedBytes(system.content);
@@ -471,56 +478,231 @@ function providerMessages(persona, events, sourceEventSequence) {
   return Object.freeze([Object.freeze(system), ...recent.map(Object.freeze)]);
 }
 
-export async function generatePersonaReply(
-  database,
-  provider,
-  room,
-  events,
-  suppliedSelection,
-  uuid = () => crypto.randomUUID(),
-) {
-  const selection = parseProviderSelection(suppliedSelection);
-  if (selection === null) throw new Error("Provider setup is required.");
-  const current = await readCurrentRoom(database, uuid);
-  if (current?.id !== room?.id || current.generation !== room.generation) throw new Error("The room changed; generation was canceled as stale.");
-  const decision = selectedDecision(events);
-  const { generation, sourceEventSequence, speaker: personaSlug } = decision.event;
-  if (generation !== room.generation || decision.sequence !== sourceEventSequence + 1) {
-    throw new Error("The director decision is stale.");
+function parseGenerationCommand(value) {
+  if (value === null) return null;
+  if (!exactRecord(value, [
+    "attemptEpoch", "commandId", "failureCode", "personaSlug", "requestDigest",
+    "requestId", "requestPlan", "roomId", "state",
+  ]) || !UUID.test(value.commandId) || !UUID.test(value.requestId) || !ROOM_ID.test(value.roomId) ||
+      !/^[0-9a-f]{64}$/u.test(value.requestDigest) ||
+      !new Set(["prepared", "in_flight", "failed", "interrupted"]).has(value.state) ||
+      !Number.isSafeInteger(value.attemptEpoch) || value.attemptEpoch < 0 ||
+      !(value.failureCode === null || typeof value.failureCode === "string") ||
+      !(value.personaSlug === null || CATALOG.has(value.personaSlug)) ||
+      value.requestPlan === null || typeof value.requestPlan !== "object") {
+    throw new Error("Invalid generation command projection.");
   }
-  const persona = CATALOG.get(personaSlug);
-  if (!persona) throw new Error("The selected bundled persona is unavailable.");
-  const callId = nextUuid(uuid);
-  const payload = {
-    roomId: room.id,
-    sourceEventSequence,
-    personaSlug,
-    messages: providerMessages(persona, events, sourceEventSequence),
-    model: selection.model,
-    temperature: 0.8,
-    maxOutputTokens: 700,
-    profileId: selection.profileId,
+  return Object.freeze(value);
+}
+
+export async function readUnresolvedGenerationCommand(database, roomId, uuid = () => crypto.randomUUID()) {
+  return parseGenerationCommand(parseSingleJsonRow(
+    await invoke(database, "database.query", { sqlId: "unresolved_generation_command", parameters: [roomId] }, uuid),
+    "generation_command_json", "generation command",
+  ));
+}
+
+export async function prepareAtomicTurn(database, room, text, uuid = () => crypto.randomUUID(), options = {}) {
+  if (typeof text !== "string" || text.trim().length === 0 || text.length > 16_384) {
+    throw new TypeError("Message must be nonblank and at most 16,384 characters.");
+  }
+  const human = room?.participants?.find(({ kind }) => kind === "human");
+  if (!human || !ROOM_ID.test(room.id)) throw new TypeError("A valid open room is required.");
+  validateMessageOptions(options);
+  const requestId = options.requestId ?? nextUuid(uuid);
+  if (!UUID.test(requestId)) throw new TypeError("requestId must be a canonical lowercase UUID.");
+  const selection = await readProviderSelection(database, uuid);
+  if (selection === null) throw new Error("Provider setup is required.");
+  const profile = await readProviderProfile(database, selection.profileId, uuid);
+  if (profile?.state !== "ready" || profile.tombstoned || profile.profileRevision !== selection.profileRevision) {
+    throw new Error("Provider setup is required.");
+  }
+  const events = await readRoomEvents(database, room.id, uuid);
+  const context = await readDirectorContext(database, room, uuid);
+  const projectedNextSequence = events.length === 0 ? 1 : events.at(-1).sequence + 1;
+  if (context.nextEventSequence !== projectedNextSequence) throw new Error("Invalid native director sequence projection.");
+  const personaIds = context.personas.map(({ id }) => id);
+  const director = context.state === null ? new Director(personaIds) : Director.restore(personaIds, context.state);
+  for (const persona of context.personas) director.setMuted(persona.id, persona.muted);
+  const target = options.targetPersonaSlug === undefined ? undefined : context.personas.find(
+    ({ personaSlug }) => personaSlug === options.targetPersonaSlug,
+  );
+  if (options.targetPersonaSlug !== undefined && target === undefined) throw new TypeError("The selected character is not in the active room.");
+  if (target?.muted) throw new TypeError("The selected character is muted.");
+  const decision = director.schedule(
+    new TrustedEventAdapter(`iphone-room:${room.id}`).humanEvent(requestId, text, options.wantsResponse ?? true),
+    target?.id,
+  );
+  if (decision.reason === DIRECTOR_REASON.DUPLICATE) throw new Error("The command request ID was already used.");
+  const sourceEventSequence = context.nextEventSequence;
+  const humanEvent = { participantId: human.id, text, type: "human_message" };
+  const directorEvent = {
+    generation: context.generation, reason: decision.reason, sourceEventSequence,
+    speaker: decision.speaker, type: "director_decision",
   };
-  const value = await invoke(provider, "provider.generate", payload, () => callId);
+  const snapshot = director.snapshot();
+  let requestPlan;
+  if (decision.speaker === null) {
+    requestPlan = { kind: "silence", requestId, roomId: room.id, sourceEventSequence };
+  } else {
+    const persona = CATALOG.get(decision.speaker);
+    if (!persona) throw new Error("The selected bundled persona is unavailable.");
+    requestPlan = {
+      kind: "provider", requestId, roomId: room.id, sourceEventSequence,
+      personaSlug: persona.slug,
+      messages: providerMessages(persona, [...events, { event: humanEvent, sequence: sourceEventSequence }], sourceEventSequence),
+      model: selection.model, temperature: 0.8, maxOutputTokens: 700,
+      profileId: selection.profileId, profileRevision: selection.profileRevision, providerId: selection.providerId,
+    };
+  }
+  const commandId = nextUuid(uuid);
+  const requestDigest = await sha256(requestPlan);
+  const planJSON = canonicalJSON(requestPlan);
+  const personaSlug = decision.speaker;
+  await invoke(database, "database.executeBatch", {
+    transactionId: `prepare-${commandId}`,
+    statements: [{ sqlId: "prepare_generation_command", parameters: [
+      commandId, requestId, requestDigest, planJSON, JSON.stringify(humanEvent), JSON.stringify(directorEvent),
+      JSON.stringify(snapshot), context.generation, sourceEventSequence, personaSlug,
+      room.id, context.generation, sourceEventSequence,
+      personaSlug, planJSON, personaSlug, planJSON,
+      planJSON, planJSON, planJSON, planJSON,
+    ] }],
+  }, uuid);
+  const prepared = await readUnresolvedGenerationCommand(database, room.id, uuid);
+  if (prepared === null || prepared.commandId !== commandId || prepared.requestId !== requestId ||
+      prepared.requestDigest !== requestDigest || prepared.state !== "prepared") {
+    throw new Error("The generation command was not durably prepared.");
+  }
+  return Object.freeze({ command: prepared, decision, events: Object.freeze(events) });
+}
+
+function verifyCommittedTurn(command, events, responseText) {
+  const source = command.requestPlan.sourceEventSequence;
+  if (!Number.isSafeInteger(source) || source < 1) throw new Error("Invalid completed generation command.");
+  const expectedCount = command.personaSlug === null ? 2 : 3;
+  const records = events.filter(({ sequence }) => sequence >= source && sequence < source + expectedCount);
+  const human = records[0];
+  const director = records[1];
+  const persona = records[2];
+  if (records.length !== expectedCount || human?.sequence !== source || human.event.type !== "human_message" ||
+      director?.sequence !== source + 1 || director.event.type !== "director_decision" ||
+      director.event.sourceEventSequence !== source || director.event.speaker !== command.personaSlug) {
+    throw new Error("The atomic turn was not committed by room authority.");
+  }
+  if (command.personaSlug !== null && (persona?.sequence !== source + 2 || persona.event.type !== "persona_message" ||
+      persona.event.sourceEventSequence !== source || persona.event.personaSlug !== command.personaSlug ||
+      persona.event.text !== responseText)) {
+    throw new Error("The atomic turn was not committed by room authority.");
+  }
+}
+
+async function readCompletedGenerationCommand(database, command, uuid) {
+  const value = parseSingleJsonRow(
+    await invoke(database, "database.query", { sqlId: "generation_command_by_id", parameters: [command.commandId] }, uuid),
+    "generation_command_json", "completed generation command",
+  );
+  if (!exactRecord(value, ["attemptEpoch", "commandId", "failureCode", "requestDigest", "requestId", "responseText", "roomId", "state"]) ||
+      value.commandId !== command.commandId || value.requestId !== command.requestId ||
+      value.requestDigest !== command.requestDigest || value.roomId !== command.roomId || value.state !== "completed" ||
+      !Number.isSafeInteger(value.attemptEpoch) || value.attemptEpoch < 0 || value.failureCode !== null ||
+      !(value.responseText === null || typeof value.responseText === "string")) {
+    throw new Error("The generation command completion was not durably acknowledged.");
+  }
+  return value;
+}
+
+async function completeAndReadBack(database, command, responseText, uuid) {
+  const silent = command.personaSlug === null;
+  await invoke(database, "database.executeBatch", {
+    transactionId: `${silent ? "complete-silence" : "complete"}-${command.commandId}`,
+    statements: [{
+      sqlId: silent ? "complete_silent_generation_command" : "complete_generation_command",
+      parameters: silent
+        ? [command.commandId, command.requestId, command.requestDigest]
+        : [responseText, command.commandId, command.requestId, command.requestDigest],
+    }],
+  }, uuid);
+  const completed = await readCompletedGenerationCommand(database, command, uuid);
+  if (completed.responseText !== (silent ? null : responseText)) throw new Error("The completed response changed during readback.");
+  const events = Object.freeze(await readRoomEvents(database, command.roomId, uuid));
+  verifyCommittedTurn(command, events, responseText);
+  return Object.freeze({ command: completed, events, text: responseText });
+}
+
+export async function completePreparedSilence(database, command, uuid = () => crypto.randomUUID()) {
+  if (command.personaSlug !== null || command.requestPlan?.kind !== "silence") throw new TypeError("A prepared silence command is required.");
+  return completeAndReadBack(database, command, null, uuid);
+}
+
+export async function executePreparedGeneration(database, provider, command, uuid = () => crypto.randomUUID()) {
+  if (command.personaSlug === null || command.requestPlan?.kind !== "provider") throw new TypeError("A prepared provider command is required.");
+  const value = await invoke(provider, "provider.generate", {
+    requestId: command.requestId, commandId: command.commandId, requestDigest: command.requestDigest,
+  }, uuid);
   if (!exactRecord(value, ["text"]) || typeof value.text !== "string" ||
       value.text.trim().length === 0 || encodedBytes(value.text) > 16 * 1024) {
     throw new Error("Native provider failed: invalid_response");
   }
-  const reply = Object.freeze({ generation, personaSlug, sourceEventSequence, text: value.text, type: "persona_message" });
+  return completeAndReadBack(database, command, value.text, uuid);
+}
+
+export async function reconcileGenerationFailure(database, command, failure, uuid = () => crypto.randomUUID()) {
+  const native = nativeFailure(failure);
+  const code = native?.code ?? "internal_failure";
+  const current = await readUnresolvedGenerationCommand(database, command.roomId, uuid);
+  if (current === null || current.commandId !== command.commandId || current.requestId !== command.requestId ||
+      current.requestDigest !== command.requestDigest) return current;
+  if (current.state === "in_flight") {
+    await invoke(database, "database.executeBatch", {
+      transactionId: `interrupt-${command.commandId}-${nextUuid(uuid)}`,
+      statements: [{ sqlId: "interrupt_generation_command", parameters: [
+        code, command.commandId, command.requestId, command.requestDigest, current.attemptEpoch,
+      ] }],
+    }, uuid);
+  } else if (current.state === "prepared") {
+    await invoke(database, "database.executeBatch", {
+      transactionId: `fail-${command.commandId}-${nextUuid(uuid)}`,
+      statements: [{ sqlId: "fail_generation_command", parameters: [
+        code, command.commandId, command.requestId, command.requestDigest, current.attemptEpoch,
+      ] }],
+    }, uuid);
+  }
+  return readUnresolvedGenerationCommand(database, command.roomId, uuid);
+}
+
+export async function retryAtomicGeneration(database, provider, command, uuid = () => crypto.randomUUID()) {
+  const current = await readUnresolvedGenerationCommand(database, command.roomId, uuid);
+  if (current === null || current.commandId !== command.commandId ||
+      current.requestId !== command.requestId || current.requestDigest !== command.requestDigest) {
+    throw new Error("The exact generation command is no longer retryable.");
+  }
+  try {
+    return current.personaSlug === null
+      ? await completePreparedSilence(database, current, uuid)
+      : await executePreparedGeneration(database, provider, current, uuid);
+  } catch (failure) {
+    await reconcileGenerationFailure(database, current, failure, uuid);
+    throw failure;
+  }
+}
+
+export async function abandonAtomicGeneration(database, command, uuid = () => crypto.randomUUID()) {
+  const current = await readUnresolvedGenerationCommand(database, command.roomId, uuid);
+  if (current === null || current.commandId !== command.commandId || current.requestId !== command.requestId ||
+      current.requestDigest !== command.requestDigest || current.state === "in_flight") {
+    throw new Error("The exact generation command cannot be abandoned.");
+  }
   await invoke(database, "database.executeBatch", {
-    transactionId: `reply-${room.id}-${sourceEventSequence}`,
-    statements: [{ sqlId: "append_persona_event", parameters: [
-      JSON.stringify(reply), room.id, generation, sourceEventSequence + 2,
-      sourceEventSequence + 1, sourceEventSequence, personaSlug,
+    transactionId: `abandon-${command.commandId}`,
+    statements: [{ sqlId: "abandon_generation_command", parameters: [
+      "user_abandoned", command.commandId, command.requestId, command.requestDigest,
     ] }],
   }, uuid);
-  const committed = await readRoomEvents(database, room.id, uuid);
-  const record = committed.find(({ event }) => event.type === "persona_message" &&
-    event.sourceEventSequence === sourceEventSequence && event.generation === generation);
-  if (!record || record.event.text !== reply.text || record.event.personaSlug !== personaSlug) {
-    throw new Error("The persona reply was not committed by room authority.");
+  if (await readUnresolvedGenerationCommand(database, command.roomId, uuid) !== null) {
+    throw new Error("The generation command was not abandoned.");
   }
-  return Object.freeze({ events: Object.freeze(committed), reply });
+  return Object.freeze({ abandoned: true });
 }
 
 export async function listLocalRooms(plugin, uuid = () => crypto.randomUUID()) {
@@ -541,16 +723,14 @@ export async function listLocalRooms(plugin, uuid = () => crypto.randomUUID()) {
 
 export async function reopenLocalRoom(plugin, roomId, uuid = () => crypto.randomUUID()) {
   if (!ROOM_ID.test(roomId)) throw new TypeError("A valid local room ID is required.");
-  await invoke(plugin, "database.executeBatch", {
-    transactionId: `select-${nextUuid(uuid)}`,
-    statements: [{ sqlId: "select_room", parameters: [roomId] }],
-  }, uuid);
-  const room = await readCurrentRoom(plugin, uuid);
-  if (room?.id !== roomId) throw new Error("The selected local room was not committed.");
+  const room = await readRoomById(plugin, roomId, uuid);
+  if (room?.id !== roomId) throw new Error("The local room is unavailable.");
   const events = await readRoomEvents(plugin, roomId, uuid);
-  const confirmed = await readCurrentRoom(plugin, uuid);
-  if (confirmed?.id !== roomId || confirmed.generation !== room.generation) throw new Error("The selected local room changed while reopening.");
-  return Object.freeze({ events: Object.freeze(events), room, source: "reopened" });
+  const draft = await loadLocalDraft(plugin, roomId, uuid);
+  const command = await readUnresolvedGenerationCommand(plugin, roomId, uuid);
+  const confirmed = await readRoomById(plugin, roomId, uuid);
+  if (confirmed?.generation !== room.generation) throw new Error("The local room changed while reopening.");
+  return Object.freeze({ command, draft, events: Object.freeze(events), room, source: "reopened" });
 }
 
 function monogram(name) {
@@ -638,7 +818,7 @@ export function renderRoom(opened) {
   activeViewToken += 1;
   activeRoom = room;
   activeEvents = opened.events ?? Object.freeze([]);
-  activeGenerationRetry = null;
+  activeCommand = opened.command ?? null;
   const cast = room.participants.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => CATALOG.get(personaSlug));
   document.getElementById("room-title").textContent = room.title;
   document.getElementById("room-state").textContent = opened.source === "created" ? "New local room created." : "Saved local room reopened.";
@@ -662,18 +842,58 @@ export function renderRoom(opened) {
   const input = document.getElementById("message-text");
   const target = document.getElementById("message-target");
   refreshMessageTarget(room);
-  input.disabled = false;
-  target.disabled = false;
-  input.value = "";
-  document.getElementById("message-status").textContent = "Ready. Lines and replies save locally.";
+  input.value = opened.draft?.text ?? "";
   document.getElementById("reply-pending").hidden = true;
   document.getElementById("reply-error").hidden = true;
   document.getElementById("retry-reply").hidden = true;
+  document.getElementById("abandon-reply").hidden = true;
   renderEvents(activeEvents);
+  renderCommandAndMutationState();
   document.documentElement.dataset.localRoomBoot = "open";
   document.documentElement.dataset.localRoomSource = opened.source;
   document.documentElement.dataset.localRoomCastCount = String(cast.length);
   document.documentElement.dataset.localRoomEventCount = String(activeEvents.length);
+}
+
+function renderCommandAndMutationState() {
+  const localWrites = lifecycleAllowsLocalWrites(mutationGate);
+  const input = document.getElementById("message-text");
+  const target = document.getElementById("message-target");
+  const send = document.getElementById("send-line");
+  const retry = document.getElementById("retry-reply");
+  const abandon = document.getElementById("abandon-reply");
+  const error = document.getElementById("reply-error");
+  const status = document.getElementById("message-status");
+  const unresolved = activeCommand !== null;
+  const availability = mutationAvailability(mutationGate, providerReady, unresolved);
+  input.disabled = !availability.draft;
+  target.disabled = !availability.draft;
+  send.disabled = !availability.send;
+  retry.hidden = !availability.retry || activeCommand?.state === "in_flight";
+  abandon.hidden = !availability.abandon || activeCommand?.state === "in_flight";
+  if (activeCommand?.state === "interrupted") {
+    error.textContent = UNCERTAIN_REQUEST_WARNING;
+    error.hidden = false;
+    status.textContent = "Not sent. No automatic retry.";
+  } else if (unresolved) {
+    error.textContent = activeCommand.state === "failed"
+      ? "The request did not start. Fix the issue, then retry this exact command or abandon it."
+      : "This exact command is prepared and has not been sent. Retry or abandon it.";
+    error.hidden = false;
+    status.textContent = "Not sent. No automatic retry.";
+  } else {
+    error.hidden = true;
+    if (input.value.length > 0) status.textContent = "Not sent";
+    else if (!localWrites) status.textContent = "Room is read-only while the app is inactive or protected data is unavailable.";
+    else if (!mutationGate.pathAvailable) status.textContent = "Offline · room is readable and drafts stay Not sent.";
+    else if (!providerReady) status.textContent = "Set up a ready provider before sending. Drafts stay Not sent.";
+    else status.textContent = "Ready. Lines and replies commit atomically.";
+  }
+  for (const id of ["create-room", "rooms-new", "provider-save"]) {
+    const control = document.getElementById(id);
+    if (control) control.disabled = !(id === "provider-save" ? availability.providerSave : availability.createRoom) ||
+      (id === "create-room" && control.dataset.selectionReady !== "true");
+  }
 }
 
 export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
@@ -686,7 +906,8 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
 
   function refresh() {
     count.textContent = `${selected.size} of ${MAX_CAST} selected`;
-    create.disabled = selected.size === 0;
+    create.dataset.selectionReady = String(selected.size > 0);
+    create.disabled = selected.size === 0 || !lifecycleAllowsNetworkMutation(mutationGate);
     for (const button of grid.querySelectorAll("button[data-slug]")) {
       const active = selected.has(button.dataset.slug);
       button.setAttribute("aria-pressed", String(active));
@@ -722,6 +943,10 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
   }));
 
   create.addEventListener("click", async () => {
+    if (!lifecycleAllowsNetworkMutation(mutationGate)) {
+      document.getElementById("picker-status").textContent = "Room creation is unavailable while offline or inactive.";
+      return;
+    }
     create.disabled = true;
     document.getElementById("picker-status").textContent = "Committing the local room…";
     try { renderRoom(await createLocalRoom(plugin, [...selected], uuid)); }
@@ -741,14 +966,18 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
 
 export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.randomUUID()) {
   const pickerToken = activeViewToken;
+  const roomId = activeRoom?.id;
+  if (roomId === undefined) return false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const room = await readCurrentRoom(plugin, uuid);
+    const room = await readRoomById(plugin, roomId, uuid);
     if (room === null || activeViewToken !== pickerToken) return false;
     const events = await readRoomEvents(plugin, room.id, uuid);
-    const confirmed = await readCurrentRoom(plugin, uuid);
+    const draft = await loadLocalDraft(plugin, room.id, uuid);
+    const command = await readUnresolvedGenerationCommand(plugin, room.id, uuid);
+    const confirmed = await readRoomById(plugin, roomId, uuid);
     if (activeViewToken !== pickerToken) return false;
     if (confirmed?.id === room.id) {
-      renderRoom({ events: Object.freeze(events), room, source: "reopened" });
+      renderRoom({ command, draft, events: Object.freeze(events), room, source: "reopened" });
       return true;
     }
   }
@@ -811,64 +1040,120 @@ export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()
   document.getElementById("provider-title").focus();
 }
 
-export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID(), options = {}) {
-  if (activeRoom === null) throw new TypeError("A valid open room is required.");
-  const room = activeRoom;
-  const token = activeViewToken;
-  return Object.freeze({
-    room,
-    committed: sendLocalMessage(plugin, room, text, uuid, options),
-    isCurrent: () => activeViewToken === token && activeRoom?.id === room.id,
-  });
+async function selectedProviderIsReady(database, uuid = () => crypto.randomUUID()) {
+  const selection = await readProviderSelection(database, uuid);
+  if (selection === null) return false;
+  const profile = await readProviderProfile(database, selection.profileId, uuid);
+  return profile?.state === "ready" && !profile.tombstoned && profile.profileRevision === selection.profileRevision;
 }
 
-export async function runGeneration(database, provider, pending, committed) {
-  const input = document.getElementById("message-text");
-  const target = document.getElementById("message-target");
-  const status = document.getElementById("message-status");
-  const indicator = document.getElementById("reply-pending");
-  const error = document.getElementById("reply-error");
-  const retry = document.getElementById("retry-reply");
-  if (!pending.isCurrent()) return;
-  const participant = pending.room.participants.find(({ id }) => id === committed.decision.speaker);
-  indicator.textContent = `${participant?.displayName ?? "Character"} …`;
-  indicator.hidden = false;
-  error.hidden = true;
-  retry.hidden = true;
-  status.textContent = "Generating a bounded provider reply…";
+async function refreshMutationGate(database, lifecycle, uuid = () => crypto.randomUUID()) {
+  mutationGate = await readLifecycleStatus(lifecycle, uuid);
+  providerReady = lifecycleAllowsLocalWrites(mutationGate) && await selectedProviderIsReady(database, uuid);
+  if (typeof document !== "undefined") renderCommandAndMutationState();
+  return mutationGate;
+}
+
+async function requireReadyMutation(database, lifecycle, uuid = () => crypto.randomUUID(), requireProvider = true) {
+  const status = await refreshMutationGate(database, lifecycle, uuid);
+  if (!lifecycleAllowsLocalWrites(status)) throw new NativeBridgeError("canceled", true);
+  if (!status.pathAvailable) throw new NativeBridgeError("offline", true);
+  if (requireProvider && !providerReady) throw new Error("Provider setup is required.");
+  return status;
+}
+
+async function persistVisibleDraft(database, uuid = () => crypto.randomUUID()) {
+  if (activeRoom === null) return;
+  const text = document.getElementById("message-text").value;
+  await saveLocalDraft(database, activeRoom.id, text, uuid);
+  document.getElementById("message-status").textContent = text.length > 0 ? "Not sent" : "Ready. Lines and replies commit atomically.";
+}
+
+async function drainVisibleDrafts(database) {
+  if (draftWriteRunning) return;
+  draftWriteRunning = true;
   try {
-    const selection = await readProviderSelection(database);
-    const generated = await generatePersonaReply(database, provider, pending.room, committed.events, selection);
-    if (!pending.isCurrent()) return;
-    activeEvents = generated.events;
-    renderEvents(activeEvents);
-    activeGenerationRetry = null;
-    status.textContent = "Reply saved locally.";
-  } catch (failure) {
-    if (!pending.isCurrent()) return;
-    const presentation = generationFailurePresentation(failure);
-    error.textContent = presentation.message;
-    error.hidden = false;
-    retry.hidden = !presentation.retryable;
-    status.textContent = "Your line and director decision remain saved.";
-    activeGenerationRetry = presentation.retryable
-      ? () => runGeneration(database, provider, pending, committed)
-      : null;
+    while (pendingDraft !== null) {
+      const draft = pendingDraft;
+      pendingDraft = null;
+      if (!lifecycleAllowsLocalWrites(mutationGate)) continue;
+      try {
+        await saveLocalDraft(database, draft.roomId, draft.text);
+      } catch {
+        if (draft.revision === draftRevision) {
+          document.getElementById("message-status").textContent = "Not sent · local draft save is pending.";
+        }
+      }
+    }
   } finally {
-    if (pending.isCurrent()) {
+    draftWriteRunning = false;
+    if (pendingDraft !== null) void drainVisibleDrafts(database);
+  }
+}
+
+function queueVisibleDraft(database) {
+  draftRevision += 1;
+  const roomId = activeRoom?.id;
+  const text = document.getElementById("message-text").value;
+  document.getElementById("message-status").textContent = "Not sent";
+  if (roomId === undefined) return;
+  pendingDraft = { revision: draftRevision, roomId, text };
+  void drainVisibleDrafts(database);
+}
+
+function currentView(room, token) {
+  return activeViewToken === token && activeRoom?.id === room.id;
+}
+
+async function runExactActiveCommand(database, provider, lifecycle, command, room, token) {
+  const indicator = document.getElementById("reply-pending");
+  const participant = room.participants.find(({ id }) => id === command.personaSlug);
+  indicator.textContent = command.personaSlug === null ? "Committing deliberate silence …" : `${participant?.displayName ?? "Character"} …`;
+  indicator.hidden = false;
+  let acknowledgement = null;
+  try {
+    await requireReadyMutation(database, lifecycle, undefined, command.personaSlug !== null);
+    const completed = await retryAtomicGeneration(database, provider, command);
+    if (!currentView(room, token)) return;
+    activeCommand = null;
+    activeEvents = completed.events;
+    document.getElementById("message-text").value = "";
+    renderEvents(activeEvents);
+    acknowledgement = command.personaSlug === null
+      ? "Your line and the director’s deliberate silence were saved atomically."
+      : "Your line, director decision, and reply were saved atomically.";
+  } catch (failure) {
+    let reconciled = command;
+    try { reconciled = await reconcileGenerationFailure(database, command, failure) ?? command; } catch { /* activation will reconcile */ }
+    if (!currentView(room, token)) return;
+    activeCommand = reconciled;
+    const presentation = generationFailurePresentation(failure);
+    document.getElementById("reply-error").textContent = reconciled.state === "interrupted"
+      ? UNCERTAIN_REQUEST_WARNING
+      : presentation.message;
+    document.getElementById("reply-error").hidden = false;
+  } finally {
+    if (currentView(room, token)) {
       indicator.hidden = true;
-      input.disabled = false;
-      target.disabled = false;
-      input.focus();
+      await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
+      if (acknowledgement !== null) document.getElementById("message-status").textContent = acknowledgement;
     }
   }
 }
 
-export async function retryActiveGeneration() {
-  const retry = activeGenerationRetry;
-  if (retry === null) return;
-  document.getElementById("message-text").disabled = true;
-  await retry();
+export async function retryActiveGeneration(database, provider, lifecycle) {
+  if (activeRoom === null || activeCommand === null) return;
+  const room = activeRoom;
+  const token = activeViewToken;
+  await runExactActiveCommand(database, provider, lifecycle, activeCommand, room, token);
+}
+
+export async function abandonActiveGeneration(database) {
+  if (activeCommand === null) return;
+  await abandonAtomicGeneration(database, activeCommand);
+  activeCommand = null;
+  renderCommandAndMutationState();
+  document.getElementById("message-status").textContent = "Not sent";
 }
 
 async function boot() {
@@ -876,10 +1161,16 @@ async function boot() {
     const database = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
     const provider = globalThis.Capacitor?.Plugins?.GreenRoomProvider;
     const credential = globalThis.Capacitor?.Plugins?.GreenRoomCredential;
+    const lifecycle = globalThis.Capacitor?.Plugins?.GreenRoomLifecycle;
     const opened = await openLocalRoom(database);
+    await refreshMutationGate(database, lifecycle);
     pickerController(database);
-    document.getElementById("new-room").addEventListener("click", showPicker);
-    document.getElementById("rooms-new").addEventListener("click", showPicker);
+    document.getElementById("new-room").addEventListener("click", () => {
+      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
+    });
+    document.getElementById("rooms-new").addEventListener("click", () => {
+      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
+    });
     document.getElementById("rooms-button").addEventListener("click", async () => {
       try { await showRoomList(database); }
       catch { document.getElementById("boot-error").hidden = false; }
@@ -901,6 +1192,7 @@ async function boot() {
       save.disabled = true;
       status.textContent = "Opening native credential entry…";
       try {
+        await requireReadyMutation(database, lifecycle, undefined, false);
         await saveProviderSetup(
           database,
           credential,
@@ -912,57 +1204,87 @@ async function boot() {
       } catch (error) {
         status.textContent = providerSetupFailureMessage(error);
       } finally {
-        save.disabled = false;
+        await refreshMutationGate(database, lifecycle).catch(() => {});
       }
     });
 
-
     document.getElementById("retry-reply").addEventListener("click", async () => {
-      await retryActiveGeneration();
+      await retryActiveGeneration(database, provider, lifecycle);
+    });
+    document.getElementById("abandon-reply").addEventListener("click", async () => {
+      try { await abandonActiveGeneration(database); }
+      catch { document.getElementById("message-status").textContent = "The exact command could not be abandoned."; }
+    });
+    document.getElementById("message-text").addEventListener("input", () => queueVisibleDraft(database));
+    document.getElementById("message-text").addEventListener("blur", async () => {
+      if (lifecycleAllowsLocalWrites(mutationGate) && activeCommand === null) await persistVisibleDraft(database).catch(() => {});
     });
     document.getElementById("message-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const input = document.getElementById("message-text");
       const target = document.getElementById("message-target");
       const status = document.getElementById("message-status");
-      if (activeRoom === null) return;
+      if (activeRoom === null || activeCommand !== null) return;
+      const room = activeRoom;
+      const token = activeViewToken;
       const targetPersonaSlug = target.value;
-      const pending = beginActiveRoomSend(
-        database,
-        input.value,
-        undefined,
-        targetPersonaSlug === "" ? {} : { targetPersonaSlug },
-      );
-      let committed;
       input.disabled = true;
       target.disabled = true;
-      status.textContent = "Committing your line and director decision…";
+      status.textContent = "Preparing an atomic turn. Nothing is sent or acknowledged yet…";
       try {
-        committed = await pending.committed;
-        if (pending.isCurrent()) {
-          input.value = "";
-          activeEvents = committed.events;
-          renderEvents(activeEvents);
-          status.textContent = committed.decision.speaker === null
-            ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
-            : "Saved locally. A character was selected.";
-          if (committed.decision.speaker !== null) {
-            await runGeneration(database, provider, pending, committed);
-          }
-        }
-      } catch {
-        if (pending.isCurrent()) {
-          status.textContent = "Your line and director decision were not committed.";
+        await requireReadyMutation(database, lifecycle);
+        await persistVisibleDraft(database);
+        const prepared = await prepareAtomicTurn(
+          database, room, input.value, undefined,
+          targetPersonaSlug === "" ? {} : { targetPersonaSlug },
+        );
+        if (!currentView(room, token)) return;
+        activeCommand = prepared.command;
+        renderCommandAndMutationState();
+        await runExactActiveCommand(database, provider, lifecycle, prepared.command, room, token);
+      } catch (failure) {
+        if (currentView(room, token)) {
+          const presentation = generationFailurePresentation(failure);
+          document.getElementById("reply-error").textContent = presentation.message;
+          document.getElementById("reply-error").hidden = false;
+          status.textContent = "Not sent";
         }
       } finally {
-        if (pending.isCurrent() && (committed === undefined || committed.decision.speaker === null)) {
-          input.disabled = false;
-          target.disabled = false;
-          input.focus();
-        }
+        if (currentView(room, token)) await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
       }
     });
     if (opened.room === null) showPicker(); else renderRoom(opened);
+
+    const reconcileAndReproject = async () => {
+      try {
+        let status = await readLifecycleStatus(lifecycle);
+        if (status.active && status.protectedDataAvailable && !status.databaseReady) {
+          await invoke(database, "database.open", { expectedSchema: 7 }, () => crypto.randomUUID());
+          status = await readLifecycleStatus(lifecycle);
+        }
+        mutationGate = status;
+        providerReady = lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
+        if (activeRoom !== null && status.databaseReady) {
+          renderRoom(await reopenLocalRoom(database, activeRoom.id));
+        } else {
+          renderCommandAndMutationState();
+        }
+      } catch {
+        mutationGate = Object.freeze({ ...mutationGate, active: false, databaseReady: false });
+        renderCommandAndMutationState();
+      }
+    };
+    document.addEventListener("visibilitychange", () => { void reconcileAndReproject(); });
+    globalThis.addEventListener?.("online", () => { void reconcileAndReproject(); });
+    globalThis.addEventListener?.("offline", () => { void reconcileAndReproject(); });
+    globalThis.setInterval?.(async () => {
+      try {
+        const status = await readLifecycleStatus(lifecycle);
+        if (status.epoch !== mutationGate.epoch || status.databaseReady !== mutationGate.databaseReady) {
+          await reconcileAndReproject();
+        }
+      } catch { /* the next activation event performs the same reconciliation */ }
+    }, 1_000);
   } catch {
     document.getElementById("boot-error").hidden = false;
     document.documentElement.dataset.localRoomBoot = "failed";

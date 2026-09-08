@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SQLite3
 
@@ -128,7 +129,11 @@ func runProviderTransportTests() throws {
         model: "openai/gpt-4.1-mini",
         temperature: 0.7,
         maxOutputTokens: 300,
-        profileId: "openrouter.primary"
+        profileId: "iphone.openrouter",
+        profileRevision: 1,
+        providerId: "openrouter",
+        requestId: "30000000-0000-4000-8000-000000000003",
+        kind: "provider"
     )
     let transport = ProviderTransport(
         definition: definition,
@@ -188,7 +193,8 @@ func runProviderTransportTests() throws {
         roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
         personaSlug: payload.personaSlug, messages: payload.messages,
         model: "gpt-4.1-mini", temperature: payload.temperature,
-        maxOutputTokens: payload.maxOutputTokens, profileId: "openai.primary"
+        maxOutputTokens: payload.maxOutputTokens, profileId: "iphone.openai",
+        profileRevision: 1, providerId: "openai", requestId: payload.requestId, kind: "provider"
     )
     let openAIBody = try JSONSerialization.jsonObject(with: openAITransport.requestBody(openAIPayload)) as! [String: Any]
     providerTestRequire(openAIBody["model"] as? String == "gpt-4.1-mini", "OpenAI model ID was prefixed or rewritten")
@@ -199,38 +205,36 @@ func runProviderTransportTests() throws {
     ))
     expectProviderFailure("response_too_large", transport, payload: payload, label: "response-cap")
 
+    let command = ProviderCommandPayload(
+        requestId: payload.requestId,
+        commandId: "40000000-0000-4000-8000-000000000004",
+        requestDigest: String(repeating: "a", count: 64)
+    )
     let closedEnvelope: [String: Any] = [
         "contractVersion": bridgeContractVersion,
         "callId": "20000000-0000-4000-8000-000000000002",
         "method": "provider.generate",
         "payload": [
-            "roomId": payload.roomId,
-            "sourceEventSequence": payload.sourceEventSequence,
-            "personaSlug": payload.personaSlug,
-            "messages": payload.messages.map { ["role": $0.role, "content": $0.content] },
-            "model": payload.model,
-            "temperature": payload.temperature,
-            "maxOutputTokens": payload.maxOutputTokens,
-            "profileId": payload.profileId,
+            "requestId": command.requestId,
+            "commandId": command.commandId,
+            "requestDigest": command.requestDigest,
         ],
     ]
     let encoded = try JSONSerialization.data(withJSONObject: closedEnvelope)
-    providerTestRequire(try ProviderBridgeCodec.decodeGenerate(encoded).payload == payload, "closed bridge decode mismatch")
+    providerTestRequire(try ProviderBridgeCodec.decodeGenerate(encoded).payload == command, "closed command bridge decode mismatch")
 
-    func envelopeData(model: String) throws -> Data {
-        var envelope = closedEnvelope
-        var modelPayload = envelope["payload"] as! [String: Any]
-        modelPayload["model"] = model
-        envelope["payload"] = modelPayload
-        return try JSONSerialization.data(withJSONObject: envelope)
+    func planData(model: String) throws -> Data {
+        var plan = try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as! [String: Any]
+        plan["model"] = model
+        return try JSONSerialization.data(withJSONObject: plan, options: [.sortedKeys])
     }
     func expectModelAccepted(_ model: String, label: String) throws {
-        let decoded = try ProviderBridgeCodec.decodeGenerate(envelopeData(model: model))
-        providerTestRequire(decoded.payload.model == model, "\(label) model changed during decode")
+        let decoded = try ProviderBridgeCodec.decodeRequestPlan(String(decoding: planData(model: model), as: UTF8.self))
+        providerTestRequire(decoded.model == model, "\(label) model changed during decode")
     }
     func expectModelRejected(_ model: String, label: String) throws {
         do {
-            _ = try ProviderBridgeCodec.decodeGenerate(envelopeData(model: model))
+            _ = try ProviderBridgeCodec.decodeRequestPlan(String(decoding: planData(model: model), as: UTF8.self))
             fatalError("\(label) model was accepted")
         } catch let failure as DatabaseFailure {
             providerTestRequire(failure.code == "invalid_call", "\(label) failure was not sanitized")
@@ -272,7 +276,7 @@ func runProviderTransportTests() throws {
     )
     let credentialStore = ProviderCredentialStore()
     let authority = GreenRoomNativeAuthority(database: database, secureStore: credentialStore)
-    _ = try authority.openDatabase(expectedSchema: 6)
+    _ = try authority.openDatabase(expectedSchema: 7)
     _ = try database.executeBatch(transactionId: "provider-room", statements: [
         ["sqlId": "create_room", "parameters": [payload.roomId, "Provider room"]],
         ["sqlId": "create_human", "parameters": ["human-1", payload.roomId, "You"]],
@@ -280,59 +284,137 @@ func runProviderTransportTests() throws {
         ["sqlId": "create_director_state", "parameters": [payload.roomId]],
         ["sqlId": "select_room", "parameters": [payload.roomId]],
     ])
-    let directorState = "{\"acceptedHumanEventNumber\":1,\"autonomousTurns\":1,\"cancelled\":false,\"fallbackIndex\":0,\"lastSelectedAt\":[[\"ada-lovelace\",1]],\"maxAutonomousTurns\":10,\"seen\":[],\"version\":1}"
-    _ = try database.executeBatch(transactionId: "provider-decision", statements: [
-        ["sqlId": "update_director_state", "parameters": [directorState, 1, payload.personaSlug, payload.personaSlug, 1, 0, payload.roomId, 0, 1]],
-        ["sqlId": "append_event", "parameters": ["{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}", payload.roomId]],
-        ["sqlId": "append_event", "parameters": ["{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}", payload.roomId]],
-    ])
     let reservation = CredentialMutationRequest(
         profileId: payload.profileId, profileRevision: 1, providerId: "openrouter",
-        credentialRef: "credential:openrouter.primary:1",
-        mutationId: "30000000-0000-4000-8000-000000000003"
+        credentialRef: "credential:iphone.openrouter:1",
+        mutationId: "50000000-0000-4000-8000-000000000005"
     )
     _ = try database.executeBatch(transactionId: "provider-profile", statements: [
         ["sqlId": "create_connection_profile_revision", "parameters": [payload.profileId, 1, "openrouter", NSNull()]],
         ["sqlId": "reserve_credential", "parameters": reservation.baseIdentityParameters + [NSNull(), reservation.mutationId]],
+        ["sqlId": "save_provider_selection", "parameters": ["openrouter", payload.profileId, 1, payload.model, payload.profileId, 1, "openrouter"]],
     ])
     var credential = Data("native-test-value".utf8)
     _ = try authority.credentials.completeSave(reservation, secret: &credential)
-    let directedAuthority = try database.providerRequestAuthority(
-        roomId: payload.roomId,
-        sourceEventSequence: payload.sourceEventSequence,
-        personaSlug: payload.personaSlug,
-        profileId: payload.profileId
-    )
-    providerTestRequire(
-        directedAuthority.reservation.profileId == payload.profileId,
-        "directed decision did not authorize its selected provider persona"
-    )
-    _ = try authority.closeDatabase()
-    var raw: OpaquePointer?
-    providerTestRequire(
-        sqlite3_open_v2(fenceRoot.appendingPathComponent("greenroom.sqlite").path, &raw, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
-        "could not open changed-generation fixture"
-    )
-    providerTestRequire(
-        sqlite3_exec(raw, "UPDATE rooms SET generation = generation + 1", nil, nil, nil) == SQLITE_OK,
-        "could not change room generation"
-    )
-    sqlite3_close_v2(raw)
-    _ = try authority.openDatabase(expectedSchema: 6)
+    let planData = try JSONEncoder().encode(payload)
+    let planJSON = String(decoding: planData, as: UTF8.self)
+    let digest = SHA256.hash(data: planData).map { String(format: "%02x", $0) }.joined()
+    let directorState = "{\"acceptedHumanEventNumber\":1,\"autonomousTurns\":1,\"cancelled\":false,\"fallbackIndex\":0,\"lastSelectedAt\":[[\"ada-lovelace\",1]],\"maxAutonomousTurns\":10,\"seen\":[],\"version\":1}"
+    let exactCommand = ProviderCommandPayload(requestId: payload.requestId, commandId: command.commandId, requestDigest: digest)
+    _ = try database.executeBatch(transactionId: "provider-command", statements: [[
+        "sqlId": "prepare_generation_command",
+        "parameters": [
+            exactCommand.commandId, exactCommand.requestId, digest, planJSON,
+            "{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}",
+            "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
+            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
+            payload.personaSlug, planJSON, payload.personaSlug, planJSON,
+            planJSON, planJSON, planJSON, planJSON,
+        ],
+    ]])
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
     ))
     let fenceService = GreenRoomProviderService(authority: authority, configuration: configuration)
+    let changedSemaphore = DispatchSemaphore(value: 0)
+    fenceService.generate(ProviderCommandPayload(
+        requestId: exactCommand.requestId, commandId: exactCommand.commandId,
+        requestDigest: String(repeating: "b", count: 64)
+    )) { result in
+        if case .success = result { fatalError("changed digest returned success") }
+        changedSemaphore.signal()
+    }
+    providerTestRequire(changedSemaphore.wait(timeout: .now() + 1) == .success, "changed digest did not resolve")
+    providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "changed digest reached network")
     let fenceSemaphore = DispatchSemaphore(value: 0)
     var fenceResult: Result<String, DatabaseFailure>?
-    fenceService.generate(payload) { result in fenceResult = result; fenceSemaphore.signal() }
+    fenceService.generate(exactCommand) { result in fenceResult = result; fenceSemaphore.signal() }
     providerTestRequire(fenceSemaphore.wait(timeout: .now() + 1) == .success, "generation fence did not resolve")
-    if case .failure(let failure) = fenceResult {
-        providerTestRequire(failure.code == "canceled", "changed generation was not refused")
-    } else {
-        fatalError("changed generation reached provider")
-    }
-    providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "changed generation reached network")
+    if case .success(let text) = fenceResult {
+        providerTestRequire(text == "A bounded answer.", "valid command result changed")
+    } else { fatalError("valid exact command did not return success") }
+    providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "valid command did not issue exactly one request")
+    _ = try authority.closeDatabase()
+    _ = try authority.openDatabase(expectedSchema: 7)
+    let reconciled = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
+    providerTestRequire(
+        (reconciled?.first?.first as? String)?.contains("\"state\":\"interrupted\"") == true,
+        "activation did not reconcile started work to interrupted"
+    )
+    providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "relaunch issued an automatic provider request")
+    _ = try database.executeBatch(transactionId: "provider-abandon-interrupted", statements: [[
+        "sqlId": "abandon_generation_command",
+        "parameters": ["test_abandon", exactCommand.commandId, exactCommand.requestId, exactCommand.requestDigest],
+    ]])
+    let preflightPayload = ProviderGeneratePayload(
+        roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug, messages: payload.messages, model: payload.model,
+        temperature: payload.temperature, maxOutputTokens: payload.maxOutputTokens,
+        profileId: payload.profileId, profileRevision: payload.profileRevision,
+        providerId: payload.providerId,
+        requestId: "60000000-0000-4000-8000-000000000006", kind: "provider"
+    )
+    let preflightData = try JSONEncoder().encode(preflightPayload)
+    let preflightPlan = String(decoding: preflightData, as: UTF8.self)
+    let preflightDigest = SHA256.hash(data: preflightData).map { String(format: "%02x", $0) }.joined()
+    let preflightCommand = ProviderCommandPayload(
+        requestId: preflightPayload.requestId,
+        commandId: "70000000-0000-4000-8000-000000000007",
+        requestDigest: preflightDigest
+    )
+    _ = try database.executeBatch(transactionId: "provider-preflight-command", statements: [[
+        "sqlId": "prepare_generation_command",
+        "parameters": [
+            preflightCommand.commandId, preflightCommand.requestId, preflightDigest, preflightPlan,
+            "{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}",
+            "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
+            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
+            payload.personaSlug, preflightPlan, payload.personaSlug, preflightPlan,
+            preflightPlan, preflightPlan, preflightPlan, preflightPlan,
+        ],
+    ]])
+    try credentialStore.delete(credentialRef: reservation.credentialRef)
+    let preflightSemaphore = DispatchSemaphore(value: 0)
+    var preflightResult: Result<String, DatabaseFailure>?
+    fenceService.generate(preflightCommand) { result in preflightResult = result; preflightSemaphore.signal() }
+    providerTestRequire(preflightSemaphore.wait(timeout: .now() + 1) == .success, "pre-request failure did not resolve")
+    if case .failure(let failure) = preflightResult {
+        providerTestRequire(failure.code == "credential_missing", "pre-request failure code changed")
+    } else { fatalError("missing credential returned provider success") }
+    let failedCommand = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
+    providerTestRequire((failedCommand?.first?.first as? String)?.contains("\"state\":\"failed\"") == true, "native pre-request failure was not marked failed")
+    providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "native pre-request failure reached network")
+
+    let registry = ProviderTaskRegistry()
+    let lifecycleEpoch = registry.lifecycleSnapshot()!
+    let suspended = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
+    providerTestRequire(
+        registry.install(suspended, requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch),
+        "lifecycle registry did not retain a suspended task before start"
+    )
+    registry.cancelAllAndFence()
+    providerTestRequire(registry.lifecycleSnapshot() == nil, "background fence still accepted provider starts")
+    providerTestRequire(
+        !registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch),
+        "late callback won after lifecycle cancellation"
+    )
+    registry.updateLifecycleAvailability(true)
+    let activatedEpoch = registry.lifecycleSnapshot()!
+    providerTestRequire(activatedEpoch > lifecycleEpoch, "activation did not advance the lifecycle epoch")
+    let replacement = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
+    providerTestRequire(
+        registry.install(replacement, requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
+        "activation did not permit an explicit new attempt"
+    )
+    providerTestRequire(
+        registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
+        "valid completion could not win the registry race"
+    )
+    providerTestRequire(
+        !registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
+        "duplicate callback won the registry race twice"
+    )
+    replacement.cancel()
 }
 
 private extension Array {
