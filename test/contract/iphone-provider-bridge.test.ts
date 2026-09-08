@@ -109,6 +109,24 @@ test("provider generate uses the exact closed A2 request and response envelope",
   });
 });
 
+test("provider listModels rejects a valid-shape 265298-byte result envelope", () => {
+  const call = fixture.calls.find((candidate) =>
+    (candidate as { method?: unknown }).method === "provider.listModels") as { callId: string };
+  const modelIds = Array.from({ length: 1_024 }, (_value, index) =>
+    `m${index.toString().padStart(4, "0")}`.padEnd(256, "x"));
+  const envelope = { callId: call.callId, ok: true, value: { modelIds } };
+  assert.equal(new TextEncoder().encode(JSON.stringify(envelope)).byteLength, 265_298);
+  assert.throws(() => parseProviderListModelsResponse(call.callId, envelope), /invalid_call/u);
+  assert.throws(() => parseProviderListModelsResponse(call.callId, {
+    callId: call.callId, ok: false, error: { code: "result_too_large", retryable: false },
+  }), /invalid_call/u);
+  assert.deepEqual(parseProviderListModelsResponse(call.callId, {
+    callId: call.callId, ok: false, error: { code: "response_too_large", retryable: false },
+  }), {
+    callId: call.callId, ok: false, error: { code: "response_too_large", retryable: false },
+  });
+});
+
 test("provider generate rejects extra fields, secrets, and caller destinations", () => {
   for (const [field, value] of [
     ["secret", "forbidden"],

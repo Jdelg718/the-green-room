@@ -125,13 +125,15 @@ final class GreenRoomLifecyclePlugin: CAPPlugin, CAPBridgedPlugin {
             _ = try ProviderBridgeDispatch.lifecycleStatus(options)
             call.resolve(try ProviderBridgeDispatch.success(
                 callId: callId,
-                value: NativeLifecycleCoordinator.shared.status(application: UIApplication.shared)
+                value: NativeLifecycleCoordinator.shared.status(application: UIApplication.shared),
+                kind: .lifecycle
             ))
         } catch let failure as DatabaseFailure {
-            call.resolve(ProviderBridgeDispatch.failure(callId: callId, failure: failure))
+            call.resolve(ProviderBridgeDispatch.failure(callId: callId, failure: failure, kind: .lifecycle))
         } catch {
             call.resolve(ProviderBridgeDispatch.failure(
-                callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false)
+                callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false),
+                kind: .lifecycle
             ))
         }
     }

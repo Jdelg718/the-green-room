@@ -315,6 +315,39 @@ func runProviderTransportTests() throws {
                                 "production failure dispatch changed \(method)/\(error["code"]!)")
         }
     }
+    let oversizedModelIds = (0..<1_024).map { index in
+        "m\(String(format: "%04d", index))".padding(toLength: 256, withPad: "x", startingAt: 0)
+    }
+    let oversizedModelEnvelope: [String: Any] = [
+        "callId": providerFixtureCalls[3]["callId"] as! String,
+        "ok": true,
+        "value": ["modelIds": oversizedModelIds],
+    ]
+    providerTestRequire(
+        try JSONSerialization.data(withJSONObject: oversizedModelEnvelope, options: [.sortedKeys]).count == 265_298,
+        "1,024 x 256-byte model-list regression envelope changed"
+    )
+    do {
+        _ = try ProviderBridgeDispatch.success(
+            callId: providerFixtureCalls[3]["callId"] as! String,
+            value: ["modelIds": oversizedModelIds], kind: .listModels
+        )
+        fatalError("oversized model-list success crossed the bridge")
+    } catch let failure as DatabaseFailure {
+        providerTestRequire(
+            failure.code == "response_too_large",
+            "oversized model-list result emitted undeclared provider failure code \(failure.code)"
+        )
+    }
+    let sanitizedDatabaseFailure = ProviderBridgeDispatch.failure(
+        callId: providerFixtureCalls[0]["callId"] as! String,
+        failure: DatabaseFailure(code: "transaction_rejected", retryable: true), kind: .generate
+    )
+    providerTestRequire(
+        ((sanitizedDatabaseFailure["error"] as? [String: Any])?["code"] as? String) == "internal_failure" &&
+            ((sanitizedDatabaseFailure["error"] as? [String: Any])?["retryable"] as? Bool) == false,
+        "database-only failure crossed the provider bridge"
+    )
     providerTestRequire(try ProviderBridgeDispatch.generate(providerFixtureCalls[0]).payload == command,
                         "Swift generate fixture dispatch mismatch")
 
@@ -547,6 +580,58 @@ func runProviderTransportTests() throws {
                         "queued deadline created a task or returned the wrong failure")
     deadlineRegistry.cancelAllAndFence()
 
+    var controlledNow: TimeInterval = 0
+    let lateRegistry = ProviderTaskRegistry(
+        maximumConcurrent: 1, maximumQueued: 1, totalDeadline: 60,
+        now: { controlledNow }
+    )
+    let lateEpoch = lateRegistry.lifecycleSnapshot()!
+    let lateTask = ProviderRetainedTaskStub()
+    var lateFailure: String?
+    _ = lateRegistry.install(
+        requestId: "81100000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: lateEpoch,
+        start: { _ in
+            _ = try! lateRegistry.beginNetwork(
+                lateTask, requestId: "81100000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: lateEpoch, beforeResume: {}
+            )
+        },
+        cancellation: { started, failure in
+            providerTestRequire(started, "late active completion was classified as never started")
+            lateFailure = failure.code
+        }
+    )
+    var lateQueuedStarts = 0
+    var lateQueuedFailure: String?
+    _ = lateRegistry.install(
+        requestId: "81100000-0000-4000-8000-000000000002", attemptEpoch: 1,
+        lifecycleEpoch: lateEpoch,
+        start: { _ in lateQueuedStarts += 1 },
+        cancellation: { started, failure in
+            providerTestRequire(!started, "expired queued completion was classified as started")
+            lateQueuedFailure = failure.code
+        }
+    )
+    controlledNow = 60
+    providerTestRequire(
+        !lateRegistry.claimCompletion(
+            requestId: "81100000-0000-4000-8000-000000000001", attemptEpoch: 1,
+            lifecycleEpoch: lateEpoch
+        ),
+        "provider completion at the absolute deadline was accepted before timer delivery"
+    )
+    providerTestRequire(
+        lateFailure == "timeout" && lateTask.cancelCount == 1 &&
+            lateQueuedFailure == "timeout" && lateQueuedStarts == 0,
+        "late completion did not expire active and queued resources without promotion"
+    )
+    providerTestRequire(
+        !lateRegistry.cancel(requestId: "81100000-0000-4000-8000-000000000001") &&
+            !lateRegistry.cancel(requestId: "81100000-0000-4000-8000-000000000002"),
+        "deadline-expired provider resources remained registered"
+    )
+
     _ = try database.executeBatch(transactionId: "provider-abandon-preflight", statements: [[
         "sqlId": "abandon_generation_command",
         "parameters": ["test_abandon", preflightCommand.commandId, preflightCommand.requestId, preflightCommand.requestDigest],
@@ -577,6 +662,41 @@ func runProviderTransportTests() throws {
             queuedPlan, queuedPlan, queuedPlan, queuedPlan,
         ],
     ]])
+    let cancellationRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
+    let cancellationEpoch = cancellationRegistry.lifecycleSnapshot()!
+    let cancellationBlocker = ProviderRetainedTaskStub()
+    _ = cancellationRegistry.install(
+        requestId: "82900000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: cancellationEpoch,
+        start: { _ in
+            _ = try! cancellationRegistry.beginNetwork(
+                cancellationBlocker, requestId: "82900000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: cancellationEpoch, beforeResume: {}
+            )
+        }, cancellation: { _, _ in }
+    )
+    _ = cancellationRegistry.install(
+        requestId: queuedCommand.requestId, attemptEpoch: 1, lifecycleEpoch: cancellationEpoch,
+        start: { _ in fatalError("queued SQLite operation started before cancellation") },
+        cancellation: { started, _ in
+            providerTestRequire(!started, "queued SQLite operation was classified uncertain")
+            _ = try! database.executeBatch(transactionId: "provider-queued-not-started", statements: [[
+                "sqlId": "fail_generation_command", "parameters": [
+                    "not_started", queuedCommand.commandId, queuedCommand.requestId, queuedCommand.requestDigest, 0,
+                ],
+            ]])
+        }
+    )
+    cancellationRegistry.cancelAllAndFence()
+    let queuedRow = (try database.query(
+        sqlId: "unresolved_generation_command", parameters: [payload.roomId]
+    ))["rows"] as? [[Any]]
+    let queuedJSON = queuedRow?.first?.first as? String ?? ""
+    providerTestRequire(
+        queuedJSON.contains("\"state\":\"failed\"") && queuedJSON.contains("\"failureCode\":\"not_started\""),
+        "never-started queued lifecycle cancellation was not persisted failed/not_started"
+    )
+
     let sqliteRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
     let sqliteEpoch = sqliteRegistry.lifecycleSnapshot()!
     let sqliteBlocker = ProviderRetainedTaskStub()
@@ -590,23 +710,56 @@ func runProviderTransportTests() throws {
             )
         }, cancellation: { _, _ in }
     )
-    _ = sqliteRegistry.install(
-        requestId: queuedCommand.requestId, attemptEpoch: 1, lifecycleEpoch: sqliteEpoch,
-        start: { _ in fatalError("queued SQLite operation started before cancellation") },
-        cancellation: { started, _ in
-            providerTestRequire(!started, "queued SQLite operation was classified uncertain")
-            _ = try! database.executeBatch(transactionId: "provider-queued-not-started", statements: [[
-                "sqlId": "fail_generation_command", "parameters": [
-                    "not_started", queuedCommand.commandId, queuedCommand.requestId, queuedCommand.requestDigest, 0,
-                ],
-            ]])
-        }
+    let storedReservation = try database.credentialReservation(
+        profileId: reservation.profileId, profileRevision: reservation.profileRevision,
+        providerId: reservation.providerId, credentialRef: reservation.credentialRef
+    )!
+    var restoredCredential = Data("native-test-value".utf8)
+    try credentialStore.write(
+        credentialRef: reservation.credentialRef, secret: &restoredCredential,
+        metadata: CredentialMetadata(reservation: storedReservation)
     )
-    sqliteRegistry.cancelAllAndFence()
-    let queuedRow = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
-    let queuedJSON = queuedRow?.first?.first as? String ?? ""
-    providerTestRequire(queuedJSON.contains("\"state\":\"failed\"") && queuedJSON.contains("\"failureCode\":\"not_started\""),
-                        "never-started queued lifecycle cancellation was not persisted failed/not_started")
+    let queuedService = GreenRoomProviderService(
+        authority: authority, configuration: configuration, registry: sqliteRegistry
+    )
+    ProviderURLProtocolStub.install(.response(
+        status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
+    ))
+    let queuedSemaphore = DispatchSemaphore(value: 0)
+    var queuedResult: Result<String, DatabaseFailure>?
+    queuedService.generate(queuedCommand) { result in
+        queuedResult = result
+        queuedSemaphore.signal()
+    }
+    _ = try database.executeBatch(transactionId: "provider-abandon-queued", statements: [[
+        "sqlId": "abandon_generation_command",
+        "parameters": ["test_abandon", queuedCommand.commandId, queuedCommand.requestId, queuedCommand.requestDigest],
+    ]])
+    providerTestRequire(
+        sqliteRegistry.claimCompletion(
+            requestId: "83000000-0000-4000-8000-000000000001", attemptEpoch: 1,
+            lifecycleEpoch: sqliteEpoch
+        ),
+        "queue blocker could not complete"
+    )
+    providerTestRequire(
+        queuedSemaphore.wait(timeout: .now() + 1) == .success,
+        "abandoned queued generation did not resolve"
+    )
+    if case .failure(let failure) = queuedResult {
+        providerTestRequire(
+            failure.code == "internal_failure" && !failure.retryable,
+            "abandoned queued begin leaked database-only failure \(failure.code)"
+        )
+    } else { fatalError("abandoned queued generation returned success") }
+    providerTestRequire(
+        ProviderURLProtocolStub.capturedRequests.isEmpty,
+        "abandoned queued generation reached the provider network"
+    )
+    providerTestRequire(
+        !sqliteRegistry.cancel(requestId: queuedCommand.requestId),
+        "abandoned queued generation remained registered"
+    )
 }
 
 private extension Array {

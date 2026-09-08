@@ -90,6 +90,16 @@ enum ProviderBridgeCodec {
         "capacity_rejected", "canceled", "internal_failure",
     ])
 
+    static func sanitizeFailure(_ failure: DatabaseFailure, kind: ProviderResponseKind) -> DatabaseFailure {
+        let allowed = kind == .lifecycle
+            ? Set(["invalid_call", "incompatible_contract", "internal_failure"])
+            : providerFailureCodes
+        guard allowed.contains(failure.code) else {
+            return DatabaseFailure(code: "internal_failure", retryable: false)
+        }
+        return failure
+    }
+
     static func decodeResponse(_ data: Data, callId: String, kind: ProviderResponseKind) throws -> [String: Any] {
         guard data.count <= providerMaximumEnvelopeBytes,
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -830,12 +840,16 @@ private final class ProviderResultCompletion: @unchecked Sendable {
     }
 
     func finish(_ result: Result<String, DatabaseFailure>) {
+        let sanitized: Result<String, DatabaseFailure> = switch result {
+        case .success: result
+        case .failure(let failure): .failure(ProviderBridgeCodec.sanitizeFailure(failure, kind: .generate))
+        }
         let shouldFinish = lock.withLock { () -> Bool in
             guard !completed else { return false }
             completed = true
             return true
         }
-        if shouldFinish { completion(result) }
+        if shouldFinish { completion(sanitized) }
     }
 }
 
@@ -847,12 +861,16 @@ private final class ProviderListCompletion: @unchecked Sendable {
     init(_ completion: @escaping (Result<[String], DatabaseFailure>) -> Void) { self.completion = completion }
 
     func finish(_ result: Result<[String], DatabaseFailure>) {
+        let sanitized: Result<[String], DatabaseFailure> = switch result {
+        case .success: result
+        case .failure(let failure): .failure(ProviderBridgeCodec.sanitizeFailure(failure, kind: .listModels))
+        }
         let shouldFinish = lock.withLock { () -> Bool in
             guard !completed else { return false }
             completed = true
             return true
         }
-        if shouldFinish { completion(result) }
+        if shouldFinish { completion(sanitized) }
     }
 }
 
@@ -884,6 +902,8 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         var task: (any ProviderRetainedTask)?
         var started = false
     }
+    private typealias Promotion = (TimeInterval, (TimeInterval) -> Void)
+    private typealias PromotionResult = (promoted: [Promotion], expired: [Entry])
     private let lock = NSLock()
     private let maximumConcurrent: Int
     private let maximumQueued: Int
@@ -998,17 +1018,27 @@ final class ProviderTaskRegistry: @unchecked Sendable {
     }
 
     func claimCompletion(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
-        let result = lock.withLock { () -> (Bool, [(TimeInterval, (TimeInterval) -> Void)]) in
+        let result = lock.withLock { () -> (claimed: Bool, expired: [Entry], promoted: [Promotion]) in
             guard available, lifecycleEpoch == expected, let entry = tasks[requestId], entry.started,
                   entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else {
-                return (false, [])
+                return (false, [], [])
             }
             tasks.removeValue(forKey: requestId)
             entry.timer.cancel()
-            return (true, promoteLocked())
+            let completionExpired = now() >= entry.deadline
+            let promotion = promoteLocked()
+            if completionExpired {
+                return (false, [entry] + promotion.expired, promotion.promoted)
+            }
+            return (true, promotion.expired, promotion.promoted)
         }
-        result.1.forEach { $0.1($0.0) }
-        return result.0
+        let timeout = DatabaseFailure(code: "timeout", retryable: true)
+        result.expired.forEach { entry in
+            entry.task?.cancel()
+            entry.cancellation(entry.started, timeout)
+        }
+        result.promoted.forEach { $0.1($0.0) }
+        return result.claimed
     }
 
     @discardableResult
@@ -1016,16 +1046,21 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         requestId: String,
         failure: DatabaseFailure = DatabaseFailure(code: "canceled", retryable: true)
     ) -> Bool {
-        let result = lock.withLock { () -> (Entry?, [(TimeInterval, (TimeInterval) -> Void)]) in
-            guard let entry = tasks.removeValue(forKey: requestId) else { return (nil, []) }
+        let result = lock.withLock { () -> (entry: Entry?, promotion: PromotionResult) in
+            guard let entry = tasks.removeValue(forKey: requestId) else { return (nil, ([], [])) }
             entry.timer.cancel()
             if entry.state == .queued { queue.removeAll { $0 == requestId } }
-            return (entry, entry.state == .active ? promoteLocked() : [])
+            return (entry, entry.state == .active ? promoteLocked() : ([], []))
         }
-        result.0?.task?.cancel()
-        if let entry = result.0 { entry.cancellation(entry.started, failure) }
-        result.1.forEach { $0.1($0.0) }
-        return result.0 != nil
+        result.entry?.task?.cancel()
+        if let entry = result.entry { entry.cancellation(entry.started, failure) }
+        let timeout = DatabaseFailure(code: "timeout", retryable: true)
+        result.promotion.expired.forEach { entry in
+            entry.task?.cancel()
+            entry.cancellation(entry.started, timeout)
+        }
+        result.promotion.promoted.forEach { $0.1($0.0) }
+        return result.entry != nil
     }
 
     func cancelAllAndFence() { updateLifecycleAvailability(false) }
@@ -1037,20 +1072,26 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         )
     }
 
-    private func promoteLocked() -> [(TimeInterval, (TimeInterval) -> Void)] {
-        var promoted: [(TimeInterval, (TimeInterval) -> Void)] = []
+    private func promoteLocked() -> PromotionResult {
+        var promoted: [Promotion] = []
+        var expired: [Entry] = []
         var activeCount = tasks.values.lazy.filter { $0.state == .active }.count
         while activeCount < maximumConcurrent, !queue.isEmpty {
             let requestId = queue.removeFirst()
             guard var entry = tasks[requestId], entry.state == .queued else { continue }
             let remaining = entry.deadline - now()
-            guard remaining > 0 else { continue }
+            guard remaining > 0 else {
+                tasks.removeValue(forKey: requestId)
+                entry.timer.cancel()
+                expired.append(entry)
+                continue
+            }
             entry.state = .active
             tasks[requestId] = entry
             activeCount += 1
             promoted.append((remaining, entry.start))
         }
-        return promoted
+        return (promoted, expired)
     }
 }
 
@@ -1071,14 +1112,23 @@ enum ProviderBridgeDispatch {
         try ProviderBridgeCodec.decodeLifecycleStatus(encoded(options))
     }
 
-    static func success(callId: String, value: [String: Any]) throws -> [String: Any] {
+    static func success(
+        callId: String, value: [String: Any], kind: ProviderResponseKind = .generate
+    ) throws -> [String: Any] {
         let response: [String: Any] = ["callId": callId, "ok": true, "value": value]
-        _ = try encodedBridgeJSONObject(response, code: "result_too_large", maximumBytes: providerMaximumEnvelopeBytes)
+        let oversizedCode = kind == .listModels ? "response_too_large" : "internal_failure"
+        _ = try encodedBridgeJSONObject(response, code: oversizedCode, maximumBytes: providerMaximumEnvelopeBytes)
         return response
     }
 
-    static func failure(callId: String, failure: DatabaseFailure) -> [String: Any] {
-        ["callId": callId, "ok": false, "error": ["code": failure.code, "retryable": failure.retryable]]
+    static func failure(
+        callId: String, failure: DatabaseFailure, kind: ProviderResponseKind = .generate
+    ) -> [String: Any] {
+        let sanitized = ProviderBridgeCodec.sanitizeFailure(failure, kind: kind)
+        return [
+            "callId": callId, "ok": false,
+            "error": ["code": sanitized.code, "retryable": sanitized.retryable],
+        ]
     }
 
     private static func encoded(_ options: [String: Any]) throws -> Data {
@@ -1113,7 +1163,11 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
                 defer { self.inFlightCalls.finish(callId) }
                 switch result {
                 case .success(let modelIds):
-                    do { call.resolve(try ProviderBridgeDispatch.success(callId: callId, value: ["modelIds": modelIds])) }
+                    do {
+                        call.resolve(try ProviderBridgeDispatch.success(
+                            callId: callId, value: ["modelIds": modelIds], kind: .listModels
+                        ))
+                    }
                     catch let failure as DatabaseFailure { self.reject(call, callId: callId, failure: failure) }
                     catch { self.reject(call, callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false)) }
                 case .failure(let failure): self.reject(call, callId: callId, failure: failure)
