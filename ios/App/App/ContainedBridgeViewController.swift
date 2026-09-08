@@ -128,7 +128,7 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                       return {
                         callId: call.callId,
                         ok: true,
-                        value: { text: 'A stubbed reply crossed the signed room runtime.' }
+                        value: { text: 'A stubbed reply crossed the signed room runtime.', attemptEpoch: 1 }
                       };
                     }
                   };

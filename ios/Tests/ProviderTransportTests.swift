@@ -493,6 +493,17 @@ func runProviderTransportTests() throws {
                     fencedPlan, fencedPlan, fencedPlan, fencedPlan,
                 ],
             ]])
+            if mutation == "deadline" {
+                _ = try fencedDatabase.executeBatch(transactionId: "fence-deadline-interrupted-attempt-one", statements: [
+                    ["sqlId": "begin_generation_command", "parameters": [
+                        commandId, requestId, fencedDigest, fencedPlan, 0,
+                        mutationRequest.credentialRef, mutationRequest.mutationId,
+                    ]],
+                    ["sqlId": "interrupt_generation_command", "parameters": [
+                        "canceled", commandId, requestId, fencedDigest, 1,
+                    ]],
+                ])
+            }
         }
         var deadlineClockReads = 0
         let serviceRegistry = ProviderTaskRegistry(
@@ -628,10 +639,38 @@ func runProviderTransportTests() throws {
                 unresolvedJSON.contains("\"state\":\"failed\"") &&
                     (mutation != "deadline" || (
                         unresolvedJSON.contains("\"failureCode\":\"not_started\"") &&
+                        unresolvedJSON.contains("\"attemptEpoch\":1") &&
                         !unresolvedJSON.contains("\"state\":\"interrupted\"")
                     )),
                 "\(mutation) fence did not durably close the unstarted command: \(unresolvedJSON)"
             )
+            if mutation == "deadline" {
+                ProviderURLProtocolStub.install(.response(
+                    status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
+                ))
+                let retryService = GreenRoomProviderService(
+                    authority: fencedAuthority, configuration: configuration,
+                    registry: ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
+                )
+                let retrySemaphore = DispatchSemaphore(value: 0)
+                var retryResult: Result<ProviderAttemptResult, DatabaseFailure>?
+                retryService.generate(ProviderCommandPayload(
+                    requestId: requestId, commandId: commandId, requestDigest: fencedDigest
+                )) { result in
+                    retryResult = result
+                    retrySemaphore.signal()
+                }
+                providerTestRequire(retrySemaphore.wait(timeout: .now() + 2) == .success,
+                                    "explicit retry after pre-resume rollback did not resolve")
+                if case .success(let attempt) = retryResult {
+                    providerTestRequire(
+                        attempt == ProviderAttemptResult(text: "A bounded answer.", attemptEpoch: 2),
+                        "explicit retry after pre-resume rollback did not retain attempt-two identity"
+                    )
+                } else { fatalError("explicit retry after pre-resume rollback did not succeed") }
+                providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1,
+                                    "pre-resume expiry or subsequent explicit retry used the wrong network count")
+            }
         }
     }
 
@@ -661,11 +700,12 @@ func runProviderTransportTests() throws {
     providerTestRequire(changedSemaphore.wait(timeout: .now() + 1) == .success, "changed digest did not resolve")
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "changed digest reached network")
     let fenceSemaphore = DispatchSemaphore(value: 0)
-    var fenceResult: Result<String, DatabaseFailure>?
+    var fenceResult: Result<ProviderAttemptResult, DatabaseFailure>?
     fenceService.generate(exactCommand) { result in fenceResult = result; fenceSemaphore.signal() }
     providerTestRequire(fenceSemaphore.wait(timeout: .now() + 1) == .success, "generation fence did not resolve")
-    if case .success(let text) = fenceResult {
-        providerTestRequire(text == "A bounded answer.", "valid command result changed")
+    if case .success(let attempt) = fenceResult {
+        providerTestRequire(attempt == ProviderAttemptResult(text: "A bounded answer.", attemptEpoch: 1),
+                            "valid command result changed or lost its attempt epoch")
     } else { fatalError("valid exact command did not return success") }
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "valid command did not issue exactly one request")
     _ = try authority.closeDatabase()
@@ -709,7 +749,7 @@ func runProviderTransportTests() throws {
     ]])
     try credentialStore.delete(credentialRef: reservation.credentialRef)
     let preflightSemaphore = DispatchSemaphore(value: 0)
-    var preflightResult: Result<String, DatabaseFailure>?
+    var preflightResult: Result<ProviderAttemptResult, DatabaseFailure>?
     fenceService.generate(preflightCommand) { result in preflightResult = result; preflightSemaphore.signal() }
     providerTestRequire(preflightSemaphore.wait(timeout: .now() + 1) == .success, "pre-request failure did not resolve")
     if case .failure(let failure) = preflightResult {
@@ -1074,7 +1114,7 @@ func runProviderTransportTests() throws {
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
     ))
     let queuedSemaphore = DispatchSemaphore(value: 0)
-    var queuedResult: Result<String, DatabaseFailure>?
+    var queuedResult: Result<ProviderAttemptResult, DatabaseFailure>?
     queuedService.generate(queuedCommand) { result in
         queuedResult = result
         queuedSemaphore.signal()
@@ -1155,13 +1195,13 @@ func runProviderTransportTests() throws {
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
     ))
     let originalDuplicateSemaphore = DispatchSemaphore(value: 0)
-    var originalDuplicateResult: Result<String, DatabaseFailure>?
+    var originalDuplicateResult: Result<ProviderAttemptResult, DatabaseFailure>?
     duplicateService.generate(duplicateCommand) { result in
         originalDuplicateResult = result
         originalDuplicateSemaphore.signal()
     }
     let rejectedDuplicateSemaphore = DispatchSemaphore(value: 0)
-    var rejectedDuplicateResult: Result<String, DatabaseFailure>?
+    var rejectedDuplicateResult: Result<ProviderAttemptResult, DatabaseFailure>?
     duplicateService.generate(duplicateCommand) { result in
         rejectedDuplicateResult = result
         rejectedDuplicateSemaphore.signal()
@@ -1198,8 +1238,9 @@ func runProviderTransportTests() throws {
         originalDuplicateSemaphore.wait(timeout: .now() + 1) == .success,
         "authoritative queued generation did not promote"
     )
-    if case .success(let text) = originalDuplicateResult {
-        providerTestRequire(text == "A bounded answer.", "authoritative queued result changed")
+    if case .success(let attempt) = originalDuplicateResult {
+        providerTestRequire(attempt == ProviderAttemptResult(text: "A bounded answer.", attemptEpoch: 1),
+                            "authoritative queued result changed or lost its attempt epoch")
     } else { fatalError("authoritative queued generation did not succeed") }
     let duplicateRemainsAuthoritative = try database.generationCommandIsInFlight(
         commandId: duplicateCommand.commandId, requestId: duplicateCommand.requestId,

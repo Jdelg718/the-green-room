@@ -612,15 +612,15 @@ async function readCompletedGenerationCommand(database, command, uuid) {
   return value;
 }
 
-async function completeAndReadBack(database, command, responseText, uuid) {
+async function completeAndReadBack(database, command, responseText, attemptEpoch, uuid) {
   const silent = command.personaSlug === null;
   await invoke(database, "database.executeBatch", {
     transactionId: `${silent ? "complete-silence" : "complete"}-${command.commandId}`,
     statements: [{
       sqlId: silent ? "complete_silent_generation_command" : "complete_generation_command",
       parameters: silent
-        ? [command.commandId, command.requestId, command.requestDigest]
-        : [responseText, command.commandId, command.requestId, command.requestDigest],
+        ? [command.commandId, command.requestId, command.requestDigest, attemptEpoch]
+        : [responseText, command.commandId, command.requestId, command.requestDigest, attemptEpoch],
     }],
   }, uuid);
   const completed = await readCompletedGenerationCommand(database, command, uuid);
@@ -632,7 +632,7 @@ async function completeAndReadBack(database, command, responseText, uuid) {
 
 export async function completePreparedSilence(database, command, uuid = () => crypto.randomUUID()) {
   if (command.personaSlug !== null || command.requestPlan?.kind !== "silence") throw new TypeError("A prepared silence command is required.");
-  return completeAndReadBack(database, command, null, uuid);
+  return completeAndReadBack(database, command, null, command.attemptEpoch, uuid);
 }
 
 export async function executePreparedGeneration(database, provider, command, uuid = () => crypto.randomUUID()) {
@@ -640,11 +640,12 @@ export async function executePreparedGeneration(database, provider, command, uui
   const value = await invoke(provider, "provider.generate", {
     requestId: command.requestId, commandId: command.commandId, requestDigest: command.requestDigest,
   }, uuid);
-  if (!exactRecord(value, ["text"]) || typeof value.text !== "string" ||
-      value.text.trim().length === 0 || encodedBytes(value.text) > 16 * 1024) {
+  if (!exactRecord(value, ["attemptEpoch", "text"]) || typeof value.text !== "string" ||
+      value.text.trim().length === 0 || encodedBytes(value.text) > 16 * 1024 ||
+      !Number.isSafeInteger(value.attemptEpoch) || value.attemptEpoch < 1) {
     throw new Error("Native provider failed: invalid_response");
   }
-  return completeAndReadBack(database, command, value.text, uuid);
+  return completeAndReadBack(database, command, value.text, value.attemptEpoch, uuid);
 }
 
 export async function reconcileGenerationFailure(database, command, failure, uuid = () => crypto.randomUUID()) {

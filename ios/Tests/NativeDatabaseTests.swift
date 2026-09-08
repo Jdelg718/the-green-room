@@ -190,7 +190,7 @@ private func runAtomicGenerationDatabaseTests() throws {
             "sqlId": "fail_generation_command", "parameters": ["offline", commandId, requestId, digest, 1],
         ]])
     }
-    let completion = [["sqlId": "complete_generation_command", "parameters": ["Atomic answer.", commandId, requestId, digest]]]
+    let completion = [["sqlId": "complete_generation_command", "parameters": ["Atomic answer.", commandId, requestId, digest, 1]]]
     _ = try store.executeBatch(transactionId: "atomic-complete", statements: completion)
     let events = rowStrings(try store.query(sqlId: "room_events", parameters: [roomId]))
     require(events.count == 3, "atomic completion did not expose exactly three events")
@@ -259,7 +259,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         ),
     ]])
     _ = try store.executeBatch(transactionId: "atomic-silence-complete", statements: [[
-        "sqlId": "complete_silent_generation_command", "parameters": [silenceCommand, silenceRequest, silenceDigest],
+        "sqlId": "complete_silent_generation_command", "parameters": [silenceCommand, silenceRequest, silenceDigest, 0],
     ]])
     let silenceEvents = rowStrings(try store.query(sqlId: "room_events", parameters: [silenceRoom]))
     require(silenceEvents.count == 2 && silenceEvents[0].contains("human_message") && silenceEvents[1].contains("deliberate_silence"), "deliberate silence did not commit the exact pair")
@@ -292,7 +292,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     protection.fail = true
     expectFailure("database_unavailable") {
         _ = try store.executeBatch(transactionId: "atomic-rollback-complete", statements: [[
-            "sqlId": "complete_generation_command", "parameters": ["must roll back", rollbackCommand, rollbackRequest, rollbackDigest],
+            "sqlId": "complete_generation_command", "parameters": ["must roll back", rollbackCommand, rollbackRequest, rollbackDigest, 1],
         ]])
     }
     protection.fail = false
@@ -322,7 +322,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     let recovered = rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [recoveredRoom])).first ?? ""
     require(recovered.contains("\"state\":\"failed\"") && recovered.contains("\"failureCode\":\"not_started\""), "prepared launch recovery was not precise")
     _ = try store.executeBatch(transactionId: "atomic-recovered-complete", statements: [[
-        "sqlId": "complete_silent_generation_command", "parameters": [recoveredCommand, recoveredRequest, recoveredDigest],
+        "sqlId": "complete_silent_generation_command", "parameters": [recoveredCommand, recoveredRequest, recoveredDigest, 0],
     ]])
     require(rowStrings(try store.query(sqlId: "room_events", parameters: [recoveredRoom])).count == 2, "precisely failed silence was not retryable without a provider")
 
@@ -356,7 +356,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     DispatchQueue.global().async {
         race.record {
             _ = try store.executeBatch(transactionId: "atomic-race-complete", statements: [[
-                "sqlId": "complete_generation_command", "parameters": ["Race answer.", raceCommand, raceRequest, raceDigest],
+                "sqlId": "complete_generation_command", "parameters": ["Race answer.", raceCommand, raceRequest, raceDigest, 1],
             ]])
         }
         group.leave()
@@ -375,6 +375,97 @@ private func runAtomicGenerationDatabaseTests() throws {
     let raceEvents = rowStrings(try store.query(sqlId: "room_events", parameters: [raceRoom]))
     require(raceEvents.isEmpty || raceEvents.count == 3, "completion/lifecycle race exposed a partial turn")
     require((raceEvents.count == 3) != !rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [raceRoom])).isEmpty, "completion/lifecycle race exposed conflicting outcomes")
+
+    let epochRoom = "room-00000000-0000-4000-8000-000000000098"
+    let epochCommand = "92000000-0000-4000-8000-000000000062"
+    let epochRequest = "93000000-0000-4000-8000-000000000063"
+    let epochPlan = atomicPlan(roomId: epochRoom, requestId: epochRequest)
+    let epochDigest = SHA256.hash(data: Data(epochPlan.utf8)).map { String(format: "%02x", $0) }.joined()
+    _ = try store.executeBatch(transactionId: "atomic-epoch-room", statements: [
+        ["sqlId": "create_room", "parameters": [epochRoom, "Epoch room"]],
+        ["sqlId": "create_human", "parameters": ["human-7", epochRoom, "You"]],
+        ["sqlId": "create_persona", "parameters": ["ada-lovelace", epochRoom, "Ada Lovelace", 1, "ada-lovelace"]],
+        ["sqlId": "create_director_state", "parameters": [epochRoom]],
+        ["sqlId": "select_room", "parameters": [epochRoom]],
+        ["sqlId": "save_local_draft", "parameters": [epochRoom, "epoch race"]],
+        ["sqlId": "prepare_generation_command", "parameters": atomicPrepareParameters(
+            roomId: epochRoom, commandId: epochCommand, requestId: epochRequest,
+            digest: epochDigest, plan: epochPlan, humanId: "human-7"
+        )],
+        ["sqlId": "begin_generation_command", "parameters": beginParameters(epochCommand, epochRequest, epochDigest, epochPlan)],
+    ])
+    _ = try store.executeBatch(transactionId: "atomic-epoch-interrupt-1", statements: [[
+        "sqlId": "interrupt_generation_command", "parameters": ["canceled", epochCommand, epochRequest, epochDigest, 1],
+    ]])
+    _ = try store.executeBatch(transactionId: "atomic-epoch-begin-2", statements: [[
+        "sqlId": "begin_generation_command", "parameters": beginParameters(
+            epochCommand, epochRequest, epochDigest, epochPlan, attemptEpoch: 1
+        ),
+    ]])
+    expectFailure("transaction_rejected") {
+        _ = try store.executeBatch(transactionId: "atomic-epoch-stale-complete-1", statements: [[
+            "sqlId": "complete_generation_command", "parameters": [
+                "STALE_ATTEMPT_1", epochCommand, epochRequest, epochDigest, 1,
+            ],
+        ]])
+    }
+    require(rowStrings(try store.query(sqlId: "room_events", parameters: [epochRoom])).isEmpty,
+            "stale attempt completion committed room events")
+    let stillAttemptTwo = rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [epochRoom])).first ?? ""
+    require(stillAttemptTwo.contains("\"state\":\"in_flight\"") && stillAttemptTwo.contains("\"attemptEpoch\":2"),
+            "stale attempt completion changed attempt-two authority")
+    _ = try store.executeBatch(transactionId: "atomic-epoch-complete-2", statements: [[
+        "sqlId": "complete_generation_command", "parameters": [
+            "CURRENT_ATTEMPT_2", epochCommand, epochRequest, epochDigest, 2,
+        ],
+    ]])
+    let epochEvents = rowStrings(try store.query(sqlId: "room_events", parameters: [epochRoom]))
+    require(epochEvents.count == 3 && epochEvents[2].contains("CURRENT_ATTEMPT_2") && !epochEvents[2].contains("STALE_ATTEMPT_1"),
+            "current attempt did not complete exactly once")
+
+    let rollbackEpochRoom = "room-00000000-0000-4000-8000-000000000099"
+    let rollbackEpochCommand = "92000000-0000-4000-8000-000000000072"
+    let rollbackEpochRequest = "93000000-0000-4000-8000-000000000073"
+    let rollbackEpochPlan = atomicPlan(roomId: rollbackEpochRoom, requestId: rollbackEpochRequest)
+    let rollbackEpochDigest = SHA256.hash(data: Data(rollbackEpochPlan.utf8)).map { String(format: "%02x", $0) }.joined()
+    _ = try store.executeBatch(transactionId: "atomic-retry-rollback-room", statements: [
+        ["sqlId": "create_room", "parameters": [rollbackEpochRoom, "Retry rollback room"]],
+        ["sqlId": "create_human", "parameters": ["human-8", rollbackEpochRoom, "You"]],
+        ["sqlId": "create_persona", "parameters": ["ada-lovelace", rollbackEpochRoom, "Ada Lovelace", 1, "ada-lovelace"]],
+        ["sqlId": "create_director_state", "parameters": [rollbackEpochRoom]],
+        ["sqlId": "select_room", "parameters": [rollbackEpochRoom]],
+        ["sqlId": "prepare_generation_command", "parameters": atomicPrepareParameters(
+            roomId: rollbackEpochRoom, commandId: rollbackEpochCommand, requestId: rollbackEpochRequest,
+            digest: rollbackEpochDigest, plan: rollbackEpochPlan, humanId: "human-8"
+        )],
+        ["sqlId": "begin_generation_command", "parameters": beginParameters(
+            rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, rollbackEpochPlan
+        )],
+        ["sqlId": "interrupt_generation_command", "parameters": [
+            "canceled", rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, 1,
+        ]],
+        ["sqlId": "begin_generation_command", "parameters": beginParameters(
+            rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, rollbackEpochPlan, attemptEpoch: 1
+        )],
+    ])
+    try store.failGenerationCommandNotStarted(
+        commandId: rollbackEpochCommand, requestId: rollbackEpochRequest,
+        requestDigest: rollbackEpochDigest, priorAttemptEpoch: 1
+    )
+    let rolledBackRetry = rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [rollbackEpochRoom])).first ?? ""
+    require(rolledBackRetry.contains("\"state\":\"failed\"") &&
+            rolledBackRetry.contains("\"attemptEpoch\":1") &&
+            rolledBackRetry.contains("\"failureCode\":\"not_started\""),
+            "explicit retry pre-resume rollback did not restore failed/not_started epoch one")
+    _ = try store.executeBatch(transactionId: "atomic-retry-after-rollback-begin", statements: [[
+        "sqlId": "begin_generation_command", "parameters": beginParameters(
+            rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, rollbackEpochPlan, attemptEpoch: 1
+        ),
+    ]])
+    require(try store.generationCommandIsInFlight(
+        commandId: rollbackEpochCommand, requestId: rollbackEpochRequest,
+        requestDigest: rollbackEpochDigest, attemptEpoch: 2
+    ), "subsequent explicit retry did not reclaim attempt epoch two")
 
     var raw: OpaquePointer?
     require(sqlite3_open_v2(atomicRoot.appendingPathComponent("greenroom.sqlite").path, &raw, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "raw atomic database open failed")

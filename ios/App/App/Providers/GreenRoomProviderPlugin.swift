@@ -41,6 +41,11 @@ struct ProviderCommandPayload: Codable, Equatable, Sendable {
     let requestDigest: String
 }
 
+struct ProviderAttemptResult: Equatable, Sendable {
+    let text: String
+    let attemptEpoch: Int
+}
+
 struct ProviderGenerateEnvelope: Codable, Equatable, Sendable {
     let contractVersion: String
     let callId: String
@@ -122,9 +127,9 @@ enum ProviderBridgeCodec {
         let valid: Bool
         switch kind {
         case .generate:
-            valid = Set(result.keys) == Set(["text"]) && (result["text"] as? String).map {
+            valid = Set(result.keys) == Set(["text", "attemptEpoch"]) && (result["text"] as? String).map {
                 !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf8.count <= providerMaximumTextBytes
-            } == true
+            } == true && (result["attemptEpoch"] as? Int).map { (1...9_007_199_254_740_991).contains($0) } == true
         case .cancel:
             valid = Set(result.keys) == Set(["canceled"]) && result["canceled"] is Bool
         case .listModels:
@@ -626,7 +631,7 @@ final class GreenRoomProviderService: @unchecked Sendable {
 
     func generate(
         _ command: ProviderCommandPayload,
-        completion: @escaping (Result<String, DatabaseFailure>) -> Void
+        completion: @escaping (Result<ProviderAttemptResult, DatabaseFailure>) -> Void
     ) {
         let completionGate = ProviderResultCompletion(completion)
         var commandAuthority: ProviderCommandAuthority?
@@ -685,7 +690,7 @@ final class GreenRoomProviderService: @unchecked Sendable {
                                     }
                                     do {
                                         _ = try authority.database.executeBatch(
-                                            transactionId: "native-begin-\(command.commandId)-\(attemptEpoch)",
+                                            transactionId: "native-begin-\(command.commandId)-\(attemptEpoch)-\(UUID().uuidString.lowercased())",
                                             statements: [["sqlId": "begin_generation_command", "parameters": [
                                                 command.commandId, command.requestId, command.requestDigest,
                                                 loaded.requestPlanJSON, loaded.attemptEpoch,
@@ -726,7 +731,9 @@ final class GreenRoomProviderService: @unchecked Sendable {
                                                     requestDigest: command.requestDigest, attemptEpoch: attemptEpoch
                                                 )
                                             }) == true
-                                            completionGate.finish(valid ? .success(text) : .failure(DatabaseFailure(code: "canceled", retryable: true)))
+                                            completionGate.finish(valid
+                                                ? .success(ProviderAttemptResult(text: text, attemptEpoch: attemptEpoch))
+                                                : .failure(DatabaseFailure(code: "canceled", retryable: true)))
                                         }
                                     }
                                     taskToCancel = task
@@ -864,14 +871,14 @@ final class GreenRoomProviderService: @unchecked Sendable {
 private final class ProviderResultCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var completed = false
-    private let completion: (Result<String, DatabaseFailure>) -> Void
+    private let completion: (Result<ProviderAttemptResult, DatabaseFailure>) -> Void
 
-    init(_ completion: @escaping (Result<String, DatabaseFailure>) -> Void) {
+    init(_ completion: @escaping (Result<ProviderAttemptResult, DatabaseFailure>) -> Void) {
         self.completion = completion
     }
 
-    func finish(_ result: Result<String, DatabaseFailure>) {
-        let sanitized: Result<String, DatabaseFailure> = switch result {
+    func finish(_ result: Result<ProviderAttemptResult, DatabaseFailure>) {
+        let sanitized: Result<ProviderAttemptResult, DatabaseFailure> = switch result {
         case .success: result
         case .failure(let failure): .failure(ProviderBridgeCodec.sanitizeFailure(failure, kind: .generate))
         }
@@ -1248,7 +1255,7 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard let self else { return }
                 defer { self.inFlightCalls.finish(callId) }
                 switch result {
-                case .success(let text): self.resolve(call, callId: callId, text: text)
+                case .success(let attempt): self.resolve(call, callId: callId, attempt: attempt)
                 case .failure(let failure): self.reject(call, callId: callId, failure: failure)
                 }
             }
@@ -1280,8 +1287,10 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func resolve(_ call: CAPPluginCall, callId: String, text: String) {
-        do { call.resolve(try ProviderBridgeDispatch.success(callId: callId, value: ["text": text])) }
+    private func resolve(_ call: CAPPluginCall, callId: String, attempt: ProviderAttemptResult) {
+        do { call.resolve(try ProviderBridgeDispatch.success(
+            callId: callId, value: ["text": attempt.text, "attemptEpoch": attempt.attemptEpoch]
+        )) }
         catch { reject(call, callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false)) }
     }
 

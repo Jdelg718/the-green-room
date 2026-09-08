@@ -967,13 +967,13 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
           UPDATE generation_commands
           SET state = 'completed', response_text = ?, failure_code = NULL, finished_at = CURRENT_TIMESTAMP
           WHERE command_id = ? AND request_id = ? AND request_digest = ?
-            AND state = 'in_flight' AND persona_slug IS NOT NULL
+            AND attempt_epoch = ? AND state = 'in_flight' AND persona_slug IS NOT NULL
           """,
         "complete_silent_generation_command": """
           UPDATE generation_commands
           SET state = 'completed', failure_code = NULL, finished_at = CURRENT_TIMESTAMP
           WHERE command_id = ? AND request_id = ? AND request_digest = ?
-            AND state IN ('prepared', 'failed') AND persona_slug IS NULL
+            AND attempt_epoch = ? AND state IN ('prepared', 'failed') AND persona_slug IS NULL
           """,
         "abandon_generation_command": """
           UPDATE generation_commands

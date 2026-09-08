@@ -14,6 +14,11 @@ export interface IPhoneProviderGenerateCall {
   readonly payload: IPhoneProviderGeneratePayload;
 }
 
+export interface IPhoneProviderGenerateResult {
+  readonly text: string;
+  readonly attemptEpoch: number;
+}
+
 export interface IPhoneProviderCancelCall {
   readonly contractVersion: typeof IPHONE_PROVIDER_BRIDGE_VERSION;
   readonly callId: string;
@@ -172,8 +177,9 @@ export function parseProviderGenerateResponse(callId: string, value: unknown): u
     }
     return value;
   }
-  if (!exact(value.value, ["text"]) || typeof value.value.text !== "string" ||
-      value.value.text.trim().length === 0 || new TextEncoder().encode(value.value.text).byteLength > 16 * 1024) {
+  if (!exact(value.value, ["text", "attemptEpoch"]) || typeof value.value.text !== "string" ||
+      value.value.text.trim().length === 0 || new TextEncoder().encode(value.value.text).byteLength > 16 * 1024 ||
+      !Number.isSafeInteger(value.value.attemptEpoch) || Number(value.value.attemptEpoch) < 1) {
     throw new TypeError("invalid_call");
   }
   return value;

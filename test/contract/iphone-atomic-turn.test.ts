@@ -99,6 +99,7 @@ class AtomicDatabase {
             if (this.failCompletionBeforeCommit) throw new Error("injected completion failure");
             const offset = statement.sqlId === "complete_generation_command" ? 1 : 0;
             if (!this.exact(p.slice(offset, offset + 3))) throw new Error("changed completion identity");
+            if (p[offset + 3] !== this.command.attemptEpoch) throw new Error("stale completion attempt");
             const expected = statement.sqlId === "complete_generation_command" ? "in_flight" : "prepared";
             if (this.command.state !== expected) throw new Error("invalid completion state");
             const source = this.nextEventSequence;
@@ -194,7 +195,7 @@ function provider(database: AtomicDatabase, outcome: "success" | "preflight" | "
       database.command.failureCode = "timeout";
       return failure(call, "timeout");
     }
-    return success(call, { text: "Atomic answer." });
+    return success(call, { text: "Atomic answer.", attemptEpoch: database.command.attemptEpoch });
   } };
 }
 
@@ -248,6 +249,45 @@ test("prepare mutates only one durable command and completion exposes one ordere
   await assert.rejects(runtime.retryAtomicGeneration(database, provider(database), prepared.command, ids()), /no longer retryable/u);
   assert.equal(database.providerCalls, replayCalls);
   assert.equal(database.events.length, 3);
+});
+
+test("delayed attempt-one success cannot complete attempt two, while current success commits once", async () => {
+  const runtime = await api("attempt-epoch-completion-race");
+  const database = new AtomicDatabase();
+  await runtime.saveLocalDraft(database, ROOM_ID, "epoch race", ids());
+  const command = await runtime.prepareAtomicTurn(database, database.room, "epoch race", ids(), {
+    requestId: "12000000-0000-4000-8000-000000000019",
+  });
+  const completions: Array<(value: unknown) => void> = [];
+  const delayedProvider = { async generate(call: Envelope) {
+    database.providerCalls += 1;
+    database.command.state = "in_flight";
+    database.command.attemptEpoch += 1;
+    database.command.failureCode = null;
+    return new Promise((resolve) => completions.push((value) => resolve(success(call, value))));
+  } };
+
+  const attemptOne = runtime.executePreparedGeneration(database, delayedProvider, command.command, ids());
+  await Promise.resolve();
+  database.command.state = "interrupted";
+  database.command.failureCode = "canceled";
+  const retryCommand = structuredClone(database.command);
+  const attemptTwo = runtime.executePreparedGeneration(database, delayedProvider, retryCommand, ids());
+  await Promise.resolve();
+  assert.equal(database.command.attemptEpoch, 2);
+
+  completions[0]!({ text: "STALE_ATTEMPT_1", attemptEpoch: 1 });
+  await assert.rejects(attemptOne, /transaction_rejected/u);
+  assert.equal(database.command.state, "in_flight");
+  assert.equal(database.command.attemptEpoch, 2);
+  assert.equal(database.events.length, 0);
+
+  completions[1]!({ text: "CURRENT_ATTEMPT_2", attemptEpoch: 2 });
+  const completed = await attemptTwo;
+  assert.equal(completed.text, "CURRENT_ATTEMPT_2");
+  assert.equal(database.events.length, 3);
+  assert.equal(database.events[2]!.event.text, "CURRENT_ATTEMPT_2");
+  assert.equal(database.providerCalls, 2);
 });
 
 test("deliberate silence atomically commits human and director without provider", async () => {

@@ -83,11 +83,11 @@ test("provider generate uses the exact closed A2 request and response envelope",
   assert.deepEqual(parseProviderGenerateResponse(CALL_ID, {
     callId: CALL_ID,
     ok: true,
-    value: { text: "A bounded answer." },
+    value: { text: "A bounded answer.", attemptEpoch: 1 },
   }), {
     callId: CALL_ID,
     ok: true,
-    value: { text: "A bounded answer." },
+    value: { text: "A bounded answer.", attemptEpoch: 1 },
   });
   assert.deepEqual(parseProviderGenerateResponse(CALL_ID, {
     callId: CALL_ID,
@@ -147,8 +147,13 @@ test("provider generate rejects extra fields, secrets, and caller destinations",
   assert.throws(() => parseProviderGenerateCall({ ...REQUEST, extra: true }), /invalid_call/u);
   assert.throws(() => parseProviderGenerateCall({ ...REQUEST, contractVersion: "iphone-native-bridge/2.0" }), /incompatible_contract/u);
   assert.throws(() => parseProviderGenerateResponse(CALL_ID, {
-    callId: CALL_ID, ok: true, value: { text: "ok", credential: "forbidden" },
+    callId: CALL_ID, ok: true, value: { text: "ok", attemptEpoch: 1, credential: "forbidden" },
   }), /invalid_call/u);
+  for (const attemptEpoch of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => parseProviderGenerateResponse(CALL_ID, {
+      callId: CALL_ID, ok: true, value: { text: "ok", attemptEpoch },
+    }), /invalid_call/u);
+  }
 });
 
 test("provider bridge retains its call until asynchronous generation resolves", () => {

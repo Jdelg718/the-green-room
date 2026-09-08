@@ -42,7 +42,8 @@
       "callId": "20000000-0000-4000-8000-000000000002",
       "ok": true,
       "value": {
-        "text": "A bounded answer."
+        "text": "A bounded answer.",
+        "attemptEpoch": 1
       }
     },
     {

@@ -43,7 +43,8 @@ CREATE TABLE generation_commands (
   CHECK (
     (state = 'prepared' AND attempt_epoch = 0 AND started_at IS NULL AND finished_at IS NULL AND failure_code IS NULL AND response_text IS NULL) OR
     (state = 'in_flight' AND attempt_epoch >= 1 AND started_at IS NOT NULL AND finished_at IS NULL AND failure_code IS NULL AND response_text IS NULL) OR
-    (state = 'failed' AND attempt_epoch = 0 AND started_at IS NULL AND finished_at IS NULL AND failure_code IS NOT NULL AND response_text IS NULL) OR
+    (state = 'failed' AND started_at IS NULL AND finished_at IS NULL AND failure_code IS NOT NULL AND response_text IS NULL AND
+      (attempt_epoch = 0 OR failure_code = 'not_started')) OR
     (state = 'interrupted' AND attempt_epoch >= 1 AND started_at IS NOT NULL AND finished_at IS NULL AND failure_code IS NOT NULL AND response_text IS NULL) OR
     (state = 'completed' AND finished_at IS NOT NULL AND failure_code IS NULL AND ((persona_slug IS NULL AND response_text IS NULL) OR (persona_slug IS NOT NULL AND response_text IS NOT NULL))) OR
     (state = 'abandoned' AND finished_at IS NOT NULL AND response_text IS NULL)
@@ -81,7 +82,8 @@ WHEN NOT (
   (OLD.state = 'failed' AND NEW.state IN ('failed', 'in_flight', 'completed', 'abandoned')) OR
   (OLD.state = 'interrupted' AND NEW.state IN ('in_flight', 'abandoned')) OR
   (OLD.state = 'in_flight' AND (
-    NEW.state IN ('interrupted', 'completed') OR
+    NEW.state = 'interrupted' OR
+    (NEW.state = 'completed' AND NEW.attempt_epoch = OLD.attempt_epoch) OR
     (NEW.state = 'failed' AND NEW.failure_code = 'not_started' AND
       NEW.attempt_epoch = OLD.attempt_epoch - 1 AND NEW.started_at IS NULL)
   )) OR
@@ -90,6 +92,11 @@ WHEN NOT (
     OLD.started_at IS NEW.started_at AND OLD.finished_at IS NEW.finished_at)
 )
 BEGIN SELECT RAISE(ABORT, 'invalid generation command transition'); END;
+
+CREATE TRIGGER generation_command_completion_preserves_attempt_epoch
+BEFORE UPDATE OF state ON generation_commands
+WHEN NEW.state = 'completed' AND OLD.state <> 'completed' AND NEW.attempt_epoch <> OLD.attempt_epoch
+BEGIN SELECT RAISE(ABORT, 'stale generation completion attempt'); END;
 
 CREATE TRIGGER generation_command_completion_is_fenced
 BEFORE UPDATE OF state ON generation_commands
