@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -67,19 +68,30 @@ const developmentEntitlements = {
 };
 
 const developmentProfile = {
-  TeamIdentifier: ["JZ233HBW3Z"],
-  ExpirationDate: "2099-01-01T00:00:00.000Z",
-  ProvisionedDevices: ["fixture-device"],
-  Entitlements: developmentEntitlements,
+  name: "Development fixture",
+  uuid: "00000000-0000-4000-8000-000000000000",
+  teamIdentifiers: ["JZ233HBW3Z"],
+  expirationDate: "2099-01-01T00:00:00Z",
+  provisionsAllDevicesPresent: false,
+  provisionsAllDevices: null,
+  provisionedDevicesPresent: true,
+  provisionedDeviceCount: 1,
+  entitlements: { ...developmentEntitlements, "application-identifier": "JZ233HBW3Z.*", "keychain-access-groups": ["JZ233HBW3Z.*"] },
 };
 
 const distributionProfile = {
-  TeamIdentifier: ["JZ233HBW3Z"],
-  ExpirationDate: "2099-01-01T00:00:00.000Z",
-  Entitlements: distributionEntitlements,
+  name: "Distribution fixture",
+  uuid: "00000000-0000-4000-8000-000000000001",
+  teamIdentifiers: ["JZ233HBW3Z"],
+  expirationDate: "2099-01-01T00:00:00Z",
+  provisionsAllDevicesPresent: false,
+  provisionsAllDevices: null,
+  provisionedDevicesPresent: false,
+  provisionedDeviceCount: 0,
+  entitlements: distributionEntitlements,
 };
 
-const developmentIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Development: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
+const developmentIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Development: Fixture (XFGK6Q9J9X)\nTeamIdentifier=JZ233HBW3Z";
 const distributionIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
 
 test("repository TestFlight declarations are semantic and exact", () => {
@@ -209,6 +221,10 @@ test("archive rejects malformed or contradictory signing and profile evidence", 
     { identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=iPhone Developer: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z", entitlements: developmentEntitlements, profile: developmentProfile },
     { identityDetails: developmentIdentity, entitlements: { ...developmentEntitlements, "beta-reports-active": true }, profile: developmentProfile },
     { identityDetails: distributionIdentity, entitlements: { ...distributionEntitlements, "beta-reports-active": false }, profile: distributionProfile },
+    { identityDetails: developmentIdentity, entitlements: developmentEntitlements, profile: { ...developmentProfile, expirationDate: "2000-01-01T00:00:00Z" } },
+    { identityDetails: developmentIdentity, entitlements: developmentEntitlements, profile: { ...developmentProfile, teamIdentifiers: "JZ233HBW3Z" } },
+    { identityDetails: developmentIdentity, entitlements: developmentEntitlements, profile: { ...developmentProfile, provisionedDeviceCount: "1" } },
+    { identityDetails: developmentIdentity, entitlements: developmentEntitlements, profile: { ...developmentProfile, provisionsAllDevicesPresent: true, provisionsAllDevices: true } },
   ];
   for (const evidence of malformedCases) {
     assert.throws(() => auditor.validateArchiveSigningEvidence(evidence), /signing|entitlements|profile/u);
@@ -232,5 +248,50 @@ test("archive string audit rejects listeners, downloaded code, analytics, Node, 
     "node.exe", "python3", "https://evil.invalid/v1", "http://127.0.0.1:8080",
   ]) {
     assert.throws(() => auditor.validateReleaseStrings(marker), /release payload/u);
+  }
+});
+
+test("real-shape provisioning plist preserves Date and only bounded profile evidence", () => {
+  const decoded = readFileSync(join(ROOT, "test/fixtures/ios/development-profile-real-shape.plist"));
+  const profile = auditor.parseDecodedProvisioningProfile(decoded);
+  assert.deepEqual(profile, {
+    name: "Green Room Development Fixture",
+    uuid: "00000000-0000-4000-8000-000000000000",
+    teamIdentifiers: ["JZ233HBW3Z"],
+    expirationDate: "2099-01-01T00:00:00Z",
+    provisionsAllDevicesPresent: false,
+    provisionsAllDevices: null,
+    provisionedDevicesPresent: true,
+    provisionedDeviceCount: 2,
+    entitlements: {
+      "application-identifier": "JZ233HBW3Z.*",
+      "com.apple.developer.team-identifier": "JZ233HBW3Z",
+      "get-task-allow": true,
+      "keychain-access-groups": ["JZ233HBW3Z.*", "com.apple.token"],
+    },
+  });
+  assert.equal(JSON.stringify(profile).includes("1111111111111111111111111111111111111111"), false);
+  assert.doesNotThrow(() => auditor.validateArchiveSigningEvidence({
+    identityDetails: developmentIdentity,
+    entitlements: developmentEntitlements,
+    profile,
+  }));
+});
+
+test("provisioning parser rejects malformed and duplicate ExpirationDate fields", () => {
+  const fixture = readFileSync(join(ROOT, "test/fixtures/ios/development-profile-real-shape.plist"), "utf8");
+  const root = mkdtempSync(join(tmpdir(), "greenroom-profile-parser-"));
+  try {
+    for (const [name, source] of [
+      ["malformed-date", fixture.replace("<date>2099-01-01T00:00:00Z</date>", "<date>not-a-date</date>")],
+      ["wrong-date-type", fixture.replace("<date>2099-01-01T00:00:00Z</date>", "<string>2099-01-01T00:00:00Z</string>")],
+      ["duplicate-date", fixture.replace("<key>ExpirationDate</key>", "<key>ExpirationDate</key><date>2098-01-01T00:00:00Z</date><key>ExpirationDate</key>")],
+    ] as const) {
+      const path = join(root, `${name}.plist`);
+      writeFileSync(path, source);
+      assert.throws(() => auditor.parseDecodedProvisioningProfile(readFileSync(path)), /provisioning profile/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

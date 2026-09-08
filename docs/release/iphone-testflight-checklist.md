@@ -29,29 +29,21 @@ npm run ios:verify-bundle
 - [ ] All commands pass. A Simulator build is validation, not the distribution candidate.
 - [ ] Restore any tooling-only deletion of `ios/App/CapApp-SPM/Package.resolved`; remove generated `xcuserdata`; confirm only intended source files are changed.
 
-## Exact Release archive with commit provenance
+## Controlled Release archive with declared commit binding
 
-Create the archive only after the candidate commit exists. The safe project default records `development` for ordinary local builds; the candidate command must explicitly inject the exact 40-character commit:
+Create the archive only after the candidate commit exists. Use the single reviewed wrapper; it takes no commit argument. The wrapper requires a clean checkout including untracked files, resolves `HEAD` itself, removes any inherited `GREENROOM_SOURCE_COMMIT`, injects the resolved SHA into Xcode, runs sync/runtime preparation/archive, restores only Xcode's known deletion of the tracked `Package.resolved`, and rejects every other tracked or untracked mutation found afterward:
 
 ```sh
 export PATH=/opt/homebrew/opt/node@24/bin:$PATH
+npm run ios:archive-controlled
 COMMIT="$(git rev-parse HEAD)"
-test "$(git status --porcelain)" = ""
-npm run ios:sync
-node scripts/ios/prepare-capacitor-runtime.mjs
-/usr/bin/xcodebuild archive \
-  -project ios/App/App.xcodeproj \
-  -scheme App \
-  -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -archivePath ".build/testflight/GreenRoom-${COMMIT}.xcarchive" \
-  -allowProvisioningUpdates \
-  "GREENROOM_SOURCE_COMMIT=${COMMIT}"
 ```
+
+This is an operational clean-pre/clean-post binding, not cryptographic proof that every archive byte came from the declared commit and not a reproducible-build claim. `GreenRoomSourceCommit` and audit JSON field `declaredSourceCommit` mean only that the controlled wrapper declared its internally resolved clean-checkout `HEAD`; retain the wrapper output and audit alongside the candidate.
 
 - [ ] Archive succeeds without uploading.
 - [ ] Organizer/archive readback shows one app, `net.greenroomai.GreenRoom`, `0.1.0 (1)`, Team `JZ233HBW3Z`.
-- [ ] Audit the archive before export:
+- [ ] Audit the archive before export from the same clean checkout:
 
 ```sh
 npm run ios:audit-archive -- \
@@ -59,13 +51,13 @@ npm run ios:audit-archive -- \
   --expected-commit "${COMMIT}"
 ```
 
-- [ ] Audit passes identity, exact source commit, minimum OS/iPhone-only, encryption/privacy manifests, framework/Mach-O/link inventory, sealed signature/team/profile consistency, entitlement, endpoint, listener, downloaded-code, analytics, embedded executable/plugin, and Node/Python gates.
+- [ ] Audit passes identity, declared source commit/current checkout equality, minimum OS/iPhone-only, encryption/privacy manifests, framework/Mach-O/link inventory, sealed signature/team/profile consistency, entitlement, endpoint, listener, downloaded-code, analytics, embedded executable/plugin, and Node/Python gates.
 - [ ] Treat this as a **pre-export archive audit**, not a TestFlight-readiness verdict. Xcode may legitimately produce either:
   - an Apple Development archive with `get-task-allow=true`, no `beta-reports-active`, and a matching development profile containing provisioned devices; or
   - an Apple Distribution archive with `get-task-allow=false`, `beta-reports-active=true`, and a matching distribution profile without provisioned devices.
 - [ ] The bounded JSON must classify that evidence under `archiveSigning`, leave `exportSigning` as `null`, and report `testflightReady=false`. Contradictory identity/entitlement/profile combinations are failures; accepting a development archive does not permit ad hoc, enterprise, legacy, wrong-team, or otherwise downgraded signing.
 
-## Reproducible no-upload export and readback
+## No-upload export and readback
 
 `ios/ExportOptions.plist` intentionally sets `destination=export`, `method=app-store-connect`, automatic signing, Team `JZ233HBW3Z`, `testFlightInternalTestingOnly=true`, `manageAppVersionAndBuildNumber=false`, and symbol stripping/upload-symbol inclusion. This creates a reviewable local artifact and cannot upload by itself.
 
@@ -83,7 +75,7 @@ npm run ios:audit-archive -- \
 ```
 
 - [ ] Exactly one IPA exists; do not parse or publish verbose `Packaging.log`.
-- [ ] The export/IPA is the authoritative distribution artifact. Re-audit all app content and exact identity/version/build/source provenance from that extracted IPA; do not infer distribution readiness from the archive's signing kind.
+- [ ] The export/IPA is the authoritative distribution artifact. Re-audit all app content, exact identity/version/build, and the declared source commit from that extracted IPA; do not infer distribution readiness from the archive's signing kind or call the declared commit reproducible/cryptographic source proof.
 - [ ] Export audit proves an Apple Distribution identity and matching distribution profile, exact team/bundle/keychain group, `get-task-allow=false`, `beta-reports-active=true`, internal-only export configuration, and matching distribution summary. A development-signed export always fails, while a valid development-signed archive does not make a correctly re-signed export fail.
 - [ ] Bounded JSON reports distinct `archiveSigning` and `exportSigning` objects and sets `testflightReady=true` only after every export gate passes.
 - [ ] Record only the audit's bounded JSON summary and artifact checksum; never credential/session/log contents.
@@ -101,7 +93,7 @@ Stop here unless Kent explicitly authorizes upload of this exact commit/archive/
 
 A successful upload is not completion.
 
-- [ ] Read back app ID `6809792258`, bundle ID `net.greenroomai.GreenRoom`, version `0.1.0`, build `1`, processed state, export-compliance answer, and exact source provenance.
+- [ ] Read back app ID `6809792258`, bundle ID `net.greenroomai.GreenRoom`, version `0.1.0`, build `1`, processed state, export-compliance answer, and declared source commit.
 - [ ] Confirm `TestFlight Internal Only` and assign only the owner-approved internal group.
 - [ ] Confirm there are no external groups, public invitation links, or App Store submission actions.
 - [ ] Record processing failures exactly; do not retry with a new archive or build identity without review.

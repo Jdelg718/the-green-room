@@ -11,6 +11,7 @@ export type SigningEvidence = {
   entitlements: PlistDictionary;
   profile: PlistDictionary;
 };
+export function parseDecodedProvisioningProfile(value: Buffer | string): PlistDictionary;
 
 export function validateAppPrivacyManifest(value: PlistDictionary, label?: string): void;
 export function validateFrameworkPrivacyManifest(value: PlistDictionary, label?: string): void;

@@ -12,11 +12,15 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 import { verifyBuiltApp, verifySource } from "./verify-bundle.mjs";
+
+export { parseDecodedProvisioningProfile };
 
 const BUNDLE_ID = "net.greenroomai.GreenRoom";
 const APP_NAME = "Green Room";
 const TEAM_ID = "JZ233HBW3Z";
+const KEYCHAIN_GROUP = `${TEAM_ID}.${BUNDLE_ID}`;
 const VERSION = "0.1.0";
 const BUILD = "1";
 const MINIMUM_IOS = "18.6";
@@ -72,7 +76,7 @@ export function validateReleaseInfo(info, expectedCommit) {
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS && JSON.stringify(info.UIDeviceFamily) === "[1]", "release identity must target iPhone-only iOS 18.6");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "release encryption declaration must be Boolean false");
   requireCondition(/^[0-9a-f]{40}$/u.test(expectedCommit), "expected commit must be an exact lowercase 40-character Git SHA");
-  requireCondition(info.GreenRoomSourceCommit === expectedCommit, "release commit provenance does not equal the audited source commit");
+  requireCondition(info.GreenRoomSourceCommit === expectedCommit, "release declared source commit does not equal the audited checkout commit");
 }
 
 export function validateExportOptions(value) {
@@ -120,21 +124,39 @@ export function validateDistributionEntitlements(value) {
 function classifySigningIdentity(details) {
   requireCondition(/^Identifier=net\.greenroomai\.GreenRoom$/mu.test(details), "codesign identifier is not exact");
   requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(details), "codesign team identifier is not exact");
-  const match = details.match(/^Authority=(Apple Development|Apple Distribution): .+ \(JZ233HBW3Z\)$/mu);
+  const match = details.match(/^Authority=(Apple Development|Apple Distribution): [^\r\n]+ \([A-Z0-9]{10}\)$/mu);
   requireCondition(match, "codesign signing identity is not an exact Apple Development or Apple Distribution identity for the expected team");
   return match[1] === "Apple Development" ? "development" : "distribution";
 }
 
+function validateProfileEntitlements(value) {
+  requireCondition(value && typeof value === "object" && !Array.isArray(value), "provisioning profile entitlements must be a dictionary");
+  for (const key of Object.keys(value)) requireCondition(ALLOWED_ENTITLEMENT_KEYS.has(key), `provisioning profile entitlements contain unexpected ${key}`);
+  requireCondition(value["application-identifier"] === KEYCHAIN_GROUP || value["application-identifier"] === `${TEAM_ID}.*`, "provisioning profile does not authorize the application identifier");
+  requireCondition(value["com.apple.developer.team-identifier"] === TEAM_ID, "provisioning profile entitlement team is not exact");
+  requireCondition(Array.isArray(value["keychain-access-groups"]) && (value["keychain-access-groups"].includes(KEYCHAIN_GROUP) || value["keychain-access-groups"].includes(`${TEAM_ID}.*`)), "provisioning profile does not authorize the default keychain access group");
+  if (value["get-task-allow"] === true) {
+    requireCondition(!("beta-reports-active" in value), "development provisioning profile entitlements must not contain beta-reports-active");
+    return "development";
+  }
+  requireCondition(value["get-task-allow"] === false && value["beta-reports-active"] === true, "distribution provisioning profile entitlements are malformed");
+  return "distribution";
+}
+
 function classifyProfile(profile, phase) {
   requireCondition(profile && typeof profile === "object" && !Array.isArray(profile), "provisioning profile must be a dictionary");
-  requireCondition(JSON.stringify(profile.TeamIdentifier) === JSON.stringify([TEAM_ID]), "provisioning profile team is not exact");
-  requireCondition(typeof profile.ExpirationDate === "string" && Number.isFinite(new Date(profile.ExpirationDate).getTime()) && new Date(profile.ExpirationDate).getTime() > Date.now(), "provisioning profile is expired or malformed");
-  requireCondition(!("ProvisionsAllDevices" in profile), "enterprise provisioning profiles are not permitted");
-  const kind = phase === "export" ? (validateDistributionEntitlements(profile.Entitlements), "distribution") : classifyArchiveEntitlements(profile.Entitlements);
+  exactKeys(profile, ["name", "uuid", "teamIdentifiers", "expirationDate", "provisionsAllDevicesPresent", "provisionsAllDevices", "provisionedDevicesPresent", "provisionedDeviceCount", "entitlements"], "bounded provisioning profile");
+  requireCondition(typeof profile.name === "string" && profile.name.length > 0 && profile.name.length <= 256, "provisioning profile name is malformed");
+  requireCondition(typeof profile.uuid === "string" && /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/u.test(profile.uuid), "provisioning profile UUID is malformed");
+  requireCondition(JSON.stringify(profile.teamIdentifiers) === JSON.stringify([TEAM_ID]), "provisioning profile team is not exact");
+  requireCondition(typeof profile.expirationDate === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(profile.expirationDate) && Number.isFinite(new Date(profile.expirationDate).getTime()) && new Date(profile.expirationDate).getTime() > Date.now(), "provisioning profile is expired or malformed");
+  requireCondition(profile.provisionsAllDevicesPresent === false && profile.provisionsAllDevices === null, "enterprise provisioning profiles are not permitted");
+  const kind = validateProfileEntitlements(profile.entitlements);
+  requireCondition(phase !== "export" || kind === "distribution", "export provisioning profile must be distribution class");
   if (kind === "development") {
-    requireCondition(Array.isArray(profile.ProvisionedDevices) && profile.ProvisionedDevices.length > 0, "development provisioning profile must contain provisioned devices");
+    requireCondition(profile.provisionedDevicesPresent === true && Number.isSafeInteger(profile.provisionedDeviceCount) && profile.provisionedDeviceCount > 0, "development provisioning profile must contain provisioned devices");
   } else {
-    requireCondition(!("ProvisionedDevices" in profile), "distribution provisioning profile unexpectedly contains provisioned devices");
+    requireCondition(profile.provisionedDevicesPresent === false && profile.provisionedDeviceCount === 0, "distribution provisioning profile unexpectedly contains provisioned devices");
   }
   return kind;
 }
@@ -288,7 +310,7 @@ function inspectSigning(appPath, phase) {
     maxBuffer: 8 * 1024 * 1024,
   });
   requireCondition(profileResult.status === 0, "provisioning profile CMS inspection failed");
-  const profile = plistJsonInput(profileResult.stdout, "provisioning profile");
+  const profile = parseDecodedProvisioningProfile(profileResult.stdout);
   const evidence = { identityDetails, entitlements, profile };
   return phase === "export" ? validateDistributionSigningEvidence(evidence) : validateArchiveSigningEvidence(evidence);
 }
@@ -380,7 +402,7 @@ export function auditArchive({ archivePath, sourceRoot = process.cwd(), expected
       build: BUILD,
       minimumOS: MINIMUM_IOS,
       deviceFamily: [1],
-      sourceCommit: expectedCommit,
+      declaredSourceCommit: expectedCommit,
       archiveEntries: archiveResult.builtEntries,
       archiveSigning: signingPhases.archiveSigning,
       exportSigning: signingPhases.exportSigning,

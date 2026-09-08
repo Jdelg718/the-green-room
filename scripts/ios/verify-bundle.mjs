@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 
 export const BUNDLE_ID = "net.greenroomai.GreenRoom";
 export const APP_NAME = "Green Room";
@@ -273,10 +274,14 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/Resources/Migrations/0006-room-talk.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
+    "ios/App/App/App.entitlements",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios/App/App/capacitor.config.json",
     "ios/App/App/config.xml",
     "ios/App/CapApp-SPM/Package.swift",
+    "scripts/ios/archive-controlled.mjs",
+    "scripts/ios/parse-provisioning-profile.py",
+    "scripts/ios/provisioning-profile.mjs",
   ];
   for (const path of required) checkedRegularFile(join(sourceRoot, path), sourceRoot);
 
@@ -331,7 +336,8 @@ export function verifySource(root = process.cwd()) {
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 2, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
   requireCondition((project.match(/CURRENT_PROJECT_VERSION = 1;/gu) ?? []).length === 2, "project build number must be 1 in Debug and Release");
-  requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must have the safe development provenance default");
+  requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
+  requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
   const projectFrameworkNames = [...project.matchAll(/\b([A-Z][A-Za-z0-9_.-]+\.framework)\b/gu)].map((match) => match[1]);
@@ -376,6 +382,9 @@ export function verifySource(root = process.cwd()) {
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "Info.plist export encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === "$(GREENROOM_SOURCE_COMMIT)", "Info.plist source commit placeholder is not exact");
   requireCondition(info.CFBundleShortVersionString === "$(MARKETING_VERSION)" && info.CFBundleVersion === "$(CURRENT_PROJECT_VERSION)", "Info.plist version placeholders are not exact");
+  const appEntitlements = plistJson(join(sourceRoot, "ios/App/App/App.entitlements"), sourceRoot);
+  assertExactKeys(appEntitlements, ["keychain-access-groups"], "app entitlements");
+  requireCondition(JSON.stringify(appEntitlements["keychain-access-groups"]) === JSON.stringify(["$(AppIdentifierPrefix)net.greenroomai.GreenRoom"]), "app entitlement keychain access group is not the exact default group");
   const cordova = readText(join(sourceRoot, "ios/App/App/config.xml"), sourceRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordova) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordova), "Cordova config permits deployment or navigation");
   verifyPrivacyManifest(join(sourceRoot, "ios/App/App/PrivacyInfo.xcprivacy"), sourceRoot, { label: "app" });
@@ -507,6 +516,7 @@ export function verifySignedDeviceApp(appPath) {
   requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(details), "codesign TeamIdentifier is not exact");
   requireCondition(/Sealed Resources version=/u.test(details), "sealed resource signature is missing");
   requireCondition(/<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>/u.test(details), "signed application entitlement is not exact");
+  requireCondition(/<key>keychain-access-groups<\/key>\s*<array>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>\s*<\/array>/u.test(details), "signed keychain access group is not exact");
   const strict = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", appRoot], {
     encoding: "utf8",
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
@@ -521,25 +531,15 @@ export function verifySignedDeviceApp(appPath) {
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
     maxBuffer: 4 * 1024 * 1024,
   });
-  const profileTeam = execFileSync("/usr/bin/plutil", ["-extract", "TeamIdentifier.0", "raw", "-o", "-", "-"], {
-    input: cms,
-    encoding: "utf8",
-    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
-    maxBuffer: 4 * 1024 * 1024,
-  }).trim();
-  const expiration = execFileSync("/usr/bin/plutil", ["-extract", "ExpirationDate", "raw", "-o", "-", "-"], {
-    input: cms,
-    encoding: "utf8",
-    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
-    maxBuffer: 4 * 1024 * 1024,
-  }).trim();
-  requireCondition(profileTeam === "JZ233HBW3Z", "provisioning profile team is not exact");
-  const exactProfileAppId = /<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>/u.test(cms);
-  const teamWildcardProfile = /<key>application-identifier<\/key>\s*<string>JZ233HBW3Z\.\*<\/string>/u.test(cms);
+  const profile = parseDecodedProvisioningProfile(cms);
+  requireCondition(JSON.stringify(profile.teamIdentifiers) === JSON.stringify(["JZ233HBW3Z"]), "provisioning profile team is not exact");
+  requireCondition(new Date(profile.expirationDate).getTime() > Date.now(), "provisioning profile is expired");
+  requireCondition(profile.provisionsAllDevicesPresent === false && profile.provisionedDevicesPresent === true && profile.provisionedDeviceCount > 0, "development provisioning profile class is malformed");
+  const exactProfileAppId = profile.entitlements["application-identifier"] === "JZ233HBW3Z.net.greenroomai.GreenRoom";
+  const teamWildcardProfile = profile.entitlements["application-identifier"] === "JZ233HBW3Z.*";
   requireCondition(exactProfileAppId || teamWildcardProfile, "provisioning profile does not authorize the exact application identifier");
-  requireCondition(/<key>com\.apple\.developer\.team-identifier<\/key>\s*<string>JZ233HBW3Z<\/string>/u.test(cms), "provisioning entitlement team is not exact");
-  requireCondition(/<key>ProvisionedDevices<\/key>\s*<array>\s*<string>[^<]+<\/string>/u.test(cms), "development provisioning profile has no devices");
-  requireCondition(new Date(expiration).getTime() > Date.now(), "provisioning profile is expired");
+  requireCondition(profile.entitlements["com.apple.developer.team-identifier"] === "JZ233HBW3Z" && profile.entitlements["get-task-allow"] === true && !("beta-reports-active" in profile.entitlements), "development provisioning entitlements are malformed");
+  requireCondition(Array.isArray(profile.entitlements["keychain-access-groups"]) && (profile.entitlements["keychain-access-groups"].includes("JZ233HBW3Z.net.greenroomai.GreenRoom") || profile.entitlements["keychain-access-groups"].includes("JZ233HBW3Z.*")), "development profile does not authorize the exact default keychain group");
   return { ...built, signing: { identifier: BUNDLE_ID, teamIdentifier: "JZ233HBW3Z", sealed: true, developmentProfile: true, profileApplicationIdentifier: exactProfileAppId ? `JZ233HBW3Z.${BUNDLE_ID}` : "JZ233HBW3Z.*" } };
 }
 

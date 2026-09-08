@@ -29,6 +29,10 @@ function fixture(context: test.TestContext): string {
   cpSync(join(ROOT, "ios-web"), join(root, "ios-web"), { recursive: true });
   mkdirSync(join(root, "ios"), { recursive: true });
   cpSync(join(ROOT, "ios", "App"), join(root, "ios", "App"), { recursive: true });
+  mkdirSync(join(root, "scripts", "ios"), { recursive: true });
+  for (const name of ["archive-controlled.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs"]) {
+    cpSync(join(ROOT, "scripts", "ios", name), join(root, "scripts", "ios", name));
+  }
   return root;
 }
 
@@ -48,6 +52,7 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     "ios/App/App/ContainedBridgeViewController.swift",
     "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
     "ios/App/App/Providers/ApprovedProviderDefinitions.swift",
+    "ios/App/App/App.entitlements",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios-web/index.html",
     "scripts/ios/verify-bundle.mjs",
@@ -55,6 +60,7 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
   }
   assert.deepEqual(verifySource(ROOT).deviceFamily, [1]);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/App.entitlements"), "utf8"), /\$\(AppIdentifierPrefix\)net\.greenroomai\.GreenRoom/u);
   const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(packageJson.scripts["ios:test"] ?? "", /run-ios-test\.mjs/u);
   const gate = readFileSync(join(ROOT, "scripts/ios/run-ios-test.mjs"), "utf8");
@@ -62,6 +68,17 @@ test("repository contains and passes the complete iPhone source boundary", () =>
   assert.match(gate, /run-simulator-offline\.mjs/u);
   assert.match(gate, /build-simulator-release\.mjs/u);
   assert.match(gate, /--release-acceptance-boundary/u);
+});
+
+test("default Keychain group is explicit in both Xcode configurations and cannot be broadened", (context) => {
+  const root = fixture(context);
+  const projectPath = "ios/App/App.xcodeproj/project.pbxproj";
+  rewrite(root, projectPath, (source) => source.replace("CODE_SIGN_ENTITLEMENTS = App/App.entitlements;", "CODE_SIGN_ENTITLEMENTS = App/Broad.entitlements;"));
+  rejects(root, /code-sign entitlements/u);
+
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+  rewrite(root, "ios/App/App/App.entitlements", (source) => source.replace("$(AppIdentifierPrefix)net.greenroomai.GreenRoom", "$(AppIdentifierPrefix)*"));
+  rejects(root, /keychain access group/u);
 });
 
 test("physical credential harness is explicit, Debug-only, state-only, and probes real lock state", () => {

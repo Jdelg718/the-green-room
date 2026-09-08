@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Name</key>
+  <string>Green Room Development Fixture</string>
+  <key>UUID</key>
+  <string>00000000-0000-4000-8000-000000000000</string>
+  <key>TeamIdentifier</key>
+  <array><string>JZ233HBW3Z</string></array>
+  <key>ExpirationDate</key>
+  <date>2099-01-01T00:00:00Z</date>
+  <key>ProvisionedDevices</key>
+  <array>
+    <string>0000000000000000000000000000000000000000</string>
+    <string>1111111111111111111111111111111111111111</string>
+  </array>
+  <key>Entitlements</key>
+  <dict>
+    <key>application-identifier</key>
+    <string>JZ233HBW3Z.*</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>JZ233HBW3Z</string>
+    <key>get-task-allow</key>
+    <true/>
+    <key>keychain-access-groups</key>
+    <array><string>JZ233HBW3Z.*</string><string>com.apple.token</string></array>
+  </dict>
+</dict>
+</plist>
