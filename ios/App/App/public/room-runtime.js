@@ -67,7 +67,10 @@ function parseRoom(value) {
   const humans = room.participants.filter(({ kind }) => kind === "human");
   const personas = room.participants.filter(({ kind }) => kind === "persona");
   if (humans.length !== 1 || personas.length < 1 || personas.length > MAX_CAST ||
-      personas.some(({ personaSlug }) => !CATALOG.has(personaSlug)) ||
+      personas.some(({ displayName, id, personaSlug }) => {
+        const catalogPersona = CATALOG.get(personaSlug);
+        return catalogPersona === undefined || id !== personaSlug || displayName !== catalogPersona.name;
+      }) ||
       new Set(personas.map(({ personaSlug }) => personaSlug)).size !== personas.length) {
     throw new Error("Invalid local room cast.");
   }
@@ -105,7 +108,7 @@ function parseEvent(record, expectedSequence) {
         !Number.isSafeInteger(event.generation) || event.generation < 0 ||
         !Number.isSafeInteger(event.sourceEventSequence) || event.sourceEventSequence < 1 ||
         event.sourceEventSequence >= record.sequence || !DIRECTOR_REASONS.has(event.reason) ||
-        !(event.speaker === null || typeof event.speaker === "string")) {
+        !(event.speaker === null || (typeof event.speaker === "string" && CATALOG.has(event.speaker)))) {
       throw new Error("Invalid local event projection.");
     }
     return record;
@@ -155,7 +158,8 @@ function parseDirectorContext(value, room) {
   for (const [index, persona] of context.personas.entries()) {
     if (!exactRecord(persona, ["displayName", "id", "muted", "personaSlug", "sortOrder"]) ||
         typeof persona.id !== "string" || persona.id.length < 1 || persona.id.length > 256 ||
-        !CATALOG.has(persona.personaSlug) || typeof persona.displayName !== "string" ||
+        !CATALOG.has(persona.personaSlug) || persona.id !== persona.personaSlug ||
+        persona.displayName !== CATALOG.get(persona.personaSlug).name ||
         typeof persona.muted !== "boolean" || persona.sortOrder !== index + 1) {
       throw new Error("Invalid native director projection.");
     }
@@ -222,8 +226,11 @@ export async function sendLocalMessage(
     throw new TypeError("Message must be nonblank and at most 16,384 characters.");
   }
   if (!exactRecord(options, Object.keys(options)) ||
-      Object.keys(options).some((key) => key !== "requestId" && key !== "wantsResponse") ||
-      (options.wantsResponse !== undefined && typeof options.wantsResponse !== "boolean")) {
+      Object.keys(options).some((key) => key !== "requestId" && key !== "targetPersonaSlug" && key !== "wantsResponse") ||
+      (options.wantsResponse !== undefined && typeof options.wantsResponse !== "boolean") ||
+      (options.targetPersonaSlug !== undefined &&
+        (typeof options.targetPersonaSlug !== "string" || !CATALOG.has(options.targetPersonaSlug))) ||
+      (options.targetPersonaSlug !== undefined && options.wantsResponse === false)) {
     throw new TypeError("Invalid message options.");
   }
   const human = room?.participants?.find(({ kind }) => kind === "human");
@@ -240,12 +247,20 @@ export async function sendLocalMessage(
     ? new Director(personaIds)
     : Director.restore(personaIds, context.state);
   for (const persona of context.personas) director.setMuted(persona.id, persona.muted);
+  const target = options.targetPersonaSlug === undefined
+    ? undefined
+    : context.personas.find(({ personaSlug }) => personaSlug === options.targetPersonaSlug);
+  if (options.targetPersonaSlug !== undefined && target === undefined) {
+    throw new TypeError("The selected character is not in the active room.");
+  }
+  if (target?.muted) throw new TypeError("The selected character is muted.");
   const decision = director.schedule(
     new TrustedEventAdapter(`iphone-room:${room.id}`).humanEvent(
       requestId,
       text,
       options.wantsResponse ?? true,
     ),
+    target?.id,
   );
   if (decision.reason === DIRECTOR_REASON.DUPLICATE) {
     return Object.freeze({ decision, events: Object.freeze(events) });
@@ -537,6 +552,25 @@ export function renderEvents(events, documentRoot = document, room = activeRoom)
   documentRoot.getElementById("empty-transcript").hidden = events.length > 0;
 }
 
+export function refreshMessageTarget(room, documentRoot = document) {
+  const select = documentRoot.getElementById("message-target");
+  const previous = select.value;
+  const auto = documentRoot.createElement("option");
+  auto.value = "";
+  auto.textContent = "Anyone — director chooses";
+  const cast = room.participants.filter(({ kind }) => kind === "persona");
+  const options = cast.map(({ personaSlug }) => {
+    const persona = CATALOG.get(personaSlug);
+    if (!persona) throw new Error("The active room contains an unavailable character.");
+    const option = documentRoot.createElement("option");
+    option.value = persona.slug;
+    option.textContent = persona.name;
+    return option;
+  });
+  select.replaceChildren(auto, ...options);
+  select.value = cast.some(({ personaSlug }) => personaSlug === previous) ? previous : "";
+}
+
 export function renderRoom(opened) {
   const room = opened.room;
   activeViewToken += 1;
@@ -564,7 +598,10 @@ export function renderRoom(opened) {
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
   const input = document.getElementById("message-text");
+  const target = document.getElementById("message-target");
+  refreshMessageTarget(room);
   input.disabled = false;
+  target.disabled = false;
   input.value = "";
   document.getElementById("message-status").textContent = "Ready. Lines and replies save locally.";
   document.getElementById("reply-pending").hidden = true;
@@ -709,13 +746,13 @@ async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()) {
   document.getElementById("provider-title").focus();
 }
 
-export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID()) {
+export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID(), options = {}) {
   if (activeRoom === null) throw new TypeError("A valid open room is required.");
   const room = activeRoom;
   const token = activeViewToken;
   return Object.freeze({
     room,
-    committed: sendLocalMessage(plugin, room, text, uuid),
+    committed: sendLocalMessage(plugin, room, text, uuid, options),
     isCurrent: () => activeViewToken === token && activeRoom?.id === room.id,
   });
 }
@@ -767,6 +804,7 @@ async function boot() {
 
     async function runGeneration(pending, committed) {
       const input = document.getElementById("message-text");
+      const target = document.getElementById("message-target");
       const status = document.getElementById("message-status");
       const indicator = document.getElementById("reply-pending");
       const error = document.getElementById("reply-error");
@@ -797,6 +835,7 @@ async function boot() {
         if (pending.isCurrent()) {
           indicator.hidden = true;
           input.disabled = false;
+          target.disabled = false;
           input.focus();
         }
       }
@@ -811,11 +850,19 @@ async function boot() {
     document.getElementById("message-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const input = document.getElementById("message-text");
+      const target = document.getElementById("message-target");
       const status = document.getElementById("message-status");
       if (activeRoom === null) return;
-      const pending = beginActiveRoomSend(database, input.value);
+      const targetPersonaSlug = target.value;
+      const pending = beginActiveRoomSend(
+        database,
+        input.value,
+        undefined,
+        targetPersonaSlug === "" ? {} : { targetPersonaSlug },
+      );
       let committed;
       input.disabled = true;
+      target.disabled = true;
       status.textContent = "Committing your line and director decision…";
       try {
         committed = await pending.committed;
@@ -837,6 +884,7 @@ async function boot() {
       } finally {
         if (pending.isCurrent() && (committed === undefined || committed.decision.speaker === null)) {
           input.disabled = false;
+          target.disabled = false;
           input.focus();
         }
       }

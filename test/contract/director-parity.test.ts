@@ -60,6 +60,28 @@ test("shared director snapshot restores deterministic cooldown and duplicate sta
   });
 });
 
+test("shared director records a directed target without invoking automatic rotation", () => {
+  const adapter = new SharedTrustedEventAdapter("room:directed");
+  const director = new SharedDirector(roster);
+  assert.deepEqual(
+    director.schedule(adapter.humanEvent("request:1", "Isaac, answer this."), roster[1]),
+    { speaker: roster[1], reason: DIRECTOR_REASON.DIRECTED },
+  );
+  assert.deepEqual(
+    director.schedule(adapter.humanEvent("request:2", "Automatic next.")),
+    { speaker: roster[2], reason: DIRECTOR_REASON.SELECTED },
+  );
+  assert.throws(
+    () => director.schedule(adapter.humanEvent("request:3", "Unknown."), "persona:unknown"),
+    /unknown persona/u,
+  );
+  director.setMuted(roster[0], true);
+  assert.throws(
+    () => director.schedule(adapter.humanEvent("request:4", "Muted."), roster[0]),
+    /muted persona/u,
+  );
+});
+
 test("shared director rejects malformed cross-field snapshot states", () => {
   const valid: DirectorSnapshot = {
     version: 1,

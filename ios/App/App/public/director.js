@@ -140,7 +140,16 @@ export class Director {
         else
             this.#muted.delete(personaId);
     }
-    schedule(event) {
+    schedule(event, directedPersonaId) {
+        if (directedPersonaId !== undefined) {
+            requireCanonicalIdentifier(directedPersonaId, "directed persona id");
+            if (!this.#personaSet.has(directedPersonaId)) {
+                throw new RangeError(`unknown persona: ${directedPersonaId}`);
+            }
+            if (this.#muted.has(directedPersonaId)) {
+                throw new RangeError(`muted persona: ${directedPersonaId}`);
+            }
+        }
         if (this.#cancelled)
             return decision(null, DIRECTOR_REASON.CANCELLED);
         if (!(event instanceof VerifiedDirectorEvent) || event[EVENT_PROOF] !== true) {
@@ -164,15 +173,17 @@ export class Director {
         if (unmuted.length === 0)
             return decision(null, DIRECTOR_REASON.NO_ELIGIBLE_PERSONA);
         const onlyUnmuted = unmuted.length === 1 ? unmuted[0] : undefined;
-        const speaker = onlyUnmuted === undefined
-            ? this.#deterministicEligibleSpeaker()
-            : { personaId: onlyUnmuted, index: this.#personas.indexOf(onlyUnmuted) };
+        const speaker = directedPersonaId === undefined
+            ? (onlyUnmuted === undefined
+                ? this.#deterministicEligibleSpeaker()
+                : { personaId: onlyUnmuted, index: this.#personas.indexOf(onlyUnmuted) })
+            : { personaId: directedPersonaId, index: this.#personas.indexOf(directedPersonaId) };
         if (speaker === null)
             return decision(null, DIRECTOR_REASON.COOLDOWN);
         this.#lastSelectedAt.set(speaker.personaId, this.#acceptedHumanEventNumber);
         this.#fallbackIndex = (speaker.index + 1) % this.#personas.length;
         this.#autonomousTurns += 1;
-        return decision(speaker.personaId, DIRECTOR_REASON.SELECTED);
+        return decision(speaker.personaId, directedPersonaId === undefined ? DIRECTOR_REASON.SELECTED : DIRECTOR_REASON.DIRECTED);
     }
     #restore(snapshot) {
         if (snapshot === null || typeof snapshot !== "object" || snapshot.version !== 1 ||

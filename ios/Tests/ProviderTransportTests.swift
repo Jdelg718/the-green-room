@@ -231,7 +231,7 @@ func runProviderTransportTests() throws {
     _ = try database.executeBatch(transactionId: "provider-decision", statements: [
         ["sqlId": "update_director_state", "parameters": [directorState, 1, payload.personaSlug, payload.personaSlug, 1, 0, payload.roomId, 0, 1]],
         ["sqlId": "append_event", "parameters": ["{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}", payload.roomId]],
-        ["sqlId": "append_event", "parameters": ["{\"generation\":0,\"reason\":\"selected\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}", payload.roomId]],
+        ["sqlId": "append_event", "parameters": ["{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}", payload.roomId]],
     ])
     let reservation = CredentialMutationRequest(
         profileId: payload.profileId, profileRevision: 1, providerId: "openrouter",
@@ -244,6 +244,16 @@ func runProviderTransportTests() throws {
     ])
     var credential = Data("native-test-value".utf8)
     _ = try authority.credentials.completeSave(reservation, secret: &credential)
+    let directedAuthority = try database.providerRequestAuthority(
+        roomId: payload.roomId,
+        sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug,
+        profileId: payload.profileId
+    )
+    providerTestRequire(
+        directedAuthority.reservation.profileId == payload.profileId,
+        "directed decision did not authorize its selected provider persona"
+    )
     _ = try authority.closeDatabase()
     var raw: OpaquePointer?
     providerTestRequire(

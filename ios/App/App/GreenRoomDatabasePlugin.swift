@@ -466,7 +466,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                     "generation", "reason", "sourceEventSequence", "speaker", "type",
                   ]),
                   decision["type"] as? String == "director_decision",
-                  decision["reason"] as? String == "selected",
+                  ["selected", "directed"].contains(decision["reason"] as? String ?? ""),
                   decision["generation"] as? Int == roomGeneration,
                   decision["sourceEventSequence"] as? Int == sourceEventSequence,
                   decision["speaker"] as? String == personaSlug else {
@@ -693,7 +693,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
               SELECT 1 FROM events decision
               WHERE decision.room_id = room.id AND decision.sequence = ?
                 AND json_extract(decision.event_json, '$.type') = 'director_decision'
-                AND json_extract(decision.event_json, '$.reason') = 'selected'
+                AND json_extract(decision.event_json, '$.reason') IN ('selected', 'directed')
                 AND json_extract(decision.event_json, '$.generation') = room.generation
                 AND json_extract(decision.event_json, '$.sourceEventSequence') = ?
                 AND json_extract(decision.event_json, '$.speaker') = ?
