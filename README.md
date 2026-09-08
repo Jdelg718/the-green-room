@@ -10,7 +10,7 @@ The room—not a single chatbot—is the product.
 
 **Verified private/local alpha.** The current Node 24, Fastify, and `node:sqlite` first playable has a bounded deterministic director, durable room events and controls, exact restart continuity, a fixed-loopback LM Studio provider, and a mixed cast gallery with 18 strictly validated historical candidate packs plus the creator-authorized pseudonymous FF2K original candidate. The integrated release gate covers the Node and Python suites, TypeScript typecheck/build, Ruff formatting/lint, mypy, and the private first-playable acceptance; current totals belong to release evidence rather than this durable overview.
 
-This remains an alpha rather than a downloadable general release. Provider setup is currently environment-based, LM Studio is the only real conversational provider, there is one local room, and the historical candidates are not approved Official Catalog releases.
+This remains an alpha rather than a downloadable general release. Approved cloud providers are configured through the local UI (native Keychain on the standalone iPhone build, an opt-in `0600` file store in Linux source mode), LM Studio remains the fixed-loopback local provider, multiple local rooms can be created and reopened, and the historical candidates are not approved Official Catalog releases.
 
 `greenroomai.net` is live as the public project, documentation, download, and contribution domain, with 19 public presentation profiles: eighteen verified historical interpretations plus the creator-authorized pseudonymous FF2K original candidate. The application runs locally with exactly 18 built-in historical candidates plus the FF2K bundled original candidate, where the runtime owns room data and provider credentials. Preinstallation is separate from Official Catalog admission. The public website must never collect model keys, transcripts, room events, or memory. Its approved historical portraits and owner-authorized FF2K illustration are presentation assets only: website or local-app use does not admit a persona pack to the Official Catalog or authorize portrait redistribution in downloadable packs.
 
@@ -44,10 +44,18 @@ fresh clone:
 ```bash
 git clone https://github.com/Jdelg718/the-green-room.git
 cd the-green-room
+node --version   # must print v24.20.0; start:linux refuses any other version
 npm ci --strict-allow-scripts=true --foreground-scripts
 npm run build
 npm run start:linux
 ```
+
+The checkout carries a `mise.toml` pinning Node 24.20.0, so a shell with
+[mise](https://mise.jdx.dev) activated selects it automatically inside the
+repository. Without mise activation, prefix each command with
+`mise exec -- ` or select Node 24.20.0 by your own means before `npm ci`;
+installing under another Node compiles the native `fs-ext` lock module against
+the wrong ABI, and the launcher then refuses to start.
 
 Open `http://127.0.0.1:8787` in a browser. Add a supported cloud provider and
 its key through the local setup UI; `start:linux` does not accept provider keys

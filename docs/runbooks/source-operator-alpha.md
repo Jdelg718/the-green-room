@@ -39,7 +39,9 @@ GREENROOM_DATA_DIR="$HOME/greenroom-operator-alpha-data" npm run start:local
 
 `start:local` resolves the checkout validator to an absolute executable. The server binds to loopback by default, acquires the data-root writer lock before validator directories or SQLite are opened, and exits with `data_root_in_use` if another writer owns that root.
 
-For the development-grade Linux cloud-provider path, use:
+For the development-grade Linux cloud-provider path, confirm `node --version`
+reports exactly `v24.20.0` (the repository `mise.toml` selects it in
+mise-activated shells; otherwise prefix each command with `mise exec -- `), then use:
 
 ```bash
 npm ci --strict-allow-scripts=true --foreground-scripts
