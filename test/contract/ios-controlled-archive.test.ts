@@ -31,6 +31,16 @@ test("production archive wrapper rejects Linux before filesystem or command acce
   assert.equal(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim(), "controlled iOS archive: requires trusted Apple tools on Darwin");
 });
 
+test("public archive runtime exports cannot directly import the adapter core", () => {
+  assert.deepEqual(Object.keys(wrapper).sort(), ["runControlledArchive"]);
+  assert.equal((wrapper as Record<string, unknown>).runControlledArchiveCore, undefined);
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/archive-controlled.mjs")).href;
+  assert.throws(
+    () => execFileSync(process.execPath, ["--input-type=module", "--eval", `import { runControlledArchiveCore } from ${JSON.stringify(moduleUrl)}; console.log(typeof runControlledArchiveCore);`], { encoding: "utf8" }),
+    /does not provide an export named 'runControlledArchiveCore'/u,
+  );
+});
+
 test("archive core requires its complete command adapter before filesystem access", () => {
   assert.throws(
     () => archiveCore.runControlledArchiveCore({ sourceRoot: "/definitely/missing" }, undefined as never),
@@ -238,7 +248,7 @@ test("controlled archive never deletes an archive destination replaced during fa
   }
   assert.equal(caught, failure);
   assert.equal(readFileSync(join(outside, "sentinel"), "utf8"), "keep\n");
-  assert.match(wrapper.getSecondaryFailures(failure)[0]?.message ?? "", /ownership|cleanup/u);
+  assert.match(archiveCore.getSecondaryFailures(failure)[0]?.message ?? "", /ownership|cleanup/u);
 });
 
 test("controlled archive retains safety failures for a non-extensible original error", (context) => {
@@ -259,5 +269,5 @@ test("controlled archive retains safety failures for a non-extensible original e
     caught = error;
   }
   assert.equal(caught, original);
-  assert.match(wrapper.getSecondaryFailures(original)[0]?.message ?? "", /changed during controlled archive/u);
+  assert.match(archiveCore.getSecondaryFailures(original)[0]?.message ?? "", /changed during controlled archive/u);
 });

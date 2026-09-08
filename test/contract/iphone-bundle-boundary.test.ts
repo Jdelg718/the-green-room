@@ -18,9 +18,10 @@ import { pathToFileURL } from "node:url";
 import { parsePlistFile } from "../helpers/parse-plist.js";
 
 const ROOT = process.cwd();
-const { verifyBuiltApp, verifySource } = await import(
+const boundary = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle.mjs");
+const { verifyBuiltApp, verifySource } = boundary;
 const { verifySourceCore } = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle-internal.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle-internal.mjs");
@@ -347,6 +348,21 @@ test("production source and built verifiers reject Linux before path or tool ins
       "iPhone bundle boundary: source verification requires trusted Apple plutil on Darwin",
       "iPhone bundle boundary: built .app verification requires trusted Apple plutil on Darwin",
     ],
+  );
+});
+
+test("public bundle runtime exports cannot directly import the source adapter core", () => {
+  assert.deepEqual(Object.keys(boundary).sort(), [
+    "verifyBuiltApp",
+    "verifyReleaseAcceptanceBoundary",
+    "verifySignedDeviceApp",
+    "verifySource",
+  ]);
+  assert.equal((boundary as Record<string, unknown>).verifySourceCore, undefined);
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href;
+  assert.throws(
+    () => execFileSync(process.execPath, ["--input-type=module", "--eval", `import { verifySourceCore } from ${JSON.stringify(moduleUrl)}; console.log(typeof verifySourceCore);`], { encoding: "utf8" }),
+    /does not provide an export named 'verifySourceCore'/u,
   );
 });
 

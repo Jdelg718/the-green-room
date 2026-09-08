@@ -7,6 +7,8 @@ export type ControlledExportAdapters = {
   now: () => Date;
 };
 
+export function writeEvidenceNoClobber(path: string, value: unknown): void;
+
 export function runControlledExportCore(
   options: { sourceRoot?: string; archivePath: string; exportPath: string },
   adapters: ControlledExportAdapters,

@@ -38,6 +38,16 @@ test("production export wrapper rejects Linux before filesystem or command acces
   assert.equal(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim(), "controlled iOS export: requires trusted Apple tools on Darwin");
 });
 
+test("public export runtime exports cannot directly import the adapter core", () => {
+  assert.deepEqual(Object.keys(exporter).sort(), ["runControlledExport"]);
+  assert.equal((exporter as Record<string, unknown>).runControlledExportCore, undefined);
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/export-controlled.mjs")).href;
+  assert.throws(
+    () => execFileSync(process.execPath, ["--input-type=module", "--eval", `import { runControlledExportCore } from ${JSON.stringify(moduleUrl)}; console.log(typeof runControlledExportCore);`], { encoding: "utf8" }),
+    /does not provide an export named 'runControlledExportCore'/u,
+  );
+});
+
 test("export core rejects partial adapters before filesystem access", () => {
   assert.throws(
     () => exportCore.runControlledExportCore(
@@ -275,7 +285,7 @@ test("controlled evidence is atomic and no-clobber", (context) => {
   mkdirSync(destination, { recursive: true });
   const evidencePath = join(destination, "controlled-export-evidence.json");
   writeFileSync(evidencePath, "do not replace\n");
-  assert.throws(() => exporter.writeEvidenceNoClobber(evidencePath, { fixture: true }), /overwrite|exists/u);
+  assert.throws(() => exportCore.writeEvidenceNoClobber(evidencePath, { fixture: true }), /overwrite|exists/u);
   assert.equal(readFileSync(evidencePath, "utf8"), "do not replace\n");
   assert.equal(existsSync(join(dirname(evidencePath), ".controlled-export-evidence.json.tmp")), false);
 });
