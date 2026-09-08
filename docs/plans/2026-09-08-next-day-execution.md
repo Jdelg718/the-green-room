@@ -91,7 +91,7 @@ Still open in this lane:
 
 - `ROADMAP.md` checkpoint line: replace "an Omarchy human run remains outstanding" with the verified statement, date, and SHA from Lane 3. Add it to the same PR after Kent's run, or as a one-line follow-up.
 - The Omarchy quickstart runbook still shows per-command `mise exec node@24.20.0 --`. That remains correct and is dated evidence; leave it unless Amy prefers one form everywhere.
-- Full `npm run check` on the Omarchy machine stopped at 549 passed, 7 failed, 25 skipped. All seven failures are `validator executable is unavailable`: they need `.venv/bin/greenroom-persona` from `uv sync --locked --no-dev`, and `uv` is not installed on Kent's machine. The 25 skips are macOS-only tests. The protected `release-gate` on the PR runs the full sequence with `uv`, so that is the green evidence for this PR; installing `uv` locally is Kent's call (the quickstart treats toolchain installs as needing approval).
+- Full `npm run check` on the Omarchy machine is green after installing `uv` (0.12.10 via `mise use -g uv@latest`) and running `uv sync --locked --no-dev`: 581 tests, 556 passed, 0 failed, 25 skipped (all macOS-only), plus the mobile containment render 1/1. With the dev sync, `npm run check:python` also passed (251 passed, 12 skipped, Ruff and mypy clean) and `npm run acceptance` passed with restart continuity and zero external requests, so `check:release` is green on this machine. An earlier run without `uv` failed 7 validator tests with `validator executable is unavailable`; that is the expected symptom on a machine without the Python validator, not a code defect.
 - Leave `docs/release/` untouched. Nothing may claim a release.
 
 ## B3 Windows stretch — desk-checked, no Windows machine
@@ -101,6 +101,31 @@ Read-only findings from the source at `b860c96`, not a Windows run. They tell Am
 - **No launcher works on Windows today.** `start:linux` refuses any platform but Linux. `start:local` forces `GREENROOM_PERSONA_INSPECTION=required` and needs `.venv/Scripts/greenroom-persona.exe`; the README states enabled Windows inspection intentionally fails until the ACL and Job Object gates exist. The only route is plain `npm start` with `GREENROOM_CREDENTIAL_STORE=file` set by hand, which `src/config.ts` permits on any non-darwin platform in source mode.
 - **`FileCredentialStore` fails closed at construction on NTFS.** It creates `credentials/` with mode `0o700`, then asserts `(mode & 0o777) === 0o700` on the directory and `=== 0o600` on each file after an explicit chmod. Windows ignores the create mode and maps chmod to the read-only attribute only, so Node reports `0o777` for directories and `0o666` or `0o444` for files. The assertion throws `credential_store_unsafe` before the server can serve a request, so the store is unusable there rather than merely weaker.
 - **Minimal B3 change, if a Windows box appears:** a `process.platform === "win32"` branch that skips the POSIX mode assertions, keeps the `O_EXCL | O_NOFOLLOW` create, symlink, canonical-path, and single-link checks, and changes the startup notice to say permissions are best-effort on NTFS; plus a launcher path that does not force inspection. Do not weaken the POSIX checks for other platforms. Nothing here is verified until run on Windows.
+
+### Running B3 in the Omarchy Windows VM
+
+Kent's machine has Omarchy's built-in Windows VM helper (`omarchy-windows-vm`, a `dockurr/windows` Windows 11 guest under KVM) but it is **not installed yet**: no runtime directory exists, the Docker service is disabled, and installation needs an interactive polkit/sudo password, package installs (freerdp, netcat, gum), a RAM/disk/username prompt, and a Windows 11 download and unattended install of roughly 6 GB and 20 to 40 minutes. That step is Kent's, at the desktop:
+
+```bash
+omarchy-windows-vm install     # host has 7 GB RAM and 6 cores: choose 4G RAM, 32G disk
+omarchy-windows-vm launch      # RDP window; http://127.0.0.1:8006 shows the console during install
+```
+
+The host folder `~/Windows` appears inside the guest as `\\host.lan\Data`; use it to move logs out, never credentials.
+
+Inside the guest, in order, recording the exact message at each step:
+
+1. Install Git for Windows, Node 24.20.0 x64 from nodejs.org, then `npm install -g npm@11.19.0` (the bundled npm is older; the launcher and clean-source policy require exactly 11.19.0). Install Python 3 and Visual Studio 2022 Build Tools with the "Desktop development with C++" workload; `fs-ext@2.1.1` has no prebuilt binary and must compile through node-gyp.
+2. `git clone https://github.com/Jdelg718/the-green-room.git C:\gr\the-green-room` (short path), `cd` in, confirm `node --version` is v24.20.0 and `npm --version` is 11.19.0.
+3. `npm ci --strict-allow-scripts=true --foreground-scripts`. Record whether the `fs-ext` node-gyp build succeeds under MSVC. If it fails, B3 stops here and that is the report.
+4. `npm run build`.
+5. Launcher attempts, each expected to fail closed today:
+   - `npm run start:linux` should print `start:linux requires Linux; received win32`.
+   - `npm run start:local` should print `Local source runtime is not prepared` because `.venv\Scripts\greenroom-persona.exe` is absent; do not install `uv` in the guest for B3.
+6. Baseline without the credential store, to prove the server runs on Windows at all: set `GREENROOM_DATA_DIR=C:\gr\data` and run `npm start`. Expect the writer lock, SQLite, and `http://127.0.0.1:8787` to come up and `/api/bootstrap` to report `providerSetup.cloud: false`. Record any `fs-ext` lock or path error.
+7. The B3 path: additionally set `GREENROOM_CREDENTIAL_STORE=file` and `GREENROOM_PERSONA_INSPECTION=optional`, run `npm start` again. Prediction from the source: startup throws `credential_store_unsafe` from the `0o700` directory-mode assertion. Record whether the process exits or keeps serving, and the exact error text.
+8. If step 7 fails as predicted, the finding is the report; do not patch in the guest. If it unexpectedly starts, set up OpenRouter through the UI with a real key entered only in the browser, send one line, stop, relaunch, and confirm the room and connection persist; then check `icacls C:\gr\data\credentials` and note that NTFS ACLs, not POSIX modes, are what protects the file.
+9. Report on #177 under B3 in five lines: what ran, exact commands, what broke and where, what was skipped, next step. Stop the VM with `omarchy-windows-vm stop`.
 
 ## Do not touch tomorrow
 
