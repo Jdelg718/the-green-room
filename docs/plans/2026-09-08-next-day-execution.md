@@ -94,44 +94,35 @@ Still open in this lane:
 - Full `npm run check` on the Omarchy machine is green after installing `uv` (0.12.10 via `mise use -g uv@latest`) and running `uv sync --locked --no-dev`: 581 tests, 556 passed, 0 failed, 25 skipped (all macOS-only), plus the mobile containment render 1/1. With the dev sync, `npm run check:python` also passed (251 passed, 12 skipped, Ruff and mypy clean) and `npm run acceptance` passed with restart continuity and zero external requests, so `check:release` is green on this machine. An earlier run without `uv` failed 7 validator tests with `validator executable is unavailable`; that is the expected symptom on a machine without the Python validator, not a code defect.
 - Leave `docs/release/` untouched. Nothing may claim a release.
 
-## B3 Windows stretch — desk-checked, no Windows machine
+## B3 Windows stretch — executed on the FF2K tower (2026-09-07, late)
 
-Read-only findings from the source at `b860c96`, not a Windows run. They tell Amy what B3 would hit on day one and what the minimal change is.
+Run over Tailscale SSH on Kent's FF2K tower: Windows 11 Pro 10.0.26200, 24 cores, 126 GB RAM, Visual Studio Build Tools 2022 (MSVC 14.44, SDK 10.0.26100), Git 2.52.0.windows.1 with system `core.autocrlf=true`. A portable Node 24.20.0 (SHA-256 verified against `SHASUMS256.txt`) with its bundled npm 11.19.0 was staged under `C:\gr` so the system Node 24.11.1 was untouched. Repository at `b860c96`. No provider key was entered at any point; logs are at `C:\gr\logs` on the tower and a copy is in the session scratchpad. The Omarchy Windows VM was not installed and is not needed.
 
-- **No launcher works on Windows today.** `start:linux` refuses any platform but Linux. `start:local` forces `GREENROOM_PERSONA_INSPECTION=required` and needs `.venv/Scripts/greenroom-persona.exe`; the README states enabled Windows inspection intentionally fails until the ACL and Job Object gates exist. The only route is plain `npm start` with `GREENROOM_CREDENTIAL_STORE=file` set by hand, which `src/config.ts` permits on any non-darwin platform in source mode.
-- **`FileCredentialStore` fails closed at construction on NTFS.** It creates `credentials/` with mode `0o700`, then asserts `(mode & 0o777) === 0o700` on the directory and `=== 0o600` on each file after an explicit chmod. Windows ignores the create mode and maps chmod to the read-only attribute only, so Node reports `0o777` for directories and `0o666` or `0o444` for files. The assertion throws `credential_store_unsafe` before the server can serve a request, so the store is unusable there rather than merely weaker.
-- **Minimal B3 change, if a Windows box appears:** a `process.platform === "win32"` branch that skips the POSIX mode assertions, keeps the `O_EXCL | O_NOFOLLOW` create, symlink, canonical-path, and single-link checks, and changes the startup notice to say permissions are best-effort on NTFS; plus a launcher path that does not force inspection. Do not weaken the POSIX checks for other platforms. Nothing here is verified until run on Windows.
+**What works on Windows**
 
-### Running B3 in the Omarchy Windows VM
+| Step | Result |
+| --- | --- |
+| `npm ci --strict-allow-scripts=true --foreground-scripts` | exit 0 in 17 s; `fs-ext@2.1.1` compiled through node-gyp and MSVC with `gyp info ok`; `install-scripts ls` returned `{"allowScripts":[]}`; `package.json`, `package-lock.json`, `.npmrc` unchanged |
+| `npm run build` | exit 0 |
+| `node dist\src\server.js` with `GREENROOM_DATA_DIR=C:\gr\data` and `GREENROOM_PERSONA_INSPECTION=disabled`, LF bytes | listens on `127.0.0.1:8787`; `/health` 200; `/api/bootstrap` reports `providerSetup.cloud: false`; `node:sqlite`, migrations, and the `fs-ext` writer lock all work on NTFS |
+| Second start on the same data root after a hard kill | listens again; the writer lock released; port free after stop |
 
-Kent's machine has Omarchy's built-in Windows VM helper (`omarchy-windows-vm`, a `dockurr/windows` Windows 11 guest under KVM) but it is **not installed yet**: no runtime directory exists, the Docker service is disabled, and installation needs an interactive polkit/sudo password, package installs (freerdp, netcat, gum), a RAM/disk/username prompt, and a Windows 11 download and unattended install of roughly 6 GB and 20 to 40 minutes. That step is Kent's, at the desktop:
+**What breaks, in the order a Windows user hits it**
 
-```bash
-omarchy-windows-vm install     # host has 7 GB RAM and 6 cores: choose 4G RAM, 32G disk
-omarchy-windows-vm launch      # RDP window; http://127.0.0.1:8006 shows the console during install
-```
+1. **Default clone produces CRLF and the runtime refuses to start.** With `autocrlf=true`, every `npm start` died with `Invalid bundled historical personas: runtime file AGENTS.md has invalid UTF-8 text encoding`; the strict decoder rejects any `0x0D` byte by design. Resetting the working tree to LF bytes fixed it with the same build. Fix: PR #189 adds `.gitattributes` with `* -text`; a fresh `autocrlf=true` clone of that branch on the tower has 0 of 18 persona `AGENTS.md` files with CR, while the same clone of `main` has CR.
+2. **No launcher works, and the source default inspection mode fails on win32.** `start:linux` prints `start:linux requires Linux; received win32`. `start:local` prints `Local source runtime is not prepared` without the validator. The source default `GREENROOM_PERSONA_INSPECTION=optional`, which `start:linux` also sets, throws `enabled inspection on Windows awaits reviewed ACL and Job Object support`; only `disabled` boots. The B3 note "try start:local with inspection optional" is therefore wrong for Windows.
+3. **The file credential store fails closed, and correctly so.** With `GREENROOM_CREDENTIAL_STORE=file`, startup throws `credential_store_unsafe` from the `0o700` directory-mode assertion, as predicted. `icacls` on the created `credentials` directory shows the inherited NTFS ACL: `BUILTIN\Users (RX)` and `Authenticated Users (M)`. Skipping the POSIX check would leave a key readable by other local users, so a Windows implementation needs an explicit private ACL (`icacls /inheritance:r /grant:r <user>:F` or the equivalent API), which is the ACL gate the README already names. Best-effort on NTFS is not an acceptable B3 shortcut.
+4. **`npm run check` on Windows, LF checkout, no validator:** 582 tests, 391 passed, 163 failed, 28 skipped. Failure classes from the log: canonical-path checks rooted at POSIX `/` (`path_component_missing: \C:`), `EPERM: operation not permitted, fsync` on directory handles in backup, restore, and purge tests, tests that hard-code `/usr/bin/python3`, `/usr/bin/openssl`, and `/usr/bin/git`, validator-sidecar spawn failures, `GREENROOM_DATA_DIR must be an absolute normalized path` for POSIX-shaped fixture paths, and the two gates above. None of this is a Windows support claim; it is the inventory.
 
-The host folder `~/Windows` appears inside the guest as `\\host.lan\Data`; use it to move logs out, never credentials.
+**Skipped:** no real provider reply on Windows (no key, and the store refuses); no ACL implementation; no Windows launcher; nothing in `docs/release/`.
 
-Inside the guest, in order, recording the exact message at each step:
-
-1. Install Git for Windows, Node 24.20.0 x64 from nodejs.org, then `npm install -g npm@11.19.0` (the bundled npm is older; the launcher and clean-source policy require exactly 11.19.0). Install Python 3 and Visual Studio 2022 Build Tools with the "Desktop development with C++" workload; `fs-ext@2.1.1` has no prebuilt binary and must compile through node-gyp.
-2. `git clone https://github.com/Jdelg718/the-green-room.git C:\gr\the-green-room` (short path), `cd` in, confirm `node --version` is v24.20.0 and `npm --version` is 11.19.0.
-3. `npm ci --strict-allow-scripts=true --foreground-scripts`. Record whether the `fs-ext` node-gyp build succeeds under MSVC. If it fails, B3 stops here and that is the report.
-4. `npm run build`.
-5. Launcher attempts, each expected to fail closed today:
-   - `npm run start:linux` should print `start:linux requires Linux; received win32`.
-   - `npm run start:local` should print `Local source runtime is not prepared` because `.venv\Scripts\greenroom-persona.exe` is absent; do not install `uv` in the guest for B3.
-6. Baseline without the credential store, to prove the server runs on Windows at all: set `GREENROOM_DATA_DIR=C:\gr\data` and run `npm start`. Expect the writer lock, SQLite, and `http://127.0.0.1:8787` to come up and `/api/bootstrap` to report `providerSetup.cloud: false`. Record any `fs-ext` lock or path error.
-7. The B3 path: additionally set `GREENROOM_CREDENTIAL_STORE=file` and `GREENROOM_PERSONA_INSPECTION=optional`, run `npm start` again. Prediction from the source: startup throws `credential_store_unsafe` from the `0o700` directory-mode assertion. Record whether the process exits or keeps serving, and the exact error text.
-8. If step 7 fails as predicted, the finding is the report; do not patch in the guest. If it unexpectedly starts, set up OpenRouter through the UI with a real key entered only in the browser, send one line, stop, relaunch, and confirm the room and connection persist; then check `icacls C:\gr\data\credentials` and note that NTFS ACLs, not POSIX modes, are what protects the file.
-9. Report on #177 under B3 in five lines: what ran, exact commands, what broke and where, what was skipped, next step. Stop the VM with `omarchy-windows-vm stop`.
+**Next, Amy's call:** merge PR #189; decide whether B3 continues as a focused `FileCredentialStore` win32 branch with an explicit private ACL plus a `start:windows` that sets inspection `disabled`, or parks with this inventory. The five-line slice report is posted on #177.
 
 ## Do not touch tomorrow
 
 - PR #55 (arts and music historical packs). Roadmap item 5 defers it until the TestFlight gate is stable.
 - macOS packaging issues #140 and #145, memory and catalog work, the demo video.
-- B3 Windows stretch, unless a Windows machine appears.
+- B3 follow-up implementation (Windows ACL store, `start:windows`); the B3 inventory is done and any implementation is a new slice.
 - No TestFlight upload, external invitation, website link, or announcement. No App Store submission.
 - No `npm run check` or `npm run acceptance` under Node 26; no widening of the install-script allowlist; no merging on Kent's behalf.
 
