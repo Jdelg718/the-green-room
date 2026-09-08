@@ -17,7 +17,7 @@ const NATIVE_FAILURE_CODES = new Set([
   "capacity_rejected", "canceled", "internal_failure",
 ]);
 const DEFAULT_PROVIDER_SETUP = Object.freeze({ providerId: "openai", model: "gpt-4.1-mini" });
-const MODEL_ID = /^\S{1,256}$/u;
+const MODEL_ID = /^[^\s\p{Cc}]+$/u;
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
@@ -29,6 +29,11 @@ let activeGenerationRetry = null;
 
 function encodedBytes(value) {
   return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value)).byteLength;
+}
+
+function isCanonicalModelId(value) {
+  return typeof value === "string" && MODEL_ID.test(value) &&
+    value.normalize("NFC") === value && encodedBytes(value) <= 256;
 }
 
 function exactRecord(value, keys) {
@@ -362,7 +367,7 @@ function parseProviderSelection(value) {
   if (!exactRecord(value, ["model", "profileId", "profileRevision", "providerId"]) ||
       !PROVIDERS.has(value.providerId) || value.profileId !== `iphone.${value.providerId}` ||
       !Number.isSafeInteger(value.profileRevision) || value.profileRevision < 1 ||
-      typeof value.model !== "string" || !MODEL_ID.test(value.model) || value.model.normalize("NFC") !== value.model) {
+      !isCanonicalModelId(value.model)) {
     throw new Error("Invalid provider selection projection.");
   }
   return Object.freeze(value);
@@ -404,7 +409,7 @@ export async function saveProviderSetup(
   model,
   uuid = () => crypto.randomUUID(),
 ) {
-  if (!PROVIDERS.has(providerId) || typeof model !== "string" || !MODEL_ID.test(model) || model.normalize("NFC") !== model) {
+  if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
     throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
   }
   const profileId = `iphone.${providerId}`;
@@ -818,6 +823,55 @@ export function beginActiveRoomSend(plugin, text, uuid = () => crypto.randomUUID
   });
 }
 
+export async function runGeneration(database, provider, pending, committed) {
+  const input = document.getElementById("message-text");
+  const target = document.getElementById("message-target");
+  const status = document.getElementById("message-status");
+  const indicator = document.getElementById("reply-pending");
+  const error = document.getElementById("reply-error");
+  const retry = document.getElementById("retry-reply");
+  if (!pending.isCurrent()) return;
+  const participant = pending.room.participants.find(({ id }) => id === committed.decision.speaker);
+  indicator.textContent = `${participant?.displayName ?? "Character"} …`;
+  indicator.hidden = false;
+  error.hidden = true;
+  retry.hidden = true;
+  status.textContent = "Generating a bounded provider reply…";
+  try {
+    const selection = await readProviderSelection(database);
+    const generated = await generatePersonaReply(database, provider, pending.room, committed.events, selection);
+    if (!pending.isCurrent()) return;
+    activeEvents = generated.events;
+    renderEvents(activeEvents);
+    activeGenerationRetry = null;
+    status.textContent = "Reply saved locally.";
+  } catch (failure) {
+    if (!pending.isCurrent()) return;
+    const presentation = generationFailurePresentation(failure);
+    error.textContent = presentation.message;
+    error.hidden = false;
+    retry.hidden = !presentation.retryable;
+    status.textContent = "Your line and director decision remain saved.";
+    activeGenerationRetry = presentation.retryable
+      ? () => runGeneration(database, provider, pending, committed)
+      : null;
+  } finally {
+    if (pending.isCurrent()) {
+      indicator.hidden = true;
+      input.disabled = false;
+      target.disabled = false;
+      input.focus();
+    }
+  }
+}
+
+export async function retryActiveGeneration() {
+  const retry = activeGenerationRetry;
+  if (retry === null) return;
+  document.getElementById("message-text").disabled = true;
+  await retry();
+}
+
 async function boot() {
   try {
     const database = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
@@ -863,51 +917,9 @@ async function boot() {
       }
     });
 
-    async function runGeneration(pending, committed) {
-      const input = document.getElementById("message-text");
-      const target = document.getElementById("message-target");
-      const status = document.getElementById("message-status");
-      const indicator = document.getElementById("reply-pending");
-      const error = document.getElementById("reply-error");
-      const retry = document.getElementById("retry-reply");
-      if (!pending.isCurrent()) return;
-      const participant = pending.room.participants.find(({ id }) => id === committed.decision.speaker);
-      indicator.textContent = `${participant?.displayName ?? "Character"} …`;
-      indicator.hidden = false;
-      error.hidden = true;
-      retry.hidden = true;
-      status.textContent = "Generating a bounded provider reply…";
-      try {
-        const selection = await readProviderSelection(database);
-        const generated = await generatePersonaReply(database, provider, pending.room, committed.events, selection);
-        if (!pending.isCurrent()) return;
-        activeEvents = generated.events;
-        renderEvents(activeEvents);
-        activeGenerationRetry = null;
-        status.textContent = "Reply saved locally.";
-      } catch (failure) {
-        if (!pending.isCurrent()) return;
-        const presentation = generationFailurePresentation(failure);
-        error.textContent = presentation.message;
-        error.hidden = false;
-        retry.hidden = !presentation.retryable;
-        status.textContent = "Your line and director decision remain saved.";
-        activeGenerationRetry = () => runGeneration(pending, committed);
-      } finally {
-        if (pending.isCurrent()) {
-          indicator.hidden = true;
-          input.disabled = false;
-          target.disabled = false;
-          input.focus();
-        }
-      }
-    }
 
     document.getElementById("retry-reply").addEventListener("click", async () => {
-      const retry = activeGenerationRetry;
-      if (retry === null) return;
-      document.getElementById("message-text").disabled = true;
-      await retry();
+      await retryActiveGeneration();
     });
     document.getElementById("message-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -936,7 +948,7 @@ async function boot() {
             ? `Saved locally. Director chose silence: ${directorReason(committed.decision.reason)}.`
             : "Saved locally. A character was selected.";
           if (committed.decision.speaker !== null) {
-            await runGeneration(pending, committed);
+            await runGeneration(database, provider, pending, committed);
           }
         }
       } catch {
