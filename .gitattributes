@@ -1,0 +1,5 @@
+# Green Room ships hash-validated persona packs and runtime text whose exact bytes matter.
+# Never rewrite line endings on checkout or commit on any platform: a Windows checkout with
+# core.autocrlf=true otherwise turns bundled persona files into CRLF and the runtime refuses
+# to start ("runtime file AGENTS.md has invalid UTF-8 text encoding").
+* -text
