@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmdirSync,
-  rmSync, symlinkSync, unlinkSync, writeFileSync,
+  lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -109,26 +110,40 @@ test("lifecycle quiescence parser detects role processes only in tracked process
 test("Task13 harness rejects operator entries before cleanup and preserves their exact identities", {
   skip: process.platform !== "darwin" || process.arch !== "arm64",
 }, () => {
-  const buildRoot = resolve("packaging/macos/GreenRoomLauncher/.build");
-  const operatorRoot = join(buildRoot, `task13-operator-${process.pid}-${Date.now()}`);
+  const repositoryRoot = resolve(".");
+  const operatorName = `task13-operator-${process.pid}-${Date.now()}-${randomUUID()}`;
+  const operatorRoot = join(repositoryRoot, operatorName);
   const nested = join(operatorRoot, "nested");
   const sentinel = join(nested, "sentinel.bin");
   const link = join(operatorRoot, "sentinel-link");
   const fifo = join(operatorRoot, "sentinel-fifo");
   const bytes = Buffer.from([0, 1, 2, 0xfe, 0xff, 13, 10]);
-  assert.equal(existsSync(buildRoot), false, "test refuses to touch a pre-existing .build root");
-  mkdirSync(nested, { recursive: true });
-  writeFileSync(sentinel, bytes, { flag: "wx", mode: 0o600 });
-  symlinkSync("nested/sentinel.bin", link);
-  const madeFifo = spawnSync("/usr/bin/mkfifo", [fifo], { encoding: "utf8" });
-  assert.equal(madeFifo.status, 0, madeFifo.stderr);
-  const before = Object.fromEntries([operatorRoot, nested, sentinel, link, fifo].map((path) => {
-    const details = lstatSync(path);
-    return [path, { dev: details.dev, ino: details.ino, mode: details.mode }];
-  }));
+  let ownsOperatorRoot = false;
   try {
+    mkdirSync(operatorRoot);
+    ownsOperatorRoot = true;
+    mkdirSync(nested);
+    writeFileSync(sentinel, bytes, { flag: "wx", mode: 0o600 });
+    symlinkSync("nested/sentinel.bin", link);
+    const madeFifo = spawnSync("/usr/bin/mkfifo", [fifo], { encoding: "utf8" });
+    assert.equal(madeFifo.status, 0, madeFifo.stderr);
+
+    const ignored = spawnSync("/usr/bin/git", ["check-ignore", "--quiet", "--", operatorName], {
+      cwd: repositoryRoot, encoding: "utf8",
+    });
+    assert.equal(ignored.status, 1, `${operatorName} must not be ignored: ${ignored.stderr}`);
+    const visible = spawnSync("/usr/bin/git", ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", operatorName], {
+      cwd: repositoryRoot, encoding: "utf8",
+    });
+    assert.equal(visible.status, 0, visible.stderr);
+    assert.ok(visible.stdout.split("\0").includes(`?? ${operatorName}/nested/sentinel.bin`), "sentinel is not visible to git status");
+
+    const before = Object.fromEntries([operatorRoot, nested, sentinel, link, fifo].map((path) => {
+      const details = lstatSync(path);
+      return [path, { dev: details.dev, ino: details.ino, mode: details.mode }];
+    }));
     const result = spawnSync(process.execPath, ["scripts/package/test-packaged-runtime.mjs"], {
-      cwd: resolve("."), encoding: "utf8", env: { ...process.env, GREENROOM_NODE_ARCHIVE: "" },
+      cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, GREENROOM_NODE_ARCHIVE: "" },
     });
     assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
     assert.match(result.stderr, /source_tree_unexpected_dirty/);
@@ -141,8 +156,7 @@ test("Task13 harness rejects operator entries before cleanup and preserves their
     assert.equal(lstatSync(link).isSymbolicLink(), true);
     assert.equal(lstatSync(fifo).isFIFO(), true);
   } finally {
-    unlinkSync(fifo); unlinkSync(link); unlinkSync(sentinel);
-    rmdirSync(nested); rmdirSync(operatorRoot); rmdirSync(buildRoot);
+    if (ownsOperatorRoot) rmSync(operatorRoot, { recursive: true, force: true });
   }
 });
 
