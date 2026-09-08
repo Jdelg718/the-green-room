@@ -227,8 +227,8 @@ export function validatePrivacyManifest(value, { framework = false, label = "pri
   requireCondition(JSON.stringify(declaration.NSPrivacyCollectedDataTypePurposes) === JSON.stringify(["NSPrivacyCollectedDataTypePurposeAppFunctionality"]), `${label} privacy purpose must be App Functionality only`);
 }
 
-function verifyPrivacyManifest(path, root, options = {}) {
-  validatePrivacyManifest(plistJson(path, root), options);
+function verifyPrivacyManifest(path, root, parsePlist, options = {}) {
+  validatePrivacyManifest(parsePlist(path, root), options);
 }
 
 function verifySourceExecutables(root, entries) {
@@ -245,8 +245,18 @@ function verifySourceExecutables(root, entries) {
   }
 }
 
-export function verifySource(root = process.cwd()) {
+/** @internal */
+export function verifySourceCore(root = process.cwd(), adapters) {
+  requireCondition(adapters && typeof adapters === "object" && Object.keys(adapters).length === 1 && typeof adapters.parsePlist === "function", "source verification requires one complete plist adapter");
   const sourceRoot = resolve(root);
+  const parseSourcePlist = (path) => {
+    checkedRegularFile(path, sourceRoot);
+    try {
+      return adapters.parsePlist(path);
+    } catch (error) {
+      fail(`plist parser rejected ${portable(sourceRoot, path)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const required = [
     "capacitor.config.ts",
     "package.json",
@@ -280,9 +290,12 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/config.xml",
     "ios/App/CapApp-SPM/Package.swift",
     "scripts/ios/archive-controlled.mjs",
+    "scripts/ios/archive-controlled-internal.mjs",
     "scripts/ios/export-controlled.mjs",
+    "scripts/ios/export-controlled-internal.mjs",
     "scripts/ios/parse-provisioning-profile.py",
     "scripts/ios/provisioning-profile.mjs",
+    "scripts/ios/verify-bundle-internal.mjs",
   ];
   for (const path of required) checkedRegularFile(join(sourceRoot, path), sourceRoot);
 
@@ -379,16 +392,16 @@ export function verifySource(root = process.cwd()) {
   const infoPath = join(sourceRoot, "ios/App/App/Info.plist");
   const infoText = readText(infoPath, sourceRoot);
   requireCondition(!/(?:NSAppTransportSecurity|NSAllowsArbitraryLoads|UIBackgroundModes|BGTaskSchedulerPermittedIdentifiers|WKAppBoundDomains|UISupportedInterfaceOrientations~ipad)/u.test(infoText), "Info.plist contains ATS, background, app-domain, or iPad policy outside the shell");
-  const info = plistJson(infoPath, sourceRoot);
+  const info = parseSourcePlist(infoPath);
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "Info.plist export encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === "$(GREENROOM_SOURCE_COMMIT)", "Info.plist source commit placeholder is not exact");
   requireCondition(info.CFBundleShortVersionString === "$(MARKETING_VERSION)" && info.CFBundleVersion === "$(CURRENT_PROJECT_VERSION)", "Info.plist version placeholders are not exact");
-  const appEntitlements = plistJson(join(sourceRoot, "ios/App/App/App.entitlements"), sourceRoot);
+  const appEntitlements = parseSourcePlist(join(sourceRoot, "ios/App/App/App.entitlements"));
   assertExactKeys(appEntitlements, ["keychain-access-groups"], "app entitlements");
   requireCondition(JSON.stringify(appEntitlements["keychain-access-groups"]) === JSON.stringify(["$(AppIdentifierPrefix)net.greenroomai.GreenRoom"]), "app entitlement keychain access group is not the exact default group");
   const cordova = readText(join(sourceRoot, "ios/App/App/config.xml"), sourceRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordova) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordova), "Cordova config permits deployment or navigation");
-  verifyPrivacyManifest(join(sourceRoot, "ios/App/App/PrivacyInfo.xcprivacy"), sourceRoot, { label: "app" });
+  verifyPrivacyManifest(join(sourceRoot, "ios/App/App/PrivacyInfo.xcprivacy"), sourceRoot, (path) => parseSourcePlist(path), { label: "app" });
 
   const containment = readText(join(sourceRoot, "ios/App/App/ContainedBridgeViewController.swift"), sourceRoot);
   for (const token of ["WKNavigationDelegate", "WKUIDelegate", "decidePolicyFor navigationAction", "action.targetFrame != nil", "candidate.scheme == localOrigin.scheme", "candidate.host == localOrigin.host", "candidate.port == localOrigin.port", "decisionHandler(.cancel)", "createWebViewWith", "return nil", "capacitorDelegate.webView"]) {
@@ -401,8 +414,7 @@ export function verifySource(root = process.cwd()) {
   return { bundleIdentifier: BUNDLE_ID, minimumOS: MINIMUM_IOS, deviceFamily: [1], sourceEntries: appTree.length };
 }
 
-function plistJson(path, root) {
-  requireCondition(process.platform === "darwin", "built .app verification requires trusted Apple plutil on Darwin");
+function applePlistJson(path, root) {
   checkedRegularFile(path, root);
   try {
     return JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "--", path], {
@@ -415,17 +427,23 @@ function plistJson(path, root) {
   }
 }
 
+export function verifySource(root = process.cwd()) {
+  requireCondition(process.platform === "darwin", "source verification requires trusted Apple plutil on Darwin");
+  const sourceRoot = resolve(root);
+  return verifySourceCore(sourceRoot, { parsePlist: (path) => applePlistJson(path, sourceRoot) });
+}
+
 function isMachO(path, root) {
   const bytes = checkedRegularFile(path, root, MAX_FILE_BYTES, true).subarray(0, 4).toString("hex");
   return ["feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca"].includes(bytes);
 }
 
-export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
-  requireCondition(process.platform === "darwin" && platform === "darwin", "built .app verification requires trusted Apple plutil on Darwin");
+export function verifyBuiltApp(appPath) {
+  requireCondition(process.platform === "darwin", "built .app verification requires trusted Apple plutil on Darwin");
   const appRoot = resolve(appPath);
   requireCondition(appRoot.endsWith(".app"), "built path must name an .app directory");
   const entries = walkNoFollow(appRoot);
-  const info = plistJson(join(appRoot, "Info.plist"), appRoot);
+  const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID, "built CFBundleIdentifier is not exact");
   requireCondition(info.CFBundleDisplayName === APP_NAME, "built display name is not exact");
   requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "1", "built version/build identity is not exactly 0.1.0 (1)");
@@ -476,9 +494,9 @@ export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
   const cordovaConfig = readText(join(appRoot, "config.xml"), appRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordovaConfig) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordovaConfig), "built Cordova config permits deployment or navigation");
   verifyWebAssets(appRoot, "public");
-  verifyPrivacyManifest(join(appRoot, "PrivacyInfo.xcprivacy"), appRoot, { label: "app" });
-  verifyPrivacyManifest(join(appRoot, "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy"), appRoot, { framework: true, label: "Capacitor" });
-  verifyPrivacyManifest(join(appRoot, "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy"), appRoot, { framework: true, label: "Cordova" });
+  verifyPrivacyManifest(join(appRoot, "PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { label: "app" });
+  verifyPrivacyManifest(join(appRoot, "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { framework: true, label: "Capacitor" });
+  verifyPrivacyManifest(join(appRoot, "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { framework: true, label: "Cordova" });
 
   for (const { path, relativePath, stats } of entries) {
     if (!stats.isFile() || stats.size > 4 * 1024 * 1024 || isMachO(path, appRoot) || !(relativePath.startsWith("public/") || relativePath === "capacitor.config.json")) continue;
@@ -547,7 +565,7 @@ export function verifySignedDeviceApp(appPath) {
 export function verifyReleaseAcceptanceBoundary(appPath) {
   const built = verifyBuiltApp(appPath);
   const appRoot = resolve(appPath);
-  const info = plistJson(join(appRoot, "Info.plist"), appRoot);
+  const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
   const executable = join(appRoot, info.CFBundleExecutable);
   const strings = execFileSync("/usr/bin/xcrun", ["strings", "-a", executable], {
     encoding: "utf8",

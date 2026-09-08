@@ -16,6 +16,4 @@ export function runControlledExport(options: {
   sourceRoot?: string;
   archivePath: string;
   exportPath: string;
-  run?: (command: string, args: string[], context: { cwd: string; environment: NodeJS.ProcessEnv }) => string;
-  now?: () => Date;
 }): ControlledExportResult;

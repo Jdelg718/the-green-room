@@ -1,0 +1,1 @@
+export { verifySourceCore } from "./verify-bundle.mjs";

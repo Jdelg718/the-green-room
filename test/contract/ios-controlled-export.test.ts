@@ -1,20 +1,52 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { parsePlistFile, parsePlistInput } from "../helpers/parse-plist.js";
 
 const ROOT = process.cwd();
 const exporter = await import(
   pathToFileURL(join(ROOT, "scripts/ios/export-controlled.mjs")).href
 ) as typeof import("../../scripts/ios/export-controlled.mjs");
+const exportCore = await import(
+  pathToFileURL(join(ROOT, "scripts/ios/export-controlled-internal.mjs")).href
+) as typeof import("../../scripts/ios/export-controlled-internal.mjs");
 
 const commit = "0123456789abcdef0123456789abcdef01234567";
 const archiveRelative = `.build/testflight/GreenRoom-${commit}.xcarchive`;
 const exportRelative = `.build/testflight/export-${commit}`;
 
 type Call = { command: string; args: string[] };
+type CoreOptions = {
+  sourceRoot?: string;
+  archivePath: string;
+  exportPath: string;
+  run: import("../../scripts/ios/export-controlled-internal.mjs").ControlledExportAdapters["run"];
+  now?: () => Date;
+};
+
+function runControlledExport({ run, now = () => new Date("2026-09-08T12:00:00.000Z"), ...options }: CoreOptions) {
+  return exportCore.runControlledExportCore(options, { run, parsePlistFile, parsePlistInput, now });
+}
+
+test("production export wrapper rejects Linux before filesystem or command access", () => {
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/export-controlled.mjs")).href;
+  const script = `Object.defineProperty(process, "platform", { value: "linux" }); const { runControlledExport } = await import(${JSON.stringify(moduleUrl)}); try { runControlledExport({ sourceRoot: "/definitely/missing", archivePath: "missing", exportPath: "missing", run() { throw new Error("command adapter reached"); } }); } catch (error) { console.log(error.message); }`;
+  assert.equal(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim(), "controlled iOS export: requires trusted Apple tools on Darwin");
+});
+
+test("export core rejects partial adapters before filesystem access", () => {
+  assert.throws(
+    () => exportCore.runControlledExportCore(
+      { sourceRoot: "/definitely/missing", archivePath: "missing", exportPath: "missing" },
+      { run() { return ""; } } as never,
+    ),
+    /complete and exact/u,
+  );
+});
 
 function plist(value: Record<string, string>): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>${Object.entries(value).map(([key, item]) => `<key>${key}</key><string>${item}</string>`).join("")}</dict></plist>`;
@@ -65,7 +97,7 @@ test("controlled export uses only committed no-upload policy and writes bounded 
   const canonicalRoot = join(realpathSync(root));
   const calls: Call[] = [];
   const observed: { optionsBytes?: Buffer } = {};
-  const result = exporter.runControlledExport({
+  const result = runControlledExport({
     sourceRoot: root,
     archivePath: archiveRelative,
     exportPath: exportRelative,
@@ -104,7 +136,7 @@ test("controlled export passes a private byte-exact policy copy despite reposito
   let invokedBytes: Buffer | undefined;
   const calls: Call[] = [];
   const baseRun = successfulRun(root, calls);
-  assert.doesNotThrow(() => exporter.runControlledExport({
+  assert.doesNotThrow(() => runControlledExport({
     sourceRoot: root,
     archivePath: archiveRelative,
     exportPath: exportRelative,
@@ -128,7 +160,7 @@ test("controlled export reads policy bytes from the commit even when working-tre
   const calls: Call[] = [];
   const observed: { optionsBytes?: Buffer } = {};
   const baseRun = successfulRun(root, calls, observed);
-  assert.doesNotThrow(() => exporter.runControlledExport({
+  assert.doesNotThrow(() => runControlledExport({
     sourceRoot: root,
     archivePath: archiveRelative,
     exportPath: exportRelative,
@@ -147,7 +179,7 @@ test("controlled export rejects malformed paths and refuses any pre-existing des
     [archiveRelative, ".build/testflight/other"],
     [archiveRelative, `../export-${commit}`],
   ] as const) {
-    assert.throws(() => exporter.runControlledExport({
+    assert.throws(() => runControlledExport({
       sourceRoot: root,
       archivePath,
       exportPath,
@@ -160,7 +192,7 @@ test("controlled export rejects malformed paths and refuses any pre-existing des
     }), /bounded|path/u);
   }
   mkdirSync(join(root, exportRelative));
-  assert.throws(() => exporter.runControlledExport({
+  assert.throws(() => runControlledExport({
     sourceRoot: root,
     archivePath: archiveRelative,
     exportPath: exportRelative,
@@ -178,7 +210,7 @@ test("controlled export removes only its own destination after export failure", 
   const failure = new Error("export original failure");
   let caught: unknown;
   try {
-    exporter.runControlledExport({
+    runControlledExport({
       sourceRoot: root,
       archivePath: archiveRelative,
       exportPath: exportRelative,
@@ -212,7 +244,7 @@ test("controlled export never deletes a destination replaced during failure", (c
   const failure = new Error("export original failure");
   let caught: unknown;
   try {
-    exporter.runControlledExport({
+    runControlledExport({
       sourceRoot: root,
       archivePath: archiveRelative,
       exportPath: exportRelative,

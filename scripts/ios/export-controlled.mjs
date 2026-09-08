@@ -67,7 +67,7 @@ function defaultRun(command, args, { cwd, environment }) {
   return result.stdout;
 }
 
-function plistJson(path) {
+function applePlistJson(path) {
   const result = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "--", path], {
     encoding: "utf8",
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" },
@@ -81,7 +81,7 @@ function plistJson(path) {
   }
 }
 
-function plistJsonInput(input, label) {
+function applePlistJsonInput(input, label) {
   const result = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "-"], {
     input,
     encoding: "utf8",
@@ -126,13 +126,13 @@ export function hashArchiveTree(rootPath) {
   return hash.digest("hex");
 }
 
-function archiveIdentity(archivePath) {
+function archiveIdentity(archivePath, parsePlistFile) {
   const applications = join(archivePath, "Products/Applications");
   const appNames = readdirSync(applications, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".app"));
   requireCondition(appNames.length === 1 && readdirSync(applications).length === 1, "archive must contain exactly one app");
-  const appInfo = plistJson(join(applications, appNames[0].name, "Info.plist"));
-  const archiveInfo = plistJson(join(archivePath, "Info.plist"));
+  const appInfo = parsePlistFile(join(applications, appNames[0].name, "Info.plist"));
+  const archiveInfo = parsePlistFile(join(archivePath, "Info.plist"));
   const identity = {
     bundleIdentifier: appInfo.CFBundleIdentifier,
     version: appInfo.CFBundleShortVersionString,
@@ -247,14 +247,17 @@ export function writeEvidenceNoClobber(path, value) {
   unlinkSync(temporary);
 }
 
-export function runControlledExport({
+/** @internal */
+export function runControlledExportCore({
   sourceRoot = process.cwd(),
   archivePath,
   exportPath,
-  run = defaultRun,
-  now = () => new Date(),
-} = {}) {
-  requireCondition(process.platform === "darwin", "requires trusted Apple tools on Darwin");
+} = {}, adapters) {
+  requireCondition(adapters && typeof adapters === "object", "a complete adapter bundle is required");
+  const adapterKeys = Object.keys(adapters).sort();
+  requireCondition(JSON.stringify(adapterKeys) === JSON.stringify(["now", "parsePlistFile", "parsePlistInput", "run"]), "adapter bundle keys must be complete and exact");
+  const { now, parsePlistFile, parsePlistInput, run } = adapters;
+  requireCondition([now, parsePlistFile, parsePlistInput, run].every((value) => typeof value === "function"), "every adapter must be a function");
   requireCondition(typeof archivePath === "string" && typeof exportPath === "string", "archive and export path arguments are required");
   const root = realpathSync(resolve(sourceRoot));
   const invoke = (command, args) => run(command, args, { cwd: root, environment: process.env });
@@ -273,10 +276,10 @@ export function runControlledExport({
   const optionsPath = join(root, "ios", "ExportOptions.plist");
   requireCondition(realpathSync(optionsPath) === optionsPath, "committed export options path must be a regular in-repository file");
   const optionsBytes = Buffer.from(invoke("/usr/bin/git", ["cat-file", "blob", `${head}:ios/ExportOptions.plist`]), "utf8");
-  const options = plistJsonInput(optionsBytes, "committed ExportOptions.plist");
+  const options = parsePlistInput(optionsBytes, "committed ExportOptions.plist");
   validateExportOptions(options);
   const optionsSha256 = createHash("sha256").update(optionsBytes).digest("hex");
-  const identity = archiveIdentity(expectedArchive);
+  const identity = archiveIdentity(expectedArchive, parsePlistFile);
   requireCondition(identity.declaredSourceCommit === head, "archive declared commit does not equal clean checkout HEAD");
   const archiveSha256 = hashArchiveTree(expectedArchive);
   const xcodebuildVersion = invoke("/usr/bin/xcodebuild", ["-version"]).trim();
@@ -384,6 +387,23 @@ export function runControlledExport({
   }
   if (primaryError) throw primaryError;
   return returnValue;
+}
+
+export function runControlledExport({
+  sourceRoot = process.cwd(),
+  archivePath,
+  exportPath,
+} = {}) {
+  requireCondition(process.platform === "darwin", "requires trusted Apple tools on Darwin");
+  return runControlledExportCore(
+    { sourceRoot, archivePath, exportPath },
+    {
+      run: defaultRun,
+      parsePlistFile: applePlistJson,
+      parsePlistInput: applePlistJsonInput,
+      now: () => new Date(),
+    },
+  );
 }
 
 function parseArguments(arguments_) {

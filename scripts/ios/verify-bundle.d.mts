@@ -15,7 +15,4 @@ export function validatePrivacyManifest(
   options?: { framework?: boolean; label?: string },
 ): void;
 export function verifySource(root?: string): BundleBoundaryEvidence;
-export function verifyBuiltApp(
-  appPath: string,
-  options?: { platform?: NodeJS.Platform },
-): BundleBoundaryEvidence;
+export function verifyBuiltApp(appPath: string): BundleBoundaryEvidence;

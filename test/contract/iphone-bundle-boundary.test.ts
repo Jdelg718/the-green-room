@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -14,11 +15,19 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { parsePlistFile } from "../helpers/parse-plist.js";
 
 const ROOT = process.cwd();
 const { verifyBuiltApp, verifySource } = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle.mjs");
+const { verifySourceCore } = await import(
+  pathToFileURL(join(ROOT, "scripts/ios/verify-bundle-internal.mjs")).href
+) as typeof import("../../scripts/ios/verify-bundle-internal.mjs");
+
+function verifySourceInternal(root: string) {
+  return verifySourceCore(root, { parsePlist: parsePlistFile });
+}
 
 function fixture(context: test.TestContext): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-iphone-boundary-"));
@@ -30,7 +39,7 @@ function fixture(context: test.TestContext): string {
   mkdirSync(join(root, "ios"), { recursive: true });
   cpSync(join(ROOT, "ios", "App"), join(root, "ios", "App"), { recursive: true });
   mkdirSync(join(root, "scripts", "ios"), { recursive: true });
-  for (const name of ["archive-controlled.mjs", "export-controlled.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs"]) {
+  for (const name of ["archive-controlled.mjs", "archive-controlled-internal.mjs", "export-controlled.mjs", "export-controlled-internal.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs", "verify-bundle-internal.mjs"]) {
     cpSync(join(ROOT, "scripts", "ios", name), join(root, "scripts", "ios", name));
   }
   return root;
@@ -42,7 +51,7 @@ function rewrite(root: string, path: string, transform: (source: string) => stri
 }
 
 function rejects(root: string, pattern: RegExp): void {
-  assert.throws(() => verifySource(root), pattern);
+  assert.throws(() => verifySourceInternal(root), pattern);
 }
 
 test("repository contains and passes the complete iPhone source boundary", () => {
@@ -59,7 +68,9 @@ test("repository contains and passes the complete iPhone source boundary", () =>
   ]) {
     assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
   }
-  assert.deepEqual(verifySource(ROOT).deviceFamily, [1]);
+  const internalEvidence = verifySourceInternal(ROOT);
+  assert.deepEqual(internalEvidence.deviceFamily, [1]);
+  if (process.platform === "darwin") assert.deepEqual(verifySource(ROOT), internalEvidence);
   assert.match(readFileSync(join(ROOT, "ios/App/App/App.entitlements"), "utf8"), /\$\(AppIdentifierPrefix\)net\.greenroomai\.GreenRoom/u);
   const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(packageJson.scripts["ios:test"] ?? "", /run-ios-test\.mjs/u);
@@ -327,11 +338,23 @@ test("built verifier validates Capacitor and Cordova privacy manifests semantica
   }
 });
 
-test("built verifier gates trusted Apple plist parsing to Darwin before path or tool inspection", () => {
-  for (const appPath of ["/tmp/nonexistent.app", "/tmp/not-an-app"]) {
+test("production source and built verifiers reject Linux before path or tool inspection", () => {
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href;
+  const script = `Object.defineProperty(process, "platform", { value: "linux" }); const boundary = await import(${JSON.stringify(moduleUrl)}); for (const invoke of [() => boundary.verifySource("/definitely/missing"), () => boundary.verifyBuiltApp("/tmp/nonexistent.app")]) { try { invoke(); } catch (error) { console.log(error.message); } }`;
+  assert.deepEqual(
+    execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim().split("\n"),
+    [
+      "iPhone bundle boundary: source verification requires trusted Apple plutil on Darwin",
+      "iPhone bundle boundary: built .app verification requires trusted Apple plutil on Darwin",
+    ],
+  );
+});
+
+test("source verification core rejects missing or partial plist adapters before filesystem access", () => {
+  for (const adapters of [undefined, {}, { parsePlist() { return {}; }, extra() {} }]) {
     assert.throws(
-      () => verifyBuiltApp(appPath, { platform: "linux" }),
-      /^Error: iPhone bundle boundary: built \.app verification requires trusted Apple plutil on Darwin$/u,
+      () => verifySourceCore("/definitely/missing", adapters as never),
+      /one complete plist adapter/u,
     );
   }
 });

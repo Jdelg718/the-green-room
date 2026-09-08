@@ -78,7 +78,9 @@
     "@capacitor/ios": "8.5.1",
     "@types/fs-ext": "2.0.3",
     "@types/node": "24.10.1",
+    "@xmldom/xmldom": "0.8.15",
     "ajv": "8.20.0",
+    "plist": "3.1.0",
     "typescript": "5.9.3",
     "wrangler": "4.128.0"
   },

@@ -66,12 +66,13 @@ function cleanupOwnedTree(path, ownership) {
   rmdirSync(path);
 }
 
-export function runControlledArchive({
+/** @internal */
+export function runControlledArchiveCore({
   sourceRoot = process.cwd(),
-  run = defaultRun,
   environment = process.env,
-} = {}) {
-  if (process.platform !== "darwin") fail("requires trusted Apple tools on Darwin");
+} = {}, adapters) {
+  if (!adapters || typeof adapters !== "object" || Object.keys(adapters).length !== 1 || typeof adapters.run !== "function") fail("a complete command adapter is required");
+  const { run } = adapters;
   const root = realpathSync(resolve(sourceRoot));
   const cleanEnvironment = { ...environment };
   delete cleanEnvironment.GREENROOM_SOURCE_COMMIT;
@@ -158,6 +159,14 @@ export function runControlledArchive({
   }
   if (primaryError) throw primaryError;
   return archiveResult;
+}
+
+export function runControlledArchive({
+  sourceRoot = process.cwd(),
+  environment = process.env,
+} = {}) {
+  if (process.platform !== "darwin") fail("requires trusted Apple tools on Darwin");
+  return runControlledArchiveCore({ sourceRoot, environment }, { run: defaultRun });
 }
 
 const invoked = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));

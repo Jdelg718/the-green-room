@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +10,33 @@ const ROOT = process.cwd();
 const wrapper = await import(
   pathToFileURL(join(ROOT, "scripts/ios/archive-controlled.mjs")).href
 ) as typeof import("../../scripts/ios/archive-controlled.mjs");
+const archiveCore = await import(
+  pathToFileURL(join(ROOT, "scripts/ios/archive-controlled-internal.mjs")).href
+) as typeof import("../../scripts/ios/archive-controlled-internal.mjs");
 
 type Call = { command: string; args: string[] };
+type CoreOptions = {
+  sourceRoot?: string;
+  environment?: NodeJS.ProcessEnv;
+  run: import("../../scripts/ios/archive-controlled-internal.mjs").ControlledArchiveCommand;
+};
+
+function runControlledArchive({ run, ...options }: CoreOptions) {
+  return archiveCore.runControlledArchiveCore(options, { run });
+}
+
+test("production archive wrapper rejects Linux before filesystem or command access", () => {
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/archive-controlled.mjs")).href;
+  const script = `Object.defineProperty(process, "platform", { value: "linux" }); const { runControlledArchive } = await import(${JSON.stringify(moduleUrl)}); try { runControlledArchive({ sourceRoot: "/definitely/missing", run() { throw new Error("command adapter reached"); } }); } catch (error) { console.log(error.message); }`;
+  assert.equal(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim(), "controlled iOS archive: requires trusted Apple tools on Darwin");
+});
+
+test("archive core requires its complete command adapter before filesystem access", () => {
+  assert.throws(
+    () => archiveCore.runControlledArchiveCore({ sourceRoot: "/definitely/missing" }, undefined as never),
+    /complete command adapter/u,
+  );
+});
 
 function fakeRepository(context: test.TestContext): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-controlled-archive-"));
@@ -25,7 +51,7 @@ function fakeRepository(context: test.TestContext): string {
 test("controlled archive rejects tracked and untracked dirt before build tools", (context) => {
   for (const dirty of [" M tracked.txt", "?? untracked.txt"]) {
     const calls: Call[] = [];
-    assert.throws(() => wrapper.runControlledArchive({
+    assert.throws(() => runControlledArchive({
       sourceRoot: fakeRepository(context),
       run(command, args) {
         calls.push({ command, args });
@@ -41,7 +67,7 @@ test("controlled archive rejects tracked and untracked dirt before build tools",
 test("controlled archive resolves HEAD itself and caller cannot override commit", (context) => {
   const calls: Call[] = [];
   const head = "0123456789abcdef0123456789abcdef01234567";
-  const result = wrapper.runControlledArchive({
+  const result = runControlledArchive({
     sourceRoot: fakeRepository(context),
     run(command, args) {
       calls.push({ command, args });
@@ -63,7 +89,7 @@ test("controlled archive restores only Xcode's known Package.resolved deletion",
   const calls: Call[] = [];
   let statusChecks = 0;
   const packageResolution = "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
-  assert.doesNotThrow(() => wrapper.runControlledArchive({
+  assert.doesNotThrow(() => runControlledArchive({
     sourceRoot: fakeRepository(context),
     run(command, args) {
       calls.push({ command, args });
@@ -82,7 +108,7 @@ test("controlled archive detects source mutation after archive", (context) => {
   const root = fakeRepository(context);
   const calls: Call[] = [];
   let statusChecks = 0;
-  assert.throws(() => wrapper.runControlledArchive({
+  assert.throws(() => runControlledArchive({
     sourceRoot: root,
     run(command, args) {
       calls.push({ command, args });
@@ -109,7 +135,7 @@ for (const failingPhase of ["sync.mjs", "prepare-capacitor-runtime.mjs", "xcodeb
     const archivePath = join(root, ".build/testflight/GreenRoom-0123456789abcdef0123456789abcdef01234567.xcarchive");
     let caught: unknown;
     try {
-      wrapper.runControlledArchive({
+      runControlledArchive({
         sourceRoot: root,
         run(command, args) {
           calls.push({ command, args });
@@ -144,7 +170,7 @@ test("controlled archive retains the original failure and surfaces unrelated dir
   const phaseError = new Error("sync original failure");
   let caught: unknown;
   try {
-    wrapper.runControlledArchive({
+    runControlledArchive({
       sourceRoot: fakeRepository(context),
       run(command, args) {
         calls.push({ command, args });
@@ -170,7 +196,7 @@ test("controlled archive does not restore Package.resolved unless its pre-build 
   rmSync(join(root, "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"));
   const calls: Call[] = [];
   let statusChecks = 0;
-  assert.throws(() => wrapper.runControlledArchive({
+  assert.throws(() => runControlledArchive({
     sourceRoot: root,
     run(command, args) {
       calls.push({ command, args });
@@ -194,7 +220,7 @@ test("controlled archive never deletes an archive destination replaced during fa
   const failure = new Error("archive original failure");
   let caught: unknown;
   try {
-    wrapper.runControlledArchive({
+    runControlledArchive({
       sourceRoot: root,
       run(command, args) {
         if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
@@ -220,7 +246,7 @@ test("controlled archive retains safety failures for a non-extensible original e
   let statusChecks = 0;
   let caught: unknown;
   try {
-    wrapper.runControlledArchive({
+    runControlledArchive({
       sourceRoot: fakeRepository(context),
       run(command, args) {
         if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
