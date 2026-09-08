@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync,
-  symlinkSync, writeFileSync,
+  lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -118,9 +118,11 @@ test("Task13 harness rejects operator entries before cleanup and preserves their
   const link = join(operatorRoot, "sentinel-link");
   const fifo = join(operatorRoot, "sentinel-fifo");
   const bytes = Buffer.from([0, 1, 2, 0xfe, 0xff, 13, 10]);
-  assert.equal(existsSync(operatorRoot), false, "test refuses to touch a pre-existing operator root");
+  let ownsOperatorRoot = false;
   try {
-    mkdirSync(nested, { recursive: true });
+    mkdirSync(operatorRoot);
+    ownsOperatorRoot = true;
+    mkdirSync(nested);
     writeFileSync(sentinel, bytes, { flag: "wx", mode: 0o600 });
     symlinkSync("nested/sentinel.bin", link);
     const madeFifo = spawnSync("/usr/bin/mkfifo", [fifo], { encoding: "utf8" });
@@ -154,7 +156,7 @@ test("Task13 harness rejects operator entries before cleanup and preserves their
     assert.equal(lstatSync(link).isSymbolicLink(), true);
     assert.equal(lstatSync(fifo).isFIFO(), true);
   } finally {
-    rmSync(operatorRoot, { recursive: true, force: true });
+    if (ownsOperatorRoot) rmSync(operatorRoot, { recursive: true, force: true });
   }
 });
 
