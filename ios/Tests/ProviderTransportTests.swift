@@ -440,6 +440,164 @@ func runProviderTransportTests() throws {
             planJSON, planJSON, planJSON, planJSON,
         ],
     ]])
+
+    func exerciseFinalAuthorityFence(_ mutation: String, listModels: Bool = false) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "greenroom-final-authority-\(mutation)-\(UUID().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fencedDatabase = GreenRoomDatabaseStore(
+            directory: root, migrationsDirectory: migrations, fileProtector: { _ in }
+        )
+        let fencedStore = ProviderCredentialStore()
+        let fencedAuthority = GreenRoomNativeAuthority(database: fencedDatabase, secureStore: fencedStore)
+        _ = try fencedAuthority.openDatabase(expectedSchema: 7)
+        let roomId = "room-10000000-0000-4000-8000-000000000001"
+        let otherRoomId = "room-10000000-0000-4000-8000-000000000002"
+        let requestId = "10000000-0000-4000-8000-000000000003"
+        let commandId = "10000000-0000-4000-8000-000000000004"
+        let mutationRequest = CredentialMutationRequest(
+            profileId: payload.profileId, profileRevision: 1, providerId: payload.providerId,
+            credentialRef: "credential:iphone.openrouter:1",
+            mutationId: "10000000-0000-4000-8000-000000000005"
+        )
+        _ = try fencedDatabase.executeBatch(transactionId: "fence-setup-\(mutation)", statements: [
+            ["sqlId": "create_room", "parameters": [roomId, "Fenced room"]],
+            ["sqlId": "create_human", "parameters": ["human-fence", roomId, "You"]],
+            ["sqlId": "create_persona", "parameters": [payload.personaSlug, roomId, "Ada Lovelace", 1, payload.personaSlug]],
+            ["sqlId": "create_director_state", "parameters": [roomId]],
+            ["sqlId": "select_room", "parameters": [roomId]],
+            ["sqlId": "create_connection_profile_revision", "parameters": [payload.profileId, 1, payload.providerId, NSNull()]],
+            ["sqlId": "reserve_credential", "parameters": mutationRequest.baseIdentityParameters + [NSNull(), mutationRequest.mutationId]],
+            ["sqlId": "save_provider_selection", "parameters": [payload.providerId, payload.profileId, 1, payload.model, payload.profileId, 1, payload.providerId]],
+        ])
+        var fencedSecret = Data("native-test-value".utf8)
+        _ = try fencedAuthority.credentials.completeSave(mutationRequest, secret: &fencedSecret)
+        let fencedPayload = ProviderGeneratePayload(
+            roomId: roomId, sourceEventSequence: 1, personaSlug: payload.personaSlug,
+            messages: payload.messages, model: payload.model, temperature: payload.temperature,
+            maxOutputTokens: payload.maxOutputTokens, profileId: payload.profileId,
+            profileRevision: 1, providerId: payload.providerId, requestId: requestId, kind: "provider"
+        )
+        let fencedPlanData = try JSONEncoder().encode(fencedPayload)
+        let fencedPlan = String(decoding: fencedPlanData, as: UTF8.self)
+        let fencedDigest = SHA256.hash(data: fencedPlanData).map { String(format: "%02x", $0) }.joined()
+        if !listModels {
+            _ = try fencedDatabase.executeBatch(transactionId: "fence-command-\(mutation)", statements: [[
+                "sqlId": "prepare_generation_command", "parameters": [
+                    commandId, requestId, fencedDigest, fencedPlan,
+                    "{\"participantId\":\"human-fence\",\"text\":\"hello\",\"type\":\"human_message\"}",
+                    "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
+                    directorState, 0, 1, payload.personaSlug, roomId, 0, 1,
+                    payload.personaSlug, fencedPlan, payload.personaSlug, fencedPlan,
+                    fencedPlan, fencedPlan, fencedPlan, fencedPlan,
+                ],
+            ]])
+        }
+        let service = GreenRoomProviderService(
+            authority: fencedAuthority, configuration: configuration,
+            registry: ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1),
+            afterCredentialResolution: {
+                switch mutation {
+                case "credential":
+                    _ = try fencedAuthority.credentials.delete(mutationRequest)
+                    if !listModels {
+                        do {
+                            _ = try fencedDatabase.executeBatch(transactionId: "exact-tombstone-then-begin", statements: [[
+                                "sqlId": "begin_generation_command", "parameters": [
+                                    commandId, requestId, fencedDigest, fencedPlan, 0,
+                                    mutationRequest.credentialRef, mutationRequest.mutationId,
+                                ],
+                            ]])
+                            fatalError("exact tombstoned credential began a provider command")
+                        } catch let failure as DatabaseFailure {
+                            providerTestRequire(failure.code == "transaction_rejected", "tombstone/begin failure was not closed")
+                        }
+                    }
+                case "selection":
+                    if listModels {
+                        _ = try fencedDatabase.executeBatch(transactionId: "mutate-selection-identity", statements: [
+                            ["sqlId": "create_connection_profile_revision", "parameters": ["iphone.openai", 1, "openai", NSNull()]],
+                            ["sqlId": "save_provider_selection", "parameters": [
+                                "openai", "iphone.openai", 1, "gpt-test", "iphone.openai", 1, "openai",
+                            ]],
+                        ])
+                    } else {
+                        _ = try fencedDatabase.executeBatch(transactionId: "mutate-selection-model", statements: [[
+                            "sqlId": "save_provider_selection", "parameters": [
+                                payload.providerId, payload.profileId, 1, "changed-model",
+                                payload.profileId, 1, payload.providerId,
+                            ],
+                        ]])
+                    }
+                case "profile":
+                    _ = try fencedDatabase.executeBatch(transactionId: "supersede-profile", statements: [[
+                        "sqlId": "create_connection_profile_revision", "parameters": [payload.profileId, 2, payload.providerId, 1],
+                    ]])
+                case "room":
+                    _ = try fencedDatabase.executeBatch(transactionId: "change-room-authority", statements: [
+                        ["sqlId": "create_room", "parameters": [otherRoomId, "Other room"]],
+                        ["sqlId": "select_room", "parameters": [otherRoomId]],
+                    ])
+                default:
+                    fatalError("unknown authority mutation")
+                }
+            }
+        )
+        ProviderURLProtocolStub.install(.response(
+            status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
+        ))
+        let semaphore = DispatchSemaphore(value: 0)
+        var failureCode: String?
+        if listModels {
+            service.listModels(
+                ProviderListModelsPayload(
+                    profileId: payload.profileId, profileRevision: 1,
+                    providerId: payload.providerId, credentialRef: mutationRequest.credentialRef
+                ),
+                operationId: "10000000-0000-4000-8000-000000000006"
+            ) { result in
+                if case .failure(let failure) = result { failureCode = failure.code }
+                semaphore.signal()
+            }
+        } else {
+            service.generate(ProviderCommandPayload(
+                requestId: requestId, commandId: commandId, requestDigest: fencedDigest
+            )) { result in
+                if case .failure(let failure) = result { failureCode = failure.code }
+                semaphore.signal()
+            }
+        }
+        providerTestRequire(semaphore.wait(timeout: .now() + 2) == .success, "\(mutation) fence did not resolve")
+        let expectedCode: String
+        if mutation == "profile" && !listModels {
+            expectedCode = "credential_unavailable"
+        } else if mutation == "credential" || listModels {
+            expectedCode = "credential_missing"
+        } else {
+            expectedCode = "canceled"
+        }
+        providerTestRequire(failureCode == expectedCode, "\(mutation) fence returned \(failureCode ?? "success")")
+        providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "\(mutation) fence reached network")
+        if !listModels {
+            let unresolved = (try fencedDatabase.query(
+                sqlId: "unresolved_generation_command", parameters: [roomId]
+            ))["rows"] as? [[Any]]
+            providerTestRequire(
+                (unresolved?.first?.first as? String)?.contains("\"state\":\"failed\"") == true,
+                "\(mutation) fence did not durably close the unstarted command"
+            )
+        }
+    }
+
+    try exerciseFinalAuthorityFence("credential")
+    try exerciseFinalAuthorityFence("selection")
+    try exerciseFinalAuthorityFence("profile")
+    try exerciseFinalAuthorityFence("room")
+    try exerciseFinalAuthorityFence("credential", listModels: true)
+    try exerciseFinalAuthorityFence("selection", listModels: true)
+    try exerciseFinalAuthorityFence("profile", listModels: true)
+
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
     ))
@@ -524,7 +682,7 @@ func runProviderTransportTests() throws {
             activeStarts += 1
             _ = try! capacityRegistry.beginNetwork(
                 activeTask, requestId: "80000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: capacityEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: capacityEpoch, withAuthority: { $0() }
             )
         },
         cancellation: { _, _ in }
@@ -567,7 +725,7 @@ func runProviderTransportTests() throws {
                 productionTasks[index] = task
                 _ = try! productionRegistry.beginNetwork(
                     task, requestId: productionRequestIds[index], attemptEpoch: 1,
-                    lifecycleEpoch: productionEpoch, beforeResume: {}
+                    lifecycleEpoch: productionEpoch, withAuthority: { $0() }
                 )
             },
             cancellation: { _, _ in }
@@ -640,7 +798,7 @@ func runProviderTransportTests() throws {
         start: { _ in
             _ = try! deadlineRegistry.beginNetwork(
                 deadlineBlocker, requestId: "81000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: deadlineEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: deadlineEpoch, withAuthority: { $0() }
             )
         }, cancellation: { _, _ in }
     )
@@ -692,9 +850,10 @@ func runProviderTransportTests() throws {
     let beforeResumeStarted = try beforeResumeRegistry.beginNetwork(
         beforeResumeTask, requestId: beforeResumeRequest, attemptEpoch: 1,
         lifecycleEpoch: beforeResumeEpoch
-    ) {
+    ) { resume in
         // Models the synchronous begin_generation_command transaction crossing the exact deadline.
         beforeResumeUptime = 2_060
+        resume()
     }
     if !beforeResumeStarted { beforeResumeTask.cancel() }
     providerTestRequire(
@@ -728,7 +887,7 @@ func runProviderTransportTests() throws {
             guard let task = lateTask else { fatalError("credential-bearing task released before start") }
             _ = try! lateRegistry.beginNetwork(
                 task, requestId: "81100000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: lateEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: lateEpoch, withAuthority: { $0() }
             )
         },
         cancellation: { started, failure in
@@ -812,7 +971,7 @@ func runProviderTransportTests() throws {
         start: { _ in
             _ = try! cancellationRegistry.beginNetwork(
                 cancellationBlocker, requestId: "82900000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: cancellationEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: cancellationEpoch, withAuthority: { $0() }
             )
         }, cancellation: { _, _ in }
     )
@@ -847,7 +1006,7 @@ func runProviderTransportTests() throws {
         start: { _ in
             _ = try! sqliteRegistry.beginNetwork(
                 sqliteBlocker, requestId: "83000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: sqliteEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: sqliteEpoch, withAuthority: { $0() }
             )
         }, cancellation: { _, _ in }
     )
@@ -889,8 +1048,8 @@ func runProviderTransportTests() throws {
     )
     if case .failure(let failure) = queuedResult {
         providerTestRequire(
-            failure.code == "internal_failure" && !failure.retryable,
-            "abandoned queued begin leaked database-only failure \(failure.code)"
+            failure.code == "canceled" && !failure.retryable,
+            "abandoned queued begin did not return the sanitized authority fence \(failure.code)"
         )
     } else { fatalError("abandoned queued generation returned success") }
     providerTestRequire(
@@ -937,7 +1096,7 @@ func runProviderTransportTests() throws {
         start: { _ in
             _ = try! duplicateRegistry.beginNetwork(
                 duplicateBlocker, requestId: "84900000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: duplicateEpoch, beforeResume: {}
+                attemptEpoch: 1, lifecycleEpoch: duplicateEpoch, withAuthority: { $0() }
             )
         }, cancellation: { _, _ in }
     )

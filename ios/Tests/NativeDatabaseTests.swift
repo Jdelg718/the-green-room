@@ -140,6 +140,13 @@ private func runAtomicGenerationDatabaseTests() throws {
     let requestId = "93000000-0000-4000-8000-000000000003"
     let plan = atomicPlan(roomId: roomId, requestId: requestId)
     let digest = SHA256.hash(data: Data(plan.utf8)).map { String(format: "%02x", $0) }.joined()
+    func beginParameters(
+        _ commandId: String, _ requestId: String, _ digest: String, _ plan: String,
+        attemptEpoch: Int = 0
+    ) -> [Any] {
+        [commandId, requestId, digest, plan, attemptEpoch,
+         "credential:iphone.openai:1", "91000000-0000-4000-8000-000000000001"]
+    }
     let prepare = [["sqlId": "prepare_generation_command", "parameters": atomicPrepareParameters(
         roomId: roomId, commandId: commandId, requestId: requestId, digest: digest, plan: plan
     )]]
@@ -170,11 +177,13 @@ private func runAtomicGenerationDatabaseTests() throws {
     }
     expectFailure("transaction_rejected") {
         _ = try store.executeBatch(transactionId: "atomic-changed-digest", statements: [[
-            "sqlId": "begin_generation_command", "parameters": [commandId, requestId, String(repeating: "f", count: 64)],
+            "sqlId": "begin_generation_command", "parameters": beginParameters(
+                commandId, requestId, String(repeating: "f", count: 64), plan
+            ),
         ]])
     }
     _ = try store.executeBatch(transactionId: "atomic-begin-1", statements: [[
-        "sqlId": "begin_generation_command", "parameters": [commandId, requestId, digest],
+        "sqlId": "begin_generation_command", "parameters": beginParameters(commandId, requestId, digest, plan),
     ]])
     expectFailure("transaction_rejected") {
         _ = try store.executeBatch(transactionId: "atomic-started-cannot-fail", statements: [[
@@ -212,8 +221,13 @@ private func runAtomicGenerationDatabaseTests() throws {
         "sqlId": "fail_generation_command", "parameters": ["credential_missing", failureCommand, failureRequest, failureDigest, 0],
     ]])
     require(rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [failureRoom])).first?.contains("\"state\":\"failed\"") == true, "pre-request failure was not definitive")
+    _ = try store.executeBatch(transactionId: "atomic-failure-select", statements: [[
+        "sqlId": "select_room", "parameters": [failureRoom],
+    ]])
     _ = try store.executeBatch(transactionId: "atomic-failure-retry-begin", statements: [[
-        "sqlId": "begin_generation_command", "parameters": [failureCommand, failureRequest, failureDigest],
+        "sqlId": "begin_generation_command", "parameters": beginParameters(
+            failureCommand, failureRequest, failureDigest, failurePlan
+        ),
     ]])
     _ = try store.executeBatch(transactionId: "atomic-started-interrupt", statements: [[
         "sqlId": "interrupt_generation_command", "parameters": ["timeout", failureCommand, failureRequest, failureDigest, 1],
@@ -269,7 +283,11 @@ private func runAtomicGenerationDatabaseTests() throws {
         ),
     ]])
     _ = try store.executeBatch(transactionId: "atomic-rollback-begin", statements: [[
-        "sqlId": "begin_generation_command", "parameters": [rollbackCommand, rollbackRequest, rollbackDigest],
+        "sqlId": "select_room", "parameters": [rollbackRoom],
+    ], [
+        "sqlId": "begin_generation_command", "parameters": beginParameters(
+            rollbackCommand, rollbackRequest, rollbackDigest, rollbackPlan
+        ),
     ]])
     protection.fail = true
     expectFailure("database_unavailable") {
@@ -328,7 +346,9 @@ private func runAtomicGenerationDatabaseTests() throws {
         ),
     ]])
     _ = try store.executeBatch(transactionId: "atomic-race-begin", statements: [[
-        "sqlId": "begin_generation_command", "parameters": [raceCommand, raceRequest, raceDigest],
+        "sqlId": "begin_generation_command", "parameters": beginParameters(
+            raceCommand, raceRequest, raceDigest, racePlan
+        ),
     ]])
     let race = RaceOutcomes()
     let group = DispatchGroup()

@@ -668,9 +668,18 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                   AND json_extract(command.request_plan_json, '$.kind') = 'provider'
                   AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
                   AND profile.tombstoned = 0
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
                   AND room.status = 'active'
                   AND room.generation = command.expected_generation
                   AND room.next_event_sequence = command.expected_next_event_sequence
+                  AND EXISTS (
+                    SELECT 1 FROM current_room
+                    WHERE singleton = 1 AND room_id = room.id
+                  )
                 """,
                 on: database
             )
@@ -702,6 +711,52 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 definition: definition,
                 requestPlanJSON: plan,
                 attemptEpoch: Int(sqlite3_column_int64(statement, 1))
+            )
+        }
+    }
+
+    func providerListModelsAuthority(
+        profileId: String,
+        profileRevision: Int,
+        providerId: String,
+        credentialRef: String
+    ) throws -> CredentialReservation {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT credential.mutation_id, credential.lifecycle_state, credential.tombstoned
+                FROM iphone_provider_selection selection
+                JOIN connection_profile_revisions profile
+                  ON profile.profile_id = selection.profile_id
+                 AND profile.profile_revision = selection.profile_revision
+                 AND profile.provider_id = selection.provider_id
+                JOIN credential_revisions credential
+                  ON credential.profile_id = selection.profile_id
+                 AND credential.profile_revision = selection.profile_revision
+                 AND credential.provider_id = selection.provider_id
+                WHERE selection.singleton = 1
+                  AND selection.profile_id = ? AND selection.profile_revision = ?
+                  AND selection.provider_id = ? AND credential.credential_ref = ?
+                  AND profile.tombstoned = 0
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
+                  AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([profileId, profileRevision, providerId, credentialRef], to: statement)
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                throw DatabaseFailure(code: "credential_missing", retryable: true)
+            }
+            return CredentialReservation(
+                profileId: profileId, profileRevision: profileRevision, providerId: providerId,
+                credentialRef: credentialRef, mutationId: columnText(statement, 0),
+                lifecycleState: columnText(statement, 1), tombstoned: sqlite3_column_int(statement, 2) == 1
             )
         }
     }
@@ -831,7 +886,42 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
           SET state = 'in_flight', attempt_epoch = attempt_epoch + 1,
               started_at = CURRENT_TIMESTAMP, failure_code = NULL
           WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND request_plan_json = ? AND attempt_epoch = ?
             AND state IN ('prepared', 'failed', 'interrupted')
+            AND json_extract(request_plan_json, '$.kind') = 'provider'
+            AND EXISTS (
+              SELECT 1
+              FROM iphone_provider_selection selection
+              JOIN connection_profile_revisions profile
+                ON profile.profile_id = selection.profile_id
+               AND profile.profile_revision = selection.profile_revision
+               AND profile.provider_id = selection.provider_id
+              JOIN credential_revisions credential
+                ON credential.profile_id = selection.profile_id
+               AND credential.profile_revision = selection.profile_revision
+               AND credential.provider_id = selection.provider_id
+              JOIN rooms room ON room.id = generation_commands.room_id
+              WHERE selection.singleton = 1
+                AND selection.profile_id = json_extract(generation_commands.request_plan_json, '$.profileId')
+                AND selection.profile_revision = json_extract(generation_commands.request_plan_json, '$.profileRevision')
+                AND selection.provider_id = json_extract(generation_commands.request_plan_json, '$.providerId')
+                AND selection.model = json_extract(generation_commands.request_plan_json, '$.model')
+                AND profile.tombstoned = 0
+                AND profile.profile_revision = (
+                  SELECT max(current.profile_revision)
+                  FROM connection_profile_revisions current
+                  WHERE current.profile_id = profile.profile_id
+                )
+                AND credential.credential_ref = ? AND credential.mutation_id = ?
+                AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                AND room.status = 'active'
+                AND room.generation = generation_commands.expected_generation
+                AND room.next_event_sequence = generation_commands.expected_next_event_sequence
+                AND EXISTS (
+                  SELECT 1 FROM current_room
+                  WHERE singleton = 1 AND room_id = room.id
+                )
+            )
           """,
         "fail_generation_command": """
           UPDATE generation_commands SET state = 'failed', failure_code = ?
