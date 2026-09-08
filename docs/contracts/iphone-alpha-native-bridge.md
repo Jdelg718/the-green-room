@@ -119,11 +119,10 @@ Required methods:
 
 | Method | Payload | Result |
 | --- | --- | --- |
-| `provider.listModels` | `{ profileId, profileRevision, providerId, credentialRef }` | `{ modelIds[] }` |
 | `provider.generate` | `{ requestId, commandId, requestDigest }` | `{ text }` |
 | `provider.cancel` | `{ requestId }` | `{ canceled: boolean }` |
 
-`provider.listModels` also requires credential lifecycle state exactly `ready`; setup first completes the credential reservation, then lists models. `provider.generate` accepts no JavaScript-supplied provider, credential, model, messages, temperature, token limit, URL, host, path, method, header, redirect policy, or timeout. Before requesting, the TypeScript core commits one immutable generation command containing the bounded request plan and its canonical SHA-256 digest, but appends no event and changes no director, room-sequence, or room-activity state. The native provider actor reloads that exact command by `commandId`, `requestId`, and `requestDigest`, recomputes the digest over the stored request-plan bytes, requires credential lifecycle state exactly `ready`, and verifies the profile/provider/model binding and generation fence before Keychain resolution or network. It changes the command to `in_flight`, retains the suspended URLSession task by request and attempt ID before starting it, and fences completion on both attempt epoch and lifecycle epoch. `pending`, `delete_pending`, stale, disabled, superseded, missing, mismatched, completed, abandoned, or changed-digest state fails before network.
+The internal Alpha intentionally does not expose `provider.listModels`: provider setup stores one exact model identifier entered through the app's closed, bounded model-ID validation, so model discovery cannot add a second credential-bearing network path or imply a registration the app does not implement. A future remote model picker is a bridge-contract change and must add its own fixed-destination codec, capacity accounting, fixtures, dispatch tests, and UI. `provider.generate` accepts no JavaScript-supplied provider, credential, model, messages, temperature, token limit, URL, host, path, method, header, redirect policy, or timeout. Before requesting, the TypeScript core commits one immutable generation command containing the bounded request plan and its canonical SHA-256 digest, but appends no event and changes no director, room-sequence, or room-activity state. The native provider actor reloads that exact command by `commandId`, `requestId`, and `requestDigest`, recomputes the digest over the stored request-plan bytes, requires credential lifecycle state exactly `ready`, and verifies the profile/provider/model binding and generation fence before Keychain resolution or network. It changes the command to `in_flight`, retains the suspended URLSession task by request and attempt ID before starting it, and fences completion on both attempt epoch and lifecycle epoch. `pending`, `delete_pending`, stale, disabled, superseded, missing, mismatched, completed, abandoned, or changed-digest state fails before network.
 
 Provider/profile IDs are canonical nonblank NFC strings of at most 128 characters; revisions are integers `1...2_147_483_647`; model IDs are opaque NFC strings of at most 256 UTF-8 bytes with no control or whitespace; temperature is finite `0...2`; `maxOutputTokens` is an integer `1...32_768`; messages and bytes obey the global table; and a duplicate in-flight `requestId` is rejected unless it is the exact already-recorded operation.
 
@@ -134,6 +133,16 @@ The plugin obtains key bytes directly from Keychain, creates the Authorization h
 The TypeScript core may build the bounded role/content messages and interpret only the sanitized result. Before first use it shows a provider-specific disclosure that the selected provider receives those messages. No project service receives them.
 
 Required failure codes: `invalid_call`, `incompatible_contract`, `credential_unavailable`, `credential_missing`, `offline`, `provider_unreachable`, `provider_rejected`, `invalid_response`, `response_too_large`, `timeout`, `capacity_rejected`, `canceled`, `internal_failure`. Native transport maps `URLError.notConnectedToInternet` to retryable `offline`; no raw `URLError`, provider status, or response body crosses the bridge.
+
+## Lifecycle plugin
+
+Namespace: `GreenRoomLifecycle`. It is the authoritative native view of mutation readiness; JavaScript browser signals are not authority.
+
+| Method | Payload | Result |
+| --- | --- | --- |
+| `lifecycle.status` | `{}` | `{ active, protectedDataAvailable, pathAvailable, databaseReady, epoch }` |
+
+The status call is read-only, uses the global duplicate in-flight `callId` guard, and returns only booleans plus a non-negative safe-integer lifecycle epoch. `active`, protected-data availability, reconciled database readiness, and native path availability must all be current before provider-backed mutation. Required failure codes are `invalid_call`, `incompatible_contract`, and `internal_failure`.
 
 ## WebView containment
 

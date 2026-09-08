@@ -1,0 +1,47 @@
+{
+  "contractVersion": "iphone-native-bridge/1.0",
+  "calls": [
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000002",
+      "method": "provider.generate",
+      "payload": {
+        "requestId": "30000000-0000-4000-8000-000000000003",
+        "commandId": "40000000-0000-4000-8000-000000000004",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000005",
+      "method": "provider.cancel",
+      "payload": { "requestId": "30000000-0000-4000-8000-000000000003" }
+    },
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000006",
+      "method": "lifecycle.status",
+      "payload": {}
+    }
+  ],
+  "results": [
+    { "callId": "20000000-0000-4000-8000-000000000002", "ok": true, "value": { "text": "A bounded answer." } },
+    { "callId": "20000000-0000-4000-8000-000000000005", "ok": true, "value": { "canceled": true } },
+    { "callId": "20000000-0000-4000-8000-000000000006", "ok": true, "value": { "active": true, "protectedDataAvailable": true, "pathAvailable": true, "databaseReady": true, "epoch": 7 } }
+  ],
+  "failureCodes": [
+    "invalid_call",
+    "incompatible_contract",
+    "credential_unavailable",
+    "credential_missing",
+    "offline",
+    "provider_unreachable",
+    "provider_rejected",
+    "invalid_response",
+    "response_too_large",
+    "timeout",
+    "capacity_rejected",
+    "canceled",
+    "internal_failure"
+  ]
+}

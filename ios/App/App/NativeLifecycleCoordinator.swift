@@ -111,21 +111,28 @@ final class GreenRoomLifecyclePlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
     ]
+    private let inFlightCalls = GreenRoomNativeAuthority.shared.inFlightCalls
 
     @objc func status(_ call: CAPPluginCall) {
         let options = call.options as? [String: Any] ?? [:]
         let callId = canonicalBridgeCallId(options["callId"])
-        guard callId != "invalid", Set(options.keys) == Set(["contractVersion", "callId", "method", "payload"]),
-              options["contractVersion"] as? String == bridgeContractVersion,
-              options["method"] as? String == "lifecycle.status",
-              let payload = options["payload"] as? [String: Any], payload.isEmpty else {
+        guard callId != "invalid", inFlightCalls.begin(callId) else {
             call.resolve(["callId": callId, "ok": false, "error": ["code": "invalid_call", "retryable": false]])
             return
         }
-        call.resolve([
-            "callId": callId,
-            "ok": true,
-            "value": NativeLifecycleCoordinator.shared.status(application: UIApplication.shared),
-        ])
+        defer { inFlightCalls.finish(callId) }
+        do {
+            let data = try encodedBridgeJSONObject(options, code: "invalid_call")
+            _ = try ProviderBridgeCodec.decodeLifecycleStatus(data)
+            call.resolve([
+                "callId": callId,
+                "ok": true,
+                "value": NativeLifecycleCoordinator.shared.status(application: UIApplication.shared),
+            ])
+        } catch let failure as DatabaseFailure {
+            call.resolve(["callId": callId, "ok": false, "error": ["code": failure.code, "retryable": failure.retryable]])
+        } catch {
+            call.resolve(["callId": callId, "ok": false, "error": ["code": "internal_failure", "retryable": false]])
+        }
     }
 }

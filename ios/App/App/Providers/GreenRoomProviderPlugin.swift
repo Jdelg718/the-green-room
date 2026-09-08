@@ -9,6 +9,8 @@ let providerMaximumMessageCount = 32
 let providerMaximumMessageBytes = 64 * 1024
 let providerMaximumResponseBytes = 64 * 1024
 let providerMaximumTextBytes = 16 * 1024
+let providerMaximumConcurrentRequests = 4
+let providerMaximumQueuedRequests = 16
 
 struct ProviderMessage: Codable, Equatable, Sendable {
     let role: String
@@ -43,6 +45,24 @@ struct ProviderGenerateEnvelope: Codable, Equatable, Sendable {
     let payload: ProviderCommandPayload
 }
 
+struct ProviderCancelPayload: Codable, Equatable, Sendable {
+    let requestId: String
+}
+
+struct ProviderCancelEnvelope: Codable, Equatable, Sendable {
+    let contractVersion: String
+    let callId: String
+    let method: String
+    let payload: ProviderCancelPayload
+}
+
+struct ProviderLifecycleEnvelope: Codable, Equatable, Sendable {
+    let contractVersion: String
+    let callId: String
+    let method: String
+    let payload: [String: String]
+}
+
 enum ProviderBridgeCodec {
     private static let payloadKeys = Set(["requestId", "commandId", "requestDigest"])
 
@@ -66,6 +86,40 @@ enum ProviderBridgeCodec {
               canonicalBridgeCallId(envelope.payload.commandId) != "invalid",
               envelope.payload.requestDigest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw DatabaseFailure(code: "invalid_call", retryable: false)
+        }
+        return envelope
+    }
+
+    static func decodeCancel(_ data: Data) throws -> ProviderCancelEnvelope {
+        guard data.count <= providerMaximumEnvelopeBytes,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["contractVersion", "callId", "method", "payload"]),
+              object["method"] as? String == "provider.cancel",
+              canonicalBridgeCallId(object["callId"]) != "invalid",
+              let payload = object["payload"] as? [String: Any],
+              Set(payload.keys) == Set(["requestId"]),
+              let envelope = try? JSONDecoder().decode(ProviderCancelEnvelope.self, from: data),
+              canonicalBridgeCallId(envelope.payload.requestId) != "invalid" else {
+            throw DatabaseFailure(code: "invalid_call", retryable: false)
+        }
+        guard object["contractVersion"] as? String == bridgeContractVersion else {
+            throw DatabaseFailure(code: "incompatible_contract", retryable: false)
+        }
+        return envelope
+    }
+
+    static func decodeLifecycleStatus(_ data: Data) throws -> ProviderLifecycleEnvelope {
+        guard data.count <= providerMaximumEnvelopeBytes,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["contractVersion", "callId", "method", "payload"]),
+              object["method"] as? String == "lifecycle.status",
+              canonicalBridgeCallId(object["callId"]) != "invalid",
+              let payload = object["payload"] as? [String: Any], payload.isEmpty,
+              let envelope = try? JSONDecoder().decode(ProviderLifecycleEnvelope.self, from: data) else {
+            throw DatabaseFailure(code: "invalid_call", retryable: false)
+        }
+        guard object["contractVersion"] as? String == bridgeContractVersion else {
+            throw DatabaseFailure(code: "incompatible_contract", retryable: false)
         }
         return envelope
     }
@@ -385,6 +439,7 @@ final class GreenRoomProviderService: @unchecked Sendable {
     ) {
         let completionGate = ProviderResultCompletion(completion)
         var commandAuthority: ProviderCommandAuthority?
+        var retainedAttemptEpoch: Int?
         do {
             guard let lifecycleEpoch = ProviderTaskRegistry.shared.lifecycleSnapshot() else {
                 throw DatabaseFailure(code: "canceled", retryable: true)
@@ -453,6 +508,23 @@ final class GreenRoomProviderService: @unchecked Sendable {
                     completionGate.finish(valid ? .success(text) : .failure(DatabaseFailure(code: "canceled", retryable: true)))
                 }
             }
+            let admission = ProviderTaskRegistry.shared.install(
+                task,
+                requestId: command.requestId,
+                attemptEpoch: attemptEpoch,
+                lifecycleEpoch: lifecycleEpoch
+            )
+            switch admission {
+            case .capacityRejected:
+                task.cancel()
+                throw DatabaseFailure(code: "capacity_rejected", retryable: true)
+            case .unavailableOrDuplicate:
+                task.cancel()
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            case .active, .queued:
+                retainedAttemptEpoch = attemptEpoch
+                break
+            }
             _ = try authority.withReconciledDatabase {
                 try authority.database.executeBatch(
                     transactionId: "native-begin-\(command.commandId)-\(attemptEpoch)",
@@ -461,12 +533,7 @@ final class GreenRoomProviderService: @unchecked Sendable {
                     ]]]
                 )
             }
-            guard ProviderTaskRegistry.shared.install(
-                task,
-                requestId: command.requestId,
-                attemptEpoch: attemptEpoch,
-                lifecycleEpoch: lifecycleEpoch
-            ), ProviderTaskRegistry.shared.start(
+            guard ProviderTaskRegistry.shared.start(
                 requestId: command.requestId,
                 attemptEpoch: attemptEpoch,
                 lifecycleEpoch: lifecycleEpoch
@@ -483,6 +550,9 @@ final class GreenRoomProviderService: @unchecked Sendable {
                 throw DatabaseFailure(code: "canceled", retryable: true)
             }
         } catch let failure as DatabaseFailure {
+            if retainedAttemptEpoch != nil {
+                _ = ProviderTaskRegistry.shared.cancel(requestId: command.requestId)
+            }
             if let commandAuthority, commandAuthority.attemptEpoch == 0 {
                 try? authority.withReconciledDatabase {
                     _ = try authority.database.executeBatch(
@@ -495,6 +565,9 @@ final class GreenRoomProviderService: @unchecked Sendable {
             }
             completionGate.finish(.failure(failure))
         } catch {
+            if retainedAttemptEpoch != nil {
+                _ = ProviderTaskRegistry.shared.cancel(requestId: command.requestId)
+            }
             completionGate.finish(.failure(DatabaseFailure(code: "internal_failure", retryable: false)))
         }
     }
@@ -519,15 +592,33 @@ private final class ProviderResultCompletion: @unchecked Sendable {
     }
 }
 
+protocol ProviderRetainedTask: AnyObject, Sendable {
+    func resume()
+    func cancel()
+}
+
+extension URLSessionTask: ProviderRetainedTask {}
+
+enum ProviderTaskAdmission: Equatable {
+    case active
+    case queued
+    case capacityRejected
+    case unavailableOrDuplicate
+}
+
 final class ProviderTaskRegistry: @unchecked Sendable {
     static let shared = ProviderTaskRegistry()
+    private enum State { case active, queued }
     private struct Entry {
-        let task: URLSessionTask
+        let task: any ProviderRetainedTask
         let attemptEpoch: Int
         let lifecycleEpoch: Int
+        var state: State
+        var armed = false
     }
     private let lock = NSLock()
     private var tasks: [String: Entry] = [:]
+    private var queue: [String] = []
     private var lifecycleEpoch = 0
     private var available = true
 
@@ -536,52 +627,100 @@ final class ProviderTaskRegistry: @unchecked Sendable {
     }
 
     func updateLifecycleAvailability(_ value: Bool) {
-        let canceled = lock.withLock { () -> [URLSessionTask] in
+        let canceled = lock.withLock { () -> [any ProviderRetainedTask] in
             guard value != available else { return [] }
             lifecycleEpoch += 1
             available = value
             guard !value else { return [] }
             let canceled = tasks.values.map(\.task)
             tasks.removeAll()
+            queue.removeAll()
             return canceled
         }
         canceled.forEach { $0.cancel() }
     }
 
-    func install(_ task: URLSessionTask, requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
+    func install(
+        _ task: any ProviderRetainedTask,
+        requestId: String,
+        attemptEpoch: Int,
+        lifecycleEpoch expected: Int
+    ) -> ProviderTaskAdmission {
         lock.withLock {
-            guard available, lifecycleEpoch == expected, tasks[requestId] == nil else { return false }
-            tasks[requestId] = Entry(task: task, attemptEpoch: attemptEpoch, lifecycleEpoch: expected)
-            return true
+            guard available, lifecycleEpoch == expected, tasks[requestId] == nil else {
+                return .unavailableOrDuplicate
+            }
+            let activeCount = tasks.values.lazy.filter { $0.state == .active }.count
+            if activeCount < providerMaximumConcurrentRequests {
+                tasks[requestId] = Entry(
+                    task: task, attemptEpoch: attemptEpoch, lifecycleEpoch: expected, state: .active
+                )
+                return .active
+            }
+            guard queue.count < providerMaximumQueuedRequests else { return .capacityRejected }
+            tasks[requestId] = Entry(
+                task: task, attemptEpoch: attemptEpoch, lifecycleEpoch: expected, state: .queued
+            )
+            queue.append(requestId)
+            return .queued
         }
     }
 
     func start(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
-        lock.withLock {
+        let result = lock.withLock { () -> (Bool, (any ProviderRetainedTask)?) in
             guard available, lifecycleEpoch == expected, let entry = tasks[requestId],
-                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else { return false }
-            entry.task.resume()
-            return true
+                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else {
+                return (false, nil)
+            }
+            var armed = entry
+            armed.armed = true
+            tasks[requestId] = armed
+            return (true, entry.state == .active ? entry.task : nil)
         }
+        result.1?.resume()
+        return result.0
     }
 
     func claimCompletion(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
-        lock.withLock {
+        let result = lock.withLock { () -> (Bool, [any ProviderRetainedTask]) in
             guard available, lifecycleEpoch == expected, let entry = tasks[requestId],
-                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else { return false }
+                  entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else {
+                return (false, [])
+            }
             tasks.removeValue(forKey: requestId)
-            return true
+            if entry.state == .queued { queue.removeAll { $0 == requestId } }
+            return (true, entry.state == .active ? promoteLocked() : [])
         }
+        result.1.forEach { $0.resume() }
+        return result.0
     }
 
     func cancel(requestId: String) -> Int? {
-        let entry = lock.withLock { tasks.removeValue(forKey: requestId) }
-        entry?.task.cancel()
-        return entry?.attemptEpoch
+        let result = lock.withLock { () -> (Entry?, [any ProviderRetainedTask]) in
+            guard let entry = tasks.removeValue(forKey: requestId) else { return (nil, []) }
+            if entry.state == .queued { queue.removeAll { $0 == requestId } }
+            return (entry, entry.state == .active ? promoteLocked() : [])
+        }
+        result.0?.task.cancel()
+        result.1.forEach { $0.resume() }
+        return result.0?.attemptEpoch
     }
 
     func cancelAllAndFence() {
         updateLifecycleAvailability(false)
+    }
+
+    private func promoteLocked() -> [any ProviderRetainedTask] {
+        var promoted: [any ProviderRetainedTask] = []
+        while tasks.values.lazy.filter({ $0.state == .active }).count < providerMaximumConcurrentRequests,
+              !queue.isEmpty {
+            let requestId = queue.removeFirst()
+            guard var entry = tasks[requestId], entry.state == .queued else { continue }
+            entry.state = .active
+            tasks[requestId] = entry
+            if entry.armed { promoted.append(entry.task) }
+        }
+        return promoted
     }
 }
 
@@ -629,15 +768,16 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func cancel(_ call: CAPPluginCall) {
         let options = call.options as? [String: Any] ?? [:]
         let callId = canonicalBridgeCallId(options["callId"])
+        guard callId != "invalid", inFlightCalls.begin(callId) else {
+            reject(call, callId: callId, failure: DatabaseFailure(code: "invalid_call", retryable: false))
+            return
+        }
+        defer { inFlightCalls.finish(callId) }
         do {
-            guard callId != "invalid", Set(options.keys) == Set(["contractVersion", "callId", "method", "payload"]),
-                  options["contractVersion"] as? String == bridgeContractVersion,
-                  options["method"] as? String == "provider.cancel",
-                  let payload = options["payload"] as? [String: Any], Set(payload.keys) == Set(["requestId"]),
-                  let requestId = payload["requestId"] as? String,
-                  canonicalBridgeCallId(requestId) != "invalid" else {
-                throw DatabaseFailure(code: "invalid_call", retryable: false)
-            }
+            let data = try encodedBridgeJSONObject(
+                options, code: "invalid_call", maximumBytes: providerMaximumEnvelopeBytes
+            )
+            let requestId = try ProviderBridgeCodec.decodeCancel(data).payload.requestId
             let attemptEpoch = ProviderTaskRegistry.shared.cancel(requestId: requestId)
             if let attemptEpoch {
                 try? GreenRoomNativeAuthority.shared.withReconciledDatabase {

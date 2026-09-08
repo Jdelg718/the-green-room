@@ -77,6 +77,17 @@ private final class ProviderURLProtocolStub: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+private final class ProviderRetainedTaskStub: ProviderRetainedTask, @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumes = 0
+    private var cancellations = 0
+
+    var resumeCount: Int { lock.withLock { resumes } }
+    var cancelCount: Int { lock.withLock { cancellations } }
+    func resume() { lock.withLock { resumes += 1 } }
+    func cancel() { lock.withLock { cancellations += 1 } }
+}
+
 private func providerTestRequire(_ condition: Bool, _ message: String) {
     if !condition { fatalError(message) }
 }
@@ -222,6 +233,17 @@ func runProviderTransportTests() throws {
     ]
     let encoded = try JSONSerialization.data(withJSONObject: closedEnvelope)
     providerTestRequire(try ProviderBridgeCodec.decodeGenerate(encoded).payload == command, "closed command bridge decode mismatch")
+
+    let providerFixtureURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("contracts/iphone-alpha-native-bridge-v1/fixtures/provider-lifecycle.json")
+    let providerFixture = try JSONSerialization.jsonObject(with: Data(contentsOf: providerFixtureURL)) as! [String: Any]
+    let providerFixtureCalls = providerFixture["calls"] as! [[String: Any]]
+    let providerFixtureData = try providerFixtureCalls.map {
+        try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
+    }
+    providerTestRequire(try ProviderBridgeCodec.decodeGenerate(providerFixtureData[0]).payload == command, "Swift generate fixture codec mismatch")
+    providerTestRequire(try ProviderBridgeCodec.decodeCancel(providerFixtureData[1]).payload.requestId == command.requestId, "Swift cancel fixture codec mismatch")
+    providerTestRequire(try ProviderBridgeCodec.decodeLifecycleStatus(providerFixtureData[2]).method == "lifecycle.status", "Swift lifecycle fixture codec mismatch")
 
     func planData(model: String) throws -> Data {
         var plan = try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as! [String: Any]
@@ -385,11 +407,75 @@ func runProviderTransportTests() throws {
     providerTestRequire((failedCommand?.first?.first as? String)?.contains("\"state\":\"failed\"") == true, "native pre-request failure was not marked failed")
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "native pre-request failure reached network")
 
+    let capacityRegistry = ProviderTaskRegistry()
+    let capacityEpoch = capacityRegistry.lifecycleSnapshot()!
+    let retained = (0..<(providerMaximumConcurrentRequests + providerMaximumQueuedRequests + 1)).map { _ in
+        ProviderRetainedTaskStub()
+    }
+    let requestIds = retained.indices.map {
+        String(format: "80000000-0000-4000-8000-%012d", $0 + 1)
+    }
+    for index in retained.indices {
+        let admission = capacityRegistry.install(
+            retained[index], requestId: requestIds[index], attemptEpoch: 1, lifecycleEpoch: capacityEpoch
+        )
+        if index < providerMaximumConcurrentRequests {
+            providerTestRequire(admission == .active, "provider active capacity changed")
+        } else if index < providerMaximumConcurrentRequests + providerMaximumQueuedRequests {
+            providerTestRequire(admission == .queued, "provider queue capacity changed")
+        } else {
+            providerTestRequire(admission == .capacityRejected, "provider overflow was not capacity_rejected")
+        }
+    }
+    providerTestRequire(
+        capacityRegistry.install(
+            ProviderRetainedTaskStub(), requestId: requestIds[0], attemptEpoch: 1, lifecycleEpoch: capacityEpoch
+        ) == .unavailableOrDuplicate,
+        "duplicate provider request ID was not rejected"
+    )
+    for index in 0..<(providerMaximumConcurrentRequests + providerMaximumQueuedRequests) {
+        providerTestRequire(
+            capacityRegistry.start(requestId: requestIds[index], attemptEpoch: 1, lifecycleEpoch: capacityEpoch),
+            "admitted provider task could not be armed"
+        )
+    }
+    providerTestRequire(
+        retained.prefix(providerMaximumConcurrentRequests).allSatisfy { $0.resumeCount == 1 },
+        "active provider requests did not start exactly once"
+    )
+    providerTestRequire(
+        retained.dropFirst(providerMaximumConcurrentRequests).allSatisfy { $0.resumeCount == 0 },
+        "queued or rejected provider request started early"
+    )
+    providerTestRequire(
+        capacityRegistry.claimCompletion(requestId: requestIds[0], attemptEpoch: 1, lifecycleEpoch: capacityEpoch),
+        "active provider completion did not win"
+    )
+    providerTestRequire(
+        retained[providerMaximumConcurrentRequests].resumeCount == 1,
+        "first queued provider request was not promoted"
+    )
+    providerTestRequire(
+        capacityRegistry.cancel(requestId: requestIds[1]) == 1,
+        "active provider cancellation lost its attempt"
+    )
+    providerTestRequire(retained[1].cancelCount == 1, "active provider cancellation did not cancel task")
+    providerTestRequire(
+        retained[providerMaximumConcurrentRequests + 1].resumeCount == 1,
+        "second queued provider request was not promoted"
+    )
+    capacityRegistry.cancelAllAndFence()
+    providerTestRequire(capacityRegistry.lifecycleSnapshot() == nil, "capacity registry did not fence lifecycle")
+    providerTestRequire(
+        retained.dropLast().allSatisfy { $0.resumeCount <= 1 && $0.cancelCount <= 1 },
+        "provider capacity lifecycle resumed or canceled a task twice"
+    )
+
     let registry = ProviderTaskRegistry()
     let lifecycleEpoch = registry.lifecycleSnapshot()!
     let suspended = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
     providerTestRequire(
-        registry.install(suspended, requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch),
+        registry.install(suspended, requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch) == .active,
         "lifecycle registry did not retain a suspended task before start"
     )
     registry.cancelAllAndFence()
@@ -403,7 +489,7 @@ func runProviderTransportTests() throws {
     providerTestRequire(activatedEpoch > lifecycleEpoch, "activation did not advance the lifecycle epoch")
     let replacement = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
     providerTestRequire(
-        registry.install(replacement, requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
+        registry.install(replacement, requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch) == .active,
         "activation did not permit an explicit new attempt"
     )
     providerTestRequire(

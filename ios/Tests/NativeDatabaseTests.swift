@@ -17,6 +17,15 @@ private final class ProtectionSwitch: @unchecked Sendable {
     }
 }
 
+private final class RaceOutcomes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var successes = 0
+    func record(_ operation: () throws -> Void) {
+        do { try operation(); lock.withLock { successes += 1 } } catch {}
+    }
+    var successCount: Int { lock.withLock { successes } }
+}
+
 private func require(_ condition: Bool, _ message: String) {
     if !condition { fatalError(message) }
 }
@@ -134,6 +143,16 @@ private func runAtomicGenerationDatabaseTests() throws {
     let prepare = [["sqlId": "prepare_generation_command", "parameters": atomicPrepareParameters(
         roomId: roomId, commandId: commandId, requestId: requestId, digest: digest, plan: plan
     )]]
+    protection.fail = true
+    expectFailure("database_unavailable") {
+        _ = try store.executeBatch(transactionId: "atomic-prepare-injected-failure", statements: prepare)
+    }
+    protection.fail = false
+    require(rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [roomId])).isEmpty, "failed persistence path left a prepared command")
+    require(rowStrings(try store.query(sqlId: "room_events", parameters: [roomId])).isEmpty, "failed persistence path appended an event")
+    let beforePreparation = rowStrings(try store.query(sqlId: "director_context", parameters: [roomId])).first!
+    require(beforePreparation.contains("\"nextEventSequence\":1") && beforePreparation.contains("\"state\":null"), "failed persistence path mutated room/director authority")
+    require(rowStrings(try store.query(sqlId: "local_draft", parameters: [roomId])).first?.contains("hello") == true, "failed persistence path removed draft")
     _ = try store.executeBatch(transactionId: "atomic-prepare", statements: prepare)
     require(rowStrings(try store.query(sqlId: "room_events", parameters: [roomId])).isEmpty, "prepare appended an event")
     let contextBefore = rowStrings(try store.query(sqlId: "director_context", parameters: [roomId])).first!
@@ -288,6 +307,54 @@ private func runAtomicGenerationDatabaseTests() throws {
         "sqlId": "complete_silent_generation_command", "parameters": [recoveredCommand, recoveredRequest, recoveredDigest],
     ]])
     require(rowStrings(try store.query(sqlId: "room_events", parameters: [recoveredRoom])).count == 2, "precisely failed silence was not retryable without a provider")
+
+    let raceRoom = "room-00000000-0000-4000-8000-000000000097"
+    let raceCommand = "92000000-0000-4000-8000-000000000052"
+    let raceRequest = "93000000-0000-4000-8000-000000000053"
+    let racePlan = atomicPlan(roomId: raceRoom, requestId: raceRequest)
+    let raceDigest = SHA256.hash(data: Data(racePlan.utf8)).map { String(format: "%02x", $0) }.joined()
+    _ = try store.executeBatch(transactionId: "atomic-race-room", statements: [
+        ["sqlId": "create_room", "parameters": [raceRoom, "Race room"]],
+        ["sqlId": "create_human", "parameters": ["human-6", raceRoom, "You"]],
+        ["sqlId": "create_persona", "parameters": ["ada-lovelace", raceRoom, "Ada Lovelace", 1, "ada-lovelace"]],
+        ["sqlId": "create_director_state", "parameters": [raceRoom]],
+        ["sqlId": "select_room", "parameters": [raceRoom]],
+        ["sqlId": "save_local_draft", "parameters": [raceRoom, "race"]],
+    ])
+    _ = try store.executeBatch(transactionId: "atomic-race-prepare", statements: [[
+        "sqlId": "prepare_generation_command", "parameters": atomicPrepareParameters(
+            roomId: raceRoom, commandId: raceCommand, requestId: raceRequest,
+            digest: raceDigest, plan: racePlan, humanId: "human-6"
+        ),
+    ]])
+    _ = try store.executeBatch(transactionId: "atomic-race-begin", statements: [[
+        "sqlId": "begin_generation_command", "parameters": [raceCommand, raceRequest, raceDigest],
+    ]])
+    let race = RaceOutcomes()
+    let group = DispatchGroup()
+    group.enter()
+    DispatchQueue.global().async {
+        race.record {
+            _ = try store.executeBatch(transactionId: "atomic-race-complete", statements: [[
+                "sqlId": "complete_generation_command", "parameters": ["Race answer.", raceCommand, raceRequest, raceDigest],
+            ]])
+        }
+        group.leave()
+    }
+    group.enter()
+    DispatchQueue.global().async {
+        race.record {
+            _ = try store.executeBatch(transactionId: "atomic-race-interrupt", statements: [[
+                "sqlId": "interrupt_generation_command", "parameters": ["canceled", raceCommand, raceRequest, raceDigest, 1],
+            ]])
+        }
+        group.leave()
+    }
+    require(group.wait(timeout: .now() + 3) == .success, "completion/lifecycle race timed out")
+    require(race.successCount == 1, "completion/lifecycle race did not have exactly one database winner")
+    let raceEvents = rowStrings(try store.query(sqlId: "room_events", parameters: [raceRoom]))
+    require(raceEvents.isEmpty || raceEvents.count == 3, "completion/lifecycle race exposed a partial turn")
+    require((raceEvents.count == 3) != !rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [raceRoom])).isEmpty, "completion/lifecycle race exposed conflicting outcomes")
 
     var raw: OpaquePointer?
     require(sqlite3_open_v2(atomicRoot.appendingPathComponent("greenroom.sqlite").path, &raw, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "raw atomic database open failed")

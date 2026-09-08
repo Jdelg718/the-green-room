@@ -44,6 +44,15 @@ const DEBUG_ACCEPTANCE_MARKERS = [
   "DeviceCredentialAcceptance",
   "credential-acceptance-evidence.json",
 ];
+const REQUIRED_MIGRATIONS = [
+  "0001-iphone-alpha.sql",
+  "0002-ordered-events.sql",
+  "0003-shared-director-state.sql",
+  "0004-transaction-replay.sql",
+  "0005-credential-lifecycle.sql",
+  "0006-room-talk.sql",
+  "0007-generation-commands.sql",
+];
 const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/ada-lovelace.webp", "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2"],
   ["assets/portraits/benjamin-franklin.webp", "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0"],
@@ -79,9 +88,9 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Credentials/DeviceCredentialAcceptance.swift", "22288f51f86afc1833961eadc84fc0c1566addd42daf28333879ad33539bbefc"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "5852742480fe0e8231038042c9ab7515ccec2a4859c7cfa704dfecaeb3689b0f"],
-  ["App/NativeLifecycleCoordinator.swift", "a3c14f2abc8568c1c0ba2cb17ef6e1f98be7b785a6b335c5ca1031f3bdd3fb21"],
+  ["App/NativeLifecycleCoordinator.swift", "5d879f746efb2354702c18d8d045af81c2e8aa529a69a4973cf2736d8552905d"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "64690c29283df3765bb181903d3d93531f40323ef72dedfe667c4de8fafd4831"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "3ff391bd2ce280b8425f2e5bf2b23627ee7ea5fa90d28743835f8655e638721d"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const PRIVACY_KEYS = ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTracking", "NSPrivacyTrackingDomains"];
@@ -166,6 +175,27 @@ function parseJsonFile(path, root) {
 function assertExactKeys(value, expected, label) {
   const actual = Object.keys(value).sort();
   requireCondition(JSON.stringify(actual) === JSON.stringify([...expected].sort()), `${label} keys are not exact: ${actual.join(", ")}`);
+}
+
+function verifyMigrations(directory, root) {
+  const entries = walkNoFollow(directory, { maxEntries: REQUIRED_MIGRATIONS.length + 1 });
+  const files = entries.filter(({ stats }) => stats.isFile()).map(({ relativePath }) => relativePath).sort();
+  requireCondition(
+    JSON.stringify(files) === JSON.stringify([...REQUIRED_MIGRATIONS, "manifest.json"].sort()),
+    "migration inventory is not exact",
+  );
+  const manifest = parseJsonFile(join(directory, "manifest.json"), root);
+  assertExactKeys(manifest, ["schema", "migrations"], "migration manifest");
+  requireCondition(manifest.schema === REQUIRED_MIGRATIONS.length, "migration manifest schema is not exact");
+  requireCondition(Array.isArray(manifest.migrations) && manifest.migrations.length === REQUIRED_MIGRATIONS.length, "migration manifest length is not exact");
+  for (const [index, file] of REQUIRED_MIGRATIONS.entries()) {
+    const migration = manifest.migrations[index];
+    requireCondition(migration && typeof migration === "object" && !Array.isArray(migration), `migration ${index + 1} is not an object`);
+    assertExactKeys(migration, ["version", "file", "sha256"], `migration ${index + 1}`);
+    requireCondition(migration.version === index + 1 && migration.file === file, `migration ${index + 1} identity is not exact`);
+    requireCondition(typeof migration.sha256 === "string" && /^[0-9a-f]{64}$/u.test(migration.sha256), `migration ${index + 1} digest is invalid`);
+    requireReviewedBytes(join(directory, file), root, migration.sha256, `migration ${index + 1}`);
+  }
 }
 
 function parseCsp(html, label) {
@@ -298,6 +328,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "scripts/ios/verify-bundle-internal.mjs",
   ];
   for (const path of required) checkedRegularFile(join(sourceRoot, path), sourceRoot);
+  verifyMigrations(join(sourceRoot, "ios/App/App/Resources/Migrations"), sourceRoot);
 
   const config = readText(join(sourceRoot, "capacitor.config.ts"), sourceRoot);
   requireCondition(/appId:\s*["']net\.greenroomai\.GreenRoom["']/u.test(config), "Capacitor appId is not exact");
@@ -489,6 +520,7 @@ export function verifyBuiltAppCore(appPath) {
   const cordovaConfig = readText(join(appRoot, "config.xml"), appRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordovaConfig) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordovaConfig), "built Cordova config permits deployment or navigation");
   verifyWebAssets(appRoot, "public");
+  verifyMigrations(join(appRoot, "Migrations"), appRoot);
   verifyPrivacyManifest(join(appRoot, "PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { label: "app" });
   verifyPrivacyManifest(join(appRoot, "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { framework: true, label: "Capacitor" });
   verifyPrivacyManifest(join(appRoot, "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy"), appRoot, applePlistJson, { framework: true, label: "Cordova" });
