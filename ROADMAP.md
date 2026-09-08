@@ -4,6 +4,8 @@ This is a status-based roadmap for the standalone, local-first application. Rele
 
 The [2026-09-01 verified checkpoint](docs/status/2026-09-01-verified-checkpoint.md) is the prior measured baseline and is intentionally preserved as dated evidence. Current measured state and execution order are maintained below; the immediate next-day lanes and human gates are fixed in the [2026-09-02 execution plan](docs/plans/2026-09-02-next-day-execution.md).
 
+**Current checkpoint (2026-09-07):** the standalone iPhone first milestone is proven on Kent's physical iPhone, including 19 bundled portraits/prompts, Keychain-only OpenRouter setup, real character replies, explicit or automatic speaker selection, and force-quit/relaunch persistence. Linux source mode now has an opt-in `0600` file credential store and `npm run start:linux`; an Omarchy human run remains outstanding. The next iPhone milestone is a deliberately limited TestFlight alpha, not App Store release.
+
 ## Completed — verified first playable
 
 The current executable baseline provides:
@@ -34,6 +36,8 @@ This establishes technical viability. It does not approve historical candidates 
 ## R1 — local-first BYO LLM
 
 **Outcome:** let users connect their own local or cloud model provider through stable, revisioned contracts.
+
+**Current truth:** approved cloud-provider setup now works in the standalone iPhone client through native Keychain and pinned native HTTPS definitions. Linux source mode supports explicit development-grade file credentials beneath the data root and a one-command launcher. The existing stronger desktop packaging and release gates remain separate.
 
 - Add Connection Profile, Model Profile, Room Binding, and immutable Decision Snapshot contracts.
 - Support OpenAI-compatible local and approved cloud definitions, then Ollama, then Anthropic behind adapters.
@@ -113,11 +117,11 @@ The portable-character and community boundary is specified in [ADR 0003](docs/ad
 
 ## Current execution order
 
-1. Execute issue #120 on a fresh focused branch: deterministic unsigned macOS app assembly first, then exact-payload exercise from a hostile path with the source tree, build tree, and virtual environment unavailable.
-2. Rebase and re-review PR #55 at its exact head before considering the four arts-and-music historical packs; successful validation would keep them candidates and would not create Official Catalog admission.
-3. After each accepted product merge, smoke the local app on Mothership and Omarchy with room isolation, restart continuity, portraits, LM Studio prompt routing, and zero external project-service requests.
-4. Continue the macOS packaging and lifecycle matrix only after issue #120 closes with exact payload evidence; signing, notarization, download publication, updater work, and demo video remain separate human gates.
-5. Keep provider setup, bounded memory, Character Wizard, Official Catalog, Apple clients, and human invitations behind their existing authority, security, and sequencing contracts.
+1. Run the merged Linux source launcher on Omarchy with a locally entered cloud key; verify one reply, restart continuity, and `0700`/`0600` credential permissions without transmitting the key.
+2. Prepare one TestFlight candidate from protected `main`: close user-visible failure states, choose a stable recommended model, verify privacy manifest/disclosures, basic accessibility and supported-iPhone containment, update/reinstall retention, archive inventory, version/build identity, and App Store Connect test metadata.
+3. Upload and install an internal TestFlight build first; read back the exact build identity and repeat room creation, real provider reply, directed speaker, offline/relaunch, and credential-retention checks.
+4. Submit the first external build for TestFlight Beta App Review. After approval, create a tester-limited public invitation link and separately approve adding that link to `greenroomai.net`. This is TestFlight distribution, not a direct `.ipa` download or App Store release.
+5. Resume macOS packaging, PR #55 review, memory/catalog work, and later launch media only after the iPhone TestFlight gate is stable; human invitations remain a separate future architecture.
 
 ## Future launch milestone — community demo video
 
@@ -132,6 +136,10 @@ Produce a short captioned, accessible, tweet/X-ready demo showing the local-firs
 **Sequence:** issue #160 explicitly authorizes the standalone iPhone Alpha after the desktop release foundations. It does not authorize an iPad client, App Store submission, human invitations, accounts, relay, synchronization, or local-model inference.
 
 **Outcome:** ship a signed iPhone app that needs no Mac companion: 19 bundled characters, local multi-room SQLite/events, the bounded director, direct approved cloud-provider calls, Keychain-only provider secrets, and terminate/relaunch persistence.
+
+**Verified development-build state (2026-09-07):** the first milestone passed on a physical iPhone. A three-character room produced a real OpenRouter response from the selected Thomas Jefferson persona; the human message, directed decision, and persona reply survived forced termination and relaunch. The app container and SQLite contained no OpenRouter-key-shaped value, the credential lifecycle was `ready`, all 19 reviewed presentation portraits rendered from signed bundled assets, and automatic/direct speaker modes both passed. Physical use exposed and closed three defects through focused PRs: Swift bridge-queue/MainActor credential-sheet crash, weak bridge-call lifetime during credential save/provider generation, and absent iPhone portrait assets.
+
+**Next distribution milestone — limited TestFlight alpha:** create an App Store Connect record and archive/upload path, qualify the release configuration and privacy declarations, complete a proportional accessibility/device/error-state pass, verify an internal TestFlight install, then submit the first external build for Beta App Review. Only after Apple approval may a capped public TestFlight invitation link be placed on `greenroomai.net`; builds expire after 90 days and the link is not a direct application download. App Store submission remains later and separately authorized.
 
 [ADR 0006](docs/adr/0006-standalone-iphone-capacitor-runtime.md) accepts the fastest safe implementation: a Capacitor 8/`WKWebView` shell with all executable JavaScript in the signed bundle, a shared pure TypeScript core extracted under desktop parity tests, and narrow Swift bridges for SQLite, Keychain, and fixed-definition `URLSession` providers. Desktop and iPhone rooms are separate authorities with no Alpha synchronization. The [native bridge contract](docs/contracts/iphone-alpha-native-bridge.md) keeps key bytes and provider networking out of JavaScript, and the [implementation plan](docs/plans/2026-09-05-standalone-iphone-alpha.md) breaks delivery into independently reviewable phases.
 
