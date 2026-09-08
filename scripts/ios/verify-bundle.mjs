@@ -280,6 +280,7 @@ export function verifySource(root = process.cwd()) {
     "ios/App/App/config.xml",
     "ios/App/CapApp-SPM/Package.swift",
     "scripts/ios/archive-controlled.mjs",
+    "scripts/ios/export-controlled.mjs",
     "scripts/ios/parse-provisioning-profile.py",
     "scripts/ios/provisioning-profile.mjs",
   ];

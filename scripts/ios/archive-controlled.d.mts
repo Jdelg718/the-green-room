@@ -4,6 +4,7 @@ export type ControlledArchiveCommand = (
   options: { cwd: string; environment: NodeJS.ProcessEnv },
 ) => string;
 
+export function getSecondaryFailures(error: Error): Error[];
 export function runControlledArchive(options?: {
   sourceRoot?: string;
   run?: ControlledArchiveCommand;

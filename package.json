@@ -38,6 +38,7 @@
     "ios:test": "npm run build --silent && node scripts/ios/run-ios-test.mjs",
     "ios:verify-bundle": "node scripts/ios/verify-bundle.mjs --source && node scripts/ios/verify-bundle.mjs --app .build/ios/Build/Products/Debug-iphonesimulator/App.app",
     "ios:archive-controlled": "node scripts/ios/archive-controlled.mjs",
+    "ios:export-controlled": "node scripts/ios/export-controlled.mjs",
     "ios:audit-archive": "node scripts/ios/audit-archive.mjs",
     "ios:simulator-offline": "node scripts/ios/run-simulator-offline.mjs",
     "ios:simulator-director": "node scripts/ios/run-simulator-director.mjs",

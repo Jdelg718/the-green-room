@@ -30,7 +30,7 @@ function fixture(context: test.TestContext): string {
   mkdirSync(join(root, "ios"), { recursive: true });
   cpSync(join(ROOT, "ios", "App"), join(root, "ios", "App"), { recursive: true });
   mkdirSync(join(root, "scripts", "ios"), { recursive: true });
-  for (const name of ["archive-controlled.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs"]) {
+  for (const name of ["archive-controlled.mjs", "export-controlled.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs"]) {
     cpSync(join(ROOT, "scripts", "ios", name), join(root, "scripts", "ios", name));
   }
   return root;

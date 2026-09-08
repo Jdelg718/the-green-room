@@ -94,20 +94,25 @@ const distributionProfile = {
 const developmentIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Development: Fixture (XFGK6Q9J9X)\nTeamIdentifier=JZ233HBW3Z";
 const distributionIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
 
+const distributionSummary = {
+  "Green Room.ipa": [{
+    buildNumber: "1",
+    certificate: { type: "Cloud Managed Apple Distribution" },
+    entitlements: distributionEntitlements,
+    name: "Green Room",
+    profile: { name: distributionProfile.name },
+    team: { id: "JZ233HBW3Z", name: "Fixture Team" },
+    versionNumber: "0.1.0",
+  }],
+};
+
 test("repository TestFlight declarations are semantic and exact", () => {
   assert.doesNotThrow(() => auditor.validateAppPrivacyManifest(appPrivacy, "app privacy"));
   assert.doesNotThrow(() => auditor.validateFrameworkPrivacyManifest(frameworkPrivacy, "Capacitor privacy"));
   assert.doesNotThrow(() => auditor.validateReleaseInfo(releaseInfo, commit));
   assert.doesNotThrow(() => auditor.validateExportOptions(exportOptions));
   assert.doesNotThrow(() => auditor.validateDistributionEntitlements(distributionEntitlements));
-  assert.doesNotThrow(() => auditor.validateDistributionSummaryXml(`
-    <plist><dict>
-      <key>bundleIdentifier</key><string>net.greenroomai.GreenRoom</string>
-      <key>teamID</key><string>JZ233HBW3Z</string>
-      <key>beta-reports-active</key><true/>
-      <key>get-task-allow</key><false/>
-    </dict></plist>
-  `));
+  assert.doesNotThrow(() => auditor.validateDistributionSummary(distributionSummary, "Green Room.ipa", distributionProfile.name));
 
   const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(packageJson.scripts["ios:audit-archive"] ?? "", /audit-archive\.mjs/u);
@@ -158,14 +163,17 @@ test("distribution entitlements reject debug, push, background, and unexpected k
   ]) {
     assert.throws(() => auditor.validateDistributionEntitlements(malformed), /entitlements/u);
   }
-  assert.throws(() => auditor.validateDistributionSummaryXml(`
-    <plist><dict>
-      <key>bundleIdentifier</key><string>net.greenroomai.GreenRoom</string>
-      <key>teamID</key><string>JZ233HBW3Z</string>
-      <key>beta-reports-active</key><true/>
-      <key>get-task-allow</key><true/>
-    </dict></plist>
-  `), /distribution summary/u);
+  for (const malformed of [
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], versionNumber: "1.0.0" }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], buildNumber: "2" }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], certificate: { type: "Apple Development" } }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], profile: { name: "Other profile" } }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], team: { id: "WRONG" } }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], entitlements: { ...distributionEntitlements, "get-task-allow": true } }] },
+    { "other.ipa": distributionSummary["Green Room.ipa"] },
+  ]) {
+    assert.throws(() => auditor.validateDistributionSummary(malformed, "Green Room.ipa", distributionProfile.name), /distribution summary|entitlements/u);
+  }
 });
 
 test("development archive is valid archive evidence but is not TestFlight ready", () => {
@@ -183,11 +191,14 @@ test("development archive is valid archive evidence but is not TestFlight ready"
   assert.deepEqual(auditor.summarizeSigningPhases(archiveSigning), {
     archiveSigning,
     exportSigning: null,
+    distributionArtifactValid: false,
+    internalOnlyPolicyInvocation: false,
+    appStoreConnectInternalOnlyVerified: false,
     testflightReady: false,
   });
 });
 
-test("development archive plus distribution export is TestFlight ready", () => {
+test("development archive plus controlled distribution export remains locally not TestFlight ready", () => {
   const archiveSigning = auditor.validateArchiveSigningEvidence({
     identityDetails: developmentIdentity,
     entitlements: developmentEntitlements,
@@ -198,10 +209,13 @@ test("development archive plus distribution export is TestFlight ready", () => {
     entitlements: distributionEntitlements,
     profile: distributionProfile,
   });
-  assert.deepEqual(auditor.summarizeSigningPhases(archiveSigning, exportSigning), {
+  assert.deepEqual(auditor.summarizeSigningPhases(archiveSigning, exportSigning, true), {
     archiveSigning,
     exportSigning,
-    testflightReady: true,
+    distributionArtifactValid: true,
+    internalOnlyPolicyInvocation: true,
+    appStoreConnectInternalOnlyVerified: false,
+    testflightReady: false,
   });
 });
 
@@ -239,6 +253,78 @@ test("distribution archive is valid but readiness still requires an audited expo
   });
   assert.equal(archiveSigning.kind, "distribution");
   assert.equal(auditor.summarizeSigningPhases(archiveSigning).testflightReady, false);
+});
+
+const controlledEvidence = {
+  schemaVersion: 1,
+  kind: "greenroom-controlled-no-upload-export",
+  timestamp: "2026-09-08T12:00:00.000Z",
+  declaredSourceCommit: commit,
+  archive: {
+    path: `.build/testflight/GreenRoom-${commit}.xcarchive`,
+    sha256: "a".repeat(64),
+    identity: {
+      bundleIdentifier: "net.greenroomai.GreenRoom",
+      version: "0.1.0",
+      build: "1",
+      teamIdentifier: "JZ233HBW3Z",
+      declaredSourceCommit: commit,
+    },
+  },
+  export: { path: `.build/testflight/export-${commit}` },
+  exportOptions: {
+    path: "ios/ExportOptions.plist",
+    sha256: "b".repeat(64),
+    semanticPolicy: exportOptions,
+  },
+  ipa: {
+    path: `.build/testflight/export-${commit}/Green Room.ipa`,
+    sha256: "c".repeat(64),
+  },
+  tool: { xcodebuildVersion: "Xcode 26.0\nBuild version 17A000" },
+};
+
+const evidenceBindings = {
+  archivePath: controlledEvidence.archive.path,
+  archiveSha256: controlledEvidence.archive.sha256,
+  exportPath: controlledEvidence.export.path,
+  exportOptionsSha256: controlledEvidence.exportOptions.sha256,
+  exportOptionsSemanticPolicy: exportOptions,
+  ipaPath: controlledEvidence.ipa.path,
+  ipaSha256: controlledEvidence.ipa.sha256,
+  expectedCommit: commit,
+};
+
+test("only exact controlled export evidence establishes internal-only policy invocation", () => {
+  assert.doesNotThrow(() => auditor.validateControlledExportEvidence(controlledEvidence, evidenceBindings));
+  for (const malformed of [
+    { ...controlledEvidence, declaredSourceCommit: "f".repeat(40) },
+    { ...controlledEvidence, archive: { ...controlledEvidence.archive, sha256: "d".repeat(64) } },
+    { ...controlledEvidence, exportOptions: { ...controlledEvidence.exportOptions, sha256: "d".repeat(64) } },
+    { ...controlledEvidence, exportOptions: { ...controlledEvidence.exportOptions, semanticPolicy: { ...exportOptions, destination: "upload" } } },
+    { ...controlledEvidence, ipa: { ...controlledEvidence.ipa, sha256: "d".repeat(64) } },
+    { ...controlledEvidence, ipa: { ...controlledEvidence.ipa, path: ".build/testflight/arbitrary.ipa" } },
+  ]) {
+    assert.throws(() => auditor.validateControlledExportEvidence(malformed, evidenceBindings), /controlled export evidence|export options/u);
+  }
+});
+
+test("a repository plist beside an arbitrary IPA is not operational policy evidence", () => {
+  const archiveSigning = auditor.validateArchiveSigningEvidence({
+    identityDetails: distributionIdentity,
+    entitlements: distributionEntitlements,
+    profile: distributionProfile,
+  });
+  const exportSigning = auditor.validateDistributionSigningEvidence({
+    identityDetails: distributionIdentity,
+    entitlements: distributionEntitlements,
+    profile: distributionProfile,
+  });
+  const directAudit = auditor.summarizeSigningPhases(archiveSigning, exportSigning, false);
+  assert.equal(directAudit.distributionArtifactValid, true);
+  assert.equal(directAudit.internalOnlyPolicyInvocation, false);
+  assert.equal(directAudit.appStoreConnectInternalOnlyVerified, false);
+  assert.equal(directAudit.testflightReady, false);
 });
 
 test("archive string audit rejects listeners, downloaded code, analytics, Node, Python, and arbitrary endpoints", () => {

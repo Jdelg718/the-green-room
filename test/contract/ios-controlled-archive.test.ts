@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,9 @@ function fakeRepository(context: test.TestContext): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-controlled-archive-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".git"));
+  const packageResolution = join(root, "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm");
+  mkdirSync(packageResolution, { recursive: true });
+  writeFileSync(join(packageResolution, "Package.resolved"), "fixture\n");
   return root;
 }
 
@@ -93,4 +96,142 @@ test("controlled archive detects source mutation after archive", (context) => {
     },
   }), /changed during controlled archive/u);
   assert.equal(calls.some(({ command }) => command === "/usr/bin/xcodebuild"), true);
+  assert.equal(existsSync(join(root, ".build/testflight/GreenRoom-0123456789abcdef0123456789abcdef01234567.xcarchive")), false);
+});
+
+for (const failingPhase of ["sync.mjs", "prepare-capacitor-runtime.mjs", "xcodebuild"]) {
+  test(`controlled archive validates and cleans after ${failingPhase} failure without masking it`, (context) => {
+    const calls: Call[] = [];
+    const packageResolution = "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
+    let statusChecks = 0;
+    const phaseError = new Error(`${failingPhase} original failure`);
+    const root = fakeRepository(context);
+    const archivePath = join(root, ".build/testflight/GreenRoom-0123456789abcdef0123456789abcdef01234567.xcarchive");
+    let caught: unknown;
+    try {
+      wrapper.runControlledArchive({
+        sourceRoot: root,
+        run(command, args) {
+          calls.push({ command, args });
+          if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
+          if (command === "/usr/bin/git" && args[0] === "status") {
+            statusChecks += 1;
+            return statusChecks === 1 || statusChecks >= 3 ? "" : ` D ${packageResolution}`;
+          }
+          if (command.endsWith(failingPhase) || args.some((value) => value.endsWith(failingPhase))) {
+            if (failingPhase === "xcodebuild") {
+              mkdirSync(join(archivePath, "Products/Applications/Partial.app"), { recursive: true });
+              writeFileSync(join(archivePath, "Products/Applications/Partial.app/partial"), "partial\n");
+            }
+            throw phaseError;
+          }
+          return "";
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(caught, phaseError, "the original phase error remains the thrown error object");
+    assert.equal(statusChecks, 3, "post-status is checked before and after restricted cleanup");
+    assert.equal(calls.some(({ command, args }) => command === "/usr/bin/git" && args.join(" ") === `checkout -- ${packageResolution}`), true);
+    assert.equal(existsSync(archivePath), false, "wrapper-owned partial archive is removed");
+  });
+}
+
+test("controlled archive retains the original failure and surfaces unrelated dirty state without unsafe cleanup", (context) => {
+  const calls: Call[] = [];
+  let statusChecks = 0;
+  const phaseError = new Error("sync original failure");
+  let caught: unknown;
+  try {
+    wrapper.runControlledArchive({
+      sourceRoot: fakeRepository(context),
+      run(command, args) {
+        calls.push({ command, args });
+        if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
+        if (command === "/usr/bin/git" && args[0] === "status") {
+          statusChecks += 1;
+          return statusChecks === 1 ? "" : "?? unrelated.txt";
+        }
+        if (args.some((value) => value.endsWith("sync.mjs"))) throw phaseError;
+        return "";
+      },
+    });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught, phaseError);
+  assert.match((caught as Error & { secondaryFailures?: Error[] }).secondaryFailures?.[0]?.message ?? "", /changed during controlled archive/u);
+  assert.equal(calls.some(({ command, args }) => command === "/usr/bin/git" && args[0] === "checkout"), false);
+});
+
+test("controlled archive does not restore Package.resolved unless its pre-build state proves ownership", (context) => {
+  const root = fakeRepository(context);
+  rmSync(join(root, "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"));
+  const calls: Call[] = [];
+  let statusChecks = 0;
+  assert.throws(() => wrapper.runControlledArchive({
+    sourceRoot: root,
+    run(command, args) {
+      calls.push({ command, args });
+      if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
+      if (command === "/usr/bin/git" && args[0] === "status") {
+        statusChecks += 1;
+        return statusChecks === 1 ? "" : " D ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
+      }
+      return "";
+    },
+  }), /changed during controlled archive/u);
+  assert.equal(calls.some(({ command, args }) => command === "/usr/bin/git" && args[0] === "checkout"), false);
+});
+
+test("controlled archive never deletes an archive destination replaced during failure", (context) => {
+  const root = fakeRepository(context);
+  const archivePath = join(root, `.build/testflight/GreenRoom-0123456789abcdef0123456789abcdef01234567.xcarchive`);
+  const outside = mkdtempSync(join(tmpdir(), "greenroom-archive-replacement-"));
+  context.after(() => rmSync(outside, { recursive: true, force: true }));
+  writeFileSync(join(outside, "sentinel"), "keep\n");
+  const failure = new Error("archive original failure");
+  let caught: unknown;
+  try {
+    wrapper.runControlledArchive({
+      sourceRoot: root,
+      run(command, args) {
+        if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
+        if (command === "/usr/bin/git" && args[0] === "status") return "";
+        if (command === "/usr/bin/xcodebuild") {
+          rmSync(archivePath, { recursive: true });
+          symlinkSync(outside, archivePath);
+          throw failure;
+        }
+        return "";
+      },
+    });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught, failure);
+  assert.equal(readFileSync(join(outside, "sentinel"), "utf8"), "keep\n");
+  assert.match(wrapper.getSecondaryFailures(failure)[0]?.message ?? "", /ownership|cleanup/u);
+});
+
+test("controlled archive retains safety failures for a non-extensible original error", (context) => {
+  const original = Object.preventExtensions(new Error("frozen original failure"));
+  let statusChecks = 0;
+  let caught: unknown;
+  try {
+    wrapper.runControlledArchive({
+      sourceRoot: fakeRepository(context),
+      run(command, args) {
+        if (command === "/usr/bin/git" && args[0] === "rev-parse") return "0123456789abcdef0123456789abcdef01234567";
+        if (command === "/usr/bin/git" && args[0] === "status") return statusChecks++ === 0 ? "" : "?? mutation.txt";
+        if (args.some((value) => value.endsWith("sync.mjs"))) throw original;
+        return "";
+      },
+    });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught, original);
+  assert.match(wrapper.getSecondaryFailures(original)[0]?.message ?? "", /changed during controlled archive/u);
 });

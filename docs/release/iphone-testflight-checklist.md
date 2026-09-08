@@ -41,7 +41,7 @@ COMMIT="$(git rev-parse HEAD)"
 
 This is an operational clean-pre/clean-post binding, not cryptographic proof that every archive byte came from the declared commit and not a reproducible-build claim. `GreenRoomSourceCommit` and audit JSON field `declaredSourceCommit` mean only that the controlled wrapper declared its internally resolved clean-checkout `HEAD`; retain the wrapper output and audit alongside the candidate.
 
-- [ ] Archive succeeds without uploading.
+- [ ] Archive succeeds without uploading. On any archive or post-validation failure, the wrapper removes only the partial archive directory whose device/inode ownership it established before invoking Xcode; it refuses cleanup if that path was replaced.
 - [ ] Organizer/archive readback shows one app, `net.greenroomai.GreenRoom`, `0.1.0 (1)`, Team `JZ233HBW3Z`.
 - [ ] Audit the archive before export from the same clean checkout:
 
@@ -55,29 +55,29 @@ npm run ios:audit-archive -- \
 - [ ] Treat this as a **pre-export archive audit**, not a TestFlight-readiness verdict. Xcode may legitimately produce either:
   - an Apple Development archive with `get-task-allow=true`, no `beta-reports-active`, and a matching development profile containing provisioned devices; or
   - an Apple Distribution archive with `get-task-allow=false`, `beta-reports-active=true`, and a matching distribution profile without provisioned devices.
-- [ ] The bounded JSON must classify that evidence under `archiveSigning`, leave `exportSigning` as `null`, and report `testflightReady=false`. Contradictory identity/entitlement/profile combinations are failures; accepting a development archive does not permit ad hoc, enterprise, legacy, wrong-team, or otherwise downgraded signing.
+- [ ] The bounded JSON must classify that evidence under `archiveSigning`, leave `exportSigning` as `null`, and report `distributionArtifactValid=false`, `internalOnlyPolicyInvocation=false`, `appStoreConnectInternalOnlyVerified=false`, and `testflightReady=false`. Contradictory identity/entitlement/profile combinations are failures; accepting a development archive does not permit ad hoc, enterprise, legacy, wrong-team, or otherwise downgraded signing.
 
 ## No-upload export and readback
 
-`ios/ExportOptions.plist` intentionally sets `destination=export`, `method=app-store-connect`, automatic signing, Team `JZ233HBW3Z`, `testFlightInternalTestingOnly=true`, `manageAppVersionAndBuildNumber=false`, and symbol stripping/upload-symbol inclusion. This creates a reviewable local artifact and cannot upload by itself.
+`ios/ExportOptions.plist` intentionally sets `destination=export`, `method=app-store-connect`, automatic signing, Team `JZ233HBW3Z`, `testFlightInternalTestingOnly=true`, `manageAppVersionAndBuildNumber=false`, and symbol stripping/upload-symbol inclusion. Use only the controlled wrapper below; it accepts no export-policy or evidence-path overrides, requires the exact commit-named archive and a new exact commit-named destination under `.build/testflight`, and invokes a private byte-exact copy of the committed plist itself.
+
+These semantics are from this host's local `/usr/bin/xcodebuild -help` (Xcode 26.6, build 17F113): `destination=export` exports locally rather than uploading; `method=app-store-connect` selects that distribution method; `signingStyle=automatic` controls distribution re-signing; `teamID` selects the Developer team; `stripSwiftSymbols` strips Swift-library symbols; `uploadSymbols` includes symbols for an App Store export; `manageAppVersionAndBuildNumber` controls Xcode's build-number management **when uploading**; and `testFlightInternalTestingOnly=true` says the build cannot be distributed through external TestFlight or the App Store. A local invocation is operational evidence that these options were supplied, not independent proof of what Apple received or how App Store Connect classified a processed build.
 
 ```sh
-rm -rf ".build/testflight/export-${COMMIT}"
-/usr/bin/xcodebuild -exportArchive \
-  -archivePath ".build/testflight/GreenRoom-${COMMIT}.xcarchive" \
-  -exportPath ".build/testflight/export-${COMMIT}" \
-  -exportOptionsPlist ios/ExportOptions.plist \
-  -allowProvisioningUpdates
+npm run ios:export-controlled -- \
+  --archive ".build/testflight/GreenRoom-${COMMIT}.xcarchive" \
+  --export ".build/testflight/export-${COMMIT}"
 npm run ios:audit-archive -- \
   --archive ".build/testflight/GreenRoom-${COMMIT}.xcarchive" \
   --expected-commit "${COMMIT}" \
   --export ".build/testflight/export-${COMMIT}"
 ```
 
-- [ ] Exactly one IPA exists; do not parse or publish verbose `Packaging.log`.
+- [ ] Exactly one IPA exists. The wrapper inventories/hashes it immediately, removes `Packaging.log` and `.xcdistributionlogs` diagnostics (including nested output) on both success and failure, and atomically writes a no-clobber `controlled-export-evidence.json`; do not parse or publish verbose distribution diagnostics.
 - [ ] The export/IPA is the authoritative distribution artifact. Re-audit all app content, exact identity/version/build, and the declared source commit from that extracted IPA; do not infer distribution readiness from the archive's signing kind or call the declared commit reproducible/cryptographic source proof.
-- [ ] Export audit proves an Apple Distribution identity and matching distribution profile, exact team/bundle/keychain group, `get-task-allow=false`, `beta-reports-active=true`, internal-only export configuration, and matching distribution summary. A development-signed export always fails, while a valid development-signed archive does not make a correctly re-signed export fail.
-- [ ] Bounded JSON reports distinct `archiveSigning` and `exportSigning` objects and sets `testflightReady=true` only after every export gate passes.
+- [ ] Export audit proves an Apple Distribution identity and matching distribution profile, exact team/bundle/keychain group, `get-task-allow=false`, `beta-reports-active=true`, and matching distribution summary. A development-signed export always fails, while a valid development-signed archive does not make a correctly re-signed export fail.
+- [ ] Controlled evidence binds exact archive/export/IPA paths, archive identity and hash, committed options hash and exact semantic policy, IPA hash, Xcode version, timestamp, and declared commit. It contains no profile/device/session/log contents. A repository plist beside an arbitrary IPA is not accepted as policy evidence.
+- [ ] Bounded JSON reports distinct `archiveSigning` and `exportSigning`, `distributionArtifactValid`, and operational `internalOnlyPolicyInvocation`. Local audit always reports `appStoreConnectInternalOnlyVerified=false` and `testflightReady=false`; neither a signed IPA nor local policy evidence can establish App Store Connect readiness.
 - [ ] Record only the audit's bounded JSON summary and artifact checksum; never credential/session/log contents.
 
 ## Authorized upload gate — separate side effect
@@ -85,7 +85,7 @@ npm run ios:audit-archive -- \
 Stop here unless Kent explicitly authorizes upload of this exact commit/archive/export.
 
 - [ ] Reconfirm exact commit, IPA checksum, app record, build number availability, and internal group immediately before upload.
-- [ ] Use Xcode Organizer or an owner-approved App Store Connect API workflow. If using `xcodebuild`, change/override `destination` from `export` to `upload` only for this authorized exact-candidate action; do not commit that upload setting to `ios/ExportOptions.plist`.
+- [ ] Use Xcode Organizer or a separately reviewed owner-approved App Store Connect upload workflow. The controlled export wrapper never uploads and permits no caller policy override; do not modify its committed plist or repurpose it as an upload command.
 - [ ] Select **TestFlight Internal Only**. A build produced with this restriction cannot later be promoted to external testing or customers.
 - [ ] Upload exactly once. Do not submit Beta App Review or App Store review.
 
@@ -94,7 +94,7 @@ Stop here unless Kent explicitly authorizes upload of this exact commit/archive/
 A successful upload is not completion.
 
 - [ ] Read back app ID `6809792258`, bundle ID `net.greenroomai.GreenRoom`, version `0.1.0`, build `1`, processed state, export-compliance answer, and declared source commit.
-- [ ] Confirm `TestFlight Internal Only` and assign only the owner-approved internal group.
+- [ ] Confirm by exact App Store Connect post-upload readback that the processed build is `TestFlight Internal Only`, then assign only the owner-approved internal group. This readback—not local plist, evidence, export, signing, or audit output—is authoritative for Internal Only and TestFlight readiness.
 - [ ] Confirm there are no external groups, public invitation links, or App Store submission actions.
 - [ ] Record processing failures exactly; do not retry with a new archive or build identity without review.
 

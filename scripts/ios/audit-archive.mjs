@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -10,7 +11,7 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 import { verifyBuiltApp, verifySource } from "./verify-bundle.mjs";
@@ -94,6 +95,63 @@ export function validateExportOptions(value) {
   for (const [key, expectedValue] of Object.entries(expected)) {
     requireCondition(value[key] === expectedValue, `export options ${key} is not exact`);
   }
+}
+
+function sha256File(path) {
+  const stats = lstatSync(path);
+  requireCondition(stats.isFile() && !stats.isSymbolicLink(), `${basename(path)} must be a regular file`);
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function hashArchiveTree(rootPath) {
+  const rootStats = lstatSync(rootPath);
+  requireCondition(rootStats.isDirectory() && !rootStats.isSymbolicLink(), "archive must be a real directory");
+  const hash = createHash("sha256");
+  const visit = (directory) => {
+    for (const name of readdirSync(directory).sort()) {
+      const path = join(directory, name);
+      const stats = lstatSync(path);
+      const relativePath = relative(rootPath, path).split(sep).join("/");
+      requireCondition(!stats.isSymbolicLink(), `archive contains symlink ${relativePath}`);
+      if (stats.isDirectory()) {
+        hash.update(`directory\0${relativePath}\0`);
+        visit(path);
+      } else {
+        requireCondition(stats.isFile(), `archive contains special entry ${relativePath}`);
+        hash.update(`file\0${relativePath}\0${stats.size}\0`);
+        hash.update(readFileSync(path));
+      }
+    }
+  };
+  visit(rootPath);
+  return hash.digest("hex");
+}
+
+export function validateControlledExportEvidence(value, expected) {
+  exactKeys(value, ["schemaVersion", "kind", "timestamp", "declaredSourceCommit", "archive", "export", "exportOptions", "ipa", "tool"], "controlled export evidence");
+  requireCondition(value.schemaVersion === 1 && value.kind === "greenroom-controlled-no-upload-export", "controlled export evidence schema/kind is not exact");
+  requireCondition(typeof value.timestamp === "string" && Number.isFinite(new Date(value.timestamp).getTime()) && new Date(value.timestamp).toISOString() === value.timestamp, "controlled export evidence timestamp is malformed");
+  requireCondition(value.declaredSourceCommit === expected.expectedCommit, "controlled export evidence declared commit does not match");
+  const expectedArchivePath = `.build/testflight/GreenRoom-${expected.expectedCommit}.xcarchive`;
+  const expectedExportPath = `.build/testflight/export-${expected.expectedCommit}`;
+  requireCondition(expected.archivePath === expectedArchivePath && expected.exportPath === expectedExportPath, "controlled export evidence paths are not bounded exact candidate paths");
+  requireCondition(expected.ipaPath.startsWith(`${expectedExportPath}/`) && /^[^/]+\.ipa$/u.test(expected.ipaPath.slice(expectedExportPath.length + 1)), "controlled export evidence IPA path is not bounded");
+  for (const hash of [expected.archiveSha256, expected.exportOptionsSha256, expected.ipaSha256]) requireCondition(/^[0-9a-f]{64}$/u.test(hash), "controlled export evidence expected hash is malformed");
+  exactKeys(value.archive, ["path", "sha256", "identity"], "controlled export evidence archive");
+  requireCondition(value.archive.path === expected.archivePath && value.archive.sha256 === expected.archiveSha256, "controlled export evidence archive path/hash does not match");
+  exactKeys(value.archive.identity, ["bundleIdentifier", "version", "build", "teamIdentifier", "declaredSourceCommit"], "controlled export evidence archive identity");
+  requireCondition(value.archive.identity.bundleIdentifier === BUNDLE_ID && value.archive.identity.version === VERSION && value.archive.identity.build === BUILD && value.archive.identity.teamIdentifier === TEAM_ID && value.archive.identity.declaredSourceCommit === expected.expectedCommit, "controlled export evidence archive identity does not match");
+  exactKeys(value.export, ["path"], "controlled export evidence destination");
+  requireCondition(value.export.path === expected.exportPath, "controlled export evidence destination path does not match");
+  exactKeys(value.exportOptions, ["path", "sha256", "semanticPolicy"], "controlled export evidence options");
+  requireCondition(value.exportOptions.path === "ios/ExportOptions.plist" && value.exportOptions.sha256 === expected.exportOptionsSha256, "controlled export evidence options path/hash does not match");
+  validateExportOptions(value.exportOptions.semanticPolicy);
+  validateExportOptions(expected.exportOptionsSemanticPolicy);
+  requireCondition(JSON.stringify(value.exportOptions.semanticPolicy) === JSON.stringify(expected.exportOptionsSemanticPolicy), "controlled export evidence semantic policy does not match the hashed committed plist");
+  exactKeys(value.ipa, ["path", "sha256"], "controlled export evidence IPA");
+  requireCondition(value.ipa.path === expected.ipaPath && value.ipa.sha256 === expected.ipaSha256, "controlled export evidence IPA path/hash does not match");
+  exactKeys(value.tool, ["xcodebuildVersion"], "controlled export evidence tool");
+  requireCondition(typeof value.tool.xcodebuildVersion === "string" && value.tool.xcodebuildVersion.length > 0 && value.tool.xcodebuildVersion.length <= 512, "controlled export evidence tool version is malformed");
 }
 
 function validateCommonEntitlements(value) {
@@ -186,18 +244,34 @@ export function validateDistributionSigningEvidence({ identityDetails, entitleme
   return signingSummary("distribution", entitlements);
 }
 
-export function summarizeSigningPhases(archiveSigning, exportSigning = null) {
+export function summarizeSigningPhases(archiveSigning, exportSigning = null, internalOnlyPolicyInvocation = false) {
   requireCondition(archiveSigning?.kind === "development" || archiveSigning?.kind === "distribution", "archive signing summary is malformed");
   requireCondition(exportSigning === null || exportSigning?.kind === "distribution", "export signing summary is malformed");
-  return { archiveSigning, exportSigning, testflightReady: exportSigning !== null };
+  requireCondition(typeof internalOnlyPolicyInvocation === "boolean", "internal-only policy invocation summary is malformed");
+  return {
+    archiveSigning,
+    exportSigning,
+    distributionArtifactValid: exportSigning !== null,
+    internalOnlyPolicyInvocation,
+    appStoreConnectInternalOnlyVerified: false,
+    testflightReady: false,
+  };
 }
 
-export function validateDistributionSummaryXml(xml) {
-  requireCondition(/<key>(?:bundleIdentifier|CFBundleIdentifier)<\/key>\s*<string>net\.greenroomai\.GreenRoom<\/string>/u.test(xml) || /<key>applicationIdentifier<\/key>\s*<string>JZ233HBW3Z\.net\.greenroomai\.GreenRoom<\/string>/u.test(xml), "distribution summary lacks the exact bundle identifier");
-  requireCondition(/<key>(?:teamID|com\.apple\.developer\.team-identifier)<\/key>\s*<string>JZ233HBW3Z<\/string>/u.test(xml), "distribution summary lacks the exact team");
-  requireCondition(/<key>beta-reports-active<\/key>\s*<true\s*\/>/u.test(xml), "distribution summary does not prove beta-reports-active");
-  requireCondition(/<key>get-task-allow<\/key>\s*<false\s*\/>/u.test(xml), "distribution summary does not prove get-task-allow=false");
-  requireCondition(!/<key>(?:aps-environment|UIBackgroundModes)<\/key>/u.test(xml), "distribution summary contains push or background capability");
+export function validateDistributionSummary(value, expectedIpaName, expectedProfileName) {
+  requireCondition(typeof expectedIpaName === "string" && /^[^/]+\.ipa$/u.test(expectedIpaName), "distribution summary expected IPA name is malformed");
+  exactKeys(value, [expectedIpaName], "distribution summary");
+  const records = value[expectedIpaName];
+  requireCondition(Array.isArray(records) && records.length === 1, "distribution summary must contain exactly one record for the exact exported IPA");
+  const record = records[0];
+  requireCondition(record && typeof record === "object" && !Array.isArray(record), "distribution summary app record must be a dictionary");
+  requireCondition(record.versionNumber === VERSION && record.buildNumber === BUILD, "distribution summary version/build is not exact");
+  requireCondition(record.certificate && typeof record.certificate === "object" && !Array.isArray(record.certificate), "distribution summary certificate is malformed");
+  requireCondition(record.certificate.type === "Apple Distribution" || record.certificate.type === "Cloud Managed Apple Distribution", "distribution summary certificate is not Apple Distribution class");
+  requireCondition(record.profile && typeof record.profile === "object" && !Array.isArray(record.profile), "distribution summary provisioning profile is malformed");
+  requireCondition(typeof expectedProfileName === "string" && expectedProfileName.length > 0 && record.profile.name === expectedProfileName, "distribution summary provisioning profile name does not match the embedded distribution profile");
+  requireCondition(record.team && typeof record.team === "object" && !Array.isArray(record.team) && record.team.id === TEAM_ID, "distribution summary team is not exact");
+  validateDistributionEntitlements(record.entitlements);
 }
 
 export function validateReleaseStrings(text) {
@@ -252,15 +326,6 @@ function plistRaw(path, key) {
   return result.stdout.trim();
 }
 
-function plistXml(path) {
-  const result = spawnSync("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", "--", path], {
-    encoding: "utf8",
-    env: trustedEnvironment(),
-    maxBuffer: 8 * 1024 * 1024,
-  });
-  requireCondition(result.status === 0, `Apple plutil rejected ${basename(path)}`);
-  return result.stdout;
-}
 
 function ensureDirectory(path, label) {
   let stats;
@@ -312,7 +377,8 @@ function inspectSigning(appPath, phase) {
   requireCondition(profileResult.status === 0, "provisioning profile CMS inspection failed");
   const profile = parseDecodedProvisioningProfile(profileResult.stdout);
   const evidence = { identityDetails, entitlements, profile };
-  return phase === "export" ? validateDistributionSigningEvidence(evidence) : validateArchiveSigningEvidence(evidence);
+  const signing = phase === "export" ? validateDistributionSigningEvidence(evidence) : validateArchiveSigningEvidence(evidence);
+  return { signing, profileName: profile.name };
 }
 
 function auditApp(appPath, expectedCommit, { distribution }) {
@@ -346,18 +412,19 @@ function auditApp(appPath, expectedCommit, { distribution }) {
     maxBuffer: 32 * 1024 * 1024,
   });
   validateReleaseStrings(strings);
-  const signing = inspectSigning(appPath, distribution ? "export" : "archive");
-  return { ...built, signing };
+  const signingEvidence = inspectSigning(appPath, distribution ? "export" : "archive");
+  return { ...built, ...signingEvidence };
 }
 
-function auditExport(exportPath, expectedCommit, work) {
+function auditExport(exportPath, archivePath, sourceRoot, expectedCommit, work) {
   ensureDirectory(exportPath, "export directory");
   const names = readdirSync(exportPath);
   const ipas = names.filter((name) => name.endsWith(".ipa"));
   requireCondition(ipas.length === 1, "export directory must contain exactly one IPA");
   requireCondition(!names.some((name) => /Packaging\.log$/iu.test(name) && name !== "Packaging.log"), "export directory has an unexpected packaging log name");
   const extracted = join(work, "exported-ipa");
-  const unzip = spawnSync("/usr/bin/ditto", ["-x", "-k", "--", join(exportPath, ipas[0]), extracted], {
+  const ipaPath = join(exportPath, ipas[0]);
+  const unzip = spawnSync("/usr/bin/ditto", ["-x", "-k", "--", ipaPath, extracted], {
     encoding: "utf8",
     env: trustedEnvironment(),
     maxBuffer: 8 * 1024 * 1024,
@@ -367,15 +434,44 @@ function auditExport(exportPath, expectedCommit, work) {
   const exportedApp = auditApp(payloadApp, expectedCommit, { distribution: true });
   const summaryPath = join(exportPath, "DistributionSummary.plist");
   requireCondition(existsSync(summaryPath), "export is missing DistributionSummary.plist");
-  validateDistributionSummaryXml(plistXml(summaryPath));
-  return { ipa: ipas[0], distribution: "internal TestFlight only", signing: exportedApp.signing };
+  validateDistributionSummary(plistJson(summaryPath), ipas[0], exportedApp.profileName);
+
+  const evidencePath = join(exportPath, "controlled-export-evidence.json");
+  let internalOnlyPolicyInvocation = false;
+  if (existsSync(evidencePath)) {
+    let evidence;
+    try {
+      evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    } catch {
+      fail("controlled export evidence is not valid JSON");
+    }
+    const relativePath = (path) => relative(sourceRoot, path).split(sep).join("/");
+    const exportOptionsBytes = execFileSync("/usr/bin/git", ["cat-file", "blob", `${expectedCommit}:ios/ExportOptions.plist`], {
+      cwd: sourceRoot,
+      env: trustedEnvironment(),
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const exportOptionsSemanticPolicy = plistJsonInput(exportOptionsBytes, "committed ExportOptions.plist");
+    validateExportOptions(exportOptionsSemanticPolicy);
+    validateControlledExportEvidence(evidence, {
+      archivePath: relativePath(archivePath),
+      archiveSha256: hashArchiveTree(archivePath),
+      exportPath: relativePath(exportPath),
+      exportOptionsSha256: createHash("sha256").update(exportOptionsBytes).digest("hex"),
+      exportOptionsSemanticPolicy,
+      ipaPath: relativePath(ipaPath),
+      ipaSha256: sha256File(ipaPath),
+      expectedCommit,
+    });
+    internalOnlyPolicyInvocation = true;
+  }
+  return { ipa: ipas[0], signing: exportedApp.signing, internalOnlyPolicyInvocation };
 }
 
-export function auditArchive({ archivePath, sourceRoot = process.cwd(), expectedCommit, exportPath, exportOptionsPath = join(sourceRoot, "ios/ExportOptions.plist") }) {
+export function auditArchive({ archivePath, sourceRoot = process.cwd(), expectedCommit, exportPath }) {
   requireCondition(process.platform === "darwin", "archive auditing requires trusted Apple tools on Darwin");
   const root = realpathSync(resolve(sourceRoot));
   verifySource(root);
-  if (exportPath) validateExportOptions(plistJson(resolve(exportOptionsPath)));
   const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
     cwd: root,
     encoding: "utf8",
@@ -393,9 +489,9 @@ export function auditArchive({ archivePath, sourceRoot = process.cwd(), expected
   const archiveResult = auditApp(appPath, expectedCommit, { distribution: false });
   const work = mkdtempSync(join(tmpdir(), "greenroom-ios-archive-audit-"));
   try {
-    const exportedAudit = exportPath ? auditExport(resolve(exportPath), expectedCommit, work) : undefined;
-    const signingPhases = summarizeSigningPhases(archiveResult.signing, exportedAudit?.signing ?? null);
-    const exported = exportedAudit ? { ipa: exportedAudit.ipa, distribution: exportedAudit.distribution } : null;
+    const exportedAudit = exportPath ? auditExport(resolve(exportPath), archive, root, expectedCommit, work) : undefined;
+    const signingPhases = summarizeSigningPhases(archiveResult.signing, exportedAudit?.signing ?? null, exportedAudit?.internalOnlyPolicyInvocation ?? false);
+    const exported = exportedAudit ? { ipa: exportedAudit.ipa } : null;
     return {
       bundleIdentifier: BUNDLE_ID,
       version: VERSION,
@@ -406,6 +502,9 @@ export function auditArchive({ archivePath, sourceRoot = process.cwd(), expected
       archiveEntries: archiveResult.builtEntries,
       archiveSigning: signingPhases.archiveSigning,
       exportSigning: signingPhases.exportSigning,
+      distributionArtifactValid: signingPhases.distributionArtifactValid,
+      internalOnlyPolicyInvocation: signingPhases.internalOnlyPolicyInvocation,
+      appStoreConnectInternalOnlyVerified: signingPhases.appStoreConnectInternalOnlyVerified,
       testflightReady: signingPhases.testflightReady,
       exported,
     };
@@ -424,10 +523,9 @@ function parseArguments(arguments_) {
     else if (flag === "--source") result.sourceRoot = value;
     else if (flag === "--expected-commit") result.expectedCommit = value;
     else if (flag === "--export") result.exportPath = value;
-    else if (flag === "--export-options") result.exportOptionsPath = value;
     else fail(`unknown argument ${flag}`);
   }
-  requireCondition(result.archivePath && result.expectedCommit, "usage: audit-archive.mjs --archive path.xcarchive --expected-commit SHA [--export directory] [--source root] [--export-options plist]");
+  requireCondition(result.archivePath && result.expectedCommit, "usage: audit-archive.mjs --archive path.xcarchive --expected-commit SHA [--export directory] [--source root]");
   return result;
 }
 
