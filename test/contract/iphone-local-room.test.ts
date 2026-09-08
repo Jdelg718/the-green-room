@@ -33,13 +33,14 @@ async function runtime(): Promise<{
   createLocalRoom(plugin: object, slugs: string[], uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
   openLocalRoom(plugin: object, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any> | null; source: string }>;
   renderEvents(events: any[], documentRoot?: any, room?: Record<string, any>): void;
+  refreshMessageTarget(room: Record<string, any>, documentRoot?: any): void;
   renderRoom(opened: { events: any[]; room: Record<string, any>; source: string }): void;
   pickerController(plugin: object, uuid?: () => string): void;
   showPicker(): void;
   beginActiveRoomSend(plugin: object, text: string, uuid?: () => string): {
     room: Record<string, any>; committed: Promise<any>; isCurrent(): boolean;
   };
-  sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string, options?: { requestId?: string; wantsResponse?: boolean }): Promise<{ decision: { speaker: string | null; reason: string }; events: any[] }>;
+  sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string, options?: { requestId?: string; targetPersonaSlug?: string; wantsResponse?: boolean }): Promise<{ decision: { speaker: string | null; reason: string }; events: any[] }>;
   generatePersonaReply(database: object, provider: object, room: Record<string, any>, events: any[], selection: Record<string, any>, uuid?: () => string): Promise<{ events: any[]; reply: any }>;
   saveProviderSetup(database: object, credential: object, providerId: string, model: string, uuid?: () => string): Promise<Record<string, any>>;
   readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
@@ -128,7 +129,7 @@ class MemoryPlugin {
           const draftRoom = draft.room;
           if (draftRoom === undefined || draftRoom.id !== roomId || draftRoom.generation !== generation ||
               draft.nextEventSequence !== expectedSequence || decision?.type !== "director_decision" ||
-              decision.reason !== "selected" || decision.sourceEventSequence !== sourceSequence ||
+              !new Set(["selected", "directed"]).has(decision.reason) || decision.sourceEventSequence !== sourceSequence ||
               decision.speaker !== personaSlug) throw new Error("stale persona reply");
           draft.events.push({ event: JSON.parse(encoded), sequence: draft.nextEventSequence++ });
           draftRoom.lastActivityOrder = ++this.activityOrder;
@@ -380,6 +381,76 @@ test("one-to-three unique cast remains enforced", async () => {
   await assert.rejects(createLocalRoom({}, ["not-bundled"], uuids()), /one to three/u);
   const { created } = await createdRoom(["ada-lovelace"]);
   assert.equal(created.room.participants.filter(({ kind }: { kind: string }) => kind === "persona").length, 1);
+});
+
+test("directed-message selector is labeled, cast-bound, accessible, and mobile-contained", async () => {
+  const html = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
+  const css = readFileSync(join(ROOT, "ios-web/shell.css"), "utf8");
+  assert.match(html, /<label for="message-target">To<\/label>\s*<select id="message-target">\s*<option value="">Anyone — director chooses<\/option>/u);
+  assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 2\.75rem;/u);
+  assert.match(css, /\.composer-target select:focus \{[^}]*outline:/u);
+  assert.ok(css.includes("@media (max-width: 23rem)"));
+  assert.ok(css.includes(".composer-target { grid-template-columns: minmax(0, 1fr); }"));
+  for (const viewportWidth of [320, 375, 390]) {
+    const mainContentWidth = viewportWidth - 32;
+    const selectContentWidth = mainContentWidth - 6 - 32;
+    assert.ok(selectContentWidth > 0 && selectContentWidth <= viewportWidth, `selector escapes ${viewportWidth}px viewport`);
+  }
+
+  const { get } = fakeRoomDocument();
+  const { api, created } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
+  api.refreshMessageTarget(created.room);
+  const select = get("message-target");
+  assert.deepEqual(select.children.map(({ value, textContent }) => ({ value, textContent })), [
+    { value: "", textContent: "Anyone — director chooses" },
+    { value: "ada-lovelace", textContent: "Ada Lovelace" },
+    { value: "isaac-newton", textContent: "Isaac Newton" },
+    { value: "ff2k", textContent: "FF2K" },
+  ]);
+  select.value = "isaac-newton";
+  api.refreshMessageTarget(created.room);
+  assert.equal(select.value, "isaac-newton", "valid active-room choice was not preserved");
+  const nextRoom = structuredClone(created.room);
+  nextRoom.participants = nextRoom.participants.filter(({ personaSlug }: Record<string, any>) => personaSlug !== "isaac-newton");
+  api.refreshMessageTarget(nextRoom);
+  assert.equal(select.value, "", "stale room choice did not fall back to Auto");
+});
+
+test("directed message persists the chosen cast member and drives provider personaSlug without auto selection", async () => {
+  const { api, created, plugin } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
+  const sent = await api.sendLocalMessage(plugin, created.room, "Isaac, take this one.", uuids(), {
+    requestId: "17000000-0000-4000-8000-000000000001",
+    targetPersonaSlug: "isaac-newton",
+  });
+  assert.deepEqual(sent.decision, { speaker: "isaac-newton", reason: "directed" });
+  assert.deepEqual(sent.events[1]?.event, {
+    generation: 0, reason: "directed", sourceEventSequence: 1,
+    speaker: "isaac-newton", type: "director_decision",
+  });
+  const providerCalls: NativeEnvelope[] = [];
+  const provider = { async generate(call: NativeEnvelope) {
+    providerCalls.push(call);
+    return success(call, { text: "A directed reply." });
+  } };
+  await api.generatePersonaReply(plugin, provider, created.room, sent.events, {
+    model: "model-v1", profileId: "iphone.openai", profileRevision: 1, providerId: "openai",
+  }, uuids());
+  assert.equal(providerCalls[0]?.payload.personaSlug, "isaac-newton");
+  assert.equal(plugin.events[2]?.event.personaSlug, "isaac-newton");
+
+  const before = structuredClone(plugin.events);
+  const duplicate = await api.sendLocalMessage(plugin, created.room, "Retry must not select again.", uuids(), {
+    requestId: "17000000-0000-4000-8000-000000000001",
+    targetPersonaSlug: "isaac-newton",
+  });
+  assert.deepEqual(duplicate.decision, { speaker: null, reason: "duplicate" });
+  await assert.rejects(api.sendLocalMessage(plugin, created.room, "Not installed.", uuids(), {
+    targetPersonaSlug: "benjamin-franklin",
+  }), /not in the active room/u);
+  await assert.rejects(api.sendLocalMessage(plugin, created.room, "Not cataloged.", uuids(), {
+    targetPersonaSlug: "forged-persona",
+  }), /Invalid message options/u);
+  assert.deepEqual(plugin.events, before, "invalid directed selection committed an event");
 });
 
 test("human and deterministic director decision commit in one batch with sequence continuity", async () => {

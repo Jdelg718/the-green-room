@@ -33,6 +33,12 @@
         <ol id="transcript" class="transcript" aria-live="polite"></ol>
       </section>
       <form id="message-form" class="composer">
+        <div class="composer-target">
+          <label for="message-target">To</label>
+          <select id="message-target">
+            <option value="">Anyone — director chooses</option>
+          </select>
+        </div>
         <label for="message-text">Your line</label>
         <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
         <button class="button" type="submit">Save your line</button>

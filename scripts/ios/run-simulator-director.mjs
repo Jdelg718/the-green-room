@@ -51,16 +51,18 @@ function databaseState(path) {
   const events = JSON.parse(rows[0].events);
   if (rows[0].next_event_sequence !== 4 || rows[0].scheduling_window_generation !== 0 ||
       events.length !== 3 || events[0]?.type !== "human_message" || events[1]?.type !== "director_decision" ||
-      events[1]?.sourceEventSequence !== 1 || events[1]?.speaker !== "ada-lovelace" ||
+      events[1]?.sourceEventSequence !== 1 || events[1]?.reason !== "directed" || events[1]?.speaker !== "isaac-newton" ||
       events[2]?.type !== "persona_message" || events[2]?.sourceEventSequence !== 1 ||
-      events[2]?.personaSlug !== "ada-lovelace" || events[2]?.text !== "A stubbed reply crossed the signed room runtime." ||
-      state.version !== 1 || state.autonomousTurns !== 1 || state.seen?.length !== 1) {
+      events[2]?.personaSlug !== "isaac-newton" || events[2]?.text !== "A stubbed reply crossed the signed room runtime." ||
+      state.version !== 1 || state.autonomousTurns !== 1 || state.fallbackIndex !== 0 ||
+      JSON.stringify(state.lastSelectedAt) !== JSON.stringify([["isaac-newton", 1]]) || state.seen?.length !== 1) {
     throw new Error("Simulator director transaction did not match the shared contract");
   }
   return { events, state, nextEventSequence: rows[0].next_event_sequence };
 }
 
 let device;
+let container;
 try {
   const listing = JSON.parse(simctl(["list", "devices", "available", "--json"]));
   const matches = (listing.devices?.[RUNTIME] ?? []).filter(
@@ -72,6 +74,8 @@ try {
   simctl(["bootstatus", device.udid, "-b"]);
   ignore(["terminate", device.udid, BUNDLE_ID]);
   simctl(["install", device.udid, APP]);
+  container = simctl(["get_app_container", device.udid, BUNDLE_ID, "data"]).trim();
+  rmSync(join(container, "tmp", "local-room-evidence.json"), { force: true });
 } catch (error) {
   if (device) ignore(["terminate", device.udid, BUNDLE_ID]);
   throw error;
@@ -86,7 +90,6 @@ try {
   execFileSync("/usr/bin/xcrun", ["simctl", "launch", device.udid, BUNDLE_ID], {
     encoding: "utf8", env: launchEnvironment,
   });
-  const container = simctl(["get_app_container", device.udid, BUNDLE_ID, "data"]).trim();
   const evidencePath = join(container, "tmp", "local-room-evidence.json");
   const databasePath = join(container, "Library", "Application Support", "GreenRoom", "greenroom.sqlite");
   const firstEvidence = waitForEvidence(evidencePath, "reopened");
@@ -106,7 +109,7 @@ try {
   console.log(JSON.stringify({
     status: "PASS",
     simulator: { model: DEVICE_NAME, os: "18.6", identifierRedacted: true },
-    transaction: { humanEvents: 1, directorDecisions: 1, personaMessages: 1, selectedSpeaker: "ada-lovelace", nextEventSequence: 4 },
+    transaction: { humanEvents: 1, directorDecisions: 1, personaMessages: 1, selectedSpeaker: "isaac-newton", reason: "directed", nextEventSequence: 4 },
     lifecycle: { forceTerminated: true, reopened: secondEvidence.roomSource, stateUnchanged: true, automaticRetry: false },
     rendering: { eventCount: firstEvidence.eventCount, stubbedReply: true, liveNetwork: false, realCredential: false },
   }, null, 2));

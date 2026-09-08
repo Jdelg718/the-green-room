@@ -80,8 +80,11 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .transcript strong { font: 1.2rem/1 var(--display); text-transform: uppercase; }
 .transcript p { margin: .35rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .empty-transcript { padding: 1rem; border: var(--rule); background: var(--white); font-weight: 700; }
-.composer { display: grid; gap: .7rem; margin-top: 1.4rem; padding: 1rem; border: var(--rule); background: var(--acid); box-shadow: var(--shadow); }
+.composer { display: grid; min-width: 0; gap: .7rem; margin-top: 1.4rem; padding: 1rem; border: var(--rule); background: var(--acid); box-shadow: var(--shadow); }
 .composer label { font: 800 .7rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.composer-target { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; max-width: 100%; align-items: center; gap: .65rem; }
+.composer-target select { min-width: 0; max-width: 100%; width: 100%; min-height: 2.75rem; padding: .6rem 2rem .6rem .7rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.2 var(--sans); }
+.composer-target select:focus { outline: 4px solid var(--blue); outline-offset: 2px; }
 .composer textarea { width: 100%; min-height: 6rem; resize: vertical; padding: .8rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.4 var(--sans); }
 .composer textarea:focus { outline: 4px solid var(--blue); outline-offset: 2px; }
 .composer .button { justify-self: start; box-shadow: 5px 5px 0 var(--paper); }
@@ -120,6 +123,6 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .error { padding: 1rem; border: var(--rule); background: var(--red); color: white; font-weight: 800; }
 [hidden] { display: none !important; }
 @media (min-width: 38rem) { .persona-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 23rem) { .persona-card { grid-template-columns: 4.25rem minmax(0, 1fr); padding: .7rem; } .portrait-card { width: 4.25rem; } .portrait-roster { width: 3.75rem; height: 3.75rem; } }
+@media (max-width: 23rem) { .persona-card { grid-template-columns: 4.25rem minmax(0, 1fr); padding: .7rem; } .portrait-card { width: 4.25rem; } .portrait-roster { width: 3.75rem; height: 3.75rem; } .composer-target { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .mark, .eyebrow, .button, .persona-card, .catalog-reality { border: 2px solid CanvasText; } }

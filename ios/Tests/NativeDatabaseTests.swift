@@ -50,6 +50,15 @@ private func messageStatements(text: String = "hello") -> [[String: Any]] {
     ]
 }
 
+private func directedMessageStatements(text: String = "hello") -> [[String: Any]] {
+    let state = "{\"acceptedHumanEventNumber\":1,\"autonomousTurns\":1,\"cancelled\":false,\"fallbackIndex\":0,\"lastSelectedAt\":[[\"isaac-newton\",1]],\"maxAutonomousTurns\":10,\"seen\":[[\"iphone-room:room-00000000-0000-4000-8000-000000000001\",\"17000000-0000-4000-8000-000000000001\"]],\"version\":1}"
+    return [
+        ["sqlId": "update_director_state", "parameters": [state, 1, "isaac-newton", "isaac-newton", 1, 0, "room-00000000-0000-4000-8000-000000000001", 0, 1]],
+        ["sqlId": "append_event", "parameters": ["{\"participantId\":\"human-1\",\"text\":\"\(text)\",\"type\":\"human_message\"}", "room-00000000-0000-4000-8000-000000000001"]],
+        ["sqlId": "append_event", "parameters": ["{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"isaac-newton\",\"type\":\"director_decision\"}", "room-00000000-0000-4000-8000-000000000001"]],
+    ]
+}
+
 private func rowStrings(_ result: [String: Any]) -> [String] {
     (result["rows"] as? [[Any]] ?? []).compactMap { $0.first as? String }
 }
@@ -66,21 +75,26 @@ private func runRoomTalkTests() throws {
     defer { try? FileManager.default.removeItem(at: roomTalkRoot) }
     let store = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
     _ = try store.open(expectedSchema: 6)
-    _ = try store.executeBatch(transactionId: "room-talk-create", statements: createStatements(title: "Room Talk"))
-    _ = try store.executeBatch(transactionId: "room-talk-human", statements: messageStatements(text: "What should we test?"))
-    let reply = "{\"generation\":0,\"personaSlug\":\"ada-lovelace\",\"sourceEventSequence\":1,\"text\":\"Test the mechanism.\",\"type\":\"persona_message\"}"
+    var roomStatements = createStatements(title: "Room Talk")
+    roomStatements.insert(
+        ["sqlId": "create_persona", "parameters": ["isaac-newton", "room-00000000-0000-4000-8000-000000000001", "Isaac Newton", 2, "isaac-newton"]],
+        at: 3
+    )
+    _ = try store.executeBatch(transactionId: "room-talk-create", statements: roomStatements)
+    _ = try store.executeBatch(transactionId: "room-talk-human", statements: directedMessageStatements(text: "Isaac, what should we test?"))
+    let reply = "{\"generation\":0,\"personaSlug\":\"isaac-newton\",\"sourceEventSequence\":1,\"text\":\"Test the mechanism.\",\"type\":\"persona_message\"}"
     _ = try store.executeBatch(transactionId: "room-talk-reply", statements: [[
         "sqlId": "append_persona_event",
-        "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "ada-lovelace"],
+        "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "isaac-newton"],
     ]])
     let events = rowStrings(try store.query(
         sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]
     ))
-    require(events.count == 3 && events.last?.contains("persona_message") == true, "persona reply was not durable")
+    require(events.count == 3 && events[1].contains("\"reason\":\"directed\"") && events[1].contains("isaac-newton") && events.last?.contains("persona_message") == true, "directed persona reply was not durable")
     expectFailure("transaction_rejected") {
         _ = try store.executeBatch(transactionId: "room-talk-stale", statements: [[
             "sqlId": "append_persona_event",
-            "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "ada-lovelace"],
+            "parameters": [reply, "room-00000000-0000-4000-8000-000000000001", 0, 3, 2, 1, "isaac-newton"],
         ]])
     }
     let profile = "iphone.openrouter"

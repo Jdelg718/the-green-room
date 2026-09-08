@@ -97,7 +97,15 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                 const runtime = await import('./room-runtime.js');
                 const plugin = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
                 let opened = await runtime.openLocalRoom(plugin);
-                if (opened.room === null) {
+                const hasDirectedProof = opened.events.length === 3 &&
+                  opened.events[0]?.event.type === 'human_message' &&
+                  opened.events[0]?.event.text === 'Simulator director continuity proof' &&
+                  opened.events[1]?.event.type === 'director_decision' &&
+                  opened.events[1]?.event.reason === 'directed' &&
+                  opened.events[1]?.event.speaker === 'isaac-newton' &&
+                  opened.events[2]?.event.type === 'persona_message' &&
+                  opened.events[2]?.event.personaSlug === 'isaac-newton';
+                if (opened.room === null || !hasDirectedProof) {
                   opened = await runtime.createLocalRoom(plugin, ['ada-lovelace', 'isaac-newton']);
                 }
                 if (opened.events.length === 0) {
@@ -106,7 +114,10 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                     opened.room,
                     'Simulator director continuity proof',
                     undefined,
-                    { requestId: '40000000-0000-4000-8000-000000000001' }
+                    {
+                      requestId: '40000000-0000-4000-8000-000000000177',
+                      targetPersonaSlug: 'isaac-newton'
+                    }
                   );
                   opened = { ...opened, events: sent.events };
                 }
