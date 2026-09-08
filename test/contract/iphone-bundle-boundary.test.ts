@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -14,11 +15,20 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { parsePlistFile } from "../helpers/parse-plist.js";
 
 const ROOT = process.cwd();
-const { verifyBuiltApp, verifySource } = await import(
+const boundary = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle.mjs");
+const { verifyBuiltApp, verifySource } = boundary;
+const { verifySourceCore } = await import(
+  pathToFileURL(join(ROOT, "scripts/ios/verify-bundle-internal.mjs")).href
+) as typeof import("../../scripts/ios/verify-bundle-internal.mjs");
+
+function verifySourceInternal(root: string) {
+  return verifySourceCore(root, { parsePlist: parsePlistFile });
+}
 
 function fixture(context: test.TestContext): string {
   const root = mkdtempSync(join(tmpdir(), "greenroom-iphone-boundary-"));
@@ -29,6 +39,10 @@ function fixture(context: test.TestContext): string {
   cpSync(join(ROOT, "ios-web"), join(root, "ios-web"), { recursive: true });
   mkdirSync(join(root, "ios"), { recursive: true });
   cpSync(join(ROOT, "ios", "App"), join(root, "ios", "App"), { recursive: true });
+  mkdirSync(join(root, "scripts", "ios"), { recursive: true });
+  for (const name of ["archive-controlled.mjs", "archive-controlled-internal.mjs", "export-controlled.mjs", "export-controlled-internal.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs", "verify-bundle-internal.mjs"]) {
+    cpSync(join(ROOT, "scripts", "ios", name), join(root, "scripts", "ios", name));
+  }
   return root;
 }
 
@@ -38,7 +52,7 @@ function rewrite(root: string, path: string, transform: (source: string) => stri
 }
 
 function rejects(root: string, pattern: RegExp): void {
-  assert.throws(() => verifySource(root), pattern);
+  assert.throws(() => verifySourceInternal(root), pattern);
 }
 
 test("repository contains and passes the complete iPhone source boundary", () => {
@@ -48,13 +62,17 @@ test("repository contains and passes the complete iPhone source boundary", () =>
     "ios/App/App/ContainedBridgeViewController.swift",
     "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
     "ios/App/App/Providers/ApprovedProviderDefinitions.swift",
+    "ios/App/App/App.entitlements",
     "ios/App/App/PrivacyInfo.xcprivacy",
     "ios-web/index.html",
     "scripts/ios/verify-bundle.mjs",
   ]) {
     assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
   }
-  assert.deepEqual(verifySource(ROOT).deviceFamily, [1]);
+  const internalEvidence = verifySourceInternal(ROOT);
+  assert.deepEqual(internalEvidence.deviceFamily, [1]);
+  if (process.platform === "darwin") assert.deepEqual(verifySource(ROOT), internalEvidence);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/App.entitlements"), "utf8"), /\$\(AppIdentifierPrefix\)net\.greenroomai\.GreenRoom/u);
   const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(packageJson.scripts["ios:test"] ?? "", /run-ios-test\.mjs/u);
   const gate = readFileSync(join(ROOT, "scripts/ios/run-ios-test.mjs"), "utf8");
@@ -62,6 +80,17 @@ test("repository contains and passes the complete iPhone source boundary", () =>
   assert.match(gate, /run-simulator-offline\.mjs/u);
   assert.match(gate, /build-simulator-release\.mjs/u);
   assert.match(gate, /--release-acceptance-boundary/u);
+});
+
+test("default Keychain group is explicit in both Xcode configurations and cannot be broadened", (context) => {
+  const root = fixture(context);
+  const projectPath = "ios/App/App.xcodeproj/project.pbxproj";
+  rewrite(root, projectPath, (source) => source.replace("CODE_SIGN_ENTITLEMENTS = App/App.entitlements;", "CODE_SIGN_ENTITLEMENTS = App/Broad.entitlements;"));
+  rejects(root, /code-sign entitlements/u);
+
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+  rewrite(root, "ios/App/App/App.entitlements", (source) => source.replace("$(AppIdentifierPrefix)net.greenroomai.GreenRoom", "$(AppIdentifierPrefix)*"));
+  rejects(root, /keychain access group/u);
 });
 
 test("physical credential harness is explicit, Debug-only, state-only, and probes real lock state", () => {
@@ -229,7 +258,7 @@ test("symlinks and linked escape payloads fail closed without following", (conte
 test("privacy claims, deploy re-enablement, and extra plugin bundles fail closed", (context) => {
   const root = fixture(context);
   rewrite(root, "ios/App/App/PrivacyInfo.xcprivacy", (source) => source.replace("<false/>", "<true/>"));
-  rejects(root, /privacy manifest/u);
+  rejects(root, /privacy/u);
 
   cpSync(join(ROOT, "ios/App/App/PrivacyInfo.xcprivacy"), join(root, "ios/App/App/PrivacyInfo.xcprivacy"));
   rewrite(root, "ios/App/App/config.xml", (source) => source.replace('value="true"', 'value="false"'));
@@ -241,7 +270,7 @@ test("privacy claims, deploy re-enablement, and extra plugin bundles fail closed
 
   rmSync(join(root, "ios/App/App/Plugins"), { recursive: true, force: true });
   rewrite(root, "ios/App/App/PrivacyInfo.xcprivacy", (source) => source.replace("</plist>", "<broken></plist>"));
-  rejects(root, /privacy manifest/u);
+  rejects(root, /privacy/u);
 
   cpSync(join(ROOT, "ios/App/App/PrivacyInfo.xcprivacy"), join(root, "ios/App/App/PrivacyInfo.xcprivacy"));
   writeFileSync(join(root, "ios/App/App/Evil.swift"), "import Foundation\n");
@@ -266,11 +295,82 @@ test("built verifier rejects arbitrary executable and script payloads", { skip: 
   assert.throws(() => verifyBuiltApp(app), /script payload/u);
 });
 
-test("built verifier gates trusted Apple plist parsing to Darwin before path or tool inspection", () => {
-  for (const appPath of ["/tmp/nonexistent.app", "/tmp/not-an-app"]) {
+test("export encryption and provenance metadata require exact semantic types", (context) => {
+  const root = fixture(context);
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>", "<key>ITSAppUsesNonExemptEncryption</key>\n\t<string>false</string>"));
+  rejects(root, /encryption declaration must be Boolean false/u);
+
+  cpSync(join(ROOT, "ios/App/App/Info.plist"), join(root, "ios/App/App/Info.plist"));
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n", ""));
+  rejects(root, /encryption declaration must be Boolean false/u);
+
+  cpSync(join(ROOT, "ios/App/App/Info.plist"), join(root, "ios/App/App/Info.plist"));
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("$(GREENROOM_SOURCE_COMMIT)", "hard-coded-commit"));
+  rejects(root, /source commit placeholder/u);
+});
+
+test("privacy manifest rejects string and broadened declarations", (context) => {
+  const root = fixture(context);
+  const privacy = "ios/App/App/PrivacyInfo.xcprivacy";
+  rewrite(root, privacy, (source) => source.replace("<key>NSPrivacyTracking</key>\n\t<false/>", "<key>NSPrivacyTracking</key>\n\t<string>false</string>"));
+  rejects(root, /tracking must be Boolean false/u);
+
+  cpSync(join(ROOT, privacy), join(root, privacy));
+  rewrite(root, privacy, (source) => source.replace("<key>NSPrivacyCollectedDataTypeLinked</key>\n\t\t\t<true/>", "<key>NSPrivacyCollectedDataTypeLinked</key>\n\t\t\t<string>true</string>"));
+  rejects(root, /linked flag must be Boolean true/u);
+
+  cpSync(join(ROOT, privacy), join(root, privacy));
+  rewrite(root, privacy, (source) => source.replace("<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>", "<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>"));
+  rejects(root, /purpose must be App Functionality only/u);
+});
+
+test("built verifier validates Capacitor and Cordova privacy manifests semantically", { skip: process.platform !== "darwin" }, (context) => {
+  const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
+  if (!existsSync(sourceApp)) {
+    context.skip("Darwin framework privacy mutations run after ios:build in the declared gate");
+    return;
+  }
+  for (const framework of ["Capacitor", "Cordova"]) {
+    const app = join(mkdtempSync(join(tmpdir(), `greenroom-${framework.toLowerCase()}-privacy-`)), "App.app");
+    context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
+    cpSync(sourceApp, app, { recursive: true });
+    rewrite(app, `Frameworks/${framework}.framework/PrivacyInfo.xcprivacy`, (source) => source.replace("<false/>", "<string>false</string>"));
+    assert.throws(() => verifyBuiltApp(app), new RegExp(`${framework} privacy tracking must be Boolean false`, "u"));
+  }
+});
+
+test("production source and built verifiers reject Linux before path or tool inspection", () => {
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href;
+  const script = `Object.defineProperty(process, "platform", { value: "linux" }); const boundary = await import(${JSON.stringify(moduleUrl)}); for (const invoke of [() => boundary.verifySource("/definitely/missing"), () => boundary.verifyBuiltApp("/tmp/nonexistent.app")]) { try { invoke(); } catch (error) { console.log(error.message); } }`;
+  assert.deepEqual(
+    execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" }).trim().split("\n"),
+    [
+      "iPhone bundle boundary: source verification requires trusted Apple plutil on Darwin",
+      "iPhone bundle boundary: built .app verification requires trusted Apple plutil on Darwin",
+    ],
+  );
+});
+
+test("public bundle runtime exports cannot directly import the source adapter core", () => {
+  assert.deepEqual(Object.keys(boundary).sort(), [
+    "verifyBuiltApp",
+    "verifyReleaseAcceptanceBoundary",
+    "verifySignedDeviceApp",
+    "verifySource",
+  ]);
+  assert.equal((boundary as Record<string, unknown>).verifySourceCore, undefined);
+  const moduleUrl = pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href;
+  assert.throws(
+    () => execFileSync(process.execPath, ["--input-type=module", "--eval", `import { verifySourceCore } from ${JSON.stringify(moduleUrl)}; console.log(typeof verifySourceCore);`], { encoding: "utf8" }),
+    /does not provide an export named 'verifySourceCore'/u,
+  );
+});
+
+test("source verification core rejects missing or partial plist adapters before filesystem access", () => {
+  for (const adapters of [undefined, {}, { parsePlist() { return {}; }, extra() {} }]) {
     assert.throws(
-      () => verifyBuiltApp(appPath, { platform: "linux" }),
-      /^Error: iPhone bundle boundary: built \.app verification requires trusted Apple plutil on Darwin$/u,
+      () => verifySourceCore("/definitely/missing", adapters as never),
+      /one complete plist adapter/u,
     );
   }
 });
