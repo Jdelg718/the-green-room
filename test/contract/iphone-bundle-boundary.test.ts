@@ -229,7 +229,7 @@ test("symlinks and linked escape payloads fail closed without following", (conte
 test("privacy claims, deploy re-enablement, and extra plugin bundles fail closed", (context) => {
   const root = fixture(context);
   rewrite(root, "ios/App/App/PrivacyInfo.xcprivacy", (source) => source.replace("<false/>", "<true/>"));
-  rejects(root, /privacy manifest/u);
+  rejects(root, /privacy/u);
 
   cpSync(join(ROOT, "ios/App/App/PrivacyInfo.xcprivacy"), join(root, "ios/App/App/PrivacyInfo.xcprivacy"));
   rewrite(root, "ios/App/App/config.xml", (source) => source.replace('value="true"', 'value="false"'));
@@ -241,7 +241,7 @@ test("privacy claims, deploy re-enablement, and extra plugin bundles fail closed
 
   rmSync(join(root, "ios/App/App/Plugins"), { recursive: true, force: true });
   rewrite(root, "ios/App/App/PrivacyInfo.xcprivacy", (source) => source.replace("</plist>", "<broken></plist>"));
-  rejects(root, /privacy manifest/u);
+  rejects(root, /privacy/u);
 
   cpSync(join(ROOT, "ios/App/App/PrivacyInfo.xcprivacy"), join(root, "ios/App/App/PrivacyInfo.xcprivacy"));
   writeFileSync(join(root, "ios/App/App/Evil.swift"), "import Foundation\n");
@@ -264,6 +264,50 @@ test("built verifier rejects arbitrary executable and script payloads", { skip: 
   chmodSync(payload, 0o644);
   writeFileSync(payload, "#!/usr/bin/env python3\nprint('hello')\n");
   assert.throws(() => verifyBuiltApp(app), /script payload/u);
+});
+
+test("export encryption and provenance metadata require exact semantic types", (context) => {
+  const root = fixture(context);
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>", "<key>ITSAppUsesNonExemptEncryption</key>\n\t<string>false</string>"));
+  rejects(root, /encryption declaration must be Boolean false/u);
+
+  cpSync(join(ROOT, "ios/App/App/Info.plist"), join(root, "ios/App/App/Info.plist"));
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n", ""));
+  rejects(root, /encryption declaration must be Boolean false/u);
+
+  cpSync(join(ROOT, "ios/App/App/Info.plist"), join(root, "ios/App/App/Info.plist"));
+  rewrite(root, "ios/App/App/Info.plist", (source) => source.replace("$(GREENROOM_SOURCE_COMMIT)", "hard-coded-commit"));
+  rejects(root, /source commit placeholder/u);
+});
+
+test("privacy manifest rejects string and broadened declarations", (context) => {
+  const root = fixture(context);
+  const privacy = "ios/App/App/PrivacyInfo.xcprivacy";
+  rewrite(root, privacy, (source) => source.replace("<key>NSPrivacyTracking</key>\n\t<false/>", "<key>NSPrivacyTracking</key>\n\t<string>false</string>"));
+  rejects(root, /tracking must be Boolean false/u);
+
+  cpSync(join(ROOT, privacy), join(root, privacy));
+  rewrite(root, privacy, (source) => source.replace("<key>NSPrivacyCollectedDataTypeLinked</key>\n\t\t\t<true/>", "<key>NSPrivacyCollectedDataTypeLinked</key>\n\t\t\t<string>true</string>"));
+  rejects(root, /linked flag must be Boolean true/u);
+
+  cpSync(join(ROOT, privacy), join(root, privacy));
+  rewrite(root, privacy, (source) => source.replace("<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>", "<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>"));
+  rejects(root, /purpose must be App Functionality only/u);
+});
+
+test("built verifier validates Capacitor and Cordova privacy manifests semantically", { skip: process.platform !== "darwin" }, (context) => {
+  const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
+  if (!existsSync(sourceApp)) {
+    context.skip("Darwin framework privacy mutations run after ios:build in the declared gate");
+    return;
+  }
+  for (const framework of ["Capacitor", "Cordova"]) {
+    const app = join(mkdtempSync(join(tmpdir(), `greenroom-${framework.toLowerCase()}-privacy-`)), "App.app");
+    context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
+    cpSync(sourceApp, app, { recursive: true });
+    rewrite(app, `Frameworks/${framework}.framework/PrivacyInfo.xcprivacy`, (source) => source.replace("<false/>", "<string>false</string>"));
+    assert.throws(() => verifyBuiltApp(app), new RegExp(`${framework} privacy tracking must be Boolean false`, "u"));
+  }
 });
 
 test("built verifier gates trusted Apple plist parsing to Darwin before path or tool inspection", () => {

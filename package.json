@@ -37,6 +37,7 @@
     "ios:build": "npm run ios:sync && node scripts/ios/prepare-capacitor-runtime.mjs && node scripts/ios/build-simulator.mjs",
     "ios:test": "npm run build --silent && node scripts/ios/run-ios-test.mjs",
     "ios:verify-bundle": "node scripts/ios/verify-bundle.mjs --source && node scripts/ios/verify-bundle.mjs --app .build/ios/Build/Products/Debug-iphonesimulator/App.app",
+    "ios:audit-archive": "node scripts/ios/audit-archive.mjs",
     "ios:simulator-offline": "node scripts/ios/run-simulator-offline.mjs",
     "ios:simulator-director": "node scripts/ios/run-simulator-director.mjs",
     "ios:device-smoke": "node scripts/ios/device-smoke.mjs",

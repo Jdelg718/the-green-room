@@ -84,7 +84,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Providers/GreenRoomProviderPlugin.swift", "f3a7a598fce45dd0bc6dbf61b5e0ceee56a6f6e91a9a9e48323e10fc3323ff65"],
   ["App/SceneDelegate.swift", "a70811230158e46b3907ece85602f4360bfb8cc39536f2ee28fc11c1222bc946"],
 ]);
-const REVIEWED_PRIVACY_SHA256 = "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17";
+const PRIVACY_KEYS = ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTracking", "NSPrivacyTrackingDomains"];
 
 function fail(message) {
   throw new Error(`iPhone bundle boundary: ${message}`);
@@ -205,15 +205,29 @@ function verifyWebAssets(root, relativeDirectory) {
   requireCondition(/dataset\.localRoomBoot = "open"/u.test(readText(join(directory, "room-runtime.js"), root)), `${relativeDirectory} lacks deterministic local-room boot evidence`);
 }
 
-function verifyPrivacyManifest(path, root) {
-  requireReviewedBytes(path, root, REVIEWED_PRIVACY_SHA256, "privacy manifest");
-  const text = readText(path, root);
-  for (const key of ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTrackingDomains", "NSPrivacyTracking"]) {
-    requireCondition((text.match(new RegExp(`<key>${key}</key>`, "gu")) ?? []).length === 1, `privacy manifest must contain ${key} exactly once`);
+export function validatePrivacyManifest(value, { framework = false, label = "privacy manifest" } = {}) {
+  requireCondition(value && typeof value === "object" && !Array.isArray(value), `${label} privacy root must be a dictionary`);
+  assertExactKeys(value, PRIVACY_KEYS, `${label} privacy manifest`);
+  requireCondition(value.NSPrivacyTracking === false, `${label} privacy tracking must be Boolean false`);
+  requireCondition(Array.isArray(value.NSPrivacyTrackingDomains) && value.NSPrivacyTrackingDomains.length === 0, `${label} privacy tracking domains must be empty`);
+  requireCondition(Array.isArray(value.NSPrivacyAccessedAPITypes) && value.NSPrivacyAccessedAPITypes.length === 0, `${label} privacy required-reason APIs must be empty`);
+  requireCondition(Array.isArray(value.NSPrivacyCollectedDataTypes), `${label} privacy collected data types must be an array`);
+  if (framework) {
+    requireCondition(value.NSPrivacyCollectedDataTypes.length === 0, `${label} privacy data collection must be empty`);
+    return;
   }
-  requireCondition((text.match(/<array\s*\/>/gu) ?? []).length === 3, "privacy manifest must declare three truthful empty arrays");
-  requireCondition((text.match(/<false\s*\/>/gu) ?? []).length === 1, "privacy manifest must declare tracking false");
-  requireCondition(!/(?:<true\s*\/>|<key>NSPrivacyAccessedAPITypeReasons<\/key>|<key>NSPrivacyCollectedDataType<\/key>)/u.test(text), "privacy manifest claims unmeasured collection or reason APIs");
+  requireCondition(value.NSPrivacyCollectedDataTypes.length === 1, `${label} privacy must conservatively declare one collected data type`);
+  const declaration = value.NSPrivacyCollectedDataTypes[0];
+  requireCondition(declaration && typeof declaration === "object" && !Array.isArray(declaration), `${label} privacy collection declaration must be a dictionary`);
+  assertExactKeys(declaration, ["NSPrivacyCollectedDataType", "NSPrivacyCollectedDataTypeLinked", "NSPrivacyCollectedDataTypePurposes", "NSPrivacyCollectedDataTypeTracking"], `${label} privacy collection declaration`);
+  requireCondition(declaration.NSPrivacyCollectedDataType === "NSPrivacyCollectedDataTypeOtherUserContent", `${label} privacy data type must be Other User Content`);
+  requireCondition(declaration.NSPrivacyCollectedDataTypeLinked === true, `${label} privacy linked flag must be Boolean true`);
+  requireCondition(declaration.NSPrivacyCollectedDataTypeTracking === false, `${label} privacy collection tracking flag must be Boolean false`);
+  requireCondition(JSON.stringify(declaration.NSPrivacyCollectedDataTypePurposes) === JSON.stringify(["NSPrivacyCollectedDataTypePurposeAppFunctionality"]), `${label} privacy purpose must be App Functionality only`);
+}
+
+function verifyPrivacyManifest(path, root, options = {}) {
+  validatePrivacyManifest(plistJson(path, root), options);
 }
 
 function verifySourceExecutables(root, entries) {
@@ -315,6 +329,9 @@ export function verifySource(root = process.cwd()) {
   requireCondition(familyValues.length === 2 && familyValues.every((value) => value === "1"), "Xcode target must be iPhone-only");
   requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 2 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 2, "Swift 6 strict concurrency must be enabled");
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 2, "development team must be exact");
+  requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
+  requireCondition((project.match(/CURRENT_PROJECT_VERSION = 1;/gu) ?? []).length === 2, "project build number must be 1 in Debug and Release");
+  requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must have the safe development provenance default");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
   const projectFrameworkNames = [...project.matchAll(/\b([A-Z][A-Za-z0-9_.-]+\.framework)\b/gu)].map((match) => match[1]);
@@ -352,11 +369,16 @@ export function verifySource(root = process.cwd()) {
   requireCondition((swiftPackage.match(/package: "ios-capacitor-runtime"/gu) ?? []).length === 2, "native Capacitor product identities are not exact");
   requireCondition(!DYNAMIC_UPDATE_PATTERN.test(swiftPackage), "native package contains a dynamic updater");
 
-  const info = readText(join(sourceRoot, "ios/App/App/Info.plist"), sourceRoot);
-  requireCondition(!/(?:NSAppTransportSecurity|NSAllowsArbitraryLoads|UIBackgroundModes|BGTaskSchedulerPermittedIdentifiers|WKAppBoundDomains|UISupportedInterfaceOrientations~ipad)/u.test(info), "Info.plist contains ATS, background, app-domain, or iPad policy outside the shell");
+  const infoPath = join(sourceRoot, "ios/App/App/Info.plist");
+  const infoText = readText(infoPath, sourceRoot);
+  requireCondition(!/(?:NSAppTransportSecurity|NSAllowsArbitraryLoads|UIBackgroundModes|BGTaskSchedulerPermittedIdentifiers|WKAppBoundDomains|UISupportedInterfaceOrientations~ipad)/u.test(infoText), "Info.plist contains ATS, background, app-domain, or iPad policy outside the shell");
+  const info = plistJson(infoPath, sourceRoot);
+  requireCondition(info.ITSAppUsesNonExemptEncryption === false, "Info.plist export encryption declaration must be Boolean false");
+  requireCondition(info.GreenRoomSourceCommit === "$(GREENROOM_SOURCE_COMMIT)", "Info.plist source commit placeholder is not exact");
+  requireCondition(info.CFBundleShortVersionString === "$(MARKETING_VERSION)" && info.CFBundleVersion === "$(CURRENT_PROJECT_VERSION)", "Info.plist version placeholders are not exact");
   const cordova = readText(join(sourceRoot, "ios/App/App/config.xml"), sourceRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordova) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordova), "Cordova config permits deployment or navigation");
-  verifyPrivacyManifest(join(sourceRoot, "ios/App/App/PrivacyInfo.xcprivacy"), sourceRoot);
+  verifyPrivacyManifest(join(sourceRoot, "ios/App/App/PrivacyInfo.xcprivacy"), sourceRoot, { label: "app" });
 
   const containment = readText(join(sourceRoot, "ios/App/App/ContainedBridgeViewController.swift"), sourceRoot);
   for (const token of ["WKNavigationDelegate", "WKUIDelegate", "decidePolicyFor navigationAction", "action.targetFrame != nil", "candidate.scheme == localOrigin.scheme", "candidate.host == localOrigin.host", "candidate.port == localOrigin.port", "decisionHandler(.cancel)", "createWebViewWith", "return nil", "capacitorDelegate.webView"]) {
@@ -396,6 +418,9 @@ export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
   const info = plistJson(join(appRoot, "Info.plist"), appRoot);
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID, "built CFBundleIdentifier is not exact");
   requireCondition(info.CFBundleDisplayName === APP_NAME, "built display name is not exact");
+  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "1", "built version/build identity is not exactly 0.1.0 (1)");
+  requireCondition(info.ITSAppUsesNonExemptEncryption === false, "built export encryption declaration must be Boolean false");
+  requireCondition(info.GreenRoomSourceCommit === "development" || /^[0-9a-f]{40}$/u.test(info.GreenRoomSourceCommit), "built source commit must be development or an exact lowercase Git commit");
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS, "built MinimumOSVersion is not exactly 18.6");
   requireCondition(JSON.stringify(info.UIDeviceFamily) === "[1]", "built UIDeviceFamily is not iPhone-only");
   for (const key of ["NSAppTransportSecurity", "UIBackgroundModes", "BGTaskSchedulerPermittedIdentifiers", "WKAppBoundDomains"]) {
@@ -406,7 +431,11 @@ export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
   requireCondition(typeof executableName === "string" && executableName.length > 0, "built executable name is missing");
   const executable = join(appRoot, executableName);
   requireCondition(isMachO(executable, appRoot), "main app executable is not Mach-O");
-  const allowedMachO = new Set([portable(appRoot, executable)]);
+  const allowedMachO = new Set([
+    portable(appRoot, executable),
+    "Frameworks/Capacitor.framework/Capacitor",
+    "Frameworks/Cordova.framework/Cordova",
+  ]);
   const allowedFrameworks = new Set(["Capacitor.framework", "Cordova.framework"]);
   const actualFrameworks = entries.filter(({ relativePath, stats }) => stats.isDirectory() && /^Frameworks\/[^/]+\.framework$/u.test(relativePath)).map(({ path }) => basename(path)).sort();
   requireCondition(JSON.stringify(actualFrameworks) === JSON.stringify([...allowedFrameworks].sort()), "built framework inventory must be exactly Capacitor.framework and Cordova.framework");
@@ -426,11 +455,10 @@ export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
       requireCondition(prefix.subarray(0, 2).toString("ascii") !== "#!", `script payload is forbidden in built app: ${relativePath}`);
       requireCondition((stats.mode & 0o111) === 0 || allowedExecutableFiles.has(relativePath), `unexpected executable mode in built app: ${relativePath}`);
     }
-    if (stats.isFile() && isMachO(path, appRoot)) {
-      const frameworkMatch = relativePath.match(/^Frameworks\/([^/]+\.framework)\/([^/]+)$/u);
-      requireCondition(allowedMachO.has(relativePath) || (frameworkMatch && allowedFrameworks.has(frameworkMatch[1])), `undeclared native executable: ${relativePath}`);
-    }
+    if (stats.isFile() && isMachO(path, appRoot)) requireCondition(allowedMachO.has(relativePath), `undeclared native executable: ${relativePath}`);
   }
+  const actualMachO = entries.filter(({ path, stats }) => stats.isFile() && isMachO(path, appRoot)).map(({ relativePath }) => relativePath).sort();
+  requireCondition(JSON.stringify(actualMachO) === JSON.stringify([...allowedMachO].sort()), "built Mach-O inventory is not exact");
 
   const nativeConfig = parseJsonFile(join(appRoot, "capacitor.config.json"), appRoot);
   requireCondition(nativeConfig.appId === BUNDLE_ID && !("server" in nativeConfig), "built Capacitor config has wrong identity or remote server");
@@ -438,7 +466,9 @@ export function verifyBuiltApp(appPath, { platform = process.platform } = {}) {
   const cordovaConfig = readText(join(appRoot, "config.xml"), appRoot);
   requireCondition(/<preference name="DisableDeploy" value="true"\s*\/>/u.test(cordovaConfig) && !/<access\b|<allow-navigation\b|<allow-intent\b/iu.test(cordovaConfig), "built Cordova config permits deployment or navigation");
   verifyWebAssets(appRoot, "public");
-  verifyPrivacyManifest(join(appRoot, "PrivacyInfo.xcprivacy"), appRoot);
+  verifyPrivacyManifest(join(appRoot, "PrivacyInfo.xcprivacy"), appRoot, { label: "app" });
+  verifyPrivacyManifest(join(appRoot, "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy"), appRoot, { framework: true, label: "Capacitor" });
+  verifyPrivacyManifest(join(appRoot, "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy"), appRoot, { framework: true, label: "Cordova" });
 
   for (const { path, relativePath, stats } of entries) {
     if (!stats.isFile() || stats.size > 4 * 1024 * 1024 || isMachO(path, appRoot) || !(relativePath.startsWith("public/") || relativePath === "capacitor.config.json")) continue;
