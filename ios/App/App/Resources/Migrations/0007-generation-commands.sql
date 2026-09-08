@@ -80,7 +80,11 @@ WHEN NOT (
   (OLD.state = 'prepared' AND NEW.state IN ('in_flight', 'failed', 'completed', 'abandoned')) OR
   (OLD.state = 'failed' AND NEW.state IN ('failed', 'in_flight', 'completed', 'abandoned')) OR
   (OLD.state = 'interrupted' AND NEW.state IN ('in_flight', 'abandoned')) OR
-  (OLD.state = 'in_flight' AND NEW.state IN ('interrupted', 'completed')) OR
+  (OLD.state = 'in_flight' AND (
+    NEW.state IN ('interrupted', 'completed') OR
+    (NEW.state = 'failed' AND NEW.failure_code = 'not_started' AND
+      NEW.attempt_epoch = OLD.attempt_epoch - 1 AND NEW.started_at IS NULL)
+  )) OR
   (OLD.state = NEW.state AND OLD.attempt_epoch = NEW.attempt_epoch AND
     OLD.failure_code IS NEW.failure_code AND OLD.response_text IS NEW.response_text AND
     OLD.started_at IS NEW.started_at AND OLD.finished_at IS NEW.finished_at)

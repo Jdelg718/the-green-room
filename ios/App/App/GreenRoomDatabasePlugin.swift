@@ -794,6 +794,36 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
+    func failGenerationCommandNotStarted(
+        commandId: String,
+        requestId: String,
+        requestDigest: String,
+        priorAttemptEpoch: Int
+    ) throws {
+        try serializationLock.withLock {
+            guard let database else { return }
+            let statement = try prepare(
+                """
+                UPDATE generation_commands
+                SET state = 'failed', attempt_epoch = ?, started_at = NULL,
+                    failure_code = 'not_started'
+                WHERE command_id = ? AND request_id = ? AND request_digest = ?
+                  AND ((attempt_epoch = ? AND state IN ('prepared', 'failed'))
+                    OR (attempt_epoch = ? + 1 AND state = 'in_flight'))
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([
+                priorAttemptEpoch, commandId, requestId, requestDigest,
+                priorAttemptEpoch, priorAttemptEpoch,
+            ], to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+        }
+    }
+
     func generationCommandIsInFlight(
         commandId: String,
         requestId: String,

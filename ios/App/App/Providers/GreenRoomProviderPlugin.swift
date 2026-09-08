@@ -657,12 +657,10 @@ final class GreenRoomProviderService: @unchecked Sendable {
                             failureCode: failure.code
                         )
                     } else {
-                        _ = try authority.database.executeBatch(
-                            transactionId: "native-not-started-\(command.commandId)-\(attemptEpoch)",
-                            statements: [["sqlId": "fail_generation_command", "parameters": [
-                                "not_started", command.commandId, command.requestId, command.requestDigest,
-                                loaded.attemptEpoch,
-                            ]]]
+                        try authority.database.failGenerationCommandNotStarted(
+                            commandId: command.commandId, requestId: command.requestId,
+                            requestDigest: command.requestDigest,
+                            priorAttemptEpoch: loaded.attemptEpoch
                         )
                     }
                 }
@@ -673,55 +671,18 @@ final class GreenRoomProviderService: @unchecked Sendable {
                 lifecycleEpoch: lifecycleEpoch,
                 start: { [authority, configuration, registry, afterCredentialResolution] remaining in
                     do {
-                        var transport: ProviderTransport?
-                        try authority.credentials.performWithReadyCredential(loaded.reservation.mutationRequest) { credential in
-                            guard let value = String(data: credential, encoding: .utf8), !value.isEmpty,
-                                  value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
-                                throw DatabaseFailure(code: "credential_missing", retryable: true)
-                            }
-                            transport = ProviderTransport(
-                                definition: loaded.definition, configuration: configuration,
-                                authorizationValue: "\(loaded.definition.authorization.scheme) \(value)"
-                            )
-                        }
-                        guard let transport else { throw DatabaseFailure(code: "credential_missing", retryable: true) }
                         try afterCredentialResolution()
-                        let task = try transport.makeTask(payload, timeoutInterval: remaining) { [authority, registry] result in
-                            guard registry.claimCompletion(
-                                requestId: command.requestId, attemptEpoch: attemptEpoch,
-                                lifecycleEpoch: lifecycleEpoch
-                            ) else {
-                                completionGate.finish(.failure(DatabaseFailure(code: "canceled", retryable: true)))
-                                return
-                            }
-                            switch result {
-                            case .failure(let failure):
-                                try? authority.withReconciledDatabase {
-                                    _ = try authority.database.executeBatch(
-                                        transactionId: "native-interrupt-\(command.commandId)-\(attemptEpoch)",
-                                        statements: [["sqlId": "interrupt_generation_command", "parameters": [
-                                            failure.code, command.commandId, command.requestId,
-                                            command.requestDigest, attemptEpoch,
-                                        ]]]
-                                    )
-                                }
-                                completionGate.finish(.failure(failure))
-                            case .success(let text):
-                                let valid = (try? authority.withReconciledDatabase {
-                                    try authority.database.generationCommandIsInFlight(
-                                        commandId: command.commandId, requestId: command.requestId,
-                                        requestDigest: command.requestDigest, attemptEpoch: attemptEpoch
-                                    )
-                                }) == true
-                                completionGate.finish(valid ? .success(text) : .failure(DatabaseFailure(code: "canceled", retryable: true)))
-                            }
-                        }
+                        var taskToCancel: (any ProviderRetainedTask)?
                         let started = try registry.beginNetwork(
-                            task, requestId: command.requestId, attemptEpoch: attemptEpoch,
+                            requestId: command.requestId, attemptEpoch: attemptEpoch,
                             lifecycleEpoch: lifecycleEpoch
                         ) { resume in
                             try authority.withReconciledDatabase {
-                                try authority.credentials.performWithReadyCredential(loaded.reservation.mutationRequest) { _ in
+                                try authority.credentials.performWithReadyCredential(loaded.reservation.mutationRequest) { credential in
+                                    guard let value = String(data: credential, encoding: .utf8), !value.isEmpty,
+                                          value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
+                                        throw DatabaseFailure(code: "credential_missing", retryable: true)
+                                    }
                                     do {
                                         _ = try authority.database.executeBatch(
                                             transactionId: "native-begin-\(command.commandId)-\(attemptEpoch)",
@@ -734,11 +695,52 @@ final class GreenRoomProviderService: @unchecked Sendable {
                                     } catch let failure as DatabaseFailure where failure.code == "transaction_rejected" {
                                         throw DatabaseFailure(code: "canceled", retryable: false)
                                     }
-                                    resume()
+                                    let transport = ProviderTransport(
+                                        definition: loaded.definition, configuration: configuration,
+                                        authorizationValue: "\(loaded.definition.authorization.scheme) \(value)"
+                                    )
+                                    let task = try transport.makeTask(payload, timeoutInterval: remaining) { [authority, registry] result in
+                                        guard registry.claimCompletion(
+                                            requestId: command.requestId, attemptEpoch: attemptEpoch,
+                                            lifecycleEpoch: lifecycleEpoch
+                                        ) else {
+                                            completionGate.finish(.failure(DatabaseFailure(code: "canceled", retryable: true)))
+                                            return
+                                        }
+                                        switch result {
+                                        case .failure(let failure):
+                                            try? authority.withReconciledDatabase {
+                                                _ = try authority.database.executeBatch(
+                                                    transactionId: "native-interrupt-\(command.commandId)-\(attemptEpoch)",
+                                                    statements: [["sqlId": "interrupt_generation_command", "parameters": [
+                                                        failure.code, command.commandId, command.requestId,
+                                                        command.requestDigest, attemptEpoch,
+                                                    ]]]
+                                                )
+                                            }
+                                            completionGate.finish(.failure(failure))
+                                        case .success(let text):
+                                            let valid = (try? authority.withReconciledDatabase {
+                                                try authority.database.generationCommandIsInFlight(
+                                                    commandId: command.commandId, requestId: command.requestId,
+                                                    requestDigest: command.requestDigest, attemptEpoch: attemptEpoch
+                                                )
+                                            }) == true
+                                            completionGate.finish(valid ? .success(text) : .failure(DatabaseFailure(code: "canceled", retryable: true)))
+                                        }
+                                    }
+                                    taskToCancel = task
+                                    if !resume(task) {
+                                        try authority.database.failGenerationCommandNotStarted(
+                                            commandId: command.commandId, requestId: command.requestId,
+                                            requestDigest: command.requestDigest,
+                                            priorAttemptEpoch: loaded.attemptEpoch
+                                        )
+                                    }
                                 }
                             }
                         }
-                        if !started { task.cancel() }
+                        if !started { taskToCancel?.cancel() }
                     } catch let failure as DatabaseFailure {
                         registry.failBeforeStart(requestId: command.requestId, failure: failure)
                     } catch {
@@ -801,27 +803,10 @@ final class GreenRoomProviderService: @unchecked Sendable {
                 requestId: operationId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch,
                 start: { [authority, configuration, registry, afterCredentialResolution] remaining in
                     do {
-                        var transport: ProviderTransport?
-                        try authority.credentials.performWithReadyCredential(reservation.mutationRequest) { credential in
-                            guard let value = String(data: credential, encoding: .utf8), !value.isEmpty,
-                                  value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
-                                throw DatabaseFailure(code: "credential_missing", retryable: true)
-                            }
-                            transport = ProviderTransport(
-                                definition: definition, configuration: configuration,
-                                authorizationValue: "\(definition.authorization.scheme) \(value)"
-                            )
-                        }
-                        guard let transport else { throw DatabaseFailure(code: "credential_missing", retryable: true) }
                         try afterCredentialResolution()
-                        let task = try transport.makeListModelsTask(timeoutInterval: remaining) { [registry] result in
-                            guard registry.claimCompletion(
-                                requestId: operationId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch
-                            ) else { return }
-                            completionGate.finish(result)
-                        }
+                        var taskToCancel: (any ProviderRetainedTask)?
                         let started = try registry.beginNetwork(
-                            task, requestId: operationId, attemptEpoch: 1,
+                            requestId: operationId, attemptEpoch: 1,
                             lifecycleEpoch: lifecycleEpoch
                         ) { resume in
                             try authority.withReconciledDatabase(unavailableCode: "credential_unavailable") {
@@ -832,12 +817,27 @@ final class GreenRoomProviderService: @unchecked Sendable {
                                 guard current.mutationId == reservation.mutationId else {
                                     throw DatabaseFailure(code: "credential_missing", retryable: true)
                                 }
-                                try authority.credentials.performWithReadyCredential(current.mutationRequest) { _ in
-                                    resume()
+                                try authority.credentials.performWithReadyCredential(current.mutationRequest) { credential in
+                                    guard let value = String(data: credential, encoding: .utf8), !value.isEmpty,
+                                          value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
+                                        throw DatabaseFailure(code: "credential_missing", retryable: true)
+                                    }
+                                    let transport = ProviderTransport(
+                                        definition: definition, configuration: configuration,
+                                        authorizationValue: "\(definition.authorization.scheme) \(value)"
+                                    )
+                                    let task = try transport.makeListModelsTask(timeoutInterval: remaining) { [registry] result in
+                                        guard registry.claimCompletion(
+                                            requestId: operationId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch
+                                        ) else { return }
+                                        completionGate.finish(result)
+                                    }
+                                    taskToCancel = task
+                                    _ = resume(task)
                                 }
                             }
                         }
-                        if !started { task.cancel() }
+                        if !started { taskToCancel?.cancel() }
                     } catch let failure as DatabaseFailure {
                         registry.failBeforeStart(requestId: operationId, failure: failure)
                     } catch {
@@ -1023,11 +1023,10 @@ final class ProviderTaskRegistry: @unchecked Sendable {
     }
 
     func beginNetwork(
-        _ task: any ProviderRetainedTask,
         requestId: String,
         attemptEpoch: Int,
         lifecycleEpoch expected: Int,
-        withAuthority: (_ resume: () -> Void) throws -> Void
+        withAuthority: (_ resume: (any ProviderRetainedTask) -> Bool) throws -> Void
     ) throws -> Bool {
         let result = try lock.withLock { () -> (started: Bool, expired: Entry?, promotion: PromotionResult) in
             guard available, lifecycleEpoch == expected, var entry = tasks[requestId],
@@ -1037,28 +1036,28 @@ final class ProviderTaskRegistry: @unchecked Sendable {
             }
             var resumed = false
             var expiredWhileAuthorizing = false
-            try withAuthority {
+            try withAuthority { task in
                 guard now() < entry.deadline else {
                     expiredWhileAuthorizing = true
-                    return
+                    return false
                 }
                 entry.task = task
                 entry.started = true
                 tasks[requestId] = entry
                 task.resume()
                 resumed = true
+                return true
             }
             if expiredWhileAuthorizing {
                 tasks.removeValue(forKey: requestId)
                 entry.timer.cancel()
-                entry.started = true
                 return (false, entry, promoteLocked())
             }
             guard resumed else { throw DatabaseFailure(code: "internal_failure", retryable: false) }
             return (true, nil, ([], []))
         }
         let timeout = DatabaseFailure(code: "timeout", retryable: true)
-        if let expired = result.expired { expired.cancellation(true, timeout) }
+        if let expired = result.expired { expired.cancellation(false, timeout) }
         result.promotion.expired.forEach { entry in
             entry.task?.cancel()
             entry.cancellation(entry.started, timeout)

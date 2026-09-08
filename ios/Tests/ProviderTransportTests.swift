@@ -494,9 +494,18 @@ func runProviderTransportTests() throws {
                 ],
             ]])
         }
+        var deadlineClockReads = 0
+        let serviceRegistry = ProviderTaskRegistry(
+            maximumConcurrent: 1, maximumQueued: 1,
+            totalDeadline: mutation == "deadline" ? 60 : providerTotalDeadline,
+            now: {
+                deadlineClockReads += 1
+                return mutation == "deadline" && deadlineClockReads >= 4 ? 2_060 : 2_000
+            }
+        )
         let service = GreenRoomProviderService(
             authority: fencedAuthority, configuration: configuration,
-            registry: ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1),
+            registry: serviceRegistry,
             afterCredentialResolution: {
                 switch mutation {
                 case "credential":
@@ -539,16 +548,33 @@ func runProviderTransportTests() throws {
                         ["sqlId": "create_room", "parameters": [otherRoomId, "Other room"]],
                         ["sqlId": "select_room", "parameters": [otherRoomId]],
                     ])
+                case "credential-bytes":
+                    var replacement = Data("replacement-test-value".utf8)
+                    try fencedStore.write(
+                        credentialRef: mutationRequest.credentialRef, secret: &replacement,
+                        metadata: CredentialMetadata(reservation: try fencedDatabase.credentialReservation(
+                            profileId: mutationRequest.profileId, profileRevision: mutationRequest.profileRevision,
+                            providerId: mutationRequest.providerId, credentialRef: mutationRequest.credentialRef
+                        )!)
+                    )
+                    replacement.resetBytes(in: 0..<replacement.count)
+                case "deadline":
+                    break
                 default:
                     fatalError("unknown authority mutation")
                 }
             }
         )
         ProviderURLProtocolStub.install(.response(
-            status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
+            status: 200, headers: ["Content-Type": "application/json"], chunks: [
+                listModels && mutation == "credential-bytes"
+                    ? Data("{\"data\":[{\"id\":\"fresh-model\"}]}".utf8)
+                    : successBody
+            ]
         ))
         let semaphore = DispatchSemaphore(value: 0)
         var failureCode: String?
+        var succeeded = false
         if listModels {
             service.listModels(
                 ProviderListModelsPayload(
@@ -558,6 +584,7 @@ func runProviderTransportTests() throws {
                 operationId: "10000000-0000-4000-8000-000000000006"
             ) { result in
                 if case .failure(let failure) = result { failureCode = failure.code }
+                if case .success = result { succeeded = true }
                 semaphore.signal()
             }
         } else {
@@ -565,15 +592,28 @@ func runProviderTransportTests() throws {
                 requestId: requestId, commandId: commandId, requestDigest: fencedDigest
             )) { result in
                 if case .failure(let failure) = result { failureCode = failure.code }
+                if case .success = result { succeeded = true }
                 semaphore.signal()
             }
         }
         providerTestRequire(semaphore.wait(timeout: .now() + 2) == .success, "\(mutation) fence did not resolve")
+        if mutation == "credential-bytes" {
+            providerTestRequire(succeeded, "\(listModels ? "listModels" : "generate") rejected replacement credential bytes")
+            providerTestRequire(
+                ProviderURLProtocolStub.capturedRequests.count == 1 &&
+                    ProviderURLProtocolStub.capturedRequests[0].value(forHTTPHeaderField: "Authorization") ==
+                        "Bearer replacement-test-value",
+                "\(listModels ? "listModels" : "generate") used stale credential bytes"
+            )
+            return
+        }
         let expectedCode: String
         if mutation == "profile" && !listModels {
             expectedCode = "credential_unavailable"
         } else if mutation == "credential" || listModels {
             expectedCode = "credential_missing"
+        } else if mutation == "deadline" {
+            expectedCode = "timeout"
         } else {
             expectedCode = "canceled"
         }
@@ -583,9 +623,14 @@ func runProviderTransportTests() throws {
             let unresolved = (try fencedDatabase.query(
                 sqlId: "unresolved_generation_command", parameters: [roomId]
             ))["rows"] as? [[Any]]
+            let unresolvedJSON = unresolved?.first?.first as? String ?? ""
             providerTestRequire(
-                (unresolved?.first?.first as? String)?.contains("\"state\":\"failed\"") == true,
-                "\(mutation) fence did not durably close the unstarted command"
+                unresolvedJSON.contains("\"state\":\"failed\"") &&
+                    (mutation != "deadline" || (
+                        unresolvedJSON.contains("\"failureCode\":\"not_started\"") &&
+                        !unresolvedJSON.contains("\"state\":\"interrupted\"")
+                    )),
+                "\(mutation) fence did not durably close the unstarted command: \(unresolvedJSON)"
             )
         }
     }
@@ -597,6 +642,9 @@ func runProviderTransportTests() throws {
     try exerciseFinalAuthorityFence("credential", listModels: true)
     try exerciseFinalAuthorityFence("selection", listModels: true)
     try exerciseFinalAuthorityFence("profile", listModels: true)
+    try exerciseFinalAuthorityFence("credential-bytes")
+    try exerciseFinalAuthorityFence("credential-bytes", listModels: true)
+    try exerciseFinalAuthorityFence("deadline")
 
     ProviderURLProtocolStub.install(.response(
         status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
@@ -681,8 +729,8 @@ func runProviderTransportTests() throws {
         start: { _ in
             activeStarts += 1
             _ = try! capacityRegistry.beginNetwork(
-                activeTask, requestId: "80000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: capacityEpoch, withAuthority: { $0() }
+                requestId: "80000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: capacityEpoch, withAuthority: { _ = $0(activeTask) }
             )
         },
         cancellation: { _, _ in }
@@ -724,8 +772,8 @@ func runProviderTransportTests() throws {
                 let task = ProviderRetainedTaskStub()
                 productionTasks[index] = task
                 _ = try! productionRegistry.beginNetwork(
-                    task, requestId: productionRequestIds[index], attemptEpoch: 1,
-                    lifecycleEpoch: productionEpoch, withAuthority: { $0() }
+                    requestId: productionRequestIds[index], attemptEpoch: 1,
+                    lifecycleEpoch: productionEpoch, withAuthority: { _ = $0(task) }
                 )
             },
             cancellation: { _, _ in }
@@ -797,8 +845,8 @@ func runProviderTransportTests() throws {
         lifecycleEpoch: deadlineEpoch,
         start: { _ in
             _ = try! deadlineRegistry.beginNetwork(
-                deadlineBlocker, requestId: "81000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: deadlineEpoch, withAuthority: { $0() }
+                requestId: "81000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: deadlineEpoch, withAuthority: { _ = $0(deadlineBlocker) }
             )
         }, cancellation: { _, _ in }
     )
@@ -848,12 +896,12 @@ func runProviderTransportTests() throws {
         cancellation: { _, _ in }
     ) == .queued, "deadline-boundary follower was not queued")
     let beforeResumeStarted = try beforeResumeRegistry.beginNetwork(
-        beforeResumeTask, requestId: beforeResumeRequest, attemptEpoch: 1,
+        requestId: beforeResumeRequest, attemptEpoch: 1,
         lifecycleEpoch: beforeResumeEpoch
     ) { resume in
         // Models the synchronous begin_generation_command transaction crossing the exact deadline.
         beforeResumeUptime = 2_060
-        resume()
+        _ = resume(beforeResumeTask)
     }
     if !beforeResumeStarted { beforeResumeTask.cancel() }
     providerTestRequire(
@@ -861,8 +909,8 @@ func runProviderTransportTests() throws {
         "task resumed or leaked after beforeResume crossed the monotonic deadline"
     )
     providerTestRequire(
-        beforeResumeActiveStarted == true && beforeResumeFailure == "timeout" && beforeResumeQueuedStarts == 1,
-        "post-transaction deadline did not interrupt durable state and promote the FIFO follower"
+        beforeResumeActiveStarted == false && beforeResumeFailure == "timeout" && beforeResumeQueuedStarts == 1,
+        "post-transaction deadline did not classify the unresumed task as not started and promote the FIFO follower"
     )
     providerTestRequire(
         !beforeResumeRegistry.cancel(requestId: beforeResumeRequest),
@@ -886,8 +934,8 @@ func runProviderTransportTests() throws {
         start: { _ in
             guard let task = lateTask else { fatalError("credential-bearing task released before start") }
             _ = try! lateRegistry.beginNetwork(
-                task, requestId: "81100000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: lateEpoch, withAuthority: { $0() }
+                requestId: "81100000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: lateEpoch, withAuthority: { _ = $0(task) }
             )
         },
         cancellation: { started, failure in
@@ -970,8 +1018,8 @@ func runProviderTransportTests() throws {
         lifecycleEpoch: cancellationEpoch,
         start: { _ in
             _ = try! cancellationRegistry.beginNetwork(
-                cancellationBlocker, requestId: "82900000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: cancellationEpoch, withAuthority: { $0() }
+                requestId: "82900000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: cancellationEpoch, withAuthority: { _ = $0(cancellationBlocker) }
             )
         }, cancellation: { _, _ in }
     )
@@ -1005,8 +1053,8 @@ func runProviderTransportTests() throws {
         lifecycleEpoch: sqliteEpoch,
         start: { _ in
             _ = try! sqliteRegistry.beginNetwork(
-                sqliteBlocker, requestId: "83000000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: sqliteEpoch, withAuthority: { $0() }
+                requestId: "83000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: sqliteEpoch, withAuthority: { _ = $0(sqliteBlocker) }
             )
         }, cancellation: { _, _ in }
     )
@@ -1095,8 +1143,8 @@ func runProviderTransportTests() throws {
         lifecycleEpoch: duplicateEpoch,
         start: { _ in
             _ = try! duplicateRegistry.beginNetwork(
-                duplicateBlocker, requestId: "84900000-0000-4000-8000-000000000001",
-                attemptEpoch: 1, lifecycleEpoch: duplicateEpoch, withAuthority: { $0() }
+                requestId: "84900000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: duplicateEpoch, withAuthority: { _ = $0(duplicateBlocker) }
             )
         }, cancellation: { _, _ in }
     )
