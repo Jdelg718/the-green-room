@@ -162,6 +162,28 @@ func runProviderTransportTests() throws {
     }
     let request = ProviderURLProtocolStub.capturedRequests.single!
     providerTestRequire(request.url?.host == definition.hostname && request.url?.path == definition.chatPath, "unpinned destination")
+
+    ProviderURLProtocolStub.install(.response(
+        status: 200, headers: ["Content-Type": "application/json"],
+        chunks: [Data("{\"data\":[{\"id\":\"openai/gpt-4.1-mini\"},{\"id\":\"anthropic/claude-sonnet-4\"}]}".utf8)]
+    ))
+    let modelSemaphore = DispatchSemaphore(value: 0)
+    var modelResult: Result<[String], DatabaseFailure>?
+    let modelTask = try transport.makeListModelsTask(timeoutInterval: 1) { result in
+        modelResult = result
+        modelSemaphore.signal()
+    }
+    modelTask.resume()
+    providerTestRequire(modelSemaphore.wait(timeout: .now() + 1) == .success, "model list transport timed out")
+    if case .success(let ids) = modelResult {
+        providerTestRequire(ids == ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4"], "model IDs changed")
+    } else { fatalError("valid model list failed") }
+    let modelRequest = ProviderURLProtocolStub.capturedRequests.single!
+    providerTestRequire(modelRequest.httpMethod == "GET" && modelRequest.url?.path == definition.modelsPath,
+                        "model listing did not use the fixed GET endpoint")
+    providerTestRequire(modelRequest.value(forHTTPHeaderField: "Authorization") == "Bearer native-test-value",
+                        "model listing authorization changed")
+
     let body = try JSONSerialization.jsonObject(with: transport.requestBody(payload)) as! [String: Any]
     providerTestRequire(body[definition.outputTokenField] as? Int == 300, "provider token field mismatch")
     providerTestRequire(body["max_completion_tokens"] == nil, "wrong token field leaked into OpenRouter request")
@@ -238,12 +260,63 @@ func runProviderTransportTests() throws {
         .appendingPathComponent("contracts/iphone-alpha-native-bridge-v1/fixtures/provider-lifecycle.json")
     let providerFixture = try JSONSerialization.jsonObject(with: Data(contentsOf: providerFixtureURL)) as! [String: Any]
     let providerFixtureCalls = providerFixture["calls"] as! [[String: Any]]
-    let providerFixtureData = try providerFixtureCalls.map {
-        try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
+    let providerFixtureResults = providerFixture["results"] as! [[String: Any]]
+    let methods = ["provider.generate", "provider.cancel", "lifecycle.status", "provider.listModels"]
+    let kinds: [ProviderResponseKind] = [.generate, .cancel, .lifecycle, .listModels]
+    func dispatch(_ method: String, _ value: [String: Any]) throws {
+        switch method {
+        case "provider.generate": _ = try ProviderBridgeDispatch.generate(value)
+        case "provider.cancel": _ = try ProviderBridgeDispatch.cancel(value)
+        case "lifecycle.status": _ = try ProviderBridgeDispatch.lifecycleStatus(value)
+        case "provider.listModels": _ = try ProviderBridgeDispatch.listModels(value)
+        default: fatalError("unknown fixture method")
+        }
     }
-    providerTestRequire(try ProviderBridgeCodec.decodeGenerate(providerFixtureData[0]).payload == command, "Swift generate fixture codec mismatch")
-    providerTestRequire(try ProviderBridgeCodec.decodeCancel(providerFixtureData[1]).payload.requestId == command.requestId, "Swift cancel fixture codec mismatch")
-    providerTestRequire(try ProviderBridgeCodec.decodeLifecycleStatus(providerFixtureData[2]).method == "lifecycle.status", "Swift lifecycle fixture codec mismatch")
+    func materialize(_ value: Any) -> Any {
+        if let string = value as? String, string == "$repeat:262145" { return String(repeating: "x", count: 262_145) }
+        if let array = value as? [Any] { return array.map(materialize) }
+        if let object = value as? [String: Any] { return object.mapValues(materialize) }
+        return value
+    }
+    for index in methods.indices {
+        try dispatch(methods[index], providerFixtureCalls[index])
+        let encodedResult = try JSONSerialization.data(withJSONObject: providerFixtureResults[index], options: [.sortedKeys])
+        _ = try ProviderBridgeCodec.decodeResponse(
+            encodedResult, callId: providerFixtureCalls[index]["callId"] as! String, kind: kinds[index]
+        )
+    }
+    let invalidCalls = providerFixture["invalidCalls"] as! [String: [[String: Any]]]
+    for (method, cases) in invalidCalls {
+        for fixtureCase in cases {
+            do {
+                if let value = materialize(fixtureCase["value"] as Any) as? [String: Any] {
+                    try dispatch(method, value)
+                } else {
+                    try dispatch(method, [:])
+                }
+                fatalError("Swift production dispatch accepted \(method)/\(fixtureCase["case"]!)")
+            } catch let failure as DatabaseFailure {
+                providerTestRequire(failure.code == fixtureCase["expectedCode"] as? String,
+                                    "Swift fixture failure code mismatch")
+            }
+        }
+    }
+    let failureResults = providerFixture["failureResults"] as! [String: [[String: Any]]]
+    for (index, method) in methods.enumerated() {
+        let callId = providerFixtureCalls[index]["callId"] as! String
+        for response in failureResults[method]! {
+            let encoded = try JSONSerialization.data(withJSONObject: response, options: [.sortedKeys])
+            _ = try ProviderBridgeCodec.decodeResponse(encoded, callId: callId, kind: kinds[index])
+            let error = response["error"] as! [String: Any]
+            let dispatched = ProviderBridgeDispatch.failure(callId: callId, failure: DatabaseFailure(
+                code: error["code"] as! String, retryable: error["retryable"] as! Bool
+            ))
+            providerTestRequire(NSDictionary(dictionary: dispatched).isEqual(to: response),
+                                "production failure dispatch changed \(method)/\(error["code"]!)")
+        }
+    }
+    providerTestRequire(try ProviderBridgeDispatch.generate(providerFixtureCalls[0]).payload == command,
+                        "Swift generate fixture dispatch mismatch")
 
     func planData(model: String) throws -> Data {
         var plan = try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as! [String: Any]
@@ -407,100 +480,133 @@ func runProviderTransportTests() throws {
     providerTestRequire((failedCommand?.first?.first as? String)?.contains("\"state\":\"failed\"") == true, "native pre-request failure was not marked failed")
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "native pre-request failure reached network")
 
-    let capacityRegistry = ProviderTaskRegistry()
+    let capacityRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
     let capacityEpoch = capacityRegistry.lifecycleSnapshot()!
-    let retained = (0..<(providerMaximumConcurrentRequests + providerMaximumQueuedRequests + 1)).map { _ in
-        ProviderRetainedTaskStub()
-    }
-    let requestIds = retained.indices.map {
-        String(format: "80000000-0000-4000-8000-%012d", $0 + 1)
-    }
-    for index in retained.indices {
-        let admission = capacityRegistry.install(
-            retained[index], requestId: requestIds[index], attemptEpoch: 1, lifecycleEpoch: capacityEpoch
-        )
-        if index < providerMaximumConcurrentRequests {
-            providerTestRequire(admission == .active, "provider active capacity changed")
-        } else if index < providerMaximumConcurrentRequests + providerMaximumQueuedRequests {
-            providerTestRequire(admission == .queued, "provider queue capacity changed")
-        } else {
-            providerTestRequire(admission == .capacityRejected, "provider overflow was not capacity_rejected")
-        }
-    }
-    providerTestRequire(
-        capacityRegistry.install(
-            ProviderRetainedTaskStub(), requestId: requestIds[0], attemptEpoch: 1, lifecycleEpoch: capacityEpoch
-        ) == .unavailableOrDuplicate,
-        "duplicate provider request ID was not rejected"
-    )
-    for index in 0..<(providerMaximumConcurrentRequests + providerMaximumQueuedRequests) {
-        providerTestRequire(
-            capacityRegistry.start(requestId: requestIds[index], attemptEpoch: 1, lifecycleEpoch: capacityEpoch),
-            "admitted provider task could not be armed"
-        )
-    }
-    providerTestRequire(
-        retained.prefix(providerMaximumConcurrentRequests).allSatisfy { $0.resumeCount == 1 },
-        "active provider requests did not start exactly once"
-    )
-    providerTestRequire(
-        retained.dropFirst(providerMaximumConcurrentRequests).allSatisfy { $0.resumeCount == 0 },
-        "queued or rejected provider request started early"
-    )
-    providerTestRequire(
-        capacityRegistry.claimCompletion(requestId: requestIds[0], attemptEpoch: 1, lifecycleEpoch: capacityEpoch),
-        "active provider completion did not win"
-    )
-    providerTestRequire(
-        retained[providerMaximumConcurrentRequests].resumeCount == 1,
-        "first queued provider request was not promoted"
-    )
-    providerTestRequire(
-        capacityRegistry.cancel(requestId: requestIds[1]) == 1,
-        "active provider cancellation lost its attempt"
-    )
-    providerTestRequire(retained[1].cancelCount == 1, "active provider cancellation did not cancel task")
-    providerTestRequire(
-        retained[providerMaximumConcurrentRequests + 1].resumeCount == 1,
-        "second queued provider request was not promoted"
-    )
-    capacityRegistry.cancelAllAndFence()
-    providerTestRequire(capacityRegistry.lifecycleSnapshot() == nil, "capacity registry did not fence lifecycle")
-    providerTestRequire(
-        retained.dropLast().allSatisfy { $0.resumeCount <= 1 && $0.cancelCount <= 1 },
-        "provider capacity lifecycle resumed or canceled a task twice"
-    )
+    let activeTask = ProviderRetainedTaskStub()
+    var activeStarts = 0
+    providerTestRequire(capacityRegistry.install(
+        requestId: "80000000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: capacityEpoch,
+        start: { _ in
+            activeStarts += 1
+            _ = try! capacityRegistry.beginNetwork(
+                activeTask, requestId: "80000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: capacityEpoch, beforeResume: {}
+            )
+        },
+        cancellation: { _, _ in }
+    ) == .active, "first provider operation was not active")
+    var queuedStarts = 0
+    var queuedStartedAtCancellation: Bool?
+    providerTestRequire(capacityRegistry.install(
+        requestId: "80000000-0000-4000-8000-000000000002", attemptEpoch: 1,
+        lifecycleEpoch: capacityEpoch,
+        start: { _ in queuedStarts += 1 },
+        cancellation: { started, _ in queuedStartedAtCancellation = started }
+    ) == .queued, "second provider operation was not queued")
+    providerTestRequire(capacityRegistry.install(
+        requestId: "80000000-0000-4000-8000-000000000003", attemptEpoch: 1,
+        lifecycleEpoch: capacityEpoch, start: { _ in }, cancellation: { _, _ in }
+    ) == .capacityRejected, "provider overflow was not capacity_rejected")
+    providerTestRequire(activeStarts == 1 && activeTask.resumeCount == 1 && queuedStarts == 0,
+                        "queued operation resolved credentials or created/resumed a task")
+    providerTestRequire(capacityRegistry.cancel(requestId: "80000000-0000-4000-8000-000000000002"),
+                        "queued cancellation was not reported")
+    providerTestRequire(queuedStartedAtCancellation == false && queuedStarts == 0,
+                        "queued cancellation was classified as started")
 
-    let registry = ProviderTaskRegistry()
-    let lifecycleEpoch = registry.lifecycleSnapshot()!
-    let suspended = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
-    providerTestRequire(
-        registry.install(suspended, requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch) == .active,
-        "lifecycle registry did not retain a suspended task before start"
+    let deadlineRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1, totalDeadline: 0.05)
+    let deadlineEpoch = deadlineRegistry.lifecycleSnapshot()!
+    let deadlineBlocker = ProviderRetainedTaskStub()
+    _ = deadlineRegistry.install(
+        requestId: "81000000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: deadlineEpoch,
+        start: { _ in
+            _ = try! deadlineRegistry.beginNetwork(
+                deadlineBlocker, requestId: "81000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: deadlineEpoch, beforeResume: {}
+            )
+        }, cancellation: { _, _ in }
     )
-    registry.cancelAllAndFence()
-    providerTestRequire(registry.lifecycleSnapshot() == nil, "background fence still accepted provider starts")
-    providerTestRequire(
-        !registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 1, lifecycleEpoch: lifecycleEpoch),
-        "late callback won after lifecycle cancellation"
+    let deadlineExpired = DispatchSemaphore(value: 0)
+    var deadlineQueuedStarts = 0
+    var deadlineFailure: String?
+    _ = deadlineRegistry.install(
+        requestId: "81000000-0000-4000-8000-000000000002", attemptEpoch: 1,
+        lifecycleEpoch: deadlineEpoch,
+        start: { _ in deadlineQueuedStarts += 1 },
+        cancellation: { started, failure in
+            providerTestRequire(!started, "expired queued operation was classified as started")
+            deadlineFailure = failure.code
+            deadlineExpired.signal()
+        }
     )
-    registry.updateLifecycleAvailability(true)
-    let activatedEpoch = registry.lifecycleSnapshot()!
-    providerTestRequire(activatedEpoch > lifecycleEpoch, "activation did not advance the lifecycle epoch")
-    let replacement = URLSession.shared.dataTask(with: URL(string: "https://127.0.0.1/never-started")!)
-    providerTestRequire(
-        registry.install(replacement, requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch) == .active,
-        "activation did not permit an explicit new attempt"
+    providerTestRequire(deadlineExpired.wait(timeout: .now() + 1) == .success,
+                        "queued provider total deadline did not expire")
+    providerTestRequire(deadlineFailure == "timeout" && deadlineQueuedStarts == 0,
+                        "queued deadline created a task or returned the wrong failure")
+    deadlineRegistry.cancelAllAndFence()
+
+    _ = try database.executeBatch(transactionId: "provider-abandon-preflight", statements: [[
+        "sqlId": "abandon_generation_command",
+        "parameters": ["test_abandon", preflightCommand.commandId, preflightCommand.requestId, preflightCommand.requestDigest],
+    ]])
+    let queuedPayload = ProviderGeneratePayload(
+        roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug, messages: payload.messages, model: payload.model,
+        temperature: payload.temperature, maxOutputTokens: payload.maxOutputTokens,
+        profileId: payload.profileId, profileRevision: payload.profileRevision,
+        providerId: payload.providerId,
+        requestId: "82000000-0000-4000-8000-000000000002", kind: "provider"
     )
-    providerTestRequire(
-        registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
-        "valid completion could not win the registry race"
+    let queuedPlanData = try JSONEncoder().encode(queuedPayload)
+    let queuedPlan = String(decoding: queuedPlanData, as: UTF8.self)
+    let queuedDigest = SHA256.hash(data: queuedPlanData).map { String(format: "%02x", $0) }.joined()
+    let queuedCommand = ProviderCommandPayload(
+        requestId: queuedPayload.requestId,
+        commandId: "82000000-0000-4000-8000-000000000003", requestDigest: queuedDigest
     )
-    providerTestRequire(
-        !registry.claimCompletion(requestId: exactCommand.requestId, attemptEpoch: 2, lifecycleEpoch: activatedEpoch),
-        "duplicate callback won the registry race twice"
+    _ = try database.executeBatch(transactionId: "provider-queued-command", statements: [[
+        "sqlId": "prepare_generation_command",
+        "parameters": [
+            queuedCommand.commandId, queuedCommand.requestId, queuedDigest, queuedPlan,
+            "{\"participantId\":\"human-1\",\"text\":\"queued\",\"type\":\"human_message\"}",
+            "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
+            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
+            payload.personaSlug, queuedPlan, payload.personaSlug, queuedPlan,
+            queuedPlan, queuedPlan, queuedPlan, queuedPlan,
+        ],
+    ]])
+    let sqliteRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
+    let sqliteEpoch = sqliteRegistry.lifecycleSnapshot()!
+    let sqliteBlocker = ProviderRetainedTaskStub()
+    _ = sqliteRegistry.install(
+        requestId: "83000000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: sqliteEpoch,
+        start: { _ in
+            _ = try! sqliteRegistry.beginNetwork(
+                sqliteBlocker, requestId: "83000000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: sqliteEpoch, beforeResume: {}
+            )
+        }, cancellation: { _, _ in }
     )
-    replacement.cancel()
+    _ = sqliteRegistry.install(
+        requestId: queuedCommand.requestId, attemptEpoch: 1, lifecycleEpoch: sqliteEpoch,
+        start: { _ in fatalError("queued SQLite operation started before cancellation") },
+        cancellation: { started, _ in
+            providerTestRequire(!started, "queued SQLite operation was classified uncertain")
+            _ = try! database.executeBatch(transactionId: "provider-queued-not-started", statements: [[
+                "sqlId": "fail_generation_command", "parameters": [
+                    "not_started", queuedCommand.commandId, queuedCommand.requestId, queuedCommand.requestDigest, 0,
+                ],
+            ]])
+        }
+    )
+    sqliteRegistry.cancelAllAndFence()
+    let queuedRow = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
+    let queuedJSON = queuedRow?.first?.first as? String ?? ""
+    providerTestRequire(queuedJSON.contains("\"state\":\"failed\"") && queuedJSON.contains("\"failureCode\":\"not_started\""),
+                        "never-started queued lifecycle cancellation was not persisted failed/not_started")
 }
 
 private extension Array {

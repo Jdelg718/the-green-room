@@ -122,17 +122,17 @@ final class GreenRoomLifecyclePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         defer { inFlightCalls.finish(callId) }
         do {
-            let data = try encodedBridgeJSONObject(options, code: "invalid_call")
-            _ = try ProviderBridgeCodec.decodeLifecycleStatus(data)
-            call.resolve([
-                "callId": callId,
-                "ok": true,
-                "value": NativeLifecycleCoordinator.shared.status(application: UIApplication.shared),
-            ])
+            _ = try ProviderBridgeDispatch.lifecycleStatus(options)
+            call.resolve(try ProviderBridgeDispatch.success(
+                callId: callId,
+                value: NativeLifecycleCoordinator.shared.status(application: UIApplication.shared)
+            ))
         } catch let failure as DatabaseFailure {
-            call.resolve(["callId": callId, "ok": false, "error": ["code": failure.code, "retryable": failure.retryable]])
+            call.resolve(ProviderBridgeDispatch.failure(callId: callId, failure: failure))
         } catch {
-            call.resolve(["callId": callId, "ok": false, "error": ["code": "internal_failure", "retryable": false]])
+            call.resolve(ProviderBridgeDispatch.failure(
+                callId: callId, failure: DatabaseFailure(code: "internal_failure", retryable: false)
+            ))
         }
     }
 }

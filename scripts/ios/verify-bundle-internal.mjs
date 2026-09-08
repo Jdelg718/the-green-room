@@ -88,9 +88,9 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Credentials/DeviceCredentialAcceptance.swift", "22288f51f86afc1833961eadc84fc0c1566addd42daf28333879ad33539bbefc"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "5852742480fe0e8231038042c9ab7515ccec2a4859c7cfa704dfecaeb3689b0f"],
-  ["App/NativeLifecycleCoordinator.swift", "5d879f746efb2354702c18d8d045af81c2e8aa529a69a4973cf2736d8552905d"],
+  ["App/NativeLifecycleCoordinator.swift", "57a8d215e48fc74c24af05462e14f58b9d33ed824257d8681959669d834a4035"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "3ff391bd2ce280b8425f2e5bf2b23627ee7ea5fa90d28743835f8655e638721d"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "18656699cc1aaf857f9cf8a305ea134692cf86bf4bb2a609a322e8c21f2d0ddd"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const PRIVACY_KEYS = ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTracking", "NSPrivacyTrackingDomains"];

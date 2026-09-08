@@ -10,6 +10,8 @@ import {
   parseProviderCancelResponse,
   parseProviderGenerateCall,
   parseProviderGenerateResponse,
+  parseProviderListModelsCall,
+  parseProviderListModelsResponse,
 } from "../../packages/core/src/iphone-provider-bridge.js";
 
 const ROOT = process.cwd();
@@ -24,21 +26,56 @@ const REQUEST = {
     requestDigest: "a".repeat(64),
   },
 } as const;
+type FixtureCase = { case: string; value: unknown; expectedCode: string };
 const fixture = JSON.parse(readFileSync(join(
   ROOT, "contracts/iphone-alpha-native-bridge-v1/fixtures/provider-lifecycle.json",
-), "utf8")) as { calls: unknown[]; results: unknown[]; failureCodes: string[] };
+), "utf8")) as {
+  calls: unknown[];
+  results: unknown[];
+  invalidCalls: Record<string, FixtureCase[]>;
+  failureResults: Record<string, unknown[]>;
+};
 
-test("provider and lifecycle fixtures pass TypeScript codecs and cover every sanitized provider failure", () => {
-  assert.deepEqual(parseProviderGenerateCall(fixture.calls[0]), fixture.calls[0]);
-  assert.deepEqual(parseProviderCancelCall(fixture.calls[1]), fixture.calls[1]);
-  assert.deepEqual(parseLifecycleStatusCall(fixture.calls[2]), fixture.calls[2]);
-  assert.deepEqual(parseProviderCancelResponse((fixture.calls[1] as any).callId, fixture.results[1]), fixture.results[1]);
-  assert.deepEqual(parseLifecycleStatusResponse((fixture.calls[2] as any).callId, fixture.results[2]), fixture.results[2]);
-  assert.deepEqual(fixture.failureCodes, [
-    "invalid_call", "incompatible_contract", "credential_unavailable", "credential_missing", "offline",
-    "provider_unreachable", "provider_rejected", "invalid_response", "response_too_large", "timeout",
-    "capacity_rejected", "canceled", "internal_failure",
-  ]);
+function materialize(value: unknown): unknown {
+  if (value === "$repeat:262145") return "x".repeat(262_145);
+  if (Array.isArray(value)) return value.map(materialize);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, materialize(entry)]));
+  }
+  return value;
+}
+
+const callParsers: Record<string, (value: unknown) => unknown> = {
+  "provider.generate": parseProviderGenerateCall,
+  "provider.cancel": parseProviderCancelCall,
+  "lifecycle.status": parseLifecycleStatusCall,
+  "provider.listModels": parseProviderListModelsCall,
+};
+const resultParsers: Record<string, (callId: string, value: unknown) => unknown> = {
+  "provider.generate": parseProviderGenerateResponse,
+  "provider.cancel": parseProviderCancelResponse,
+  "lifecycle.status": parseLifecycleStatusResponse,
+  "provider.listModels": parseProviderListModelsResponse,
+};
+
+test("provider and lifecycle fixtures execute every valid, malformed, oversized, unknown-field, and failure response", () => {
+  for (const [index, call] of fixture.calls.entries()) {
+    const method = (call as { method: string }).method;
+    assert.deepEqual(callParsers[method]?.(call), call, method);
+    const callId = (call as { callId: string }).callId;
+    assert.deepEqual(resultParsers[method]?.(callId, fixture.results[index]), fixture.results[index], method);
+  }
+  for (const [method, cases] of Object.entries(fixture.invalidCalls)) {
+    for (const testCase of cases) {
+      assert.throws(() => callParsers[method]?.(materialize(testCase.value)), new RegExp(testCase.expectedCode, "u"), `${method}/${testCase.case}`);
+    }
+  }
+  for (const [method, responses] of Object.entries(fixture.failureResults)) {
+    const call = fixture.calls.find((candidate) => (candidate as { method: string }).method === method) as { callId: string };
+    for (const response of responses) {
+      assert.deepEqual(resultParsers[method]?.(call.callId, response), response, `${method}/${(response as any).error.code}`);
+    }
+  }
 });
 
 test("provider generate uses the exact closed A2 request and response envelope", () => {
@@ -105,9 +142,9 @@ test("provider bridge retains its call until asynchronous generation resolves", 
 test("provider cancel and lifecycle status share the global duplicate-call-ID guard", () => {
   const provider = readFileSync(join(ROOT, "ios/App/App/Providers/GreenRoomProviderPlugin.swift"), "utf8");
   const lifecycle = readFileSync(join(ROOT, "ios/App/App/NativeLifecycleCoordinator.swift"), "utf8");
-  assert.equal((provider.match(/inFlightCalls\.begin\(callId\)/gu) ?? []).length, 2);
-  assert.match(provider, /@objc func cancel[\s\S]*?defer \{ inFlightCalls\.finish\(callId\) \}[\s\S]*?ProviderBridgeCodec\.decodeCancel/u);
-  assert.match(lifecycle, /@objc func status[\s\S]*?inFlightCalls\.begin\(callId\)[\s\S]*?inFlightCalls\.finish\(callId\)[\s\S]*?ProviderBridgeCodec\.decodeLifecycleStatus/u);
+  assert.equal((provider.match(/inFlightCalls\.begin\(callId\)/gu) ?? []).length, 3);
+  assert.match(provider, /@objc func cancel[\s\S]*?defer \{ inFlightCalls\.finish\(callId\) \}[\s\S]*?ProviderBridgeDispatch\.cancel/u);
+  assert.match(lifecycle, /@objc func status[\s\S]*?inFlightCalls\.begin\(callId\)[\s\S]*?inFlightCalls\.finish\(callId\)[\s\S]*?ProviderBridgeDispatch\.lifecycleStatus/u);
 });
 
 test("provider bridge is registered and compiled exactly once", () => {
@@ -118,8 +155,8 @@ test("provider bridge is registered and compiled exactly once", () => {
   assert.match(plugin, /let jsName = "GreenRoomProvider"/u);
   assert.match(plugin, /CAPPluginMethod\(name: "generate"/u);
   assert.match(plugin, /CAPPluginMethod\(name: "cancel"/u);
-  assert.doesNotMatch(plugin, /CAPPluginMethod\(name: "listModels"/u);
-  assert.match(readFileSync(join(ROOT, "docs/contracts/iphone-alpha-native-bridge.md"), "utf8"), /intentionally does not expose `provider\.listModels`/u);
+  assert.match(plugin, /CAPPluginMethod\(name: "listModels"/u);
+  assert.match(readFileSync(join(ROOT, "docs/contracts/iphone-alpha-native-bridge.md"), "utf8"), /`provider\.listModels`/u);
   assert.equal((controller.match(/registerPluginInstance\(GreenRoomProviderPlugin\(\)\)/gu) ?? []).length, 1);
   assert.equal((project.match(/GreenRoomProviderPlugin\.swift in Sources/gu) ?? []).length, 2);
   assert.equal((runner.match(/ios\/App\/App\/Providers\/GreenRoomProviderPlugin\.swift/gu) ?? []).length, 1);
