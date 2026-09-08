@@ -548,6 +548,89 @@ func runProviderTransportTests() throws {
     providerTestRequire(queuedStartedAtCancellation == false && queuedStarts == 0,
                         "queued cancellation was classified as started")
 
+    let productionRegistry = ProviderTaskRegistry()
+    let productionEpoch = productionRegistry.lifecycleSnapshot()!
+    var productionStartOrder: [Int] = []
+    var productionCredentialUses = Array(repeating: 0, count: 20)
+    var productionTasks = Array<ProviderRetainedTaskStub?>(repeating: nil, count: 20)
+    let productionRequestIds = (0..<21).map {
+        String(format: "80500000-0000-4000-8000-%012d", $0 + 1)
+    }
+    for index in 0..<20 {
+        let admission = productionRegistry.install(
+            requestId: productionRequestIds[index], attemptEpoch: 1,
+            lifecycleEpoch: productionEpoch,
+            start: { _ in
+                productionStartOrder.append(index)
+                productionCredentialUses[index] += 1
+                let task = ProviderRetainedTaskStub()
+                productionTasks[index] = task
+                _ = try! productionRegistry.beginNetwork(
+                    task, requestId: productionRequestIds[index], attemptEpoch: 1,
+                    lifecycleEpoch: productionEpoch, beforeResume: {}
+                )
+            },
+            cancellation: { _, _ in }
+        )
+        providerTestRequire(
+            admission == (index < 4 ? .active : .queued),
+            "production 4+16 admission changed at index \(index)"
+        )
+    }
+    providerTestRequire(productionRegistry.install(
+        requestId: productionRequestIds[20], attemptEpoch: 1,
+        lifecycleEpoch: productionEpoch, start: { _ in }, cancellation: { _, _ in }
+    ) == .capacityRejected, "production 21st provider operation was not rejected")
+    providerTestRequire(productionRegistry.install(
+        requestId: productionRequestIds[19], attemptEpoch: 1,
+        lifecycleEpoch: productionEpoch, start: { _ in }, cancellation: { _, _ in }
+    ) == .duplicate, "duplicate admission was conflated with production capacity")
+    providerTestRequire(
+        productionStartOrder == [0, 1, 2, 3] &&
+            productionCredentialUses[4...19].allSatisfy { $0 == 0 } &&
+            productionTasks[4...19].allSatisfy { $0 == nil },
+        "production queue resolved credentials or created tasks before promotion"
+    )
+    weak let releasedCompletedProductionTask = productionTasks[0]
+    weak let releasedCanceledProductionTask = productionTasks[2]
+    providerTestRequire(productionRegistry.claimCompletion(
+        requestId: productionRequestIds[0], attemptEpoch: 1, lifecycleEpoch: productionEpoch
+    ), "first production active operation could not complete")
+    providerTestRequire(productionRegistry.claimCompletion(
+        requestId: productionRequestIds[1], attemptEpoch: 1, lifecycleEpoch: productionEpoch
+    ), "second production active operation could not complete")
+    providerTestRequire(
+        productionStartOrder == [0, 1, 2, 3, 4, 5] &&
+            productionCredentialUses[4] == 1 && productionCredentialUses[5] == 1 &&
+            productionCredentialUses[6...19].allSatisfy { $0 == 0 },
+        "multiple production queued operations did not promote FIFO"
+    )
+    productionTasks[0] = nil
+    productionTasks[1] = nil
+    providerTestRequire(
+        releasedCompletedProductionTask == nil,
+        "completed production operation retained its credential-bearing task"
+    )
+    productionRegistry.cancelAllAndFence()
+    providerTestRequire(
+        [2, 3, 4, 5].allSatisfy { productionTasks[$0]?.cancelCount == 1 },
+        "production lifecycle cleanup did not cancel every active task exactly once"
+    )
+    providerTestRequire(
+        productionStartOrder == [0, 1, 2, 3, 4, 5] &&
+            productionRequestIds[0..<20].allSatisfy { !productionRegistry.cancel(requestId: $0) },
+        "production lifecycle cleanup retained active or queued registry resources"
+    )
+    providerTestRequire(productionRegistry.install(
+        requestId: productionRequestIds[20], attemptEpoch: 1,
+        lifecycleEpoch: productionEpoch, start: { _ in }, cancellation: { _, _ in }
+    ) == .lifecycleUnavailable, "lifecycle-unavailable admission was conflated with duplicate work")
+    for index in productionTasks.indices { productionTasks[index] = nil }
+    providerTestRequire(
+        releasedCanceledProductionTask == nil,
+        "production lifecycle cleanup retained a credential-bearing task"
+    )
+
     let deadlineRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1, totalDeadline: 0.05)
     let deadlineEpoch = deadlineRegistry.lifecycleSnapshot()!
     let deadlineBlocker = ProviderRetainedTaskStub()
@@ -579,6 +662,54 @@ func runProviderTransportTests() throws {
     providerTestRequire(deadlineFailure == "timeout" && deadlineQueuedStarts == 0,
                         "queued deadline created a task or returned the wrong failure")
     deadlineRegistry.cancelAllAndFence()
+
+    var beforeResumeUptime: TimeInterval = 2_000
+    let beforeResumeRegistry = ProviderTaskRegistry(
+        maximumConcurrent: 1, maximumQueued: 1, totalDeadline: 60,
+        now: { beforeResumeUptime }
+    )
+    let beforeResumeEpoch = beforeResumeRegistry.lifecycleSnapshot()!
+    let beforeResumeTask = ProviderRetainedTaskStub()
+    var beforeResumeActiveStarted: Bool?
+    var beforeResumeFailure: String?
+    var beforeResumeQueuedStarts = 0
+    let beforeResumeRequest = "81000000-0000-4000-8000-000000000003"
+    providerTestRequire(beforeResumeRegistry.install(
+        requestId: beforeResumeRequest, attemptEpoch: 1, lifecycleEpoch: beforeResumeEpoch,
+        start: { _ in },
+        cancellation: { started, failure in
+            beforeResumeActiveStarted = started
+            beforeResumeFailure = failure.code
+        }
+    ) == .active, "deadline-boundary operation was not admitted active")
+    beforeResumeUptime = 2_001
+    providerTestRequire(beforeResumeRegistry.install(
+        requestId: "81000000-0000-4000-8000-000000000004", attemptEpoch: 1,
+        lifecycleEpoch: beforeResumeEpoch,
+        start: { _ in beforeResumeQueuedStarts += 1 },
+        cancellation: { _, _ in }
+    ) == .queued, "deadline-boundary follower was not queued")
+    let beforeResumeStarted = try beforeResumeRegistry.beginNetwork(
+        beforeResumeTask, requestId: beforeResumeRequest, attemptEpoch: 1,
+        lifecycleEpoch: beforeResumeEpoch
+    ) {
+        // Models the synchronous begin_generation_command transaction crossing the exact deadline.
+        beforeResumeUptime = 2_060
+    }
+    if !beforeResumeStarted { beforeResumeTask.cancel() }
+    providerTestRequire(
+        !beforeResumeStarted && beforeResumeTask.resumeCount == 0 && beforeResumeTask.cancelCount == 1,
+        "task resumed or leaked after beforeResume crossed the monotonic deadline"
+    )
+    providerTestRequire(
+        beforeResumeActiveStarted == true && beforeResumeFailure == "timeout" && beforeResumeQueuedStarts == 1,
+        "post-transaction deadline did not interrupt durable state and promote the FIFO follower"
+    )
+    providerTestRequire(
+        !beforeResumeRegistry.cancel(requestId: beforeResumeRequest),
+        "post-transaction deadline left the expired operation registered"
+    )
+    beforeResumeRegistry.cancelAllAndFence()
 
     var controlledUptime: TimeInterval = 1_000
     var controlledWallClock: TimeInterval = 5_000
@@ -769,6 +900,110 @@ func runProviderTransportTests() throws {
     providerTestRequire(
         !sqliteRegistry.cancel(requestId: queuedCommand.requestId),
         "abandoned queued generation remained registered"
+    )
+
+    let duplicatePayload = ProviderGeneratePayload(
+        roomId: payload.roomId, sourceEventSequence: payload.sourceEventSequence,
+        personaSlug: payload.personaSlug, messages: payload.messages, model: payload.model,
+        temperature: payload.temperature, maxOutputTokens: payload.maxOutputTokens,
+        profileId: payload.profileId, profileRevision: payload.profileRevision,
+        providerId: payload.providerId,
+        requestId: "84000000-0000-4000-8000-000000000002", kind: "provider"
+    )
+    let duplicatePlanData = try JSONEncoder().encode(duplicatePayload)
+    let duplicatePlan = String(decoding: duplicatePlanData, as: UTF8.self)
+    let duplicateDigest = SHA256.hash(data: duplicatePlanData).map { String(format: "%02x", $0) }.joined()
+    let duplicateCommand = ProviderCommandPayload(
+        requestId: duplicatePayload.requestId,
+        commandId: "84000000-0000-4000-8000-000000000003", requestDigest: duplicateDigest
+    )
+    _ = try database.executeBatch(transactionId: "provider-duplicate-command", statements: [[
+        "sqlId": "prepare_generation_command",
+        "parameters": [
+            duplicateCommand.commandId, duplicateCommand.requestId, duplicateDigest, duplicatePlan,
+            "{\"participantId\":\"human-1\",\"text\":\"duplicate\",\"type\":\"human_message\"}",
+            "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
+            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
+            payload.personaSlug, duplicatePlan, payload.personaSlug, duplicatePlan,
+            duplicatePlan, duplicatePlan, duplicatePlan, duplicatePlan,
+        ],
+    ]])
+    let duplicateRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
+    let duplicateEpoch = duplicateRegistry.lifecycleSnapshot()!
+    let duplicateBlocker = ProviderRetainedTaskStub()
+    _ = duplicateRegistry.install(
+        requestId: "84900000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: duplicateEpoch,
+        start: { _ in
+            _ = try! duplicateRegistry.beginNetwork(
+                duplicateBlocker, requestId: "84900000-0000-4000-8000-000000000001",
+                attemptEpoch: 1, lifecycleEpoch: duplicateEpoch, beforeResume: {}
+            )
+        }, cancellation: { _, _ in }
+    )
+    let duplicateService = GreenRoomProviderService(
+        authority: authority, configuration: configuration, registry: duplicateRegistry
+    )
+    ProviderURLProtocolStub.install(.response(
+        status: 200, headers: ["Content-Type": "application/json"], chunks: [successBody]
+    ))
+    let originalDuplicateSemaphore = DispatchSemaphore(value: 0)
+    var originalDuplicateResult: Result<String, DatabaseFailure>?
+    duplicateService.generate(duplicateCommand) { result in
+        originalDuplicateResult = result
+        originalDuplicateSemaphore.signal()
+    }
+    let rejectedDuplicateSemaphore = DispatchSemaphore(value: 0)
+    var rejectedDuplicateResult: Result<String, DatabaseFailure>?
+    duplicateService.generate(duplicateCommand) { result in
+        rejectedDuplicateResult = result
+        rejectedDuplicateSemaphore.signal()
+    }
+    providerTestRequire(
+        rejectedDuplicateSemaphore.wait(timeout: .now() + 1) == .success,
+        "duplicate queued service call did not resolve"
+    )
+    if case .failure(let failure) = rejectedDuplicateResult {
+        providerTestRequire(
+            failure.code == "canceled" && failure.retryable,
+            "duplicate queued service call returned the wrong failure"
+        )
+    } else { fatalError("duplicate queued service call was not rejected") }
+    let duplicatePreparedRow = (try database.query(
+        sqlId: "unresolved_generation_command", parameters: [payload.roomId]
+    ))["rows"] as? [[Any]]
+    let duplicatePreparedJSON = duplicatePreparedRow?.first?.first as? String ?? ""
+    providerTestRequire(
+        duplicatePreparedJSON.contains("\"state\":\"prepared\"") &&
+            duplicatePreparedJSON.contains("\"attemptEpoch\":0") &&
+            duplicatePreparedJSON.contains("\"failureCode\":null"),
+        "duplicate queued service call corrupted the original prepared durable command"
+    )
+    providerTestRequire(
+        ProviderURLProtocolStub.capturedRequests.isEmpty,
+        "duplicate queued service call started provider network activity"
+    )
+    providerTestRequire(duplicateRegistry.claimCompletion(
+        requestId: "84900000-0000-4000-8000-000000000001", attemptEpoch: 1,
+        lifecycleEpoch: duplicateEpoch
+    ), "duplicate regression blocker could not complete")
+    providerTestRequire(
+        originalDuplicateSemaphore.wait(timeout: .now() + 1) == .success,
+        "authoritative queued generation did not promote"
+    )
+    if case .success(let text) = originalDuplicateResult {
+        providerTestRequire(text == "A bounded answer.", "authoritative queued result changed")
+    } else { fatalError("authoritative queued generation did not succeed") }
+    let duplicateRemainsAuthoritative = try database.generationCommandIsInFlight(
+        commandId: duplicateCommand.commandId, requestId: duplicateCommand.requestId,
+        requestDigest: duplicateCommand.requestDigest, attemptEpoch: 1
+    )
+    providerTestRequire(
+        ProviderURLProtocolStub.capturedRequests.count == 1 && duplicateRemainsAuthoritative,
+        "authoritative queued generation lost durable authority or issued duplicate network requests"
+    )
+    try database.interruptGenerationCommand(
+        requestId: duplicateCommand.requestId, attemptEpoch: 1, failureCode: "canceled"
     )
 }
 

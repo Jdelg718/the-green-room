@@ -737,11 +737,16 @@ final class GreenRoomProviderService: @unchecked Sendable {
                 },
                 cancellation: cancellation
             )
-            if admission == .capacityRejected {
+            switch admission {
+            case .capacityRejected:
                 throw DatabaseFailure(code: "capacity_rejected", retryable: true)
-            }
-            if admission == .unavailableOrDuplicate {
+            case .lifecycleUnavailable:
                 throw DatabaseFailure(code: "canceled", retryable: true)
+            case .duplicate:
+                completionGate.finish(.failure(DatabaseFailure(code: "canceled", retryable: true)))
+                return
+            case .active, .queued:
+                break
             }
         } catch let failure as DatabaseFailure {
             if let loaded = commandAuthority {
@@ -821,7 +826,9 @@ final class GreenRoomProviderService: @unchecked Sendable {
                 cancellation: { _, failure in completionGate.finish(.failure(failure)) }
             )
             if admission == .capacityRejected { throw DatabaseFailure(code: "capacity_rejected", retryable: true) }
-            if admission == .unavailableOrDuplicate { throw DatabaseFailure(code: "canceled", retryable: true) }
+            if admission == .lifecycleUnavailable || admission == .duplicate {
+                throw DatabaseFailure(code: "canceled", retryable: true)
+            }
         } catch let failure as DatabaseFailure {
             completionGate.finish(.failure(failure))
         } catch {
@@ -885,7 +892,8 @@ enum ProviderTaskAdmission: Equatable {
     case active
     case queued
     case capacityRejected
-    case unavailableOrDuplicate
+    case lifecycleUnavailable
+    case duplicate
 }
 
 final class ProviderTaskRegistry: @unchecked Sendable {
@@ -960,9 +968,8 @@ final class ProviderTaskRegistry: @unchecked Sendable {
             self?.expire(requestId: requestId)
         }
         let admission = lock.withLock { () -> ProviderTaskAdmission in
-            guard available, lifecycleEpoch == expected, tasks[requestId] == nil else {
-                return .unavailableOrDuplicate
-            }
+            guard available, lifecycleEpoch == expected else { return .lifecycleUnavailable }
+            guard tasks[requestId] == nil else { return .duplicate }
             let activeCount = tasks.values.lazy.filter { $0.state == .active }.count
             let state: State
             let admission: ProviderTaskAdmission
@@ -998,19 +1005,33 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         lifecycleEpoch expected: Int,
         beforeResume: () throws -> Void
     ) throws -> Bool {
-        try lock.withLock {
+        let result = try lock.withLock { () -> (started: Bool, expired: Entry?, promotion: PromotionResult) in
             guard available, lifecycleEpoch == expected, var entry = tasks[requestId],
                   entry.state == .active, entry.attemptEpoch == attemptEpoch,
                   entry.lifecycleEpoch == expected, !entry.started, now() < entry.deadline else {
-                return false
+                return (false, nil, ([], []))
             }
             try beforeResume()
+            guard now() < entry.deadline else {
+                tasks.removeValue(forKey: requestId)
+                entry.timer.cancel()
+                entry.started = true
+                return (false, entry, promoteLocked())
+            }
             entry.task = task
             entry.started = true
             tasks[requestId] = entry
             task.resume()
-            return true
+            return (true, nil, ([], []))
         }
+        let timeout = DatabaseFailure(code: "timeout", retryable: true)
+        if let expired = result.expired { expired.cancellation(true, timeout) }
+        result.promotion.expired.forEach { entry in
+            entry.task?.cancel()
+            entry.cancellation(entry.started, timeout)
+        }
+        result.promotion.promoted.forEach { $0.1($0.0) }
+        return result.started
     }
 
     func failBeforeStart(requestId: String, failure: DatabaseFailure) {
