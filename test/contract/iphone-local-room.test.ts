@@ -865,7 +865,7 @@ test("fresh provider setup recommends editable OpenAI gpt-4.1-mini while saved c
   assert.equal(get("provider-model").value, "custom-model-v3");
 });
 
-test("provider setup enforces canonical model IDs at the 256 UTF-8 byte boundary", async () => {
+test("provider setup enforces the closed model ID contract before persistence", async () => {
   const api = await runtime();
   const database: any = new MemoryPlugin();
   const credentialCalls: NativeEnvelope[] = [];
@@ -880,25 +880,37 @@ test("provider setup enforces canonical model IDs at the 256 UTF-8 byte boundary
 
   const saved = await api.saveProviderSetup(database, credential, "openai", exact, uuids());
   assert.equal(saved.model, exact);
-  const callsAfterAcceptedSave = database.calls.length;
-  await assert.rejects(
-    api.saveProviderSetup(database, credential, "openai", oversized, uuids()),
-    /plain-text model ID without spaces/u,
-  );
-  await assert.rejects(
-    api.saveProviderSetup(database, credential, "openai", "e\u0301", uuids()),
-    /plain-text model ID without spaces/u,
-  );
-  await assert.rejects(
-    api.saveProviderSetup(database, credential, "openai", "model\0id", uuids()),
-    /plain-text model ID without spaces/u,
-  );
-  assert.equal(database.calls.length, callsAfterAcceptedSave, "rejected model reached persistence");
-  assert.equal(credentialCalls.length, 1, "rejected model opened credential entry");
-  const relaunchedDatabase = new MemoryPlugin();
-  relaunchedDatabase.providerSelection = structuredClone(database.providerSelection);
-  const relaunchedApi = await runtime("model-id-byte-boundary");
-  assert.equal((await relaunchedApi.readProviderSelection(relaunchedDatabase, uuids()))?.model, exact);
+  const rejectedModels = [
+    { label: "257 UTF-8 bytes", value: oversized },
+    { label: "non-NFC text", value: "e\u0301" },
+    { label: "Unicode Cc", value: "model\0id" },
+    { label: "Unicode whitespace", value: "model id" },
+    { label: "U+200B ZERO WIDTH SPACE", value: "model\u200Bid" },
+    { label: "U+200D ZERO WIDTH JOINER", value: "model\u200Did" },
+  ];
+
+  for (const [index, rejected] of rejectedModels.entries()) {
+    const databaseCallsBefore = database.calls.length;
+    const credentialCallsBefore = credentialCalls.length;
+    await assert.rejects(
+      api.saveProviderSetup(database, credential, "openai", rejected.value, uuids()),
+      /plain-text model ID without spaces/u,
+      rejected.label,
+    );
+    assert.equal(database.calls.length, databaseCallsBefore, `${rejected.label} reached database persistence`);
+    assert.equal(credentialCalls.length, credentialCallsBefore, `${rejected.label} opened credential entry`);
+    assert.equal(database.providerSelection?.model, exact, `${rejected.label} replaced the valid selection`);
+
+    const relaunchedDatabase = new MemoryPlugin();
+    relaunchedDatabase.providerSelection = structuredClone(database.providerSelection);
+    for (const [profileId, profile] of database.profiles) {
+      relaunchedDatabase.profiles.set(profileId, structuredClone(profile));
+    }
+    const relaunchedApi = await runtime(`rejected-model-${index}`);
+    const relaunchedSelection = await relaunchedApi.readProviderSelection(relaunchedDatabase, uuids());
+    assert.equal(relaunchedSelection?.model, exact, `${rejected.label} survived reconstructed runtime/store`);
+    assert.notEqual(relaunchedSelection?.model, rejected.value, `${rejected.label} appeared after reconstruction`);
+  }
 });
 
 test("generation UI offers Retry only for retryable failures without duplicating committed events", async () => {

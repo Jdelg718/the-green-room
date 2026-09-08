@@ -69,7 +69,7 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["index.html", "f267ffdebe77f6702e613778219725026ff0293e0fc8f0d6b3600139aa6b6811"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "d9b1433e8cbacdd6f603d5046de192ac805d5e9e70028f6967fd08753a8c2f6d"],
+  ["room-runtime.js", "deabbd470f696dc35487912f29b8d8787290206a18a36512cff58d6563980a0e"],
   ["shell.css", "2d0cf30c977337f6288f7ff2d3fce513175399a7fcf47e1063b162fe933a5c84"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([

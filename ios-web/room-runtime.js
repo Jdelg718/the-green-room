@@ -17,7 +17,6 @@ const NATIVE_FAILURE_CODES = new Set([
   "capacity_rejected", "canceled", "internal_failure",
 ]);
 const DEFAULT_PROVIDER_SETUP = Object.freeze({ providerId: "openai", model: "gpt-4.1-mini" });
-const MODEL_ID = /^[^\s\p{Cc}]+$/u;
 const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
@@ -32,8 +31,8 @@ function encodedBytes(value) {
 }
 
 function isCanonicalModelId(value) {
-  return typeof value === "string" && MODEL_ID.test(value) &&
-    value.normalize("NFC") === value && encodedBytes(value) <= 256;
+  return typeof value === "string" && value.length > 0 && value.normalize("NFC") === value &&
+    encodedBytes(value) <= 256 && !/[\p{C}\s]/u.test(value);
 }
 
 function exactRecord(value, keys) {
