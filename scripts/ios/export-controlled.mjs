@@ -21,6 +21,7 @@ export function runControlledExport(options = {}) {
     run: defaultRun,
     parsePlistFile: applePlistJson,
     parsePlistInput: applePlistJsonInput,
+    readPlistRaw: applePlistRaw,
     now: () => new Date(),
   });
 }
@@ -64,6 +65,16 @@ function applePlistJsonInput(input, label) {
   } catch {
     fail(`Apple plutil returned invalid JSON for ${label}`);
   }
+}
+
+function applePlistRaw(path, key) {
+  const result = spawnSync("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", "--", path], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" },
+    maxBuffer: 1024 * 1024,
+  });
+  requireCondition(result.status === 0, `Apple plutil could not read ${key} from ${basename(path)}`);
+  return result.stdout.trim();
 }
 
 function parseArguments(arguments_) {

@@ -4,6 +4,7 @@ export type ControlledExportAdapters = {
   run: (command: string, args: string[], context: { cwd: string; environment: NodeJS.ProcessEnv }) => string;
   parsePlistFile: (path: string) => Record<string, unknown>;
   parsePlistInput: (input: Buffer, label: string) => Record<string, unknown>;
+  readPlistRaw: (path: string, key: string) => string;
   now: () => Date;
 };
 

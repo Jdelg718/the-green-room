@@ -29,7 +29,17 @@ type CoreOptions = {
 };
 
 function runControlledExport({ run, now = () => new Date("2026-09-08T12:00:00.000Z"), ...options }: CoreOptions) {
-  return exportCore.runControlledExportCore(options, { run, parsePlistFile, parsePlistInput, now });
+  return exportCore.runControlledExportCore(options, {
+    run,
+    parsePlistFile,
+    parsePlistInput,
+    readPlistRaw(path: string, key: string) {
+      assert.equal(key, "ApplicationProperties.Team");
+      const value = parsePlistFile(path) as { ApplicationProperties?: { Team?: unknown } };
+      return String(value.ApplicationProperties?.Team ?? "");
+    },
+    now,
+  });
 }
 
 test("production export wrapper rejects Linux before filesystem or command access", () => {
@@ -77,7 +87,7 @@ function fixture(context: test.TestContext): string {
     CFBundleVersion: "1",
     GreenRoomSourceCommit: commit,
   }));
-  writeFileSync(join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>Team</key><string>JZ233HBW3Z</string></dict></dict></plist>`);
+  writeFileSync(join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>Team</key><string>JZ233HBW3Z</string></dict><key>CreationDate</key><date>2026-09-09T11:49:33Z</date></dict></plist>`);
   return root;
 }
 
