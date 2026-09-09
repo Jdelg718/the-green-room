@@ -33,6 +33,7 @@ const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).di
 function file(path: string, bytes: string, mode = 0o644): void {
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, bytes, { mode });
+  chmodSync(path, mode);
 }
 
 function fixture(root: string) {
