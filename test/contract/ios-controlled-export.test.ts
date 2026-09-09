@@ -140,7 +140,14 @@ test("controlled export uses only committed no-upload policy and writes bounded 
   assert.equal(existsSync(join(result.exportPath, "Packaging.log")), false);
   assert.equal(existsSync(join(result.exportPath, "nested/Packaging.log")), false);
   assert.equal(existsSync(join(result.exportPath, "nested/export.xcdistributionlogs")), false);
-  assert.equal(JSON.stringify(evidence).includes("provision"), false);
+  const serializedEvidence = JSON.stringify(evidence);
+  assert.deepEqual(
+    (evidence as { exportOptions: { semanticPolicy: { provisioningProfiles: unknown } } }).exportOptions.semanticPolicy.provisioningProfiles,
+    { "net.greenroomai.GreenRoom": "Green Room App Store Connect 0.1.0 Build 1" },
+  );
+  for (const forbidden of ["ProvisionedDevices", "DeveloperCertificates", "UUID", "session", "Packaging.log"]) {
+    assert.equal(serializedEvidence.includes(forbidden), false);
+  }
   assert.equal(statSync(result.exportPath).mode & 0o777, 0o700);
   assert.equal(statSync(result.evidencePath).mode & 0o777, 0o600);
   assert.equal(result.internalOnlyPolicyInvocation, true);
