@@ -29,7 +29,17 @@ type CoreOptions = {
 };
 
 function runControlledExport({ run, now = () => new Date("2026-09-08T12:00:00.000Z"), ...options }: CoreOptions) {
-  return exportCore.runControlledExportCore(options, { run, parsePlistFile, parsePlistInput, now });
+  return exportCore.runControlledExportCore(options, {
+    run,
+    parsePlistFile,
+    parsePlistInput,
+    readPlistRaw(path: string, key: string) {
+      assert.equal(key, "ApplicationProperties.Team");
+      const value = parsePlistFile(path) as { ApplicationProperties?: { Team?: unknown } };
+      return String(value.ApplicationProperties?.Team ?? "");
+    },
+    now,
+  });
 }
 
 test("production export wrapper rejects Linux before filesystem or command access", () => {
@@ -77,7 +87,7 @@ function fixture(context: test.TestContext): string {
     CFBundleVersion: "1",
     GreenRoomSourceCommit: commit,
   }));
-  writeFileSync(join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>Team</key><string>JZ233HBW3Z</string></dict></dict></plist>`);
+  writeFileSync(join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>Team</key><string>JZ233HBW3Z</string></dict><key>CreationDate</key><date>2026-09-09T11:49:33Z</date></dict></plist>`);
   return root;
 }
 
@@ -130,7 +140,14 @@ test("controlled export uses only committed no-upload policy and writes bounded 
   assert.equal(existsSync(join(result.exportPath, "Packaging.log")), false);
   assert.equal(existsSync(join(result.exportPath, "nested/Packaging.log")), false);
   assert.equal(existsSync(join(result.exportPath, "nested/export.xcdistributionlogs")), false);
-  assert.equal(JSON.stringify(evidence).includes("provision"), false);
+  const serializedEvidence = JSON.stringify(evidence);
+  assert.deepEqual(
+    (evidence as { exportOptions: { semanticPolicy: { provisioningProfiles: unknown } } }).exportOptions.semanticPolicy.provisioningProfiles,
+    { "net.greenroomai.GreenRoom": "Green Room App Store Connect 0.1.0 Build 1" },
+  );
+  for (const forbidden of ["ProvisionedDevices", "DeveloperCertificates", "UUID", "session", "Packaging.log"]) {
+    assert.equal(serializedEvidence.includes(forbidden), false);
+  }
   assert.equal(statSync(result.exportPath).mode & 0o777, 0o700);
   assert.equal(statSync(result.evidencePath).mode & 0o777, 0o600);
   assert.equal(result.internalOnlyPolicyInvocation, true);

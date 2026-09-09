@@ -14,6 +14,7 @@ final class ContainedBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(GreenRoomDatabasePlugin())
         bridge?.registerPluginInstance(GreenRoomCredentialPlugin())
         bridge?.registerPluginInstance(GreenRoomProviderPlugin())
+        bridge?.registerPluginInstance(GreenRoomLifecyclePlugin())
         guard let webView, let capacitorDelegate = webView.navigationDelegate as? WebViewDelegationHandler else {
             preconditionFailure("Capacitor WebView delegate was not installed")
         }
@@ -127,7 +128,7 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                       return {
                         callId: call.callId,
                         ok: true,
-                        value: { text: 'A stubbed reply crossed the signed room runtime.' }
+                        value: { text: 'A stubbed reply crossed the signed room runtime.', attemptEpoch: 1 }
                       };
                     }
                   };

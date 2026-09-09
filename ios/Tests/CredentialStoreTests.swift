@@ -118,7 +118,7 @@ func runCredentialStoreTests() throws {
     let failingInventory = FakeCredentialSecureStore()
     failingInventory.failInventory = true
     let failedOpenAuthority = GreenRoomNativeAuthority(database: failedOpenDatabase, secureStore: failingInventory)
-    credentialFailure("credential_unavailable") { _ = try failedOpenAuthority.openDatabase(expectedSchema: 6) }
+    credentialFailure("credential_unavailable") { _ = try failedOpenAuthority.openDatabase(expectedSchema: 7) }
     credentialFailure("invalid_call") { _ = try failedOpenDatabase.query(sqlId: "current_room", parameters: []) }
 
     let inFlight = CredentialInFlightCalls()
@@ -268,7 +268,7 @@ func runCredentialStoreTests() throws {
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let database = GreenRoomDatabaseStore(directory: root, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try database.open(expectedSchema: 6)
+    _ = try database.open(expectedSchema: 7)
     let keychain = FakeCredentialSecureStore()
     let lifecycle = GreenRoomCredentialLifecycle(database: database, secureStore: keychain)
 
@@ -535,7 +535,7 @@ func runCredentialStoreTests() throws {
     defer { try? FileManager.default.removeItem(at: reinstallRoot) }
     try FileManager.default.createDirectory(at: reinstallRoot, withIntermediateDirectories: true)
     let reinstallDatabase = GreenRoomDatabaseStore(directory: reinstallRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try reinstallDatabase.open(expectedSchema: 6)
+    _ = try reinstallDatabase.open(expectedSchema: 7)
     keychain.values[crashRequest.credentialRef] = .init(secret: Data("persisted-by-ios".utf8), metadata: keychain.values[crashRequest.credentialRef]?.metadata)
     let reinstall = GreenRoomCredentialLifecycle(database: reinstallDatabase, secureStore: keychain)
     try reinstall.reconcileAtDatabaseOpen()
@@ -547,7 +547,7 @@ func runCredentialStoreTests() throws {
     let independentlyTombstonedDatabase = GreenRoomDatabaseStore(
         directory: independentlyTombstonedRoot, migrationsDirectory: migrations, fileProtector: { _ in }
     )
-    _ = try independentlyTombstonedDatabase.open(expectedSchema: 6)
+    _ = try independentlyTombstonedDatabase.open(expectedSchema: 7)
     let independentlyTombstonedKeychain = FakeCredentialSecureStore()
     let independentlyTombstonedLifecycle = GreenRoomCredentialLifecycle(
         database: independentlyTombstonedDatabase, secureStore: independentlyTombstonedKeychain
@@ -577,7 +577,7 @@ func runCredentialStoreTests() throws {
     )
     if let rawDatabase { sqlite3_close_v2(rawDatabase) }
     rawDatabase = nil
-    _ = try independentlyTombstonedDatabase.open(expectedSchema: 6)
+    _ = try independentlyTombstonedDatabase.open(expectedSchema: 7)
     credentialFailure("credential_unavailable") {
         try independentlyTombstonedLifecycle.performWithReadyCredential(independentlyTombstoned) { _ in
             fatalError("independently tombstoned profile reached credential bytes")

@@ -93,6 +93,23 @@ test("default Keychain group is explicit in both Xcode configurations and cannot
   rejects(root, /keychain access group/u);
 });
 
+test("schema-7 migration and manifest are required in source and built bundles", { skip: process.platform !== "darwin" }, (context) => {
+  const root = fixture(context);
+  rmSync(join(root, "ios/App/App/Resources/Migrations/0007-generation-commands.sql"));
+  rejects(root, /missing required file.*0007-generation-commands\.sql|migration inventory/u);
+
+  const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
+  if (!existsSync(sourceApp)) {
+    context.skip("Darwin built-app mutations run after ios:build in the declared ios:test gate");
+    return;
+  }
+  const app = join(mkdtempSync(join(tmpdir(), "greenroom-built-migration-")), "App.app");
+  context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
+  cpSync(sourceApp, app, { recursive: true });
+  rmSync(join(app, "Migrations/0007-generation-commands.sql"));
+  assert.throws(() => verifyBuiltApp(app), /migration inventory|missing required file.*0007-generation-commands\.sql/u);
+});
+
 test("physical credential harness is explicit, Debug-only, state-only, and probes real lock state", () => {
   const acceptance = readFileSync(join(ROOT, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), "utf8");
   const appDelegate = readFileSync(join(ROOT, "ios/App/App/AppDelegate.swift"), "utf8");
