@@ -166,7 +166,7 @@ PROFILE_SOURCE_SHA256 = {
     "timothy-c-may": "9976452636031ce70136a2f42832c4f34f6eaa16a993c226ffa88bc079ba785e",
     "ff2k": "b50d07979d94363c336823472be1c62c8a84f459ca2d9f429baee9572fc28d95",
 }
-PROFILE_STYLESHEET_SHA256 = "a093fe1dd0f5cbf90b1827910698f724e998b2c4142cb857b671fafdc32fcb47"
+PROFILE_STYLESHEET_SHA256 = "255c13e7ac605b4c0609772aaa71ede46f8099b6205606c8c36954721fdee83e"
 SOCIAL_CARD_SHA256 = "b3d4254d433d955017cf7849ff97fe27f11c1e6b91e0ff61904b632344ef29fb"
 SOCIAL_CARD_DIMENSIONS = (1200, 630)
 SOCIAL_CARD_ALT = (
@@ -180,6 +180,7 @@ SOCIAL_CARD_PAGES = frozenset(
         "docs/index.html",
         "download/index.html",
         "contribute/index.html",
+        "privacy/index.html",
     }
 )
 PAGES = {
@@ -188,6 +189,7 @@ PAGES = {
     "docs/index.html": "Docs",
     "download/index.html": "Download",
     "contribute/index.html": "Contribute",
+    "privacy/index.html": "Privacy",
     **{
         f"characters/{slug}/index.html": "Characters"
         for slug in CHARACTER_PROFILES
@@ -261,6 +263,20 @@ REQUIRED_LANGUAGE = {
         "~/Applications",
     ),
     "contribute/index.html": ("GitHub", "content and legal boundaries"),
+    "privacy/index.html": (
+        "your selected cloud model provider receives request content, your provider credential, and associated network metadata under its own terms",
+        "Rooms, messages, character data, settings, and provider profiles are stored locally on your device",
+        "provider credentials are stored in the iOS Keychain",
+        "Green Room operates no model proxy or transcript relay",
+        "The static website has no app accounts, analytics, advertising, cookies, key entry, transcript ingestion, room storage, or model-request endpoint",
+        "Serving a page necessarily sends ordinary request metadata",
+        "Using your own key does not by itself guarantee zero-data retention",
+        "The Green Room project does not receive provider credentials, prompts, replies, rooms, transcripts, or model requests from the app",
+        "a Keychain credential may remain after the app is uninstalled",
+        "use the in-app credential-removal control first when you want explicit deletion",
+        "Material changes will be posted here with a new effective date",
+        "request an appropriate private contact channel without posting private information in a public issue",
+    ),
 }
 FORBIDDEN_TEXT = (
     "download now",

@@ -27,6 +27,7 @@ The validator uses only the Python standard library. It checks required pages an
 - `docs/index.html` — documentation map and trust boundary
 - `download/index.html` — verified Alpha 1 download, requirements, limitations, install steps, and checksum
 - `contribute/index.html` — contribution and security guidance
+- `privacy/index.html` — local-data, Keychain, selected-provider, website-hosting, retention, and deletion boundaries
 - `assets/site.css` — shared Backstage Electric styles using system fonts
 - `assets/portraits/*.webp` — eighteen approved optimized AI-generated historical interpretations plus the approved owner-authorized FF2K pseudonymous-character portrait, also used as local-app presentation assets; source files and generation metadata are not web assets
 - `assets/favicon.svg` — local CSS-style GR slash mark
