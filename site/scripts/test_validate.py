@@ -45,6 +45,41 @@ class StaticPolicyTests(unittest.TestCase):
     def test_current_site_passes(self) -> None:
         self.assertEqual(validate.collect_errors(), [])
 
+    def test_privacy_page_is_release_gated_and_discoverable(self) -> None:
+        self.assertIn("privacy/index.html", validate.PAGES)
+        self.assertIn("privacy/index.html", validate.SOCIAL_CARD_PAGES)
+        for relative in (
+            "index.html",
+            "characters/index.html",
+            "docs/index.html",
+            "download/index.html",
+            "contribute/index.html",
+        ):
+            with self.subTest(relative=relative):
+                source = (validate.SITE / relative).read_text(encoding="utf-8")
+                self.assertIn('<a href="/privacy/">Privacy</a>', source)
+
+    def test_privacy_page_requires_provider_and_project_boundaries(self) -> None:
+        mutations = {
+            "Using your own key does not by itself guarantee zero-data retention": (
+                "Using your own key does not by itself guarantee zero-data retention",
+                "Using your own key keeps every provider request private",
+            ),
+            "The Green Room project does not receive provider credentials": (
+                "The Green Room project does not receive provider credentials, prompts, replies, rooms, transcripts, or model requests from the app",
+                "The Green Room project may receive diagnostic copies of app data",
+            ),
+        }
+        for reason, (old, new) in mutations.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "privacy" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(old, source)
+                page.write_text(source.replace(old, new, 1), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
     def test_download_page_pins_release_asset_and_evidence_links(self) -> None:
         mutations = {
             "Download Alpha 1 for Apple silicon": (
@@ -168,6 +203,13 @@ class StaticPolicyTests(unittest.TestCase):
         ):
             with self.subTest(hook=hook):
                 self.assertIn(hook, stylesheet)
+
+    def test_mobile_page_heading_has_containment_guards(self) -> None:
+        stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
+        self.assertIn(
+            ".page-hero h1 { max-width: 100%; overflow-wrap: anywhere; font-size: clamp(3rem, 15vw, 4.8rem); }",
+            stylesheet,
+        )
 
     def test_profile_fact_terms_have_overflow_protection(self) -> None:
         stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
