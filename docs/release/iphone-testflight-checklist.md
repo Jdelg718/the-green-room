@@ -93,7 +93,7 @@ Stop here unless Kent explicitly authorizes upload of this exact commit/archive/
 
 A successful upload is not completion.
 
-- [ ] Read back app ID `6809792258`, bundle ID `net.greenroomai.GreenRoom`, version `0.1.0`, build `1`, processed state, export-compliance answer, and declared source commit.
+- [ ] Read back app ID `6809792258`, bundle ID `net.greenroomai.GreenRoom`, version `0.1.0`, build `2`, processed state, export-compliance answer, and declared source commit.
 - [ ] Confirm by exact App Store Connect post-upload readback that the processed build is `TestFlight Internal Only`, then assign only the owner-approved internal group. This readback—not local plist, evidence, export, signing, or audit output—is authoritative for Internal Only and TestFlight readiness.
 - [ ] Confirm there are no external groups, public invitation links, or App Store submission actions.
 - [ ] Record processing failures exactly; do not retry with a new archive or build identity without review.
