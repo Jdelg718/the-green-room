@@ -8,7 +8,7 @@ This runbook is for one internal-only Green Room iPhone Alpha. It does **not** a
 - [ ] Node is exactly 24.20.0: `PATH=/opt/homebrew/opt/node@24/bin:$PATH node --version` returns `v24.20.0`.
 - [ ] App Store Connect record is `The-Green-Room`, app ID `6809792258`.
 - [ ] Bundle ID is `net.greenroomai.GreenRoom`; Team ID is `JZ233HBW3Z`.
-- [ ] Version/build is `0.1.0 (1)` and has not already been uploaded.
+- [ ] Version/build is `0.1.0 (2)` and has not already been uploaded.
 - [ ] Automatic signing is still authorized for the owner-controlled Apple account. Never copy credentials, session data, provisioning-profile contents, or signing logs into evidence.
 - [ ] Export compliance remains `ITSAppUsesNonExemptEncryption = false`: only standard Apple HTTPS/Keychain cryptography, with no custom/non-exempt cryptography.
 - [ ] App Store Connect privacy answers match [the measured data-flow decision](iphone-privacy-data-flow.md).
@@ -42,7 +42,7 @@ COMMIT="$(git rev-parse HEAD)"
 This is an operational clean-pre/clean-post binding, not cryptographic proof that every archive byte came from the declared commit and not a reproducible-build claim. `GreenRoomSourceCommit` and audit JSON field `declaredSourceCommit` mean only that the controlled wrapper declared its internally resolved clean-checkout `HEAD`; retain the wrapper output and audit alongside the candidate.
 
 - [ ] Archive succeeds without uploading. On any archive or post-validation failure, the wrapper removes only the partial archive directory whose device/inode ownership it established before invoking Xcode; it refuses cleanup if that path was replaced.
-- [ ] Organizer/archive readback shows one app, `net.greenroomai.GreenRoom`, `0.1.0 (1)`, Team `JZ233HBW3Z`.
+- [ ] Organizer/archive readback shows one app, `net.greenroomai.GreenRoom`, `0.1.0 (2)`, Team `JZ233HBW3Z`.
 - [ ] Audit the archive before export from the same clean checkout:
 
 ```sh
@@ -59,7 +59,7 @@ npm run ios:audit-archive -- \
 
 ## No-upload export and readback
 
-`ios/ExportOptions.plist` intentionally sets `destination=export`, `method=app-store-connect`, manual signing pinned to profile `Green Room App Store Connect 0.1.0 Build 1` for `net.greenroomai.GreenRoom`, certificate class `Apple Distribution`, Team `JZ233HBW3Z`, `testFlightInternalTestingOnly=true`, `manageAppVersionAndBuildNumber=false`, and symbol stripping/upload-symbol inclusion. This avoids relying on Xcode's separate command-line account cache while preserving exact owner-controlled signing inputs. Use only the controlled wrapper below; it accepts no export-policy or evidence-path overrides, requires the exact commit-named archive and a new exact commit-named destination under `.build/testflight`, and invokes a private byte-exact copy of the committed plist itself.
+`ios/ExportOptions.plist` intentionally sets `destination=export`, `method=app-store-connect`, manual signing pinned to profile `Green Room App Store Connect 0.1.0 Build 1` for `net.greenroomai.GreenRoom`, certificate class `Apple Distribution`, Team `JZ233HBW3Z`, `testFlightInternalTestingOnly=true`, `manageAppVersionAndBuildNumber=false`, and symbol stripping/upload-symbol inclusion. The profile's legacy display name records when it was created; its actual scope is the bundle ID, Team, certificate, entitlements, and expiry rather than one CFBundleVersion, so the same still-valid Store profile is intentionally reused for build 2. This avoids relying on Xcode's separate command-line account cache while preserving exact owner-controlled signing inputs. Use only the controlled wrapper below; it accepts no export-policy or evidence-path overrides, requires the exact commit-named archive and a new exact commit-named destination under `.build/testflight`, and invokes a private byte-exact copy of the committed plist itself.
 
 These semantics are from this host's local `/usr/bin/xcodebuild -help` (Xcode 26.6, build 17F113): `destination=export` exports locally rather than uploading; `method=app-store-connect` selects that distribution method; `signingStyle=manual`, `provisioningProfiles`, and `signingCertificate` pin distribution re-signing to the named profile and Apple Distribution certificate class; `teamID` selects the Developer team; `stripSwiftSymbols` strips Swift-library symbols; `uploadSymbols` includes symbols for an App Store export; `manageAppVersionAndBuildNumber` controls Xcode's build-number management **when uploading**; and `testFlightInternalTestingOnly=true` says the build cannot be distributed through external TestFlight or the App Store. A local invocation is operational evidence that these options were supplied, not independent proof of what Apple received or how App Store Connect classified a processed build.
 
@@ -100,7 +100,7 @@ A successful upload is not completion.
 
 ## Internal install and physical acceptance
 
-- [ ] Kent installs build `0.1.0 (1)` through TestFlight on the intended iPhone.
+- [ ] Kent installs build `0.1.0 (2)` through TestFlight on the intended iPhone.
 - [ ] Exactly 19 bundled characters and portraits load without Green Room infrastructure.
 - [ ] Configure an approved provider using a previously obtained key; verify the key remains Keychain-only.
 - [ ] Create a one-to-three-character room, send one bounded real request, receive and commit the reply, and verify directed character selection.

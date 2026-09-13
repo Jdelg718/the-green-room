@@ -34,7 +34,7 @@ const releaseInfo = {
   CFBundleIdentifier: "net.greenroomai.GreenRoom",
   CFBundleDisplayName: "Green Room",
   CFBundleShortVersionString: "0.1.0",
-  CFBundleVersion: "1",
+  CFBundleVersion: "2",
   MinimumOSVersion: "18.6",
   UIDeviceFamily: [1],
   ITSAppUsesNonExemptEncryption: false,
@@ -98,7 +98,7 @@ const distributionIdentity = "Identifier=net.greenroomai.GreenRoom\nAuthority=Ap
 
 const distributionSummary = {
   "Green Room.ipa": [{
-    buildNumber: "1",
+    buildNumber: "2",
     certificate: { type: "Cloud Managed Apple Distribution" },
     entitlements: distributionEntitlements,
     name: "Green Room",
@@ -140,7 +140,7 @@ test("release identity and export options reject unsafe or promotable variants",
     { ...releaseInfo, ITSAppUsesNonExemptEncryption: "false" },
     { ...releaseInfo, ITSAppUsesNonExemptEncryption: true },
     { ...releaseInfo, CFBundleShortVersionString: "1.0" },
-    { ...releaseInfo, CFBundleVersion: "2" },
+    { ...releaseInfo, CFBundleVersion: "1" },
     { ...releaseInfo, GreenRoomSourceCommit: "development" },
   ]) {
     assert.throws(() => auditor.validateReleaseInfo(malformed, commit), /release identity|encryption|commit/u);
@@ -167,7 +167,7 @@ test("distribution entitlements reject debug, push, background, and unexpected k
   }
   for (const malformed of [
     { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], versionNumber: "1.0.0" }] },
-    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], buildNumber: "2" }] },
+    { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], buildNumber: "1" }] },
     { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], certificate: { type: "Apple Development" } }] },
     { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], profile: { name: "Other profile" } }] },
     { "Green Room.ipa": [{ ...distributionSummary["Green Room.ipa"][0], team: { id: "WRONG" } }] },
@@ -268,7 +268,7 @@ const controlledEvidence = {
     identity: {
       bundleIdentifier: "net.greenroomai.GreenRoom",
       version: "0.1.0",
-      build: "1",
+      build: "2",
       teamIdentifier: "JZ233HBW3Z",
       declaredSourceCommit: commit,
     },

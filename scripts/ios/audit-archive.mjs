@@ -23,7 +23,7 @@ const APP_NAME = "Green Room";
 const TEAM_ID = "JZ233HBW3Z";
 const KEYCHAIN_GROUP = `${TEAM_ID}.${BUNDLE_ID}`;
 const VERSION = "0.1.0";
-const BUILD = "1";
+const BUILD = "2";
 const MINIMUM_IOS = "18.6";
 const EXPECTED_HOSTS = new Set(["openrouter.ai", "api.openai.com", "api.x.ai", "api.groq.com", "api.together.ai"]);
 const FORBIDDEN_RELEASE_MARKERS = /(?:\bNWListener\b|GCDWebServer|CocoaHTTPServer|Swifter|Vapor|localhost:\d|127\.0\.0\.1|0\.0\.0\.0|capacitor-updater|live[ -]?update|ionic[ -]?deploy|codepush|hot[ -]?update|downloaded\s+(?:code|javascript)|FirebaseAnalytics|GoogleAnalytics|Amplitude|Mixpanel|SegmentAnalytics|SentrySDK|Datadog|AppCenter|\bnode(?:\.exe)?\b|\bnodejs\b|\bpython(?:[0-9.]*)?(?:\.exe)?\b|\bpip[0-9.]*\b)/iu;
@@ -73,7 +73,7 @@ export function validateFrameworkPrivacyManifest(value, label = "framework priva
 
 export function validateReleaseInfo(info, expectedCommit) {
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID && info.CFBundleDisplayName === APP_NAME, "release identity bundle ID/display name is not exact");
-  requireCondition(info.CFBundleShortVersionString === VERSION && info.CFBundleVersion === BUILD, "release identity version/build must be 0.1.0 (1)");
+  requireCondition(info.CFBundleShortVersionString === VERSION && info.CFBundleVersion === BUILD, "release identity version/build must be 0.1.0 (2)");
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS && JSON.stringify(info.UIDeviceFamily) === "[1]", "release identity must target iPhone-only iOS 18.6");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "release encryption declaration must be Boolean false");
   requireCondition(/^[0-9a-f]{40}$/u.test(expectedCommit), "expected commit must be an exact lowercase 40-character Git SHA");
