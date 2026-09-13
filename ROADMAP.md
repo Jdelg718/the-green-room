@@ -120,7 +120,8 @@ The portable-character and community boundary is specified in [ADR 0003](docs/ad
 1. Run the merged Linux source launcher on Omarchy with a locally entered cloud key; verify one reply, restart continuity, and `0700`/`0600` credential permissions without transmitting the key.
 2. Prepare the external-TestFlight gate: finish the proportional accessibility/device review and publish the reviewed privacy policy only with Kent's separate approval.
 3. Submit a reviewed build for TestFlight Beta App Review only after explicit approval. After Apple approval, create a tester-limited public invitation link and separately approve any `greenroomai.net` placement. This is TestFlight distribution, not a direct `.ipa` download or App Store release.
-4. Resume macOS packaging, PR #55 review, memory/catalog work, and later launch media only after external onboarding is verified stranger-ready; human invitations remain a separate future architecture.
+4. Implement issue #204 as an optional private-inference path: the user's existing Tailnet and a pinned HTTPS `.ts.net` endpoint are preferred; LM Link is a separately tested compatibility alternative, not a dependency.
+5. Resume macOS packaging, PR #55 review, memory/catalog work, and later launch media only after external onboarding is verified stranger-ready; human invitations remain a separate future architecture.
 
 ## Future launch milestone — community demo video
 
@@ -132,7 +133,7 @@ Produce a short captioned, accessible, tweet/X-ready demo showing the local-firs
 
 ## Active pillar — standalone iPhone Alpha (issue #160)
 
-**Sequence:** issue #160 explicitly authorizes the standalone iPhone Alpha after the desktop release foundations. It does not authorize an iPad client, App Store submission, human invitations, accounts, relay, synchronization, or local-model inference.
+**Sequence:** issue #160 explicitly authorizes the standalone iPhone Alpha after the desktop release foundations. It does not authorize an iPad client, App Store submission, human invitations, accounts, relay, synchronization, on-device model inference, or the future optional private-Tailnet provider tracked in issue #204.
 
 **Outcome:** ship a signed iPhone app that needs no Mac companion: 19 bundled characters, local multi-room SQLite/events, the bounded director, direct approved cloud-provider calls, Keychain-only provider secrets, and terminate/relaunch persistence.
 
@@ -144,9 +145,21 @@ Produce a short captioned, accessible, tweet/X-ready demo showing the local-firs
 
 [ADR 0006](docs/adr/0006-standalone-iphone-capacitor-runtime.md) accepts the fastest safe implementation: a Capacitor 8/`WKWebView` shell with all executable JavaScript in the signed bundle, a shared pure TypeScript core extracted under desktop parity tests, and narrow Swift bridges for SQLite, Keychain, and fixed-definition `URLSession` providers. Desktop and iPhone rooms are separate authorities with no Alpha synchronization. The [native bridge contract](docs/contracts/iphone-alpha-native-bridge.md) keeps key bytes and provider networking out of JavaScript, and the [implementation plan](docs/plans/2026-09-05-standalone-iphone-alpha.md) breaks delivery into independently reviewable phases.
 
-**Acceptance criteria:** exactly 19 bundled and honestly labeled characters load offline; one human plus one-to-three AI characters is enforced; room/event/director/command behavior survives forced termination; provider traffic reaches only selected approved HTTPS definitions; credential sentinels remain confined to Keychain and transient native request memory; offline existing rooms are read-only with no false acknowledgement; the exact archive has no Node/Python server, downloaded-code mechanism, broad ATS/background entitlement, account/relay/invite/local-LLM/iPad-specialization path, or undeclared SDK; iPhone accessibility/privacy/device gates pass; and the installed TestFlight build is read back and exercised before issue acceptance.
+**Acceptance criteria:** exactly 19 bundled and honestly labeled characters load offline; one human plus one-to-three AI characters is enforced; room/event/director/command behavior survives forced termination; provider traffic reaches only selected approved HTTPS definitions; credential sentinels remain confined to Keychain and transient native request memory; offline existing rooms are read-only with no false acknowledgement; the accepted internal archive has no Node/Python server, downloaded-code mechanism, broad ATS/background entitlement, account/relay/invite/private-network-provider/on-device-LLM/iPad-specialization path, or undeclared SDK; iPhone accessibility/privacy/device gates pass; and the installed TestFlight build is read back and exercised before issue acceptance.
 
 The earlier [native iPhone/iPad feasibility](docs/spikes/2026-09-01-native-iphone-ipad-client-feasibility.md) and [shared Node/Swift client contract](docs/spikes/2026-09-01-shared-node-swift-client-contract-fixtures.md) reports remain historical evidence for a thin companion client and future synchronization. Their companion-authority recommendation is superseded only for standalone iPhone-local rooms by ADR 0006.
+
+## Future milestone — private LM Studio inference over Tailnet (issue #204)
+
+**Outcome:** let a Green Room client optionally run persona inference on LM Studio hosted by another owner-controlled machine while preserving local room authority, explicit provider disclosure, and operation without any Green Room-hosted relay. This is remote private inference, not on-device model inference and not a required Mac companion.
+
+**Preferred path — the user's existing Tailnet:** keep LM Studio bound to loopback and expose only a reviewed tailnet-only HTTPS origin, preferably canonical `https://<host>.<tailnet>.ts.net` through Tailscale Serve or an equivalently constrained reverse proxy. On Mothership, LM Studio remains on `127.0.0.1:1235` because BlueBubbles owns port `1234`. Green Room must pin an explicitly approved host and model, require HTTPS and tailnet identity/ACL enforcement, deny redirects, preserve bounded request/response limits, and never generalize this into arbitrary provider URLs or a public listener.
+
+**Alternative path — LM Link compatibility:** evaluate LM Link only as an optional adapter when it projects a remote model into the client machine's loopback LM Studio API. Treat LM Link as a separately controlled Preview dependency that uses its own Tailscale mesh: do not silently enroll devices, imply that it uses the user's existing tailnet, or make it necessary for the direct Tailnet path. Preserve same-machine desktop LM Studio at loopback whether or not LM Link is installed.
+
+**Platform sequence:** first verify the existing desktop loopback provider with a real local model, then prove desktop-to-remote inference over the direct Tailnet path, then independently test LM Link compatibility. A future iPhone `Private LM Studio` provider may reuse the accepted network contract only after a focused threat model, ADR, native implementation, physical-device review, and separate TestFlight approval. The current internal TestFlight build remains fixed-provider and unchanged.
+
+**Acceptance criteria:** the direct Tailnet path works without LM Link or public exposure; LM Studio remains loopback-bound behind the approved HTTPS tailnet ingress; only an exact allowlisted `.ts.net` origin and selected model are reachable; tailnet outage, host mismatch, TLS failure, redirect, DNS/IP/peer mismatch, timeout, cancellation, response overflow, protected-data loss, and late callback fail closed without corrupting a room or falsely acknowledging a turn; UI identifies the private inference host and model; no provider key, room content, host credential, or response body enters logs or diagnostics; local drafts and exact-command retry preserve the accepted lifecycle semantics; and any retained LM Link alternative is tested independently and documented as optional.
 
 ## Future pillar — invited human participants
 
