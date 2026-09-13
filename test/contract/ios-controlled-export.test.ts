@@ -84,7 +84,7 @@ function fixture(context: test.TestContext): string {
   writeFileSync(join(archive, "Products/Applications/Green Room.app/Info.plist"), plist({
     CFBundleIdentifier: "net.greenroomai.GreenRoom",
     CFBundleShortVersionString: "0.1.0",
-    CFBundleVersion: "1",
+    CFBundleVersion: "2",
     GreenRoomSourceCommit: commit,
   }));
   writeFileSync(join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>Team</key><string>JZ233HBW3Z</string></dict><key>CreationDate</key><date>2026-09-09T11:49:33Z</date></dict></plist>`);

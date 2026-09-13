@@ -1,6 +1,6 @@
 # iPhone privacy data flow — internal Alpha
 
-Scope: Green Room iPhone Alpha `0.1.0 (1)`, bundle ID `net.greenroomai.GreenRoom`, distributed only to the owner's authorized internal TestFlight group. This engineering record supports the current privacy declaration; it is not legal advice and does not approve external TestFlight or App Store distribution.
+Scope: Green Room iPhone Alpha `0.1.0 (2)`, bundle ID `net.greenroomai.GreenRoom`, distributed only to the owner's authorized internal TestFlight group. This engineering record supports the current privacy declaration; it is not legal advice and does not approve external TestFlight or App Store distribution.
 
 ## Measured product boundary
 

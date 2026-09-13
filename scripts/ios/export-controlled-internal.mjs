@@ -97,7 +97,7 @@ function archiveIdentity(archivePath, parsePlistFile, readPlistRaw) {
     declaredSourceCommit: appInfo.GreenRoomSourceCommit,
   };
   requireCondition(identity.bundleIdentifier === "net.greenroomai.GreenRoom", "archive bundle identifier is not exact");
-  requireCondition(identity.version === "0.1.0" && identity.build === "1", "archive version/build is not exact");
+  requireCondition(identity.version === "0.1.0" && identity.build === "2", "archive version/build is not exact");
   requireCondition(identity.teamIdentifier === "JZ233HBW3Z", "archive team is not exact");
   requireCondition(/^[0-9a-f]{40}$/u.test(identity.declaredSourceCommit), "archive declared commit is malformed");
   return identity;
