@@ -85,7 +85,9 @@ export function validateExportOptions(value) {
     destination: "export",
     manageAppVersionAndBuildNumber: false,
     method: "app-store-connect",
-    signingStyle: "automatic",
+    provisioningProfiles: { [BUNDLE_ID]: "Green Room App Store Connect 0.1.0 Build 1" },
+    signingCertificate: "Apple Distribution",
+    signingStyle: "manual",
     stripSwiftSymbols: true,
     teamID: TEAM_ID,
     testFlightInternalTestingOnly: true,
@@ -93,7 +95,10 @@ export function validateExportOptions(value) {
   };
   exactKeys(value, Object.keys(expected), "export options");
   for (const [key, expectedValue] of Object.entries(expected)) {
-    requireCondition(value[key] === expectedValue, `export options ${key} is not exact`);
+    const matches = typeof expectedValue === "object"
+      ? JSON.stringify(value[key]) === JSON.stringify(expectedValue)
+      : value[key] === expectedValue;
+    requireCondition(matches, `export options ${key} is not exact`);
   }
 }
 

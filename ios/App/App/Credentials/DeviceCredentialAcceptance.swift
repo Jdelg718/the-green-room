@@ -95,7 +95,7 @@ final class DeviceCredentialAcceptance {
         try removePriorAcceptanceState()
         failureState = "failed_database_open"
         let database = GreenRoomDatabaseStore(directory: try acceptanceDirectory())
-        _ = try database.open(expectedSchema: 6)
+        _ = try database.open(expectedSchema: 7)
         let lifecycle = GreenRoomCredentialLifecycle(database: database, secureStore: secureStore)
 
         let lifecycleRequest = request(
@@ -166,7 +166,7 @@ final class DeviceCredentialAcceptance {
         failureState = "failed_recovery_open"
         let database = GreenRoomDatabaseStore(directory: try acceptanceDirectory())
         let authority = GreenRoomNativeAuthority(database: database, secureStore: secureStore)
-        _ = try authority.openDatabase(expectedSchema: 6)
+        _ = try authority.openDatabase(expectedSchema: 7)
         let recovery = request(
             profile: "device.acceptance.recovery",
             mutation: "16000000-0000-4000-8000-000000000003"

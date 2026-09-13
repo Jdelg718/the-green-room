@@ -15,9 +15,11 @@ struct DatabaseFailure: Error {
     let retryable: Bool
 }
 
-struct ProviderRequestAuthority: Sendable {
+struct ProviderCommandAuthority: Sendable {
     let reservation: CredentialReservation
     let definition: ApprovedProviderDefinition
+    let requestPlanJSON: String
+    let attemptEpoch: Int
 }
 
 func encodedBridgeJSONObject(_ value: Any, code: String, maximumBytes: Int = bridgeMaximumBytes) throws -> Data {
@@ -83,7 +85,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try serializationLock.withLock {
-            guard expectedSchema == 6 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 7 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -214,6 +216,23 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             let sql: String
             let column: String
             switch sqlId {
+            case "room_by_id":
+                sql = """
+                SELECT json_object(
+                  'id', room.id, 'title', room.title, 'status', room.status,
+                  'generation', room.generation,
+                  'participants', json((
+                    SELECT json_group_array(json_object(
+                      'id', participant.id, 'kind', participant.kind,
+                      'displayName', participant.display_name,
+                      'muted', json(CASE participant.muted WHEN 1 THEN 'true' ELSE 'false' END),
+                      'sortOrder', participant.sort_order, 'personaSlug', participant.persona_slug
+                    )) FROM (SELECT * FROM participants WHERE room_id = room.id ORDER BY sort_order) participant
+                  ))
+                ) AS room_json
+                FROM rooms room WHERE room.id = ?
+                """
+                column = "room_json"
             case "current_room":
                 sql = """
                 SELECT json_object(
@@ -318,6 +337,36 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                   )
                 """
                 column = "provider_profile_json"
+            case "local_draft":
+                sql = """
+                SELECT json_object('roomId', room_id, 'text', text) AS local_draft_json
+                FROM local_drafts WHERE room_id = ?
+                """
+                column = "local_draft_json"
+            case "unresolved_generation_command":
+                sql = """
+                SELECT json_object(
+                  'commandId', command_id, 'requestId', request_id,
+                  'roomId', room_id, 'requestDigest', request_digest,
+                  'requestPlan', json(request_plan_json), 'state', state,
+                  'attemptEpoch', attempt_epoch, 'failureCode', failure_code,
+                  'personaSlug', persona_slug
+                ) AS generation_command_json
+                FROM generation_commands
+                WHERE room_id = ? AND state IN ('prepared', 'in_flight', 'failed', 'interrupted')
+                """
+                column = "generation_command_json"
+            case "generation_command_by_id":
+                sql = """
+                SELECT json_object(
+                  'commandId', command_id, 'requestId', request_id,
+                  'roomId', room_id, 'requestDigest', request_digest,
+                  'state', state, 'attemptEpoch', attempt_epoch,
+                  'failureCode', failure_code, 'responseText', response_text
+                ) AS generation_command_json
+                FROM generation_commands WHERE command_id = ?
+                """
+                column = "generation_command_json"
             default:
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
@@ -423,101 +472,6 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 mutationId: columnText(statement, 4),
                 lifecycleState: columnText(statement, 5),
                 tombstoned: sqlite3_column_int(statement, 6) == 1
-            )
-        }
-    }
-
-    func providerRequestAuthority(
-        roomId: String,
-        sourceEventSequence: Int,
-        personaSlug: String,
-        profileId: String
-    ) throws -> ProviderRequestAuthority {
-        try serializationLock.withLock {
-            guard let database else {
-                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
-            }
-            let roomStatement = try prepare(
-                """
-                SELECT room.generation, room.next_event_sequence, decision.event_json
-                FROM rooms room
-                JOIN participants persona
-                  ON persona.room_id = room.id AND persona.kind = 'persona'
-                 AND persona.persona_slug = ? AND persona.muted = 0
-                JOIN events decision
-                  ON decision.room_id = room.id AND decision.sequence = ?
-                WHERE room.id = ? AND room.status = 'active'
-                  AND room.next_event_sequence = ?
-                """,
-                on: database
-            )
-            defer { sqlite3_finalize(roomStatement) }
-            try bind([
-                personaSlug, sourceEventSequence + 1, roomId, sourceEventSequence + 2,
-            ], to: roomStatement)
-            guard sqlite3_step(roomStatement) == SQLITE_ROW else {
-                throw DatabaseFailure(code: "canceled", retryable: true)
-            }
-            let roomGeneration = Int(sqlite3_column_int64(roomStatement, 0))
-            let decisionText = columnText(roomStatement, 2)
-            guard let decisionData = decisionText.data(using: .utf8),
-                  let decision = try? JSONSerialization.jsonObject(with: decisionData) as? [String: Any],
-                  Set(decision.keys) == Set([
-                    "generation", "reason", "sourceEventSequence", "speaker", "type",
-                  ]),
-                  decision["type"] as? String == "director_decision",
-                  ["selected", "directed"].contains(decision["reason"] as? String ?? ""),
-                  decision["generation"] as? Int == roomGeneration,
-                  decision["sourceEventSequence"] as? Int == sourceEventSequence,
-                  decision["speaker"] as? String == personaSlug else {
-                throw DatabaseFailure(code: "canceled", retryable: true)
-            }
-
-            let profileStatement = try prepare(
-                """
-                SELECT credential.profile_revision, credential.provider_id,
-                       credential.credential_ref, credential.mutation_id,
-                       credential.lifecycle_state, credential.tombstoned, profile.tombstoned
-                FROM connection_profile_revisions profile
-                JOIN credential_revisions credential
-                  ON credential.profile_id = profile.profile_id
-                 AND credential.profile_revision = profile.profile_revision
-                 AND credential.provider_id = profile.provider_id
-                WHERE profile.profile_id = ?
-                  AND profile.profile_revision = (
-                    SELECT max(current.profile_revision)
-                    FROM connection_profile_revisions current
-                    WHERE current.profile_id = profile.profile_id
-                  )
-                """,
-                on: database
-            )
-            defer { sqlite3_finalize(profileStatement) }
-            try bind([profileId], to: profileStatement)
-            guard sqlite3_step(profileStatement) == SQLITE_ROW else {
-                throw DatabaseFailure(code: "credential_missing", retryable: true)
-            }
-            let providerId = columnText(profileStatement, 1)
-            let reservation = CredentialReservation(
-                profileId: profileId,
-                profileRevision: Int(sqlite3_column_int64(profileStatement, 0)),
-                providerId: providerId,
-                credentialRef: columnText(profileStatement, 2),
-                mutationId: columnText(profileStatement, 3),
-                lifecycleState: columnText(profileStatement, 4),
-                tombstoned: sqlite3_column_int(profileStatement, 5) == 1
-            )
-            guard reservation.lifecycleState == "ready", !reservation.tombstoned,
-                  sqlite3_column_int(profileStatement, 6) == 0,
-                  reservation.credentialRef == canonicalCredentialReference(
-                    profileId: profileId, revision: reservation.profileRevision
-                  ),
-                  let provider = ApprovedProviderID(rawValue: providerId) else {
-                throw DatabaseFailure(code: "credential_missing", retryable: true)
-            }
-            return ProviderRequestAuthority(
-                reservation: reservation,
-                definition: ApprovedProviderDefinitions.definition(for: provider)
             )
         }
     }
@@ -680,6 +634,218 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
+    func providerCommandAuthority(
+        commandId: String,
+        requestId: String,
+        requestDigest: String
+    ) throws -> ProviderCommandAuthority {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT command.request_plan_json, command.attempt_epoch,
+                       credential.profile_id, credential.profile_revision, credential.provider_id,
+                       credential.credential_ref, credential.mutation_id,
+                       credential.lifecycle_state, credential.tombstoned
+                FROM generation_commands command
+                JOIN iphone_provider_selection selection
+                  ON selection.singleton = 1
+                 AND selection.profile_id = json_extract(command.request_plan_json, '$.profileId')
+                 AND selection.profile_revision = json_extract(command.request_plan_json, '$.profileRevision')
+                 AND selection.provider_id = json_extract(command.request_plan_json, '$.providerId')
+                 AND selection.model = json_extract(command.request_plan_json, '$.model')
+                JOIN credential_revisions credential
+                  ON credential.profile_id = selection.profile_id
+                 AND credential.profile_revision = selection.profile_revision
+                 AND credential.provider_id = selection.provider_id
+                JOIN connection_profile_revisions profile
+                  ON profile.profile_id = credential.profile_id
+                 AND profile.profile_revision = credential.profile_revision
+                 AND profile.provider_id = credential.provider_id
+                JOIN rooms room ON room.id = command.room_id
+                WHERE command.command_id = ? AND command.request_id = ? AND command.request_digest = ?
+                  AND command.state IN ('prepared', 'failed', 'interrupted')
+                  AND json_extract(command.request_plan_json, '$.kind') = 'provider'
+                  AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                  AND profile.tombstoned = 0
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
+                  AND room.status = 'active'
+                  AND room.generation = command.expected_generation
+                  AND room.next_event_sequence = command.expected_next_event_sequence
+                  AND EXISTS (
+                    SELECT 1 FROM current_room
+                    WHERE singleton = 1 AND room_id = room.id
+                  )
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([commandId, requestId, requestDigest], to: statement)
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                throw DatabaseFailure(code: "canceled", retryable: false)
+            }
+            let plan = columnText(statement, 0)
+            guard let planData = plan.data(using: .utf8),
+                  SHA256.hash(data: planData).map({ String(format: "%02x", $0) }).joined() == requestDigest else {
+                throw DatabaseFailure(code: "canceled", retryable: false)
+            }
+            let providerId = columnText(statement, 4)
+            guard let approvedId = ApprovedProviderID(rawValue: providerId) else {
+                throw DatabaseFailure(code: "canceled", retryable: false)
+            }
+            let definition = ApprovedProviderDefinitions.definition(for: approvedId)
+            return ProviderCommandAuthority(
+                reservation: CredentialReservation(
+                    profileId: columnText(statement, 2),
+                    profileRevision: Int(sqlite3_column_int64(statement, 3)),
+                    providerId: providerId,
+                    credentialRef: columnText(statement, 5),
+                    mutationId: columnText(statement, 6),
+                    lifecycleState: columnText(statement, 7),
+                    tombstoned: sqlite3_column_int(statement, 8) == 1
+                ),
+                definition: definition,
+                requestPlanJSON: plan,
+                attemptEpoch: Int(sqlite3_column_int64(statement, 1))
+            )
+        }
+    }
+
+    func providerListModelsAuthority(
+        profileId: String,
+        profileRevision: Int,
+        providerId: String,
+        credentialRef: String
+    ) throws -> CredentialReservation {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT credential.mutation_id, credential.lifecycle_state, credential.tombstoned
+                FROM iphone_provider_selection selection
+                JOIN connection_profile_revisions profile
+                  ON profile.profile_id = selection.profile_id
+                 AND profile.profile_revision = selection.profile_revision
+                 AND profile.provider_id = selection.provider_id
+                JOIN credential_revisions credential
+                  ON credential.profile_id = selection.profile_id
+                 AND credential.profile_revision = selection.profile_revision
+                 AND credential.provider_id = selection.provider_id
+                WHERE selection.singleton = 1
+                  AND selection.profile_id = ? AND selection.profile_revision = ?
+                  AND selection.provider_id = ? AND credential.credential_ref = ?
+                  AND profile.tombstoned = 0
+                  AND profile.profile_revision = (
+                    SELECT max(current.profile_revision)
+                    FROM connection_profile_revisions current
+                    WHERE current.profile_id = profile.profile_id
+                  )
+                  AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([profileId, profileRevision, providerId, credentialRef], to: statement)
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                throw DatabaseFailure(code: "credential_missing", retryable: true)
+            }
+            return CredentialReservation(
+                profileId: profileId, profileRevision: profileRevision, providerId: providerId,
+                credentialRef: credentialRef, mutationId: columnText(statement, 0),
+                lifecycleState: columnText(statement, 1), tombstoned: sqlite3_column_int(statement, 2) == 1
+            )
+        }
+    }
+
+    /// Reconciles commands that cannot still be executing in this process.
+    /// A prepared row proves URLSession never began, while an in-flight row has
+    /// an uncertain provider outcome. This method performs no provider retry.
+    func interruptInFlightGenerationCommands() throws {
+        try serializationLock.withLock {
+            guard let database else { return }
+            try execute(
+                """
+                UPDATE generation_commands
+                SET state = CASE state WHEN 'prepared' THEN 'failed' ELSE 'interrupted' END,
+                    failure_code = CASE state WHEN 'prepared' THEN 'not_started' ELSE 'canceled' END
+                WHERE state IN ('prepared', 'in_flight')
+                """,
+                on: database
+            )
+        }
+    }
+
+    func interruptGenerationCommand(requestId: String, attemptEpoch: Int, failureCode: String) throws {
+        try serializationLock.withLock {
+            guard let database else { return }
+            let statement = try prepare(
+                "UPDATE generation_commands SET state = 'interrupted', failure_code = ? WHERE request_id = ? AND attempt_epoch = ? AND state = 'in_flight'",
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([failureCode, requestId, attemptEpoch], to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+        }
+    }
+
+    func failGenerationCommandNotStarted(
+        commandId: String,
+        requestId: String,
+        requestDigest: String,
+        priorAttemptEpoch: Int
+    ) throws {
+        try serializationLock.withLock {
+            guard let database else { return }
+            let statement = try prepare(
+                """
+                UPDATE generation_commands
+                SET state = 'failed', attempt_epoch = ?, started_at = NULL,
+                    failure_code = 'not_started'
+                WHERE command_id = ? AND request_id = ? AND request_digest = ?
+                  AND ((attempt_epoch = ? AND state IN ('prepared', 'failed'))
+                    OR (attempt_epoch = ? + 1 AND state = 'in_flight'))
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([
+                priorAttemptEpoch, commandId, requestId, requestDigest,
+                priorAttemptEpoch, priorAttemptEpoch,
+            ], to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+        }
+    }
+
+    func generationCommandIsInFlight(
+        commandId: String,
+        requestId: String,
+        requestDigest: String,
+        attemptEpoch: Int
+    ) throws -> Bool {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT 1 FROM generation_commands
+                WHERE command_id = ? AND request_id = ? AND request_digest = ?
+                  AND state = 'in_flight' AND attempt_epoch = ?
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind([commandId, requestId, requestDigest, attemptEpoch], to: statement)
+            return sqlite3_step(statement) == SQLITE_ROW
+        }
+    }
+
     private static let statements = [
         "append_event": "INSERT INTO events(room_id, sequence, event_json) SELECT id, next_event_sequence, ? FROM rooms WHERE id = ?",
         "append_persona_event": """
@@ -703,6 +869,118 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
+        "save_local_draft": """
+          INSERT INTO local_drafts(room_id, text, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(room_id) DO UPDATE SET text = excluded.text, updated_at = CURRENT_TIMESTAMP
+          """,
+        "delete_local_draft": "DELETE FROM local_drafts WHERE room_id = ?",
+        "prepare_generation_command": """
+          INSERT INTO generation_commands(
+            command_id, request_id, room_id, request_digest, request_plan_json,
+            human_event_json, director_event_json, director_state_json,
+            expected_generation, expected_next_event_sequence, persona_slug, state
+          )
+          SELECT ?, ?, room.id, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared'
+          FROM rooms room
+          WHERE room.id = ? AND room.status = 'active'
+            AND room.generation = ? AND room.next_event_sequence = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM generation_commands unresolved
+              WHERE unresolved.room_id = room.id
+                AND unresolved.state IN ('prepared', 'in_flight', 'failed', 'interrupted')
+            )
+            AND (
+              (? IS NULL AND json_extract(?, '$.kind') = 'silence') OR
+              (? IS NOT NULL AND json_extract(?, '$.kind') = 'provider' AND EXISTS (
+                SELECT 1 FROM iphone_provider_selection selection
+                JOIN credential_revisions credential
+                  ON credential.profile_id = selection.profile_id
+                 AND credential.profile_revision = selection.profile_revision
+                 AND credential.provider_id = selection.provider_id
+                JOIN connection_profile_revisions profile
+                  ON profile.profile_id = selection.profile_id
+                 AND profile.profile_revision = selection.profile_revision
+                 AND profile.provider_id = selection.provider_id
+                WHERE selection.singleton = 1
+                  AND selection.provider_id = json_extract(?, '$.providerId')
+                  AND selection.profile_id = json_extract(?, '$.profileId')
+                  AND selection.profile_revision = json_extract(?, '$.profileRevision')
+                  AND selection.model = json_extract(?, '$.model')
+                  AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                  AND profile.tombstoned = 0
+              ))
+            )
+          """,
+        "begin_generation_command": """
+          UPDATE generation_commands
+          SET state = 'in_flight', attempt_epoch = attempt_epoch + 1,
+              started_at = CURRENT_TIMESTAMP, failure_code = NULL
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND request_plan_json = ? AND attempt_epoch = ?
+            AND state IN ('prepared', 'failed', 'interrupted')
+            AND json_extract(request_plan_json, '$.kind') = 'provider'
+            AND EXISTS (
+              SELECT 1
+              FROM iphone_provider_selection selection
+              JOIN connection_profile_revisions profile
+                ON profile.profile_id = selection.profile_id
+               AND profile.profile_revision = selection.profile_revision
+               AND profile.provider_id = selection.provider_id
+              JOIN credential_revisions credential
+                ON credential.profile_id = selection.profile_id
+               AND credential.profile_revision = selection.profile_revision
+               AND credential.provider_id = selection.provider_id
+              JOIN rooms room ON room.id = generation_commands.room_id
+              WHERE selection.singleton = 1
+                AND selection.profile_id = json_extract(generation_commands.request_plan_json, '$.profileId')
+                AND selection.profile_revision = json_extract(generation_commands.request_plan_json, '$.profileRevision')
+                AND selection.provider_id = json_extract(generation_commands.request_plan_json, '$.providerId')
+                AND selection.model = json_extract(generation_commands.request_plan_json, '$.model')
+                AND profile.tombstoned = 0
+                AND profile.profile_revision = (
+                  SELECT max(current.profile_revision)
+                  FROM connection_profile_revisions current
+                  WHERE current.profile_id = profile.profile_id
+                )
+                AND credential.credential_ref = ? AND credential.mutation_id = ?
+                AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
+                AND room.status = 'active'
+                AND room.generation = generation_commands.expected_generation
+                AND room.next_event_sequence = generation_commands.expected_next_event_sequence
+                AND EXISTS (
+                  SELECT 1 FROM current_room
+                  WHERE singleton = 1 AND room_id = room.id
+                )
+            )
+          """,
+        "fail_generation_command": """
+          UPDATE generation_commands SET state = 'failed', failure_code = ?
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND attempt_epoch = ? AND state IN ('prepared', 'failed')
+        """,
+        "interrupt_generation_command": """
+          UPDATE generation_commands SET state = 'interrupted', failure_code = ?
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND attempt_epoch = ? AND state = 'in_flight'
+          """,
+        "complete_generation_command": """
+          UPDATE generation_commands
+          SET state = 'completed', response_text = ?, failure_code = NULL, finished_at = CURRENT_TIMESTAMP
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND attempt_epoch = ? AND state = 'in_flight' AND persona_slug IS NOT NULL
+          """,
+        "complete_silent_generation_command": """
+          UPDATE generation_commands
+          SET state = 'completed', failure_code = NULL, finished_at = CURRENT_TIMESTAMP
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND attempt_epoch = ? AND state IN ('prepared', 'failed') AND persona_slug IS NULL
+          """,
+        "abandon_generation_command": """
+          UPDATE generation_commands
+          SET state = 'abandoned', failure_code = ?, finished_at = CURRENT_TIMESTAMP
+          WHERE command_id = ? AND request_id = ? AND request_digest = ?
+            AND state IN ('prepared', 'failed', 'interrupted')
+          """,
         "create_connection_profile_revision": """
           INSERT INTO connection_profile_revisions(
             profile_id, profile_revision, provider_id, expected_prior_revision
@@ -756,7 +1034,9 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     private static let requiredSingleChangeStatements = Set([
         "append_event", "append_persona_event", "update_director_state", "create_connection_profile_revision",
-        "reserve_credential", "save_provider_selection", "tombstone_credential"
+        "reserve_credential", "save_provider_selection", "tombstone_credential", "prepare_generation_command",
+        "begin_generation_command", "fail_generation_command", "interrupt_generation_command",
+        "complete_generation_command", "complete_silent_generation_command", "abandon_generation_command"
     ])
 
     private func applicationDirectory() throws -> URL {
@@ -797,13 +1077,13 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         let expectedFiles = [
             "0001-iphone-alpha.sql", "0002-ordered-events.sql",
             "0003-shared-director-state.sql", "0004-transaction-replay.sql",
-            "0005-credential-lifecycle.sql", "0006-room-talk.sql"
+            "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql"
         ]
-        guard current <= 6,
+        guard current <= 7,
               let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 6,
+              manifest["schema"] as? Int == 7,
               let migrations = manifest["migrations"] as? [[String: Any]],
               migrations.count == expectedFiles.count else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
@@ -832,7 +1112,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 6 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 7 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func migrationURL(file: String) -> URL? {

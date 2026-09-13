@@ -21,4 +21,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        NativeLifecycleCoordinator.shared.applicationWillResignActive(UIApplication.shared)
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        NativeLifecycleCoordinator.shared.applicationDidEnterBackground(UIApplication.shared)
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        NativeLifecycleCoordinator.shared.applicationDidBecomeActive(UIApplication.shared)
+    }
 }

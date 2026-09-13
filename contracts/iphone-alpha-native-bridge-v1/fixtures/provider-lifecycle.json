@@ -1,0 +1,616 @@
+{
+  "contractVersion": "iphone-native-bridge/1.0",
+  "calls": [
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000002",
+      "method": "provider.generate",
+      "payload": {
+        "requestId": "30000000-0000-4000-8000-000000000003",
+        "commandId": "40000000-0000-4000-8000-000000000004",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000005",
+      "method": "provider.cancel",
+      "payload": {
+        "requestId": "30000000-0000-4000-8000-000000000003"
+      }
+    },
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000006",
+      "method": "lifecycle.status",
+      "payload": {}
+    },
+    {
+      "contractVersion": "iphone-native-bridge/1.0",
+      "callId": "20000000-0000-4000-8000-000000000007",
+      "method": "provider.listModels",
+      "payload": {
+        "profileId": "iphone.openrouter",
+        "profileRevision": 1,
+        "providerId": "openrouter",
+        "credentialRef": "credential:iphone.openrouter:1"
+      }
+    }
+  ],
+  "results": [
+    {
+      "callId": "20000000-0000-4000-8000-000000000002",
+      "ok": true,
+      "value": {
+        "text": "A bounded answer.",
+        "attemptEpoch": 1
+      }
+    },
+    {
+      "callId": "20000000-0000-4000-8000-000000000005",
+      "ok": true,
+      "value": {
+        "canceled": true
+      }
+    },
+    {
+      "callId": "20000000-0000-4000-8000-000000000006",
+      "ok": true,
+      "value": {
+        "active": true,
+        "protectedDataAvailable": true,
+        "pathAvailable": true,
+        "databaseReady": true,
+        "epoch": 7
+      }
+    },
+    {
+      "callId": "20000000-0000-4000-8000-000000000007",
+      "ok": true,
+      "value": {
+        "modelIds": [
+          "openai/gpt-4.1-mini",
+          "anthropic/claude-sonnet-4"
+        ]
+      }
+    }
+  ],
+  "invalidCalls": {
+    "provider.generate": [
+      {
+        "case": "malformed",
+        "value": null,
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "unknown-field",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000002",
+          "method": "provider.generate",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003",
+            "commandId": "40000000-0000-4000-8000-000000000004",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "unknown": true
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "oversized",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000002",
+          "method": "provider.generate",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003",
+            "commandId": "40000000-0000-4000-8000-000000000004",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "oversized": "$repeat:262145"
+          }
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "incompatible-contract",
+        "value": {
+          "contractVersion": "iphone-native-bridge/2.0",
+          "callId": "20000000-0000-4000-8000-000000000002",
+          "method": "provider.generate",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003",
+            "commandId": "40000000-0000-4000-8000-000000000004",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "expectedCode": "incompatible_contract"
+      }
+    ],
+    "provider.cancel": [
+      {
+        "case": "malformed",
+        "value": null,
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "unknown-field",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000005",
+          "method": "provider.cancel",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003"
+          },
+          "unknown": true
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "oversized",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000005",
+          "method": "provider.cancel",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003",
+            "oversized": "$repeat:262145"
+          }
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "incompatible-contract",
+        "value": {
+          "contractVersion": "iphone-native-bridge/2.0",
+          "callId": "20000000-0000-4000-8000-000000000005",
+          "method": "provider.cancel",
+          "payload": {
+            "requestId": "30000000-0000-4000-8000-000000000003"
+          }
+        },
+        "expectedCode": "incompatible_contract"
+      }
+    ],
+    "lifecycle.status": [
+      {
+        "case": "malformed",
+        "value": null,
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "unknown-field",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000006",
+          "method": "lifecycle.status",
+          "payload": {},
+          "unknown": true
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "oversized",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000006",
+          "method": "lifecycle.status",
+          "payload": {
+            "oversized": "$repeat:262145"
+          }
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "incompatible-contract",
+        "value": {
+          "contractVersion": "iphone-native-bridge/2.0",
+          "callId": "20000000-0000-4000-8000-000000000006",
+          "method": "lifecycle.status",
+          "payload": {}
+        },
+        "expectedCode": "incompatible_contract"
+      }
+    ],
+    "provider.listModels": [
+      {
+        "case": "malformed",
+        "value": null,
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "unknown-field",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000007",
+          "method": "provider.listModels",
+          "payload": {
+            "profileId": "iphone.openrouter",
+            "profileRevision": 1,
+            "providerId": "openrouter",
+            "credentialRef": "credential:iphone.openrouter:1"
+          },
+          "unknown": true
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "oversized",
+        "value": {
+          "contractVersion": "iphone-native-bridge/1.0",
+          "callId": "20000000-0000-4000-8000-000000000007",
+          "method": "provider.listModels",
+          "payload": {
+            "profileId": "iphone.openrouter",
+            "profileRevision": 1,
+            "providerId": "openrouter",
+            "credentialRef": "credential:iphone.openrouter:1",
+            "oversized": "$repeat:262145"
+          }
+        },
+        "expectedCode": "invalid_call"
+      },
+      {
+        "case": "incompatible-contract",
+        "value": {
+          "contractVersion": "iphone-native-bridge/2.0",
+          "callId": "20000000-0000-4000-8000-000000000007",
+          "method": "provider.listModels",
+          "payload": {
+            "profileId": "iphone.openrouter",
+            "profileRevision": 1,
+            "providerId": "openrouter",
+            "credentialRef": "credential:iphone.openrouter:1"
+          }
+        },
+        "expectedCode": "incompatible_contract"
+      }
+    ]
+  },
+  "failureResults": {
+    "provider.generate": [
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "invalid_call",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "incompatible_contract",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "credential_unavailable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "credential_missing",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "offline",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "provider_unreachable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "provider_rejected",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "invalid_response",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "response_too_large",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "timeout",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "capacity_rejected",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "canceled",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000002",
+        "ok": false,
+        "error": {
+          "code": "internal_failure",
+          "retryable": false
+        }
+      }
+    ],
+    "provider.cancel": [
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "invalid_call",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "incompatible_contract",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "credential_unavailable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "credential_missing",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "offline",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "provider_unreachable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "provider_rejected",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "invalid_response",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "response_too_large",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "timeout",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "capacity_rejected",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "canceled",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000005",
+        "ok": false,
+        "error": {
+          "code": "internal_failure",
+          "retryable": false
+        }
+      }
+    ],
+    "lifecycle.status": [
+      {
+        "callId": "20000000-0000-4000-8000-000000000006",
+        "ok": false,
+        "error": {
+          "code": "invalid_call",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000006",
+        "ok": false,
+        "error": {
+          "code": "incompatible_contract",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000006",
+        "ok": false,
+        "error": {
+          "code": "internal_failure",
+          "retryable": false
+        }
+      }
+    ],
+    "provider.listModels": [
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "invalid_call",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "incompatible_contract",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "credential_unavailable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "credential_missing",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "offline",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "provider_unreachable",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "provider_rejected",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "invalid_response",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "response_too_large",
+          "retryable": false
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "timeout",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "capacity_rejected",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "canceled",
+          "retryable": true
+        }
+      },
+      {
+        "callId": "20000000-0000-4000-8000-000000000007",
+        "ok": false,
+        "error": {
+          "code": "internal_failure",
+          "retryable": false
+        }
+      }
+    ]
+  }
+}

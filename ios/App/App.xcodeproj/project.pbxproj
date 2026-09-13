@@ -27,6 +27,7 @@
 		A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000021 /* DeviceCredentialAcceptance.swift */; };
 		A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000022 /* ApprovedProviderDefinitions.swift */; };
 		A1600000000000000000000B /* GreenRoomProviderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000024 /* GreenRoomProviderPlugin.swift */; };
+		A1600000000000000000000C /* NativeLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000025 /* NativeLifecycleCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +52,7 @@
 		A16000000000000000000021 /* DeviceCredentialAcceptance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialAcceptance.swift; sourceTree = "<group>"; };
 		A16000000000000000000022 /* ApprovedProviderDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovedProviderDefinitions.swift; sourceTree = "<group>"; };
 		A16000000000000000000024 /* GreenRoomProviderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenRoomProviderPlugin.swift; sourceTree = "<group>"; };
+		A16000000000000000000025 /* NativeLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLifecycleCoordinator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +91,7 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				A16000000000000000000011 /* ContainedBridgeViewController.swift */,
 				A16000000000000000000013 /* GreenRoomDatabasePlugin.swift */,
+				A16000000000000000000025 /* NativeLifecycleCoordinator.swift */,
 				A16000000000000000000020 /* Credentials */,
 				A16000000000000000000023 /* Providers */,
 				A16000000000000000000014 /* Migrations */,
@@ -226,6 +229,7 @@
 				A16000000000000000000009 /* DeviceCredentialAcceptance.swift in Sources */,
 				A1600000000000000000000A /* ApprovedProviderDefinitions.swift in Sources */,
 				A1600000000000000000000B /* GreenRoomProviderPlugin.swift in Sources */,
+				A1600000000000000000000C /* NativeLifecycleCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

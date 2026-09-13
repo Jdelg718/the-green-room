@@ -27,6 +27,11 @@ function temporary(run: (root: string) => void): void {
   try { run(root); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
+function writeWithMode(path: string, data: string | Buffer, mode: number): void {
+  writeFileSync(path, data, { mode });
+  chmodSync(path, mode);
+}
+
 test("identity resolution requires exactly one valid exact Developer ID Application identity", () => {
   const valid = `  1) ABCDEF0123456789ABCDEF0123456789ABCDEF01 \"${EXPECTED_SIGNING_IDENTITY}\"\n     1 valid identities found\n`;
   assert.deepEqual(parseSigningIdentities(valid), [{ hash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01", name: EXPECTED_SIGNING_IDENTITY }]);
@@ -47,8 +52,8 @@ test("signed verifier rejects payload tamper, stale manifest, owned-path drift, 
   const payloadPath = "Contents/Resources/payload.json";
   const resources = join(root, "Contents/Resources"); const seal = join(root, "Contents/_CodeSignature/CodeResources");
   mkdirSync(join(root, "Contents/MacOS"), { recursive: true }); mkdirSync(resources, { recursive: true }); mkdirSync(join(root, "Contents/_CodeSignature"), { recursive: true });
-  const macho = Buffer.alloc(32); macho.writeUInt32LE(0xfeedfacf, 0); macho.writeUInt32LE(0x0100000c, 4); writeFileSync(launcher, macho, { mode: 0o555 }); writeFileSync(seal, "seal", { mode: 0o444 });
-  const payload = Buffer.from("{}\n"); writeFileSync(join(root, payloadPath), payload, { mode: 0o444 });
+  const macho = Buffer.alloc(32); macho.writeUInt32LE(0xfeedfacf, 0); macho.writeUInt32LE(0x0100000c, 4); writeWithMode(launcher, macho, 0o555); writeWithMode(seal, "seal", 0o444);
+  const payload = Buffer.from("{}\n"); writeWithMode(join(root, payloadPath), payload, 0o444);
   const sha = createHash("sha256").update(payload).digest("hex");
   const requirement = designatedRequirement(APP_IDENTIFIER);
   const manifest = {
@@ -61,7 +66,7 @@ test("signed verifier rejects payload tamper, stale manifest, owned-path drift, 
       codeObjects: [{ path: launcherPath, identifier: APP_IDENTIFIER, requirement }],
     },
   };
-  const manifestPath = join(resources, "release-manifest.json"); writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`, { mode: 0o444 });
+  const manifestPath = join(resources, "release-manifest.json"); writeWithMode(manifestPath, `${JSON.stringify(manifest)}\n`, 0o444);
   const signedRunner = (tool: string, args: string[]) => {
     if (tool.endsWith("lipo")) return "arm64\n";
     if (args.includes("--entitlements")) return "Executable=/fixture/code\n";
@@ -71,14 +76,14 @@ test("signed verifier rejects payload tamper, stale manifest, owned-path drift, 
   assert.equal(verifySignedApp(root, { runner: signedRunner }).machoCount, 1);
   assert.throws(() => verifySignedApp(root, { runner: signedRunner, requireStaple: true }), /signature_owned_drift/);
   const ticket = join(root, "Contents/CodeResources");
-  writeFileSync(ticket, "notarization-ticket", { mode: 0o444 });
+  writeWithMode(ticket, "notarization-ticket", 0o444);
   assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signature_owned_drift/);
   assert.equal(verifySignedApp(root, { runner: signedRunner, requireStaple: true }).machoCount, 1);
   rmSync(ticket);
   chmodSync(join(root, payloadPath), 0o644); writeFileSync(join(root, payloadPath), Buffer.concat([payload, Buffer.from("tamper")])); chmodSync(join(root, payloadPath), 0o444); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signed_payload_drift/); chmodSync(join(root, payloadPath), 0o644); writeFileSync(join(root, payloadPath), payload); chmodSync(join(root, payloadPath), 0o444);
   const stale = structuredClone(manifest); stale.payloadFiles[0]!.sha256 = "d".repeat(64); chmodSync(manifestPath, 0o644); writeFileSync(manifestPath, JSON.stringify(stale)); chmodSync(manifestPath, 0o444); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signed_payload_drift/); chmodSync(manifestPath, 0o644); writeFileSync(manifestPath, JSON.stringify(manifest)); chmodSync(manifestPath, 0o444);
-  rmSync(seal); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signature_owned_drift/); writeFileSync(seal, "seal", { mode: 0o444 });
-  writeFileSync(join(resources, "unknown"), "unknown", { mode: 0o444 }); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signed_payload_undeclared/); rmSync(join(resources, "unknown"));
+  rmSync(seal); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signature_owned_drift/); writeWithMode(seal, "seal", 0o444);
+  writeWithMode(join(resources, "unknown"), "unknown", 0o444); assert.throws(() => verifySignedApp(root, { runner: signedRunner }), /signed_payload_undeclared/); rmSync(join(resources, "unknown"));
   const adhoc = (_tool: string, args: string[]) => args.includes("-d") ? "Signature=adhoc\nTeamIdentifier=not set\nTimestamp=none\nflags=0x0" : "";
   assert.throws(() => verifySignedApp(root, { runner: adhoc }), /signature_policy_mismatch/);
   const entitled = (tool: string, args: string[]) => args.includes("--entitlements") ? "<key>com.apple.security.app-sandbox</key>" : signedRunner(tool, args);
@@ -111,13 +116,13 @@ test("designated requirements bind identifier, Developer ID anchor, and exact te
 test("Mach-O discovery uses magic and rejects executable non-Mach-O and unknown code", () => temporary((root) => {
   mkdirSync(join(root, "Contents/MacOS"), { recursive: true });
   const macho = Buffer.alloc(32); macho.writeUInt32LE(0xfeedfacf, 0); macho.writeUInt32LE(0x0100000c, 4);
-  writeFileSync(join(root, "Contents/MacOS/GreenRoomLauncher"), macho, { mode: 0o555 });
+  writeWithMode(join(root, "Contents/MacOS/GreenRoomLauncher"), macho, 0o555);
   const found = classifyPayload(root);
   assert.deepEqual(found.machoFiles.map((item) => item.path), ["Contents/MacOS/GreenRoomLauncher"]);
-  writeFileSync(join(root, "Contents/MacOS/script"), "#!/bin/sh\n", { mode: 0o555 });
+  writeWithMode(join(root, "Contents/MacOS/script"), "#!/bin/sh\n", 0o555);
   assert.throws(() => classifyPayload(root), /executable_non_macho/);
   chmodSync(join(root, "Contents/MacOS/script"), 0o444);
-  writeFileSync(join(root, "Contents/Resources.dat"), macho, { mode: 0o444 });
+  writeWithMode(join(root, "Contents/Resources.dat"), macho, 0o444);
   assert.throws(() => classifyPayload(root), /unclassified_macho/);
 }));
 
@@ -161,7 +166,7 @@ test("read-only nested Mach-O is normalized before the signed manifest is create
   const absolute = join(root, path);
   mkdirSync(join(root, "Contents/Resources/app/node_modules/fs-ext/build/Release"), { recursive: true });
   const macho = Buffer.alloc(32); macho.writeUInt32LE(0xfeedfacf, 0); macho.writeUInt32LE(0x0100000c, 4);
-  writeFileSync(absolute, macho, { mode: 0o444 });
+  writeWithMode(absolute, macho, 0o444);
   const [code] = classifyPayload(root).machoFiles;
   assert.equal(code?.path, path);
   assert.equal(statSync(absolute).mode & 0o777, 0o444);
@@ -176,10 +181,10 @@ test("signing workspace freezes payload modes before hashing and excludes only e
   const dataPayload = join(root, "Contents/Resources/data.json");
   mkdirSync(join(root, "Contents/MacOS"), { recursive: true });
   mkdirSync(join(root, "Contents/Resources/runtime/node/bin"), { recursive: true });
-  writeFileSync(launcher, "launcher", { mode: 0o555 });
-  writeFileSync(manifest, "v1", { mode: 0o444 });
-  writeFileSync(executablePayload, "node", { mode: 0o555 });
-  writeFileSync(dataPayload, "{}\n", { mode: 0o444 });
+  writeWithMode(launcher, "launcher", 0o555);
+  writeWithMode(manifest, "v1", 0o444);
+  writeWithMode(executablePayload, "node", 0o555);
+  writeWithMode(dataPayload, "{}\n", 0o444);
 
   makeSigningWorkspace(root);
   assert.equal(statSync(launcher).mode & 0o777, 0o700);

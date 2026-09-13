@@ -100,7 +100,9 @@ test("file credential store rejects symlinks and unsafe permissions", async () =
 
   const unsafeDirectory = fixture();
   try {
-    mkdirSync(join(unsafeDirectory.root, "credentials"), { mode: 0o755 });
+    const credentialsDirectory = join(unsafeDirectory.root, "credentials");
+    mkdirSync(credentialsDirectory, { mode: 0o755 });
+    chmodSync(credentialsDirectory, 0o755);
     assert.throws(
       () => new FileCredentialStore(unsafeDirectory.root),
       /credential_store_unsafe/,
@@ -130,6 +132,7 @@ test("file credential store rejects symlinks and unsafe permissions", async () =
     const store = new FileCredentialStore(unsafeFile.root);
     const path = join(unsafeFile.root, "credentials", reference);
     writeFileSync(path, "credential", { mode: 0o644 });
+    chmodSync(path, 0o644);
     await assert.rejects(store.get(reference), /credential_store_unsafe/);
     await assert.rejects(store.replace(reference, Buffer.from("replacement")), /credential_store_unsafe/);
     await assert.rejects(store.delete(reference), /credential_store_unsafe/);

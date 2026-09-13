@@ -120,10 +120,12 @@ Required methods:
 | Method | Payload | Result |
 | --- | --- | --- |
 | `provider.listModels` | `{ profileId, profileRevision, providerId, credentialRef }` | `{ modelIds[] }` |
-| `provider.generate` | `{ requestId, decisionSnapshotId, commandClaimId }` | `{ kind: "text", text } | { kind: "silence" }` |
+| `provider.generate` | `{ requestId, commandId, requestDigest }` | `{ text, attemptEpoch }` |
 | `provider.cancel` | `{ requestId }` | `{ canceled: boolean }` |
 
-`provider.listModels` also requires credential lifecycle state exactly `ready`; setup first completes the credential reservation, then lists models. `provider.generate` accepts no JavaScript-supplied provider, credential, model, messages, temperature, token limit, URL, host, path, method, header, redirect policy, or timeout. Before requesting, the TypeScript core may commit an immutable provider request plan only for a credential lifecycle state exactly equal to `ready`, together with the pending command claim: decision snapshot ID; current room-binding/model-profile/connection-profile revisions; provider definition; canonical credential reference; generation fence; bounded messages; temperature; output-token bound; and request digest. For both model listing and generation, the native provider actor loads current state from the shared serialized database actor and requires lifecycle state exactly `ready` before Keychain resolution, then verifies profile/provider binding and, for generation, the command claim, generation fence, current non-tombstone profile/binding revisions, decision snapshot, and request digest. `pending`, `delete_pending`, stale, disabled, superseded, missing, or mismatched state fails before Keychain resolution or network.
+`provider.listModels` requires the exact current, non-tombstoned credential lifecycle state `ready` before Keychain resolution. It uses the selected provider definition's fixed HTTPS models path, shares generation's capacity and 60-second total deadline, accepts at most a 2 MiB provider response body, and returns one to 1,024 unique opaque model IDs. Each ID is NFC, at most 256 UTF-8 bytes, and contains no whitespace or control/format/private-use/unassigned scalar; the complete bridge result remains subject to the global 256 KiB envelope bound.
+
+`provider.generate` accepts no JavaScript-supplied provider, credential, model, messages, temperature, token limit, URL, host, path, method, header, redirect policy, or timeout. Before requesting, the TypeScript core commits one immutable generation command containing the bounded request plan and its canonical SHA-256 digest, but appends no event and changes no director, room-sequence, or room-activity state. The native provider actor reloads that exact command by `commandId`, `requestId`, and `requestDigest`, recomputes the digest over the stored request-plan bytes, requires credential lifecycle state exactly `ready`, and verifies the profile/provider/model binding and generation fence before queue admission. Queue wait counts against the 60-second total deadline. Only after promotion may native code resolve Keychain bytes and construct an Authorization-bearing `URLSessionTask`; the remaining request timeout is reduced by elapsed queue time. The command changes to `in_flight` atomically with starting the retained task. Queued cancellation, expiry, or lifecycle fencing therefore leaves it definitively `failed/not_started`; only a task actually resumed can become `interrupted`.
 
 Provider/profile IDs are canonical nonblank NFC strings of at most 128 characters; revisions are integers `1...2_147_483_647`; model IDs are opaque NFC strings of at most 256 UTF-8 bytes with no control or whitespace; temperature is finite `0...2`; `maxOutputTokens` is an integer `1...32_768`; messages and bytes obey the global table; and a duplicate in-flight `requestId` is rejected unless it is the exact already-recorded operation.
 
@@ -131,9 +133,19 @@ The selected provider definition is exactly one of `openrouter`, `openai`, `xai`
 
 The plugin obtains key bytes directly from Keychain, creates the Authorization header in native memory, performs an ephemeral `URLSession` request with ATS defaults, disables redirects, accepts only HTTPS and the selected definition's exact host/port, validates status/content type/body bounds, returns a sanitized result, and releases request/key buffers. Cookies, URL cache, credential storage, background sessions, and WebKit networking are disabled. Cancellation is idempotent.
 
-The TypeScript core may build the bounded role/content messages and interpret only the sanitized result. Before first use it shows a provider-specific disclosure that the selected provider receives those messages. No project service receives them.
+The TypeScript core may build the bounded role/content messages and interpret only the sanitized result. A successful generation also returns the positive integer `attemptEpoch` owned by that exact native provider attempt; completion binds it back to SQLite so an older callback cannot complete a newer retry. Before first use it shows a provider-specific disclosure that the selected provider receives those messages. No project service receives them.
 
 Required failure codes: `invalid_call`, `incompatible_contract`, `credential_unavailable`, `credential_missing`, `offline`, `provider_unreachable`, `provider_rejected`, `invalid_response`, `response_too_large`, `timeout`, `capacity_rejected`, `canceled`, `internal_failure`. Native transport maps `URLError.notConnectedToInternet` to retryable `offline`; no raw `URLError`, provider status, or response body crosses the bridge.
+
+## Lifecycle plugin
+
+Namespace: `GreenRoomLifecycle`. It is the authoritative native view of mutation readiness; JavaScript browser signals are not authority.
+
+| Method | Payload | Result |
+| --- | --- | --- |
+| `lifecycle.status` | `{}` | `{ active, protectedDataAvailable, pathAvailable, databaseReady, epoch }` |
+
+The status call is read-only, uses the global duplicate in-flight `callId` guard, and returns only booleans plus a non-negative safe-integer lifecycle epoch. `active`, protected-data availability, reconciled database readiness, and native path availability must all be current before provider-backed mutation. Required failure codes are `invalid_call`, `incompatible_contract`, and `internal_failure`.
 
 ## WebView containment
 
@@ -146,16 +158,20 @@ Required failure codes: `invalid_call`, `incompatible_contract`, `credential_una
 
 ## Ordering and acknowledgement invariant
 
-A UI command is `uncommitted` until `database.executeBatch` commits its ordered event(s) and command result in one transaction. A provider request begins only after the human event, director decision, and pending command are committed. Provider completion appends at most one persona event only when the generation fence and command claim remain current. Cancellation, mute, pause, stop, background, and termination can leave an `interrupted` command but never a displayed committed persona event without a committed row. The app never automatically resumes an expired provider claim on launch. It shows the human/director events as committed and the AI turn as interrupted. Explicit Retry reuses the exact command ID and canonical payload after warning that a provider may already have processed the lost request and could bill a repeated call; because the approved providers do not expose one portable idempotency guarantee, SQLite can guarantee at most one committed persona event but cannot guarantee at most one provider charge.
+Issue #192 supersedes the earlier event-before-provider ordering in this contract. A turn is `Not sent` and absent from the transcript while its immutable command is `prepared`, `in_flight`, `failed`, or `interrupted`. Preparation is the only pre-request durable write and changes no event, director state, room sequence, or activity projection. A definitive failure before URLSession starts changes `prepared` to `failed`. Once a retained task starts, every failure or lifecycle cancellation is uncertain and changes `in_flight` to `interrupted`; late callbacks from an older lifecycle or attempt cannot return success.
+
+On a valid provider result, one `BEGIN IMMEDIATE` completion requires the exact native-returned attempt epoch, changes the command to `completed`, commits the human message, director decision/state, and persona message in that exact order, and deletes the draft. Deliberate silence uses the same completion boundary for the human message and director decision, without calling the provider, and binds the command's current zero-attempt epoch. The UI re-reads the completed command and ordered events before rendering or acknowledging success. Transaction replay may reproduce the same result but cannot duplicate an event. A changed digest, payload, command ID, request ID, attempt epoch, room generation, sequence, profile revision, or completion text is rejected.
+
+No provider request is retried automatically, including on activation or cold launch. An interrupted command displays this exact warning: **“Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.”** Retry is an explicit user action and reuses the exact command ID/request ID/digest; Abandon durably resolves the command without changing transcript/director state or deleting the draft. SQLite guarantees at most one committed turn, but approved providers expose no portable idempotency guarantee and may charge a repeated request.
 
 On cold launch, the core:
 
 1. opens and verifies/migrates SQLite;
-2. changes expired pending claims to visible `interrupted` state without a network request;
+2. changes stranded `in_flight` commands to visible `interrupted`, changes provably unstarted `prepared` commands to `failed/not_started`, retains unresolved commands for explicit Retry or Abandon, and issues no network request;
 3. reloads room, participants, provider snapshot, command state, and ordered events;
 4. loads any SQLite `local_drafts` value and marks it `Not sent`; it is never a command or outbox entry;
 5. reconciles current non-tombstone credential references with provider-bound Keychain metadata, deleting or reporting orphans without enabling writes; and
-6. enables send only when protected data is available and the selected current profile's credential lifecycle state is exactly `ready`; `pending`, `delete_pending`, and `missing` are non-writable.
+6. enables send/create/provider-save only while active, protected data is available, SQLite is open and reconciled, native path status is available, and (for Send/Retry) the selected current profile's credential lifecycle state is exactly `ready`; `pending`, `delete_pending`, and `missing` are non-writable. Existing-room selection and transcript projection are query-only and remain available offline while SQLite is open.
 
 ## Conformance fixtures required before implementation completion
 

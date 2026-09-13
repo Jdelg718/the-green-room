@@ -83,18 +83,17 @@ export function hashArchiveTree(rootPath) {
   return hash.digest("hex");
 }
 
-function archiveIdentity(archivePath, parsePlistFile) {
+function archiveIdentity(archivePath, parsePlistFile, readPlistRaw) {
   const applications = join(archivePath, "Products/Applications");
   const appNames = readdirSync(applications, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".app"));
   requireCondition(appNames.length === 1 && readdirSync(applications).length === 1, "archive must contain exactly one app");
   const appInfo = parsePlistFile(join(applications, appNames[0].name, "Info.plist"));
-  const archiveInfo = parsePlistFile(join(archivePath, "Info.plist"));
   const identity = {
     bundleIdentifier: appInfo.CFBundleIdentifier,
     version: appInfo.CFBundleShortVersionString,
     build: appInfo.CFBundleVersion,
-    teamIdentifier: archiveInfo?.ApplicationProperties?.Team,
+    teamIdentifier: readPlistRaw(join(archivePath, "Info.plist"), "ApplicationProperties.Team"),
     declaredSourceCommit: appInfo.GreenRoomSourceCommit,
   };
   requireCondition(identity.bundleIdentifier === "net.greenroomai.GreenRoom", "archive bundle identifier is not exact");
@@ -212,9 +211,9 @@ export function runControlledExportCore({
 } = {}, adapters) {
   requireCondition(adapters && typeof adapters === "object", "a complete adapter bundle is required");
   const adapterKeys = Object.keys(adapters).sort();
-  requireCondition(JSON.stringify(adapterKeys) === JSON.stringify(["now", "parsePlistFile", "parsePlistInput", "run"]), "adapter bundle keys must be complete and exact");
-  const { now, parsePlistFile, parsePlistInput, run } = adapters;
-  requireCondition([now, parsePlistFile, parsePlistInput, run].every((value) => typeof value === "function"), "every adapter must be a function");
+  requireCondition(JSON.stringify(adapterKeys) === JSON.stringify(["now", "parsePlistFile", "parsePlistInput", "readPlistRaw", "run"]), "adapter bundle keys must be complete and exact");
+  const { now, parsePlistFile, parsePlistInput, readPlistRaw, run } = adapters;
+  requireCondition([now, parsePlistFile, parsePlistInput, readPlistRaw, run].every((value) => typeof value === "function"), "every adapter must be a function");
   requireCondition(typeof archivePath === "string" && typeof exportPath === "string", "archive and export path arguments are required");
   const root = realpathSync(resolve(sourceRoot));
   const invoke = (command, args) => run(command, args, { cwd: root, environment: process.env });
@@ -236,7 +235,7 @@ export function runControlledExportCore({
   const options = parsePlistInput(optionsBytes, "committed ExportOptions.plist");
   validateExportOptions(options);
   const optionsSha256 = createHash("sha256").update(optionsBytes).digest("hex");
-  const identity = archiveIdentity(expectedArchive, parsePlistFile);
+  const identity = archiveIdentity(expectedArchive, parsePlistFile, readPlistRaw);
   requireCondition(identity.declaredSourceCommit === head, "archive declared commit does not equal clean checkout HEAD");
   const archiveSha256 = hashArchiveTree(expectedArchive);
   const xcodebuildVersion = invoke("/usr/bin/xcodebuild", ["-version"]).trim();
