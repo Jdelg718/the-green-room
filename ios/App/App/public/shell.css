@@ -122,7 +122,9 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .room-list span { color: var(--muted); font: 800 .65rem/1.2 var(--mono); text-transform: uppercase; }
 .setup-form { display: grid; gap: .7rem; padding: 1rem; border: var(--rule); background: var(--acid); box-shadow: var(--shadow); }
 .setup-form label { font: 800 .7rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-.setup-form select, .setup-form input { width: 100%; min-height: 3rem; padding: .7rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.2 var(--sans); }
+.setup-form select, .setup-form input { width: 100%; padding: .7rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); }
+.setup-form select { min-height: 4rem; font: 1.7rem/1.4 var(--sans); }
+.setup-form input { min-height: 3rem; font: 1rem/1.2 var(--sans); }
 .setup-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: .35rem; }
 .error { padding: 1rem; border: var(--rule); background: var(--red); color: white; font-weight: 800; }
 [hidden] { display: none !important; }

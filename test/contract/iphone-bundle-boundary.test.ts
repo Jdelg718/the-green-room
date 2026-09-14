@@ -80,12 +80,40 @@ test("accessibility evidence files, target graph, and shared scheme fail closed"
   rejects(root, /App\.xcscheme.*reviewed bytes|AppUITests/u);
   cpSync(join(ROOT, scheme), join(root, scheme));
 
-  rewrite(root, "ios/App/App.xcodeproj/project.pbxproj", (source) => source.replace(
+  const projectPath = "ios/App/App.xcodeproj/project.pbxproj";
+  rewrite(root, projectPath, (source) => source.replace(
     "A20600000000000000000007 /* Sources */ = {\n\t\t\tisa = PBXSourcesBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t\tA20600000000000000000001 /* AccessibilityTests.swift in Sources */,",
     "A20600000000000000000007 /* Sources */ = {\n\t\t\tisa = PBXSourcesBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (",
   ));
   rejects(root, /AccessibilityTests\.swift.*UI-test Sources phase/u);
-  cpSync(join(ROOT, "ios/App/App.xcodeproj/project.pbxproj"), join(root, "ios/App/App.xcodeproj/project.pbxproj"));
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
+  writeFileSync(join(root, "ios/AppUITests/DecoyTests.swift"), "import XCTest\nfinal class DecoyTests: XCTestCase {}\n");
+  rewrite(root, projectPath, (source) => source.replace(
+    "isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\";",
+    "isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoyTests.swift; sourceTree = \"<group>\";",
+  ));
+  rejects(root, /AccessibilityTests\.swift.*path chain|UI-test source path/u);
+  rmSync(join(root, "ios/AppUITests/DecoyTests.swift"));
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
+  for (const mutation of [
+    (source: string) => source.replace('path = AccessibilityTests.swift; sourceTree = "<group>";', 'path = AccessibilityTests.swift; sourceTree = SOURCE_ROOT;'),
+    (source: string) => source.replace("path = AccessibilityTests.swift;", "path = ../AppUITests/AccessibilityTests.swift;"),
+    (source: string) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };\n\t\tA20600000000000000000009 /* misleading duplicate */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+    ),
+    (source: string) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference;",
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference;\n\t\tA20600000000000000000002 /* duplicate object ID */ = {isa = PBXFileReference;",
+    ),
+    (source: string) => source.replace("A20600000000000000000002 /* AccessibilityTests.swift */ =", "A2060000000000000000002 /* malformed object ID */ ="),
+  ]) {
+    rewrite(root, projectPath, mutation);
+    rejects(root, /path chain|sourceTree|ambiguous|duplicate|malformed|UI-test source path/u);
+    cpSync(join(ROOT, projectPath), join(root, projectPath));
+  }
 
   rmSync(join(root, runner));
   rejects(root, /missing required file.*run-accessibility-ui-tests\.mjs/u);

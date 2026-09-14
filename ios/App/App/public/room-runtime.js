@@ -877,6 +877,7 @@ export function renderRoom(opened) {
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
+  exposeOnlyVisibleCancel();
   const input = document.getElementById("message-text");
   const target = document.getElementById("message-target");
   refreshMessageTarget(room);
@@ -899,6 +900,14 @@ export function renderRoom(opened) {
 
 function rememberReturnFocus(candidate = document.activeElement) {
   returnFocusElement = candidate?.matches?.("button, select, input, textarea") ? candidate : null;
+}
+
+function exposeOnlyVisibleCancel(visibleId = null) {
+  for (const id of ["cancel-picker", "rooms-cancel", "provider-cancel"]) {
+    const control = document.getElementById(id);
+    if (id === visibleId) control.removeAttribute("aria-hidden");
+    else control.setAttribute("aria-hidden", "true");
+  }
 }
 
 function renderCommandAndMutationState() {
@@ -1054,6 +1063,7 @@ export function showPicker(trigger) {
   const cancel = document.getElementById("cancel-picker");
   cancel.hidden = activeRoom === null;
   cancel.disabled = activeRoom === null;
+  exposeOnlyVisibleCancel(activeRoom === null ? null : "cancel-picker");
   document.getElementById("picker-title").focus();
 }
 
@@ -1064,6 +1074,7 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
   document.getElementById("picker-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
   document.getElementById("rooms-view").hidden = false;
+  exposeOnlyVisibleCancel("rooms-cancel");
   document.getElementById("rooms-title").focus();
   const list = document.getElementById("room-list");
   const rooms = await listLocalRooms(plugin, uuid);
@@ -1092,6 +1103,7 @@ export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = false;
+  exposeOnlyVisibleCancel("provider-cancel");
   const selection = await readProviderSelection(plugin, uuid);
   document.getElementById("provider-id").value = DEFAULT_PROVIDER_SETUP.providerId;
   document.getElementById("provider-model").value = DEFAULT_PROVIDER_SETUP.model;

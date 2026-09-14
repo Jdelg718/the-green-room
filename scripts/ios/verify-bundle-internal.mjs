@@ -82,11 +82,11 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "4d8b281cb547cd630201345bca6316ee55082b88fb6a1900ec77010002f5fab8"],
+  ["index.html", "d887ea164d34a070d065a81c5ad16713277924b8af5ab4946be8b5a69060b839"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "3700a8642e84c0a1209766a4695088c73b982a89011fe33390af8f3cef52a5ec"],
-  ["shell.css", "b8e541b45809eea6c315694934a4e932e9bdb9ff29892e9c1a2d6bc3b9e372d6"],
+  ["room-runtime.js", "073cf4fa0b7405b94ccf2194d939e2c9c3b2a0c72f2e10c6aedde994bb4e3dfe"],
+  ["shell.css", "e5cecde3af4a62ca0772aa6a1efa4217f7e332b94e3dbe27ffcc1a3be04e279d"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
@@ -102,7 +102,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
-  ["ios/AppUITests/AccessibilityTests.swift", "904ca30067b6fbe50c8ab3a707459ec5e81134c36977e5157c0ea6ee79333eef"],
+  ["ios/AppUITests/AccessibilityTests.swift", "c81671e5b2b3f05c29b8d51226675a9bf05c95e28b8d2c1ed0291c47ccf2df09"],
   ["ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme", "fc07cfc26e150c00105eb4abba2d1e905e72b9445df8bba4171181d4afff0731"],
   ["scripts/ios/run-accessibility-ui-tests.mjs", "1648737da48de007ccdb4c2bc3f83693feb0e7a762b3726d8cfaf8379b41b01d"],
 ]);
@@ -114,6 +114,137 @@ function fail(message) {
 
 function requireCondition(condition, message) {
   if (!condition) fail(message);
+}
+
+function stripPbxComments(source) {
+  let output = "";
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      output += character;
+      continue;
+    }
+    if (character === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2);
+      requireCondition(end !== -1, "Xcode project contains an unterminated comment");
+      output += " ".repeat(end + 2 - index);
+      index = end + 1;
+      continue;
+    }
+    output += character;
+  }
+  requireCondition(!quoted, "Xcode project contains an unterminated quoted value");
+  return output;
+}
+
+function matchingPbxBrace(source, opening) {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = opening; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return index;
+  }
+  fail("Xcode project contains an unterminated object");
+}
+
+function parsePbxObjects(project) {
+  const source = stripPbxComments(project);
+  const declarations = [...source.matchAll(/^\t\t([^\s=]+)\s*=\s*\{/gmu)];
+  requireCondition(declarations.length > 0, "Xcode project contains no parseable objects");
+  const objects = new Map();
+  for (const declaration of declarations) {
+    const id = declaration[1];
+    requireCondition(/^[A-F0-9]{24}$/u.test(id), `Xcode project contains malformed object ID: ${id}`);
+    requireCondition(!objects.has(id), `Xcode project contains duplicate object ID: ${id}`);
+    const opening = declaration.index + declaration[0].lastIndexOf("{");
+    const closing = matchingPbxBrace(source, opening);
+    objects.set(id, source.slice(opening + 1, closing));
+  }
+  return objects;
+}
+
+function pbxScalar(body, field, objectId, required = true) {
+  const expression = new RegExp(`(?:^|[;\\n])\\s*${field}\\s*=\\s*(?:\"([^\"]*)\"|([^;,\\n(){}]+))\\s*;`, "gu");
+  const matches = [...body.matchAll(expression)];
+  requireCondition(matches.length <= 1, `Xcode object ${objectId} contains duplicate ${field} fields`);
+  if (required) requireCondition(matches.length === 1, `Xcode object ${objectId} is missing ${field}`);
+  return matches.length === 0 ? null : (matches[0][1] ?? matches[0][2]).trim();
+}
+
+function pbxIdList(body, field, objectId) {
+  const expression = new RegExp(`(?:^|[;\\n])\\s*${field}\\s*=\\s*\\(([\\s\\S]*?)\\)\\s*;`, "gu");
+  const matches = [...body.matchAll(expression)];
+  requireCondition(matches.length === 1, `Xcode object ${objectId} must contain one ${field} list`);
+  const entries = matches[0][1].split(",").map((entry) => entry.trim()).filter(Boolean);
+  requireCondition(entries.every((entry) => /^[A-F0-9]{24}$/u.test(entry)), `Xcode object ${objectId} contains malformed ${field} membership`);
+  return entries;
+}
+
+function verifyAccessibilityUITestPath(project, sourceRoot) {
+  const objects = parsePbxObjects(project);
+  const typed = [...objects].map(([id, body]) => ({ id, body, isa: pbxScalar(body, "isa", id) }));
+  const targets = typed.filter(({ isa, body, id }) => isa === "PBXNativeTarget" && pbxScalar(body, "name", id) === "AppUITests");
+  requireCondition(targets.length === 1, "AppUITests target membership is missing or ambiguous");
+  const target = targets[0];
+  requireCondition(pbxScalar(target.body, "productType", target.id) === "com.apple.product-type.bundle.ui-testing" &&
+    pbxScalar(target.body, "productName", target.id) === "AppUITests", "AppUITests target identity is not UI testing");
+  const productRefId = pbxScalar(target.body, "productReference", target.id);
+  requireCondition(/^[A-F0-9]{24}$/u.test(productRefId), "AppUITests target contains a malformed product reference");
+  const productRef = objects.get(productRefId);
+  requireCondition(productRef !== undefined && pbxScalar(productRef, "isa", productRefId) === "PBXFileReference" &&
+    pbxScalar(productRef, "explicitFileType", productRefId) === "wrapper.cfbundle" &&
+    pbxScalar(productRef, "path", productRefId) === "AppUITests.xctest" &&
+    pbxScalar(productRef, "sourceTree", productRefId) === "BUILT_PRODUCTS_DIR", "AppUITests target product reference is not exact");
+  const phaseIds = pbxIdList(target.body, "buildPhases", target.id);
+  requireCondition(phaseIds.length === 1, "AppUITests target must contain exactly one Sources build phase");
+  const phase = objects.get(phaseIds[0]);
+  requireCondition(phase !== undefined && pbxScalar(phase, "isa", phaseIds[0]) === "PBXSourcesBuildPhase", "AppUITests target build phase is not Sources");
+  const buildFileIds = pbxIdList(phase, "files", phaseIds[0]);
+  requireCondition(buildFileIds.length === 1, "AccessibilityTests.swift must be the exact UI-test Sources phase");
+  const buildFile = objects.get(buildFileIds[0]);
+  requireCondition(buildFile !== undefined && pbxScalar(buildFile, "isa", buildFileIds[0]) === "PBXBuildFile", "AppUITests Sources member is not a PBXBuildFile");
+  const fileRefId = pbxScalar(buildFile, "fileRef", buildFileIds[0]);
+  requireCondition(/^[A-F0-9]{24}$/u.test(fileRefId), "AppUITests build file contains a malformed file reference");
+  const fileRef = objects.get(fileRefId);
+  requireCondition(fileRef !== undefined && pbxScalar(fileRef, "isa", fileRefId) === "PBXFileReference", "AppUITests build file does not resolve to a PBXFileReference");
+  requireCondition(pbxScalar(fileRef, "lastKnownFileType", fileRefId) === "sourcecode.swift", "AppUITests source is not Swift");
+  requireCondition(pbxScalar(fileRef, "sourceTree", fileRefId) === "<group>", "AccessibilityTests.swift file reference has the wrong sourceTree");
+  const filePath = pbxScalar(fileRef, "path", fileRefId);
+  requireCondition(filePath === "AccessibilityTests.swift", "AccessibilityTests.swift UI-test source path chain is not exact");
+
+  const matchingFileRefs = typed.filter(({ isa, body, id }) => isa === "PBXFileReference" &&
+    pbxScalar(body, "path", id, false) === "AccessibilityTests.swift");
+  requireCondition(matchingFileRefs.length === 1 && matchingFileRefs[0].id === fileRefId, "AccessibilityTests.swift PBXFileReference is missing or ambiguous");
+  const parentGroups = typed.filter(({ isa, body, id }) => isa === "PBXGroup" && pbxIdList(body, "children", id).includes(fileRefId));
+  requireCondition(parentGroups.length === 1, "AccessibilityTests.swift group membership is missing or ambiguous");
+  const group = parentGroups[0];
+  requireCondition(pbxScalar(group.body, "name", group.id) === "AppUITests" &&
+    pbxScalar(group.body, "path", group.id) === "../AppUITests" &&
+    pbxScalar(group.body, "sourceTree", group.id) === "<group>",
+  "AccessibilityTests.swift group path chain or sourceTree is not exact");
+  const resolvedSource = resolve(sourceRoot, "ios/App", "../AppUITests", filePath);
+  requireCondition(resolvedSource === resolve(sourceRoot, "ios/AppUITests/AccessibilityTests.swift"), "AccessibilityTests.swift UI-test source path escapes ios/AppUITests");
+  checkedRegularFile(resolvedSource, sourceRoot);
+  return { targetId: target.id, phaseId: phaseIds[0], buildFileId: buildFileIds[0], fileRefId };
 }
 
 export function parseOtoolLibraries(output) {
@@ -424,17 +555,13 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
-  const uiTestTarget = project.match(/A20600000000000000000006 \/\* AppUITests \*\/ = \{[\s\S]*?\n\t\t\};/u)?.[0] ?? "";
+  const uiTestGraph = verifyAccessibilityUITestPath(project, sourceRoot);
   requireCondition(
-    /buildPhases = \(\s*A20600000000000000000007 \/\* Sources \*\/,\s*\);/u.test(uiTestTarget) &&
-      /productReference = A20600000000000000000004 \/\* AppUITests\.xctest \*\/;/u.test(uiTestTarget) &&
-      /productType = "com\.apple\.product-type\.bundle\.ui-testing";/u.test(uiTestTarget),
-    "Xcode accessibility UI-test target identity is not exact",
-  );
-  const uiTestSourcesPhase = project.match(/A20600000000000000000007 \/\* Sources \*\/ = \{[\s\S]*?\n\t\t\};/u)?.[0] ?? "";
-  requireCondition(
-    /files = \(\s*A20600000000000000000001 \/\* AccessibilityTests\.swift in Sources \*\/,\s*\);/u.test(uiTestSourcesPhase),
-    "AccessibilityTests.swift must be the exact UI-test Sources phase",
+    uiTestGraph.targetId === "A20600000000000000000006" &&
+      uiTestGraph.phaseId === "A20600000000000000000007" &&
+      uiTestGraph.buildFileId === "A20600000000000000000001" &&
+      uiTestGraph.fileRefId === "A20600000000000000000002",
+    "Xcode accessibility UI-test object identities are not exact",
   );
   requireCondition(
     /A20600000000000000000003 \/\* PBXContainerItemProxy \*\/ = \{[\s\S]*?remoteGlobalIDString = 504EC3031FED79650016851F;[\s\S]*?remoteInfo = App;[\s\S]*?\n\t\t\};/u.test(project) &&

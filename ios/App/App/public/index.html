@@ -64,7 +64,7 @@
       <div class="picker-bar">
         <p id="selection-count" role="status" aria-live="polite">0 of 3 selected</p>
         <div>
-          <button id="cancel-picker" class="button button-paper" type="button" aria-label="Cancel character picker" disabled hidden>Cancel</button>
+          <button id="cancel-picker" class="button button-paper" type="button" aria-label="Cancel character picker" aria-hidden="true" disabled hidden>Cancel</button>
           <button id="create-room" class="button" type="button" aria-label="Create room with selected characters" disabled>Create room</button>
         </div>
       </div>
@@ -77,7 +77,7 @@
       <h1 id="rooms-title" tabindex="-1">Rooms</h1>
       <p class="lede">Most recently active rooms appear first.</p>
       <div class="picker-bar">
-        <button id="rooms-cancel" class="button button-paper" type="button" aria-label="Close saved rooms">Cancel</button>
+        <button id="rooms-cancel" class="button button-paper" type="button" aria-label="Close saved rooms" aria-hidden="true">Cancel</button>
         <button id="rooms-new" class="button" type="button" aria-label="Create a new room">New room</button>
       </div>
       <p id="rooms-status" class="picker-status" role="status" aria-live="polite"></p>
@@ -101,7 +101,7 @@
         <input id="provider-model" type="text" value="gpt-4.1-mini" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Provider model ID" required>
         <p class="setup-help">Recommended starting point: OpenAI with gpt-4.1-mini. You can edit the model ID, and any saved provider and model remain your selection.</p>
         <div class="setup-actions">
-          <button id="provider-cancel" class="button button-paper" type="button" aria-label="Close provider settings">Cancel</button>
+          <button id="provider-cancel" class="button button-paper" type="button" aria-label="Close provider settings" aria-hidden="true">Cancel</button>
           <button id="provider-save" class="button" type="submit" aria-label="Save provider credential">Save credential</button>
         </div>
         <p id="provider-status" class="picker-status" role="status" aria-live="polite"></p>

@@ -432,6 +432,34 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       }
     }
   }
+  const enumerationRegression = await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const expected = ["rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room"];
+      const audit = () => expected.flatMap((id) => {
+        const element = document.getElementById(id);
+        if (!element || element.hidden || element.getClientRects().length === 0) return [id + ":missing-or-hidden"];
+        const rect = element.getBoundingClientRect();
+        return rect.width < 44 || rect.height < 44 ? [id + ":undersized"] : [];
+      });
+      const baseline = audit();
+      const hidden = document.getElementById("new-room");
+      hidden.hidden = true;
+      const hiddenFailure = audit();
+      hidden.hidden = false;
+      const undersized = document.getElementById("send-line");
+      const previousStyle = undersized.getAttribute("style");
+      undersized.style.cssText = "min-height:0;height:20px;padding:0;border:0";
+      const undersizedFailure = audit();
+      if (previousStyle === null) undersized.removeAttribute("style"); else undersized.setAttribute("style", previousStyle);
+      return { baseline, hiddenFailure, undersizedFailure };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  }) as { result: { value: { baseline: string[]; hiddenFailure: string[]; undersizedFailure: string[] } } };
+  assert.deepEqual(enumerationRegression.result.value.baseline, []);
+  assert.deepEqual(enumerationRegression.result.value.hiddenFailure, ["new-room:missing-or-hidden"]);
+  assert.deepEqual(enumerationRegression.result.value.undersizedFailure, ["send-line:undersized"]);
+
   activeSocket.close();
   socket = undefined;
 });
