@@ -45,6 +45,169 @@ class StaticPolicyTests(unittest.TestCase):
     def test_current_site_passes(self) -> None:
         self.assertEqual(validate.collect_errors(), [])
 
+    def test_privacy_page_is_release_gated_and_discoverable(self) -> None:
+        self.assertIn("privacy/index.html", validate.PAGES)
+        self.assertIn("privacy/index.html", validate.SOCIAL_CARD_PAGES)
+        self.assertEqual(validate.collect_errors(), [])
+
+    def test_top_level_pages_reject_hidden_valid_privacy_link_and_visible_wrong_target(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        attack = f'<div aria-hidden="true">{exact_link}</div><a href="/docs/">Privacy</a>'
+        for relative in (
+            "index.html",
+            "characters/index.html",
+            "docs/index.html",
+            "download/index.html",
+            "contribute/index.html",
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / relative
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(source.replace(exact_link, attack, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_rejects_case_and_unicode_normalized_visible_decoys(
+        self,
+    ) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        decoys = {
+            "uppercase": '<a href="/docs/">PRIVACY</a>',
+            "lowercase": '<a href="/docs/">privacy</a>',
+            "entity and whitespace normalized": '<a href="/docs/">  P&#82;IVACY&#x20;</a>',
+            "zero-width entity normalized": '<a href="/docs/">Pri&#x200B;vacy</a>',
+            "Unicode compatibility normalized": '<a href="/docs/">Ｐｒｉｖａｃｙ</a>',
+        }
+        for label, decoy in decoys.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(
+                    source.replace(exact_link, exact_link + decoy, 1),
+                    encoding="utf-8",
+                )
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_does_not_misclassify_related_link_labels(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        related_links = (
+            '<a href="/docs/">Privacy policy guide</a>'
+            '<a href="/docs/">privacy-first documentation</a>'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            self.assertEqual(source.count(exact_link), 1)
+            page.write_text(
+                source.replace(exact_link, exact_link + related_links, 1),
+                encoding="utf-8",
+            )
+            self.assertEqual(validate.collect_errors(site), [])
+
+    def test_privacy_navigation_rejects_duplicates_concealment_and_accessible_name_tricks(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        mutations = {
+            "duplicate visible link": exact_link + exact_link,
+            "aria-hidden link": '<a href="/privacy/" aria-hidden="true">Privacy</a>',
+            "hidden ancestor": f'<div hidden>{exact_link}</div>',
+            "inert ancestor": f'<div inert>{exact_link}</div>',
+            "CSS-hidden link": '<a class="skip-link" href="/privacy/">Privacy</a>',
+            "CSS-obscured ancestor": f'<div class="portrait">{exact_link}</div>',
+            "wrong accessible name": '<a href="/privacy/" aria-label="Docs">Privacy</a>',
+            "descendant image changes accessible name": (
+                '<a href="/privacy/">Privacy'
+                '<img src="/assets/favicon.svg" alt="Docs" width="1" height="1"></a>'
+            ),
+            "hidden visible label": (
+                '<a href="/privacy/" aria-label="Privacy">'
+                '<span aria-hidden="true">Privacy</span></a>'
+            ),
+        }
+        for label, replacement in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(source.replace(exact_link, replacement, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_fails_closed_on_malformed_nesting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            exact_link = '<a href="/privacy/">Privacy</a>'
+            malformed = '<div aria-hidden="true"><a href="/privacy/">Privacy</div></a>'
+            self.assertEqual(source.count(exact_link), 1)
+            page.write_text(source.replace(exact_link, malformed, 1), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "malformed HTML")
+
+    def test_privacy_navigation_rejects_additional_css_concealment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            extra = site / "assets" / "conceal.CSS"
+            extra.write_text(".site-footer { display: none; }\n", encoding="utf-8")
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            page.write_text(
+                source.replace(
+                    "</head>",
+                    '<link rel="stylesheet" href="/assets/conceal.CSS"></head>',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "unexpected CSS source")
+
+    def test_privacy_page_requires_provider_and_project_boundaries(self) -> None:
+        mutations = {
+            "Green Room iPhone Alpha 0.1.0 (2) is limited to the owner’s one-member internal TestFlight group": (
+                "Green Room iPhone Alpha 0.1.0 (2) is limited to the owner’s one-member internal TestFlight group",
+                "Green Room iPhone Alpha is publicly available",
+            ),
+            "A future optional private LM Studio path over the user’s Tailnet is roadmap work": (
+                "A future optional private LM Studio path over the user’s Tailnet is roadmap work, not a feature of the current internal TestFlight build",
+                "Private LM Studio over Tailnet is included in the current internal TestFlight build",
+            ),
+            "Using your own key does not by itself guarantee zero-data retention": (
+                "Using your own key does not by itself guarantee zero-data retention",
+                "Using your own key keeps every provider request private",
+            ),
+            "The Green Room project does not receive provider credentials": (
+                "The Green Room project does not receive provider credentials, prompts, replies, rooms, transcripts, or model requests from the app",
+                "The Green Room project may receive diagnostic copies of app data",
+            ),
+        }
+        for reason, (old, new) in mutations.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "privacy" / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertIn(old, source)
+                page.write_text(source.replace(old, new, 1), encoding="utf-8")
+                self.assert_rejected(validate.collect_errors(site), reason)
+
     def test_download_page_pins_release_asset_and_evidence_links(self) -> None:
         mutations = {
             "Download Alpha 1 for Apple silicon": (
@@ -168,6 +331,13 @@ class StaticPolicyTests(unittest.TestCase):
         ):
             with self.subTest(hook=hook):
                 self.assertIn(hook, stylesheet)
+
+    def test_mobile_page_heading_has_containment_guards(self) -> None:
+        stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
+        self.assertIn(
+            ".page-hero h1 { max-width: 100%; overflow-wrap: anywhere; font-size: clamp(3rem, 15vw, 4.8rem); }",
+            stylesheet,
+        )
 
     def test_profile_fact_terms_have_overflow_protection(self) -> None:
         stylesheet = (validate.SITE / "assets" / "site.css").read_text(encoding="utf-8")
