@@ -9,7 +9,7 @@ const success = (call, value) => ({ callId: call.callId, ok: true, value });
 const rows = (column, values) => ({ columns: [column], rows: values.map((value) => [JSON.stringify(value)]) });
 
 const database = {
-  async open(call) { return success(call, { schema: 7 }); },
+  async open(call) { return success(call, { schema: 8 }); },
   async executeBatch(call) {
     for (const statement of call.payload.statements) {
       const parameters = statement.parameters;

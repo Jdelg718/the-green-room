@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -17,7 +18,15 @@ import {
 } from "../../src/providers/provider-definitions.js";
 
 const fixturePath = "contracts/iphone-alpha-native-bridge-v1/provider-definitions.json";
+const dataUseAssetPaths = ["ios-web/provider-data-use.js", "ios/App/App/public/provider-data-use.js"] as const;
 const generatorPath = join(process.cwd(), "scripts/ios/generate-provider-definitions.mjs");
+const securityPins = {
+  "openrouter@1": "05ba1d3efc4eb762df41b2711a5348bca2e66a5a045c09b482de8c10a6ac061d",
+  "openai@1": "7d78db834c320a5c68ace677a6be987afddc722c886eb40c58b0fc2a431f28fd",
+  "xai@1": "86107726fa8b11bafd404acff8f5cc99f6bc8c4ce54c1765ab2d7f91abd5d01b",
+  "groq@1": "402bcfeec083d40c44fd676ef60c460a123298ce80e16fc01f0153bddd531b42",
+  "together@1": "933b0ea52eee0a1c1c3cc80b6b89f7222efb267e244829097a794d1851853dda",
+} as const;
 
 function runGenerator(root: string, mode: "--check" | "--write") {
   return spawnSync(process.execPath, [generatorPath, mode], {
@@ -37,6 +46,34 @@ test("shared, desktop, and canonical iPhone provider definitions have exact pari
   }
   assert.equal(Object.isFrozen(coreDefinitions), true);
   assert.deepEqual(parseProviderModels("openai", { data: [{ id: "owner/model" }] }), ["owner/model"]);
+
+  for (const definition of coreDefinitions) {
+    const securityRelevant = {
+      adapter: definition.adapter,
+      scheme: definition.scheme,
+      hostname: definition.hostname,
+      port: definition.port,
+      basePath: definition.basePath,
+      modelsPath: definition.modelsPath,
+      chatPath: definition.chatPath,
+      authorization: definition.authorization,
+      outputTokenField: definition.outputTokenField,
+      modelParser: definition.modelParser,
+    };
+    const key = `${definition.id}@${definition.definitionVersion}` as keyof typeof securityPins;
+    assert.equal(
+      createHash("sha256").update(JSON.stringify(securityRelevant)).digest("hex"),
+      securityPins[key],
+      `${definition.id} security-relevant definition changed without a reviewed definitionVersion pin`,
+    );
+  }
+  const assets = dataUseAssetPaths.map((path) => readFileSync(path, "utf8"));
+  assert.equal(assets[0], assets[1]);
+  for (const asset of assets) {
+    for (const forbidden of ["authorization", "Bearer", "credential", "secret", "apiKey", "baseUrl", "https://"]) {
+      assert.equal(asset.includes(forbidden), false, `provider data-use asset contains forbidden ${forbidden}`);
+    }
+  }
 
   const checked = runGenerator(process.cwd(), "--check");
   assert.equal(checked.status, 0, checked.stderr);

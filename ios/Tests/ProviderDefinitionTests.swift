@@ -36,8 +36,9 @@ private func expectProviderFailure(
 }
 
 private let providerFixtureKeys: Set<String> = [
-    "id", "version", "adapter", "scheme", "hostname", "port", "basePath",
-    "modelsPath", "chatPath", "authorization", "outputTokenField", "modelParser",
+    "id", "displayName", "version", "definitionVersion", "disclosureVersion", "adapter",
+    "scheme", "hostname", "port", "basePath", "modelsPath", "chatPath", "authorization",
+    "outputTokenField", "modelParser",
 ]
 
 private struct FixtureProviderAuthorization: Equatable {
@@ -47,7 +48,10 @@ private struct FixtureProviderAuthorization: Equatable {
 
 private struct FixtureProviderDefinition: Equatable {
     let id: ApprovedProviderID
+    let displayName: String
     let version: Int
+    let definitionVersion: Int
+    let disclosureVersion: Int
     let adapter: String
     let scheme: String
     let hostname: String
@@ -61,7 +65,10 @@ private struct FixtureProviderDefinition: Equatable {
 
     func matches(_ definition: ApprovedProviderDefinition) -> Bool {
         id == definition.id
+            && displayName == definition.displayName
             && version == definition.version
+            && definitionVersion == definition.definitionVersion
+            && disclosureVersion == definition.disclosureVersion
             && adapter == definition.adapter
             && scheme == definition.scheme
             && hostname == definition.hostname
@@ -82,7 +89,10 @@ private func fixtureDefinition(_ value: Any) -> FixtureProviderDefinition {
           let id = ApprovedProviderID(rawValue: rawID),
           let authorization = object["authorization"] as? [String: Any],
           Set(authorization.keys) == Set(["scheme", "header"]),
+          let displayName = object["displayName"] as? String,
           let version = object["version"] as? Int,
+          let definitionVersion = object["definitionVersion"] as? Int,
+          let disclosureVersion = object["disclosureVersion"] as? Int,
           let adapter = object["adapter"] as? String,
           let scheme = object["scheme"] as? String,
           let hostname = object["hostname"] as? String,
@@ -97,7 +107,9 @@ private func fixtureDefinition(_ value: Any) -> FixtureProviderDefinition {
         fatalError("provider fixture contains unknown, missing, or mistyped fields")
     }
     return FixtureProviderDefinition(
-        id: id, version: version, adapter: adapter, scheme: scheme,
+        id: id, displayName: displayName, version: version,
+        definitionVersion: definitionVersion, disclosureVersion: disclosureVersion,
+        adapter: adapter, scheme: scheme,
         hostname: hostname, port: port, basePath: basePath,
         modelsPath: modelsPath, chatPath: chatPath,
         authorization: FixtureProviderAuthorization(

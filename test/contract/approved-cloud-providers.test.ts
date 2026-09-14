@@ -85,7 +85,12 @@ test("the shared approved-cloud matrix pins exact endpoint, parser, auth, body, 
     const definition = getProviderDefinition(id);
     assert.deepEqual(definition, {
       id,
+      displayName: {
+        openrouter: "OpenRouter", openai: "OpenAI", xai: "xAI", groq: "Groq", together: "Together AI",
+      }[id],
       version: 1,
+      definitionVersion: 1,
+      disclosureVersion: 1,
       adapter: "openai-compatible",
       scheme: "https",
       hostname: expected.hostname,

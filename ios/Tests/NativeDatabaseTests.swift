@@ -117,7 +117,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     let store = GreenRoomDatabaseStore(
         directory: atomicRoot, migrationsDirectory: migrations, fileProtector: protection.protect
     )
-    require(try store.open(expectedSchema: 7)["schema"] as? Int == 7, "fresh schema seven did not open")
+    require(try store.open(expectedSchema: 8)["schema"] as? Int == 8, "fresh schema eight did not open")
     let roomId = "room-00000000-0000-4000-8000-000000000091"
     _ = try store.executeBatch(transactionId: "atomic-room", statements: [
         ["sqlId": "create_room", "parameters": [roomId, "Atomic room"]],
@@ -135,6 +135,10 @@ private func runAtomicGenerationDatabaseTests() throws {
         credentialRef: "credential:iphone.openai:1",
         mutationId: "91000000-0000-4000-8000-000000000001",
         lifecycleState: "credential_pending", tombstoned: false
+    ))
+    _ = try store.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+        providerId: "openai", profileId: "iphone.openai", profileRevision: 1,
+        model: "gpt-test", providerDefinitionVersion: 1, disclosureVersion: 1
     ))
     let commandId = "92000000-0000-4000-8000-000000000002"
     let requestId = "93000000-0000-4000-8000-000000000003"
@@ -493,17 +497,121 @@ private func runSchemaSixUpgradeTest() throws {
     require(sqlite3_exec(raw, "INSERT INTO rooms(id,title,status,last_activity_order) VALUES ('room-00000000-0000-4000-8000-000000000096','Preserved','active',1); INSERT INTO participants(id,room_id,kind,display_name,sort_order) VALUES ('human-1','room-00000000-0000-4000-8000-000000000096','human','You',0); INSERT INTO participants(id,room_id,kind,display_name,sort_order,persona_slug) VALUES ('ada-lovelace','room-00000000-0000-4000-8000-000000000096','persona','Ada Lovelace',1,'ada-lovelace'); INSERT INTO director_state(room_id) VALUES ('room-00000000-0000-4000-8000-000000000096'); INSERT INTO events(room_id,sequence,event_json) VALUES ('room-00000000-0000-4000-8000-000000000096',1,'{\"participantId\":\"human-1\",\"text\":\"preserve me\",\"type\":\"human_message\"}');", nil, nil, nil) == SQLITE_OK, "schema-six preserved data fixture failed")
     sqlite3_close_v2(raw)
     let upgraded = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    require(try upgraded.open(expectedSchema: 7)["schema"] as? Int == 7, "schema six did not upgrade to seven")
+    require(try upgraded.open(expectedSchema: 8)["schema"] as? Int == 8, "schema six did not upgrade to eight")
     let preserved = rowStrings(try upgraded.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000096"]))
     require(preserved.count == 1 && preserved[0].contains("preserve me"), "schema six upgrade lost room events")
     require(rowStrings(try upgraded.query(sqlId: "unresolved_generation_command", parameters: ["room-00000000-0000-4000-8000-000000000096"])).isEmpty, "schema six upgrade invented a command")
+}
+
+private func runSchemaSevenUpgradeAndConsentTests() throws {
+    let upgradeRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-schema-seven-upgrade-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: upgradeRoot) }
+    try FileManager.default.createDirectory(at: upgradeRoot, withIntermediateDirectories: true)
+    let path = upgradeRoot.appendingPathComponent("greenroom.sqlite")
+    var raw: OpaquePointer?
+    require(sqlite3_open_v2(path.path, &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK, "schema-seven fixture open failed")
+    let suffixes = [
+        "-iphone-alpha.sql", "-ordered-events.sql", "-shared-director-state.sql",
+        "-transaction-replay.sql", "-credential-lifecycle.sql", "-room-talk.sql",
+        "-generation-commands.sql",
+    ]
+    for version in 1...7 {
+        let sql = try String(contentsOf: migrations.appendingPathComponent(String(format: "%04d", version) + suffixes[version - 1]), encoding: .utf8)
+        require(sqlite3_exec(raw, sql, nil, nil, nil) == SQLITE_OK, "schema-seven fixture migration failed")
+        require(sqlite3_exec(raw, "PRAGMA user_version = \(version)", nil, nil, nil) == SQLITE_OK, "schema-seven fixture version failed")
+    }
+    let fixtureSQL = """
+    INSERT INTO rooms(id,title,status,last_activity_order) VALUES ('room-00000000-0000-4000-8000-000000000088','Preserved seven','active',1);
+    INSERT INTO participants(id,room_id,kind,display_name,sort_order) VALUES ('human-seven','room-00000000-0000-4000-8000-000000000088','human','You',0);
+    INSERT INTO director_state(room_id) VALUES ('room-00000000-0000-4000-8000-000000000088');
+    INSERT INTO events(room_id,sequence,event_json) VALUES ('room-00000000-0000-4000-8000-000000000088',1,'{"participantId":"human-seven","text":"preserve seven","type":"human_message"}');
+    INSERT INTO local_drafts(room_id,text) VALUES ('room-00000000-0000-4000-8000-000000000088','preserved draft');
+    INSERT INTO connection_profile_revisions(profile_id,profile_revision,provider_id,expected_prior_revision) VALUES ('iphone.openai',1,'openai',NULL);
+    INSERT INTO credential_revisions(profile_id,profile_revision,provider_id,credential_ref,expected_prior_revision,mutation_id,lifecycle_state) VALUES ('iphone.openai',1,'openai','credential:iphone.openai:1',NULL,'88000000-0000-4000-8000-000000000001','ready');
+    INSERT INTO iphone_provider_selection(singleton,provider_id,profile_id,profile_revision,model) VALUES (1,'openai','iphone.openai',1,'gpt-seven');
+    """
+    require(sqlite3_exec(raw, fixtureSQL, nil, nil, nil) == SQLITE_OK, "schema-seven preserved fixture failed")
+    sqlite3_close_v2(raw)
+
+    let protection = ProtectionSwitch()
+    let store = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: protection.protect)
+    require(try store.open(expectedSchema: 8)["schema"] as? Int == 8, "schema seven did not upgrade to eight")
+    require(try store.providerDataUseConsent() == nil, "schema seven upgrade invented consent")
+    require(rowStrings(try store.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000088"])).first?.contains("preserve seven") == true, "schema seven upgrade lost events")
+    require(rowStrings(try store.query(sqlId: "local_draft", parameters: ["room-00000000-0000-4000-8000-000000000088"])).first?.contains("preserved draft") == true, "schema seven upgrade lost draft")
+    require(rowStrings(try store.query(sqlId: "provider_selection", parameters: [])).first?.contains("gpt-seven") == true, "schema seven upgrade lost provider selection")
+    require(try store.credentialReservation(profileId: "iphone.openai", profileRevision: 1, providerId: "openai", credentialRef: "credential:iphone.openai:1")?.lifecycleState == "ready", "schema seven upgrade lost credential metadata")
+    require(bridgeInteger(true) == nil && bridgeInteger(false) == nil, "consent bridge accepted Boolean authority fields")
+    require(bridgeInteger(NSNumber(value: 1)) == 1 && bridgeInteger(NSNumber(value: 1.5)) == nil, "consent bridge integer validation is not exact")
+
+    _ = try store.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+        providerId: "openai", profileId: "iphone.openai", profileRevision: 1,
+        model: "gpt-seven", providerDefinitionVersion: 1, disclosureVersion: 1
+    ))
+    protection.fail = true
+    expectFailure("database_unavailable") {
+        _ = try store.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+            providerId: "openai", profileId: "iphone.openai", profileRevision: 1,
+            model: "gpt-rollback", providerDefinitionVersion: 1, disclosureVersion: 1
+        ))
+    }
+    protection.fail = false
+    require(rowStrings(try store.query(sqlId: "provider_selection", parameters: [])).first?.contains("gpt-seven") == true, "atomic consent failure changed selection")
+    require(try store.providerDataUseConsent()?.model == "gpt-seven", "atomic consent failure changed consent")
+    _ = try store.close()
+
+    var stale: OpaquePointer?
+    require(sqlite3_open_v2(path.path, &stale, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "stale consent fixture open failed")
+    require(sqlite3_exec(stale, "PRAGMA ignore_check_constraints = ON; UPDATE iphone_provider_data_use_consent SET provider_definition_version = 2", nil, nil, nil) == SQLITE_OK, "stale definition fixture failed")
+    sqlite3_close_v2(stale)
+    stale = nil
+    let staleDefinitionStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
+    _ = try staleDefinitionStore.open(expectedSchema: 8)
+    require(try staleDefinitionStore.providerDataUseConsent() == nil, "stale definition version was exposed as current consent")
+    _ = try staleDefinitionStore.close()
+
+    require(sqlite3_open_v2(path.path, &stale, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "stale disclosure fixture open failed")
+    require(sqlite3_exec(stale, "PRAGMA ignore_check_constraints = ON; UPDATE iphone_provider_data_use_consent SET provider_definition_version = 1, disclosure_version = 2", nil, nil, nil) == SQLITE_OK, "stale disclosure fixture failed")
+    sqlite3_close_v2(stale)
+    stale = nil
+    let staleDisclosureStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
+    _ = try staleDisclosureStore.open(expectedSchema: 8)
+    require(try staleDisclosureStore.providerDataUseConsent() == nil, "stale disclosure version was exposed as current consent")
+    _ = try staleDisclosureStore.close()
+
+    require(sqlite3_open_v2(path.path, &stale, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "stale selection fixture open failed")
+    let staleSelectionSQL = """
+    UPDATE iphone_provider_selection SET model = 'gpt-changed' WHERE singleton = 1;
+    INSERT INTO iphone_provider_data_use_consent(singleton,provider_id,provider_definition_version,model,disclosure_version,accepted_at)
+    VALUES (1,'openai',1,'gpt-seven',1,CURRENT_TIMESTAMP);
+    """
+    require(sqlite3_exec(stale, staleSelectionSQL, nil, nil, nil) == SQLITE_OK, "stale selection fixture failed")
+    sqlite3_close_v2(stale)
+    stale = nil
+    let staleSelectionStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
+    _ = try staleSelectionStore.open(expectedSchema: 8)
+    require(try staleSelectionStore.providerDataUseConsent() == nil, "stale provider/model selection was exposed as current consent")
+    _ = try staleSelectionStore.close()
+
+    var strict: OpaquePointer?
+    require(sqlite3_open_v2(path.path, &strict, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, "strict consent fixture open failed")
+    defer { sqlite3_close_v2(strict) }
+    for invalid in [
+        "INSERT OR REPLACE INTO iphone_provider_data_use_consent VALUES (1,'custom',1,'model',1,CURRENT_TIMESTAMP)",
+        "INSERT OR REPLACE INTO iphone_provider_data_use_consent VALUES (1,'openai',2,'model',1,CURRENT_TIMESTAMP)",
+        "INSERT OR REPLACE INTO iphone_provider_data_use_consent VALUES (1,'openai',1,'bad model',1,CURRENT_TIMESTAMP)",
+        "INSERT OR REPLACE INTO iphone_provider_data_use_consent VALUES (1,'openai',1,'model',2,CURRENT_TIMESTAMP)",
+        "INSERT OR REPLACE INTO iphone_provider_data_use_consent VALUES (1,'openai',1,'model',1,'not-a-time')",
+    ] {
+        require(sqlite3_exec(strict, invalid, nil, nil, nil) != SQLITE_OK, "strict consent table accepted invalid data")
+    }
 }
 
 private func runRoomTalkTests() throws {
     let roomTalkRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-room-talk-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: roomTalkRoot) }
     let store = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try store.open(expectedSchema: 7)
+    _ = try store.open(expectedSchema: 8)
     var roomStatements = createStatements(title: "Room Talk")
     roomStatements.insert(
         ["sqlId": "create_persona", "parameters": ["isaac-newton", "room-00000000-0000-4000-8000-000000000001", "Isaac Newton", 2, "isaac-newton"]],
@@ -538,7 +646,7 @@ private func runRoomTalkTests() throws {
     require(rowStrings(try store.query(sqlId: "room_list", parameters: [])).first?.contains("Room Talk") == true, "room activity list missing")
     _ = try store.close()
     let reopened = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try reopened.open(expectedSchema: 7)
+    _ = try reopened.open(expectedSchema: 8)
     require(rowStrings(try reopened.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])).count == 3, "force-relaunch lost persona reply")
     require(rowStrings(try reopened.query(sqlId: "provider_selection", parameters: [])).count == 1, "force-relaunch lost provider selection")
 }
@@ -554,7 +662,7 @@ struct NativeDatabaseTests {
             migrationsDirectory: migrations,
             fileProtector: protection.protect
         )
-        require(try store!.open(expectedSchema: 7)["schema"] as? Int == 7, "schema seven did not open")
+        require(try store!.open(expectedSchema: 8)["schema"] as? Int == 8, "schema eight did not open")
 
         let callId = "00000000-0000-4000-8000-000000000001"
         require(canonicalBridgeCallId(callId) == callId, "canonical call ID was rejected")
@@ -651,7 +759,7 @@ struct NativeDatabaseTests {
         _ = try store!.close()
         store = nil
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 7)
+        _ = try store!.open(expectedSchema: 8)
         _ = try store!.executeBatch(transactionId: "message-1", statements: messageStatements())
         let existingA = rowStrings(try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]))
         require(existingA.count == 2, "relaunch retry duplicated message pair")
@@ -670,7 +778,7 @@ struct NativeDatabaseTests {
         require(try JSONSerialization.data(withJSONObject: boundaryResult, options: [.sortedKeys]).count == valueBudget, "boundary fixture is not exact")
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 3, json_object('participantId','human-1','text', printf('%.*c', \(boundaryPadding), 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 7)
+        _ = try store!.open(expectedSchema: 8)
         let exactResult = try store!.query(
             sqlId: "room_events",
             parameters: ["room-00000000-0000-4000-8000-000000000001"],
@@ -682,7 +790,7 @@ struct NativeDatabaseTests {
         store = nil
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 4, json_object('participantId','human-1','text','one-more-row','type','human_message')); INSERT INTO events(room_id, sequence, event_json) VALUES ('\(roomB)', 1, json_object('participantId','human-2','text', printf('%.*c', 300000, 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 7)
+        _ = try store!.open(expectedSchema: 8)
         expectFailure("result_too_large") {
             _ = try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])
         }
@@ -693,6 +801,7 @@ struct NativeDatabaseTests {
         try runRoomTalkTests()
         try runAtomicGenerationDatabaseTests()
         try runSchemaSixUpgradeTest()
+        try runSchemaSevenUpgradeAndConsentTests()
         try runCredentialStoreTests()
         try runProviderDefinitionTests()
         try runProviderTransportTests()

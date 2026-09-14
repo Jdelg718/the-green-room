@@ -6,9 +6,16 @@ export type ApprovedCloudProviderId = (typeof APPROVED_CLOUD_PROVIDER_IDS)[numbe
 export type OutputTokenField = "max_tokens" | "max_completion_tokens";
 export type ModelParser = "data-id" | "array-id";
 
+export const IPHONE_PROVIDER_DISCLOSURE_VERSION = 1 as const;
+
 export interface CloudProviderDefinition {
   readonly id: ApprovedCloudProviderId;
+  readonly displayName: string;
+  /** Legacy snapshot field retained for desktop schema compatibility. */
   readonly version: 1;
+  /** Monotonic authority version for security-relevant provider definition changes. */
+  readonly definitionVersion: 1;
+  readonly disclosureVersion: typeof IPHONE_PROVIDER_DISCLOSURE_VERSION;
   readonly adapter: "openai-compatible";
   readonly scheme: "https";
   readonly hostname: string;
@@ -23,6 +30,7 @@ export interface CloudProviderDefinition {
 
 function definition(
   id: ApprovedCloudProviderId,
+  displayName: string,
   hostname: string,
   basePath: string,
   outputTokenField: OutputTokenField,
@@ -30,7 +38,10 @@ function definition(
 ): CloudProviderDefinition {
   return Object.freeze({
     id,
+    displayName,
     version: 1,
+    definitionVersion: 1,
+    disclosureVersion: IPHONE_PROVIDER_DISCLOSURE_VERSION,
     adapter: "openai-compatible",
     scheme: "https",
     hostname,
@@ -45,11 +56,11 @@ function definition(
 }
 
 export const APPROVED_CLOUD_PROVIDER_DEFINITIONS: readonly CloudProviderDefinition[] = Object.freeze([
-  definition("openrouter", "openrouter.ai", "/api/v1", "max_tokens", "data-id"),
-  definition("openai", "api.openai.com", "/v1", "max_completion_tokens", "data-id"),
-  definition("xai", "api.x.ai", "/v1", "max_tokens", "data-id"),
-  definition("groq", "api.groq.com", "/openai/v1", "max_completion_tokens", "data-id"),
-  definition("together", "api.together.ai", "/v1", "max_tokens", "array-id"),
+  definition("openrouter", "OpenRouter", "openrouter.ai", "/api/v1", "max_tokens", "data-id"),
+  definition("openai", "OpenAI", "api.openai.com", "/v1", "max_completion_tokens", "data-id"),
+  definition("xai", "xAI", "api.x.ai", "/v1", "max_tokens", "data-id"),
+  definition("groq", "Groq", "api.groq.com", "/openai/v1", "max_completion_tokens", "data-id"),
+  definition("together", "Together AI", "api.together.ai", "/v1", "max_tokens", "array-id"),
 ]);
 
 const DEFINITIONS = new Map<ApprovedCloudProviderId, CloudProviderDefinition>(
@@ -68,8 +79,8 @@ export function getProviderDefinition(id: ApprovedCloudProviderId): CloudProvide
 }
 
 const DEFINITION_KEYS = Object.freeze([
-  "adapter", "authorization", "basePath", "chatPath", "hostname", "id",
-  "modelParser", "modelsPath", "outputTokenField", "port", "scheme", "version",
+  "adapter", "authorization", "basePath", "chatPath", "definitionVersion", "disclosureVersion",
+  "displayName", "hostname", "id", "modelParser", "modelsPath", "outputTokenField", "port", "scheme", "version",
 ] as const);
 const AUTHORIZATION_KEYS = Object.freeze(["header", "scheme"] as const);
 

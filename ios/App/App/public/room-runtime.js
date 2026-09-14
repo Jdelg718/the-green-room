@@ -11,7 +11,7 @@ const MAX_PROVIDER_MESSAGES = 32;
 const PROVIDERS = new Set(["openrouter", "openai", "xai", "groq", "together"]);
 const NATIVE_FAILURE_CODES = new Set([
   "invalid_call", "incompatible_contract", "database_locked", "database_unavailable",
-  "migration_rejected", "transaction_rejected", "result_too_large", "credential_unavailable",
+  "migration_rejected", "transaction_rejected", "result_too_large", "provider_consent_required", "credential_unavailable",
   "credential_missing", "credential_write_failed", "offline", "provider_unreachable",
   "provider_rejected", "invalid_response", "response_too_large", "timeout",
   "capacity_rejected", "canceled", "internal_failure",
@@ -304,7 +304,7 @@ async function readDirectorContext(plugin, room, uuid) {
 }
 
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 7 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 8 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
   const draft = room === null ? null : await loadLocalDraft(plugin, room.id, uuid);
@@ -1345,7 +1345,7 @@ async function boot() {
       try {
         let status = await readLifecycleStatus(lifecycle);
         if (status.active && status.protectedDataAvailable && !status.databaseReady) {
-          await invoke(database, "database.open", { expectedSchema: 7 }, () => crypto.randomUUID());
+          await invoke(database, "database.open", { expectedSchema: 8 }, () => crypto.randomUUID());
           status = await readLifecycleStatus(lifecycle);
         }
         mutationGate = status;

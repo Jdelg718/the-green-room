@@ -50,7 +50,7 @@ const SHA256 = /^[0-9a-f]{64}$/u;
 const PROFILE_ID = /^[a-z][a-z0-9._-]{0,127}$/u;
 const PROVIDER_IDS = new Set(["openrouter", "openai", "xai", "groq", "together"]);
 const FAILURE_CODES = new Set([
-  "invalid_call", "incompatible_contract", "credential_unavailable", "credential_missing",
+  "invalid_call", "incompatible_contract", "provider_consent_required", "credential_unavailable", "credential_missing",
   "offline", "provider_unreachable", "provider_rejected", "invalid_response", "response_too_large",
   "timeout", "capacity_rejected", "canceled", "internal_failure",
 ]);

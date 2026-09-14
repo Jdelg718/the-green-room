@@ -10,6 +10,14 @@ Rooms, events, personas, provider profiles, and replies are stored locally in th
 
 When the user sends a prompt, the native app transmits the request directly over HTTPS to the selected, closed-list BYOK provider endpoint using a key the user obtained independently. There is no Green Room server in that path. The current approved endpoints are OpenRouter, OpenAI, xAI, Groq, and Together AI; users cannot enter an arbitrary request URL.
 
+The schema-8 native consent authority stores one current non-secret consent record in SQLite. Consent is bound exactly to the selected provider ID, selected opaque model ID, that provider's monotonic definition version, the generated disclosure-copy version, and an acceptance timestamp. Any mismatch is treated as no consent. A schema-7 upgrade creates the schema but no consent row and does not touch existing Keychain credentials. Selection plus explicit acceptance is an atomic database operation; a provider/model change invalidates prior acceptance and returning to an earlier selection does not silently restore it.
+
+Model listing and generation require both that exact current consent and a current `ready` credential. Native code checks consent before reading Keychain and before creating or resuming a network task, including a second authority check after queueing. Missing or stale consent returns only `provider_consent_required`; it performs zero Keychain and network work.
+
+Canonical generated disclosure metadata currently identifies exactly: OpenRouter (`openrouter.ai`), OpenAI (`api.openai.com`), xAI (`api.x.ai`), Groq (`api.groq.com`), and Together AI (`api.together.ai`), all HTTPS on port 443. The generated metadata and reviewed native definitions carry the same provider, host, definition-version, disclosure-version, model-list path, and generation path bindings.
+
+This change is consent-authority foundation only. The final unchecked consent control, bundled offline Privacy & Data Use screen, selection-reset interaction, credential-removal flow, and confirmation/recovery UI remain unimplemented follow-up work under issue #208. Nothing in this record approves external distribution or public privacy-policy wording.
+
 ## Conservative Apple declaration
 
 The app privacy manifest declares:

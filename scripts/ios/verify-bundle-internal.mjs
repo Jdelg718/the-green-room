@@ -52,15 +52,17 @@ const SIMULATOR_DIRECTOR_ACCEPTANCE_MARKERS = [
   "Simulator director continuity proof",
   "simulator-director-",
 ];
-const REQUIRED_MIGRATIONS = [
-  "0001-iphone-alpha.sql",
-  "0002-ordered-events.sql",
-  "0003-shared-director-state.sql",
-  "0004-transaction-replay.sql",
-  "0005-credential-lifecycle.sql",
-  "0006-room-talk.sql",
-  "0007-generation-commands.sql",
-];
+const REVIEWED_MIGRATION_SHA256 = new Map([
+  ["0001-iphone-alpha.sql", "474b538898ae28b35c19daf9360f4ce55b42a25d5b7192b95c9305630e4881fe"],
+  ["0002-ordered-events.sql", "64583eb10f9771cd3344b37af2442965dd6a500eaee1543601d9a118b3a860d3"],
+  ["0003-shared-director-state.sql", "31919295f1fb72c8d3da0d7ec15d0e494db8412629c5f98c8c19351a877825b7"],
+  ["0004-transaction-replay.sql", "6fadc829372de8edbedcade072d8f60522b2e0303c44c77b7f9ae40e9f781f35"],
+  ["0005-credential-lifecycle.sql", "0e61fe8ddafc53fdd94a9358a6ed6e5e611cfb5f24036d5f9f72298f347fdd7a"],
+  ["0006-room-talk.sql", "aa213b30cbbf9af668e0ab62c3eed93fe5538ee81bf887f88d30b3625c93dd45"],
+  ["0007-generation-commands.sql", "1ffbc6cc570e1205a8353a21e2218aca3603d1e84bd7a3d13772f486bf040899"],
+  ["0008-provider-data-use-consent.sql", "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"],
+]);
+const REVIEWED_MIGRATION_MANIFEST_SHA256 = "fbae3d99793bc3f2298e6db8840654c3ef033670104fb2927e77d9019df38ef9";
 const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/ada-lovelace.webp", "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2"],
   ["assets/portraits/benjamin-franklin.webp", "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0"],
@@ -85,7 +87,8 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["index.html", "d887ea164d34a070d065a81c5ad16713277924b8af5ab4946be8b5a69060b839"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "073cf4fa0b7405b94ccf2194d939e2c9c3b2a0c72f2e10c6aedde994bb4e3dfe"],
+  ["provider-data-use.js", "094be80e9d92c72ef1a426f30fbf230e120979bddde7577e1a1aa9f6d167f813"],
+  ["room-runtime.js", "25b18a7a6e444a969f6e9ae9927528c8ca339561959f18ecd8d3a7de2d32a57d"],
   ["shell.css", "e5cecde3af4a62ca0772aa6a1efa4217f7e332b94e3dbe27ffcc1a3be04e279d"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
@@ -93,12 +96,12 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/ContainedBridgeViewController.swift", "55a32f8ebe62671d0db754e67a560aba9a364a10236b0276b851db76c1a32221"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "63118e7ad0a5174eb374698371ca5aefd086696c29d1575c8c7dd65a96405225"],
-  ["App/Credentials/DeviceCredentialAcceptance.swift", "22288f51f86afc1833961eadc84fc0c1566addd42daf28333879ad33539bbefc"],
+  ["App/Credentials/DeviceCredentialAcceptance.swift", "168ddb64fa29d665f2474f97f75b399eefa751b994f9a37ed238b1ab6d604003"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
-  ["App/GreenRoomDatabasePlugin.swift", "3d154cb2e8a7743ba9df9fb51b98d0974446055aae662edccd8e6c788bf04d6a"],
-  ["App/NativeLifecycleCoordinator.swift", "d7daa29eb5e2385faafbb1ff711f481fecfea8b68a948327eaca1b618c5d4eb6"],
-  ["App/Providers/ApprovedProviderDefinitions.swift", "e8f26c58ef975f85b8a5cade082171e62b353f90f47da7f9d8ccc6b8a55349af"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "4b052a2ddf45f7643ac8053bd9b314b42347657ceffe6b9d57108758805529a8"],
+  ["App/GreenRoomDatabasePlugin.swift", "9c37492ef75b54f8a32673b843a239f469fe3f54e7b3640ca1338d1f63a6548c"],
+  ["App/NativeLifecycleCoordinator.swift", "cbe3112ee1d953c1ac13e49ed53c69c49e423b6717a63c3e987eddb4e18587bf"],
+  ["App/Providers/ApprovedProviderDefinitions.swift", "3399b7c370730437fbbe3e3277787702c003aea1474e0ae573bb64888c7d38e4"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "54c7c21f94ba874ac6571bce9c80c38b4d0bb808d5f29a8a8afbb3bc9a8d0ba0"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
@@ -396,23 +399,27 @@ function assertExactKeys(value, expected, label) {
 }
 
 function verifyMigrations(directory, root) {
-  const entries = walkNoFollow(directory, { maxEntries: REQUIRED_MIGRATIONS.length + 1 });
+  const requiredMigrations = [...REVIEWED_MIGRATION_SHA256.keys()];
+  const entries = walkNoFollow(directory, { maxEntries: requiredMigrations.length + 1 });
   const files = entries.filter(({ stats }) => stats.isFile()).map(({ relativePath }) => relativePath).sort();
   requireCondition(
-    JSON.stringify(files) === JSON.stringify([...REQUIRED_MIGRATIONS, "manifest.json"].sort()),
+    JSON.stringify(files) === JSON.stringify([...requiredMigrations, "manifest.json"].sort()),
     "migration inventory is not exact",
   );
+  requireReviewedBytes(join(directory, "manifest.json"), root, REVIEWED_MIGRATION_MANIFEST_SHA256, "migration manifest");
   const manifest = parseJsonFile(join(directory, "manifest.json"), root);
   assertExactKeys(manifest, ["schema", "migrations"], "migration manifest");
-  requireCondition(manifest.schema === REQUIRED_MIGRATIONS.length, "migration manifest schema is not exact");
-  requireCondition(Array.isArray(manifest.migrations) && manifest.migrations.length === REQUIRED_MIGRATIONS.length, "migration manifest length is not exact");
-  for (const [index, file] of REQUIRED_MIGRATIONS.entries()) {
+  requireCondition(manifest.schema === requiredMigrations.length, "migration manifest schema is not exact");
+  requireCondition(Array.isArray(manifest.migrations) && manifest.migrations.length === requiredMigrations.length, "migration manifest length is not exact");
+  for (const [index, file] of requiredMigrations.entries()) {
     const migration = manifest.migrations[index];
     requireCondition(migration && typeof migration === "object" && !Array.isArray(migration), `migration ${index + 1} is not an object`);
     assertExactKeys(migration, ["version", "file", "sha256"], `migration ${index + 1}`);
     requireCondition(migration.version === index + 1 && migration.file === file, `migration ${index + 1} identity is not exact`);
     requireCondition(typeof migration.sha256 === "string" && /^[0-9a-f]{64}$/u.test(migration.sha256), `migration ${index + 1} digest is invalid`);
-    requireReviewedBytes(join(directory, file), root, migration.sha256, `migration ${index + 1}`);
+    const reviewedDigest = REVIEWED_MIGRATION_SHA256.get(file);
+    requireCondition(migration.sha256 === reviewedDigest, `migration ${index + 1} manifest digest does not match reviewed bytes`);
+    requireReviewedBytes(join(directory, file), root, reviewedDigest, `migration ${index + 1}`);
   }
 }
 
@@ -446,7 +453,7 @@ function verifyWebAssets(root, relativeDirectory) {
   requireCondition(!/<script\b(?![^>]*\bsrc=)[^>]*>/iu.test(html), `${relativeDirectory} contains inline script`);
   requireCondition(!/<style\b|\bon[a-z]+\s*=|javascript:/iu.test(html), `${relativeDirectory} contains inline executable content`);
   requireCondition(!REMOTE_URL_PATTERN.test(html), `${relativeDirectory} contains a remote URL`);
-  for (const name of ["director.js", "personas.js", "portraits.js", "room-runtime.js", "shell.css"]) {
+  for (const name of ["director.js", "personas.js", "portraits.js", "provider-data-use.js", "room-runtime.js", "shell.css"]) {
     const text = readText(join(directory, name), root);
     requireCondition(!REMOTE_URL_PATTERN.test(text), `${relativeDirectory}/${name} contains a remote URL`);
   }
@@ -511,6 +518,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/portraits.js",
+    "ios-web/provider-data-use.js",
     "ios-web/room-runtime.js",
     "ios-web/shell.css",
     "ios/App/App.xcodeproj/project.pbxproj",
@@ -525,6 +533,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "ios/App/App/Credentials/SecurityCredentialStore.swift",
     "ios/App/App/Credentials/DeviceCredentialAcceptance.swift",
     "ios/App/App/Providers/ApprovedProviderDefinitions.swift",
+    "ios/App/App/Providers/GreenRoomProviderPlugin.swift",
     "ios/App/App/Resources/Migrations/0007-generation-commands.sql",
     "ios/App/App/Resources/Migrations/0001-iphone-alpha.sql",
     "ios/App/App/Resources/Migrations/0002-ordered-events.sql",
@@ -532,6 +541,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "ios/App/App/Resources/Migrations/0004-transaction-replay.sql",
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/0006-room-talk.sql",
+    "ios/App/App/Resources/Migrations/0008-provider-data-use-consent.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/App.entitlements",
