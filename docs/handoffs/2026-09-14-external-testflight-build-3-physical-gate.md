@@ -2,8 +2,8 @@
 
 ## Exact stopping point
 
-- Protected `main`: `1bc44de336ad7be58f43cdb55556af129cc20605`
-- Protected-main tree: `351e5c9f41abd2c4724ff8d7650ac6c39bcd7412`. Re-read both before continuation; a newer protected main requires explicit candidate rebinding.
+- Installed product source: `1bc44de336ad7be58f43cdb55556af129cc20605` (protected `main` at build/install time).
+- Installed source tree: `351e5c9f41abd2c4724ff8d7650ac6c39bcd7412`. Re-read current protected `main` before continuation; documentation-only advancement does not change the installed binary, while any later candidate manifest/archive must bind its own selected exact SHA.
 - App identity: `net.greenroomai.GreenRoom`, version `0.1.0`, build `3`, iPhone only, minimum iOS `18.6`.
 - Device used: Kent's iPhone 15 Pro Max on iOS `26.6`.
 - Build 3 was compiled as Release from an exact clean protected-main checkout, signed with Apple Development for Team `JZ233HBW3Z`, passed the Release bundle verifier, installed **over** build 2 without uninstalling, launched normally, and read back from the device as `0.1.0 (3)`.
