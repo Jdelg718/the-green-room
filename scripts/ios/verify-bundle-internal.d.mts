@@ -6,5 +6,6 @@ export function verifySourceCore(
   adapters: { parsePlist: (path: string) => Record<string, unknown> },
 ): BundleBoundaryEvidence;
 export function verifyBuiltAppCore(appPath: string): BundleBoundaryEvidence;
+export function verifyDebugSimulatorAcceptanceBoundaryCore(appPath: string): BundleBoundaryEvidence;
 export function verifySignedDeviceAppCore(appPath: string): BundleBoundaryEvidence;
 export function verifyReleaseAcceptanceBoundaryCore(appPath: string): BundleBoundaryEvidence;

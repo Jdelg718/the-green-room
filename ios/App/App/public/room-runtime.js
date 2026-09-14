@@ -897,8 +897,7 @@ export function renderRoom(opened) {
   else document.getElementById("room-title").focus();
 }
 
-function rememberReturnFocus() {
-  const candidate = document.activeElement;
+function rememberReturnFocus(candidate = document.activeElement) {
   returnFocusElement = candidate?.matches?.("button, select, input, textarea") ? candidate : null;
 }
 
@@ -920,8 +919,10 @@ function renderCommandAndMutationState() {
   const abandonVisible = availability.abandon && activeCommand?.state !== "in_flight";
   retry.hidden = !retryVisible;
   retry.disabled = !retryVisible;
+  if (retryVisible) retry.removeAttribute("aria-hidden"); else retry.setAttribute("aria-hidden", "true");
   abandon.hidden = !abandonVisible;
   abandon.disabled = !abandonVisible;
+  if (abandonVisible) abandon.removeAttribute("aria-hidden"); else abandon.setAttribute("aria-hidden", "true");
   if (activeCommand?.state === "interrupted") {
     error.textContent = UNCERTAIN_REQUEST_WARNING;
     error.hidden = false;
@@ -963,7 +964,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     for (const button of grid.querySelectorAll("button[data-slug]")) {
       const active = selected.has(button.dataset.slug);
       button.setAttribute("aria-pressed", String(active));
-      button.setAttribute("aria-label", `${button.dataset.accessibleName}, ${active ? "selected" : "not selected"}`);
+      button.setAttribute("aria-label", button.dataset.accessibleName);
       button.classList.toggle("selected", active);
       button.disabled = !active && selected.size === MAX_CAST;
     }
@@ -1041,8 +1042,8 @@ export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.random
   return false;
 }
 
-export function showPicker() {
-  rememberReturnFocus();
+export function showPicker(trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = false;
@@ -1056,8 +1057,8 @@ export function showPicker() {
   document.getElementById("picker-title").focus();
 }
 
-async function showRoomList(plugin, uuid = () => crypto.randomUUID()) {
-  rememberReturnFocus();
+async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
@@ -1084,8 +1085,8 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID()) {
   document.getElementById("rooms-status").textContent = rooms.length === 0 ? "No saved rooms yet." : "";
 }
 
-export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()) {
-  rememberReturnFocus();
+export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID(), trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
@@ -1228,18 +1229,18 @@ async function boot() {
     const opened = await openLocalRoom(database);
     await refreshMutationGate(database, lifecycle);
     pickerController(database);
-    document.getElementById("new-room").addEventListener("click", () => {
-      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
+    document.getElementById("new-room").addEventListener("click", (event) => {
+      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker(event.currentTarget);
     });
     document.getElementById("rooms-new").addEventListener("click", () => {
       if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
     });
-    document.getElementById("rooms-button").addEventListener("click", async () => {
-      try { await showRoomList(database); }
+    document.getElementById("rooms-button").addEventListener("click", async (event) => {
+      try { await showRoomList(database, undefined, event.currentTarget); }
       catch { document.getElementById("boot-error").hidden = false; }
     });
-    document.getElementById("provider-button").addEventListener("click", async () => {
-      try { await showProviderSetup(database); }
+    document.getElementById("provider-button").addEventListener("click", async (event) => {
+      try { await showProviderSetup(database, undefined, event.currentTarget); }
       catch { document.getElementById("boot-error").hidden = false; }
     });
     for (const id of ["rooms-cancel", "provider-cancel"]) {

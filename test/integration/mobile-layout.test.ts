@@ -112,13 +112,15 @@ async function stopChild(child: ChildProcess): Promise<void> {
   assert.equal(await waitForExit(child, 2_000), true, "Chromium did not exit after SIGKILL");
 }
 
-test("rendered human avatar controls are contained and non-overlapping at mobile widths", { timeout: 120_000 }, async (context) => {
+test("rendered mobile controls and actual ios-web accessibility flows pass at 320, 375, and 390 widths", { timeout: 120_000 }, async (context) => {
   if (chromium === undefined) {
     context.skip("Chromium is required for rendered geometry coverage");
     return;
   }
   const directory = mkdtempSync(join(tmpdir(), "green-room-mobile-layout-"));
   const stylesheet = readFileSync(resolve("public/styles.css"));
+  const iosRoot = resolve("ios-web");
+  const iosMock = readFileSync(resolve("test/fixtures/ios-accessibility-native-mock.js"));
   const fixture = `<!doctype html>
     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="stylesheet" href="/styles.css"></head><body>
@@ -135,6 +137,32 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
     if (request.url === "/styles.css") {
       response.writeHead(200, { "Content-Type": "text/css" });
       response.end(stylesheet);
+    } else if (request.url === "/ios/mock-capacitor.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript" });
+      response.end(iosMock);
+    } else if (request.url?.startsWith("/ios/")) {
+      const relativePath = request.url.slice("/ios/".length) || "index.html";
+      const allowed = new Set(["index.html", "shell.css", "room-runtime.js", "director.js", "personas.js", "portraits.js"]);
+      if (!allowed.has(relativePath)) {
+        response.writeHead(404).end();
+        return;
+      }
+      const contentType = relativePath.endsWith(".css") ? "text/css" : relativePath.endsWith(".html") ? "text/html" : "text/javascript";
+      let bytes = readFileSync(join(iosRoot, relativePath));
+      if (relativePath === "room-runtime.js") {
+        bytes = Buffer.from(bytes.toString("utf8").replace(
+          "  } catch {\n    document.getElementById(\"boot-error\").hidden = false;\n    document.documentElement.dataset.localRoomBoot = \"failed\";\n  }\n}\n\nif (typeof document",
+          "  } catch (error) {\n    globalThis.__greenroomBootError = String(error?.stack ?? error);\n    document.getElementById(\"boot-error\").hidden = false;\n    document.documentElement.dataset.localRoomBoot = \"failed\";\n  }\n}\n\nif (typeof document",
+        ));
+      }
+      if (relativePath === "index.html") {
+        bytes = Buffer.from(bytes.toString("utf8").replace(
+          '<script type="module" src="room-runtime.js"></script>',
+          '<script src="mock-capacitor.js"></script><script type="module" src="room-runtime.js"></script>',
+        ));
+      }
+      response.writeHead(200, { "Content-Type": contentType });
+      response.end(bytes);
     } else {
       response.writeHead(200, { "Content-Type": "text/html" });
       response.end(fixture);
@@ -291,6 +319,117 @@ test("rendered human avatar controls are contained and non-overlapping at mobile
       assert.equal(geometry.uploadInputHit, true, `upload input inset hit-testing fails at ${label}`);
       assert.ok(geometry.mute.width >= 44, `mute target is too narrow at ${label}`);
       assert.ok(geometry.mute.height >= 44, `mute target is too short at ${label}`);
+    }
+  }
+
+  const iosUrl = `${fixtureUrl}ios/index.html`;
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 1, mobile: true });
+  await send("Page.navigate", { url: iosUrl });
+  let iosReady = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const state = await send("Runtime.evaluate", {
+      expression: `location.href === ${JSON.stringify(iosUrl)} && document.documentElement.dataset.localRoomBoot === "picker"`,
+      returnByValue: true,
+    }) as { result: { value: boolean } };
+    if (state.result.value) { iosReady = true; break; }
+    await delay(10);
+  }
+  if (!iosReady) {
+    const diagnostic = await send("Runtime.evaluate", {
+      expression: `({href:location.href, ready:document.readyState, boot:document.documentElement.dataset.localRoomBoot, error:globalThis.__greenroomBootError, failed:!document.getElementById("boot-error")?.hidden, capacitor:!!globalThis.Capacitor, fixture:!!globalThis.__greenroomAccessibilityFixture, scripts:[...document.scripts].map((script)=>script.src)})`,
+      returnByValue: true,
+    }) as { result: { value: unknown } };
+    assert.fail(`actual ios-web picker did not boot through the deterministic native mock: ${JSON.stringify(diagnostic.result.value)}`);
+  }
+
+  const behavior = await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const waitFor = async (predicate) => { for (let index = 0; index < 100; index += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error("timed out"); };
+      const focus = async (id) => { await waitFor(() => document.activeElement?.id === id); return document.activeElement?.id; };
+      const card = document.querySelector('button[data-slug="ada-lovelace"]');
+      const stableLabel = card.getAttribute("aria-label");
+      card.click();
+      const selectedLabel = card.getAttribute("aria-label");
+      const selectedState = card.getAttribute("aria-pressed");
+      document.getElementById("create-room").click();
+      await waitFor(() => document.documentElement.dataset.localRoomBoot === "open");
+      document.getElementById("rooms-button").focus();
+      document.getElementById("rooms-button").click();
+      await waitFor(() => !document.getElementById("rooms-view").hidden);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await waitFor(() => !document.getElementById("room-view").hidden);
+      const roomsFocus = await focus("rooms-button");
+      document.getElementById("provider-button").focus();
+      document.getElementById("provider-button").click();
+      await waitFor(() => !document.getElementById("provider-view").hidden);
+      document.getElementById("provider-cancel").click();
+      await waitFor(() => !document.getElementById("room-view").hidden);
+      const providerFocus = await focus("provider-button");
+      document.getElementById("new-room").focus();
+      document.getElementById("new-room").click();
+      await waitFor(() => !document.getElementById("picker-view").hidden);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await waitFor(() => !document.getElementById("room-view").hidden);
+      const pickerFocus = await focus("new-room");
+      const runtime = await import("/ios/room-runtime.js");
+      const room = globalThis.__greenroomAccessibilityFixture.room;
+      const first = { sequence: 1, event: { participantId: "human", text: "First incremental line", type: "human_message" } };
+      const second = { sequence: 2, event: { participantId: "human", text: "Second incremental line", type: "human_message" } };
+      runtime.renderEvents([first], document, room);
+      const firstAnnouncement = document.getElementById("transcript-announcer").textContent;
+      runtime.renderEvents([first], document, room);
+      const repeatedAnnouncement = document.getElementById("transcript-announcer").textContent;
+      runtime.renderEvents([first, second], document, room);
+      const secondAnnouncement = document.getElementById("transcript-announcer").textContent;
+      const hiddenCommands = ["retry-reply", "abandon-reply"].map((id) => { const element = document.getElementById(id); return { id, hidden: element.hidden, disabled: element.disabled, clientRects: element.getClientRects().length }; });
+      return { stableLabel, selectedLabel, selectedState, roomsFocus, providerFocus, pickerFocus, firstAnnouncement, repeatedAnnouncement, secondAnnouncement, hiddenCommands };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  }) as { result: { value: Record<string, any> } };
+  assert.equal(behavior.result.value.stableLabel, "Ada Lovelace, historical interpretation");
+  assert.equal(behavior.result.value.selectedLabel, behavior.result.value.stableLabel);
+  assert.equal(behavior.result.value.selectedState, "true");
+  assert.deepEqual([behavior.result.value.roomsFocus, behavior.result.value.providerFocus, behavior.result.value.pickerFocus], ["rooms-button", "provider-button", "new-room"]);
+  assert.match(behavior.result.value.firstAnnouncement, /First incremental line/u);
+  assert.equal(behavior.result.value.repeatedAnnouncement, "");
+  assert.match(behavior.result.value.secondAnnouncement, /Second incremental line/u);
+  assert.deepEqual(behavior.result.value.hiddenCommands, [
+    { id: "retry-reply", hidden: true, disabled: true, clientRects: 0 },
+    { id: "abandon-reply", hidden: true, disabled: true, clientRects: 0 },
+  ]);
+
+  for (const width of [320, 375, 390]) {
+    for (const [orientation, height] of [["portrait", 800], ["landscape", 240]] as const) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
+      const evaluated = await send("Runtime.evaluate", {
+        expression: `(async () => {
+          const ids = ["rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room"];
+          const geometry = {};
+          for (const id of ids) {
+            const element = document.getElementById(id);
+            element.scrollIntoView({ block: "center", inline: "nearest" });
+            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+            const rect = element.getBoundingClientRect();
+            geometry[id] = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height, hit: document.elementFromPoint(rect.left + rect.width / 2, Math.min(innerHeight - 1, Math.max(0, rect.top + rect.height / 2))) === element };
+          }
+          const composer = document.getElementById("message-form").getBoundingClientRect();
+          return { innerWidth, innerHeight, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth, composer: { left: composer.left, right: composer.right, width: composer.width }, geometry };
+        })()`,
+        awaitPromise: true,
+        returnByValue: true,
+      }) as { result: { value: { innerWidth: number; innerHeight: number; scrollWidth: number; bodyScrollWidth: number; composer: Rectangle; geometry: Record<string, Rectangle & { hit: boolean }> } } };
+      const rendered = evaluated.result.value;
+      const label = `${width}px ${orientation}`;
+      assert.equal(rendered.innerWidth, width);
+      assert.equal(rendered.innerHeight, height);
+      assert.ok(rendered.scrollWidth <= width && rendered.bodyScrollWidth <= width, `ios-web horizontally overflows at ${label}`);
+      assert.ok(rendered.composer.left >= 0 && rendered.composer.right <= width, `composer clips at ${label}`);
+      for (const [id, rectangle] of Object.entries(rendered.geometry)) {
+        assert.ok(rectangle.left >= 0 && rectangle.right <= width, `${id} clips horizontally at ${label}`);
+        assert.ok(rectangle.width >= 44 && rectangle.height >= 44, `${id} is undersized at ${label}`);
+        assert.equal(rectangle.hit, true, `${id} is obstructed or unreachable at ${label}`);
+      }
     }
   }
   activeSocket.close();

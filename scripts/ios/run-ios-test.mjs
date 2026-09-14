@@ -21,6 +21,10 @@ run(process.execPath, ["--test", "dist/test/contract/iphone-bundle-boundary.test
 run(process.execPath, ["--test", "dist/test/contract/iphone-credential-bridge.test.js"]);
 run(process.execPath, ["--test", "dist/test/contract/iphone-device-smoke.test.js"]);
 run("npm", ["run", "ios:verify-bundle"]);
+run(process.execPath, [
+  "scripts/ios/verify-bundle.mjs", "--debug-simulator-acceptance-boundary",
+  ".build/ios/Build/Products/Debug-iphonesimulator/App.app",
+]);
 run(process.execPath, ["scripts/ios/build-simulator-release.mjs"]);
 run(process.execPath, [
   "scripts/ios/verify-bundle.mjs", "--release-acceptance-boundary",

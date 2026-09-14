@@ -86,7 +86,7 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .composer { display: grid; min-width: 0; max-width: 100%; gap: .7rem; margin-top: 1.4rem; padding: 1rem; scroll-margin-block: 1rem; border: var(--rule); background: var(--acid); box-shadow: var(--shadow); }
 .composer label { font: 800 .7rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .composer-target { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; max-width: 100%; align-items: center; gap: .65rem; }
-.composer-target select { min-width: 0; max-width: 100%; width: 100%; min-height: 2.75rem; padding: .6rem 2rem .6rem .7rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.2 var(--sans); }
+.composer-target select { min-width: 0; max-width: 100%; width: 100%; min-height: 3.5rem; padding: .75rem 2rem .75rem .7rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1.7rem/1.4 var(--sans); }
 .composer-target select:focus { outline: 4px solid var(--blue); outline-offset: 2px; }
 .composer textarea { width: 100%; min-height: 6rem; resize: vertical; padding: .8rem; border: var(--rule); border-radius: 0; background: var(--white); color: var(--ink); font: 1rem/1.4 var(--sans); }
 .composer textarea:focus { outline: 4px solid var(--blue); outline-offset: 2px; }

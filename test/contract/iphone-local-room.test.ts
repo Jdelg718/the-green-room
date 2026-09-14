@@ -231,6 +231,7 @@ class FakeElement {
     this.attributes.set(name, value);
     if (name.startsWith("data-")) this.dataset[name.slice(5)] = value;
   }
+  removeAttribute(name: string) { this.attributes.delete(name); }
   classList = { toggle() {} };
   focus() {}
   addEventListener(name: string, listener: (...arguments_: any[]) => any) {
@@ -371,6 +372,13 @@ test("picker cards and room roster render trusted images with monogram failure f
   const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
   api.pickerController(plugin, uuids());
   const pickerPortrait = get("persona-grid").children[0]!.children[0]!;
+  const pickerCard = get("persona-grid").children[0]!;
+  const stableName = pickerCard.attributes.get("aria-label");
+  assert.match(stableName ?? "", /^Ada Lovelace, historical interpretation$/u);
+  assert.equal(pickerCard.attributes.get("aria-pressed"), "false");
+  await pickerCard.dispatch("click");
+  assert.equal(pickerCard.attributes.get("aria-label"), stableName, "selected state changed the accessible name");
+  assert.equal(pickerCard.attributes.get("aria-pressed"), "true");
   const pickerFallback = pickerPortrait.children[0]!;
   const pickerImage = pickerPortrait.children[1]! as FakeElement & { alt: string; src: string };
   assert.equal(pickerPortrait.className, "persona-portrait portrait-card");
@@ -401,16 +409,10 @@ test("directed-message selector is labeled, cast-bound, accessible, and mobile-c
   const html = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
   const css = readFileSync(join(ROOT, "ios-web/shell.css"), "utf8");
   assert.match(html, /<label for="message-target">To<\/label>\s*<select id="message-target"[^>]*aria-label="Message recipient"[^>]*>\s*<option value="">Anyone — director chooses<\/option>/u);
-  assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 2\.75rem;/u);
+  assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 3\.5rem;/u);
   assert.match(css, /select:focus-visible[^}]*\{[^}]*outline:/u);
   assert.ok(css.includes("@media (max-width: 23rem)"));
   assert.ok(css.includes(".composer-target { grid-template-columns: minmax(0, 1fr); }"));
-  for (const viewportWidth of [320, 375, 390]) {
-    const mainContentWidth = viewportWidth - 32;
-    const selectContentWidth = mainContentWidth - 6 - 32;
-    assert.ok(selectContentWidth > 0 && selectContentWidth <= viewportWidth, `selector escapes ${viewportWidth}px viewport`);
-  }
-
   const { get } = fakeRoomDocument();
   const { api, created } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
   api.refreshMessageTarget(created.room);
@@ -464,8 +466,8 @@ test("external TestFlight accessibility contract has named controls, one-shot tr
   assert.match(source, /function rememberReturnFocus/u);
   assert.match(source, /room-title"\)\.focus\(\)/u);
   assert.match(source, /eventAnnouncement/u);
-  assert.match(source, /retry\.hidden = !retryVisible;\s*retry\.disabled = !retryVisible;/u);
-  assert.match(source, /abandon\.hidden = !abandonVisible;\s*abandon\.disabled = !abandonVisible;/u);
+  assert.match(source, /retry\.hidden = !retryVisible;\s*retry\.disabled = !retryVisible;[\s\S]*retry\.setAttribute\("aria-hidden", "true"\)/u);
+  assert.match(source, /abandon\.hidden = !abandonVisible;\s*abandon\.disabled = !abandonVisible;[\s\S]*abandon\.setAttribute\("aria-hidden", "true"\)/u);
 });
 
 test("transcript rendering announces only a newly appended event once", async () => {
