@@ -37,6 +37,11 @@ let returnFocusElement = null;
 let renderedTranscriptRoomId = null;
 let renderedTranscriptSequence = 0;
 let privacyReturnView = null;
+let providerRemovalTarget = null;
+let pendingDraftFailure = null;
+let pendingRoomReopen = null;
+let abandonModal = null;
+let credentialRemovalModal = null;
 
 export function operationLatch(onChange = () => {}) {
   let current = null;
@@ -60,6 +65,13 @@ export function operationLatch(onChange = () => {}) {
 const providerSaveLatch = operationLatch(() => {
   if (typeof document !== "undefined") renderCommandAndMutationState();
 });
+const credentialRemovalLatch = operationLatch(() => {
+  if (typeof document !== "undefined") renderCommandAndMutationState();
+});
+const abandonLatch = operationLatch(() => {
+  if (typeof document !== "undefined") renderCommandAndMutationState();
+});
+const credentialDeleteCallLatch = operationLatch();
 
 export const UNCERTAIN_REQUEST_WARNING = "Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.";
 
@@ -194,8 +206,10 @@ export function generationFailurePresentation(failure) {
   }
   const native = nativeFailure(failure);
   const messages = {
+    credential_missing: "The selected provider needs a credential. Open Provider settings to save one.",
+    credential_unavailable: "The selected provider needs a credential. Open Provider settings to save one.",
     offline: "You’re offline. Reconnect, then retry the reply.",
-    provider_rejected: "The provider rejected the request. Check the credential and model in Provider settings.",
+    provider_rejected: "The provider rejected the credential or model. Check both in Provider settings.",
     timeout: "The provider took too long to reply. Retry when ready.",
     provider_unreachable: "The provider could not be reached. Check your connection, then retry.",
   };
@@ -203,6 +217,29 @@ export function generationFailurePresentation(failure) {
     message: messages[native?.code] ?? "Reply failed. Review Provider settings, then try again.",
     retryable: native?.retryable ?? false,
   });
+}
+
+export function recoveryPresentation(failure, context, providerName = "The provider") {
+  const native = nativeFailure(failure);
+  if (context === "boot") {
+    if (native?.code === "database_locked") return "Protected room data is unavailable. Unlock this iPhone, then retry.";
+    if (native?.code === "migration_rejected") return "This room database cannot be upgraded safely. If local rooms matter, do not delete the app. Retry after installing a compatible version.";
+    return "Rooms are temporarily unavailable. Retry opening your protected local data.";
+  }
+  if (context === "draft") return "Draft not saved yet. Your text is still here; retry saving it.";
+  if (context === "room") return "That room could not be reopened. Your room list is still available; retry opening it.";
+  if (context === "removal") {
+    if (native?.code === "credential_write_failed") return "Provider use is disabled, but Keychain removal is incomplete. Retry removal.";
+    return "Credential removal did not start. The current credential remains unchanged; try again.";
+  }
+  if (native?.code === "credential_missing" || native?.code === "credential_unavailable") {
+    return `${providerName} needs a credential. Open Provider settings to save one.`;
+  }
+  if (native?.code === "provider_rejected") {
+    return `${providerName} rejected the credential or model. Check both in Provider settings.`;
+  }
+  if (failure instanceof TypeError) return "Enter a valid model ID without spaces.";
+  return "The action could not be completed. Try again.";
 }
 
 function parseLifecycleStatus(value) {
@@ -511,6 +548,52 @@ async function readProviderProfile(plugin, profileId, uuid) {
     throw new Error("Invalid provider profile projection.");
   }
   return value;
+}
+
+function credentialIdentity(selection, mutationId) {
+  const parsed = parseProviderSelection(selection);
+  if (parsed === null || !UUID.test(mutationId)) {
+    throw new TypeError("A current provider credential is required.");
+  }
+  return Object.freeze({
+    profileId: selection.profileId,
+    profileRevision: selection.profileRevision,
+    providerId: selection.providerId,
+    credentialRef: `credential:${selection.profileId}:${selection.profileRevision}`,
+    mutationId,
+  });
+}
+
+export async function readCredentialStatus(credential, selection, uuid = () => crypto.randomUUID()) {
+  const identity = credentialIdentity(selection, "00000000-0000-4000-8000-000000000000");
+  const value = await invoke(credential, "credential.status", {
+    profileId: identity.profileId, profileRevision: identity.profileRevision,
+    providerId: identity.providerId, credentialRef: identity.credentialRef,
+  }, uuid);
+  if (!exactRecord(value, ["state"]) || !new Set(["pending", "ready", "delete_pending", "missing"]).has(value.state)) {
+    throw new Error("Invalid credential status readback.");
+  }
+  return value.state;
+}
+
+export async function removeProviderCredential(database, credential, selection, mutationId, uuid = () => crypto.randomUUID()) {
+  const operation = credentialDeleteCallLatch.begin();
+  if (operation === null) return Object.freeze({ busy: true, removed: false });
+  try {
+    const current = await readProviderProfile(database, selection.profileId, uuid);
+    if (current === null || current.mutationId !== mutationId || current.profileRevision !== selection.profileRevision ||
+        current.providerId !== selection.providerId ||
+        !new Set(["ready", "delete_pending"]).has(current.state)) {
+      throw new NativeBridgeError("credential_unavailable", false);
+    }
+    const identity = credentialIdentity(selection, mutationId);
+    await invoke(credential, "credential.delete", identity, uuid);
+    const state = await readCredentialStatus(credential, selection, uuid);
+    if (state !== "missing") throw new NativeBridgeError(state === "delete_pending" ? "credential_write_failed" : "internal_failure", state === "delete_pending");
+    return Object.freeze({ removed: true });
+  } finally {
+    credentialDeleteCallLatch.end(operation);
+  }
 }
 
 export async function saveProviderSetup(
@@ -1001,6 +1084,44 @@ function rememberReturnFocus(candidate = document.activeElement) {
   returnFocusElement = candidate?.matches?.("button, select, input, textarea") ? candidate : null;
 }
 
+export function modalController(dialogId, cancelId, confirmId, documentRoot = document) {
+  const dialog = documentRoot.getElementById(dialogId);
+  const cancel = documentRoot.getElementById(cancelId);
+  const confirm = documentRoot.getElementById(confirmId);
+  let trigger = null;
+  function close(returnTarget = trigger) {
+    dialog.hidden = true;
+    trigger = null;
+    if (returnTarget?.isConnected !== false && !returnTarget?.hidden) returnTarget?.focus();
+  }
+  function open(candidate) {
+    if (!dialog.hidden) return false;
+    trigger = candidate ?? documentRoot.activeElement;
+    dialog.hidden = false;
+    cancel.focus();
+    return true;
+  }
+  cancel.addEventListener("click", () => close());
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const first = cancel;
+    const last = confirm;
+    if (event.shiftKey && documentRoot.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && documentRoot.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  return Object.freeze({ close, open });
+}
+
 const PRIMARY_VIEW_IDS = Object.freeze(["room-view", "picker-view", "rooms-view", "provider-view"]);
 
 function showPrivacy(trigger) {
@@ -1068,7 +1189,7 @@ function renderCommandAndMutationState() {
   retry.disabled = !retryVisible;
   if (retryVisible) retry.removeAttribute("aria-hidden"); else retry.setAttribute("aria-hidden", "true");
   abandon.hidden = !abandonVisible;
-  abandon.disabled = !abandonVisible;
+  abandon.disabled = !abandonVisible || abandonLatch.active();
   if (abandonVisible) abandon.removeAttribute("aria-hidden"); else abandon.setAttribute("aria-hidden", "true");
   if (activeCommand?.state === "interrupted") {
     error.textContent = UNCERTAIN_REQUEST_WARNING;
@@ -1082,7 +1203,8 @@ function renderCommandAndMutationState() {
     status.textContent = "Not sent. No automatic retry.";
   } else {
     error.hidden = true;
-    if (input.value.length > 0) status.textContent = "Not sent";
+    if (pendingDraftFailure !== null) status.textContent = "Draft not saved yet. Your text is still here; retry saving it.";
+    else if (input.value.length > 0) status.textContent = "Not sent";
     else if (!localWrites) status.textContent = "Room is read-only while the app is inactive or protected data is unavailable.";
     else if (!mutationGate.pathAvailable) status.textContent = "Offline · room is readable and drafts stay Not sent.";
     else if (!providerReady) status.textContent = "Set up a ready provider before sending. Drafts stay Not sent.";
@@ -1092,11 +1214,23 @@ function renderCommandAndMutationState() {
     const control = document.getElementById(id);
     if (control) control.disabled = !(id === "provider-save" ? availability.providerSave : availability.createRoom) ||
       (id === "create-room" && control.dataset.selectionReady !== "true") ||
-      (id === "provider-save" && providerSaveLatch.active());
+      (id === "provider-save" && (providerSaveLatch.active() || credentialRemovalLatch.active()));
   }
   for (const id of ["provider-id", "provider-model", "provider-consent"]) {
     const control = document.getElementById(id);
-    if (control) control.disabled = providerSaveLatch.active();
+    if (control) control.disabled = providerSaveLatch.active() || credentialRemovalLatch.active();
+  }
+  const remove = document.getElementById("remove-credential");
+  const retryRemoval = document.getElementById("retry-credential-removal");
+  if (remove && retryRemoval) {
+    const removalReady = providerRemovalTarget?.state === "ready";
+    const removalIncomplete = providerRemovalTarget?.state === "delete_pending";
+    remove.hidden = !removalReady;
+    remove.disabled = !removalReady || !localWrites || credentialRemovalLatch.active();
+    if (removalReady) remove.removeAttribute("aria-hidden"); else remove.setAttribute("aria-hidden", "true");
+    retryRemoval.hidden = !removalIncomplete;
+    retryRemoval.disabled = !removalIncomplete || !localWrites || credentialRemovalLatch.active();
+    if (removalIncomplete) retryRemoval.removeAttribute("aria-hidden"); else retryRemoval.setAttribute("aria-hidden", "true");
   }
 }
 
@@ -1233,17 +1367,32 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
     activity.textContent = room.lastActivityOrder === 0 ? "No lines yet" : `Activity ${room.lastActivityOrder}`;
     button.append(title, activity);
     button.addEventListener("click", async () => {
-      try { renderRoom(await reopenLocalRoom(plugin, room.id, uuid)); }
-      catch { document.getElementById("rooms-status").textContent = "That room could not be reopened."; }
+      try {
+        renderRoom(await reopenLocalRoom(plugin, room.id, uuid));
+        pendingRoomReopen = null;
+      } catch (failure) {
+        pendingRoomReopen = Object.freeze({ plugin, roomId: room.id });
+        document.getElementById("rooms-status").textContent = recoveryPresentation(failure, "room");
+        const retry = document.getElementById("retry-room-reopen");
+        retry.hidden = false;
+        retry.disabled = false;
+        retry.removeAttribute("aria-hidden");
+      }
     });
     return button;
   }));
   document.getElementById("rooms-status").textContent = rooms.length === 0 ? "No saved rooms yet." : "";
+  const retry = document.getElementById("retry-room-reopen");
+  retry.hidden = true;
+  retry.disabled = true;
+  retry.setAttribute("aria-hidden", "true");
+  pendingRoomReopen = null;
 }
 
-export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID(), trigger) {
+export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID(), trigger, credential = null) {
   rememberReturnFocus(trigger);
   activeViewToken += 1;
+  providerRemovalTarget = null;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
@@ -1264,7 +1413,26 @@ export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()
     document.getElementById("provider-status").textContent = consent?.providerId === selection.providerId && consent.model === selection.model
       ? `Consent recorded for ${providerDisclosure(selection.providerId).displayName} and this exact model. Check the box to save again.`
       : "Consent required for this provider and exact model.";
+    if (credential !== null) {
+      const profile = await readProviderProfile(plugin, selection.profileId, uuid);
+      if (profile?.profileRevision === selection.profileRevision && profile.providerId === selection.providerId) {
+        const state = await readCredentialStatus(credential, selection, uuid);
+        if (state === "ready" || state === "delete_pending") {
+          providerRemovalTarget = Object.freeze({ selection, mutationId: profile.mutationId, state });
+          const providerName = providerDisclosure(selection.providerId).displayName;
+          const remove = document.getElementById("remove-credential");
+          remove.textContent = `Remove ${providerName} credential…`;
+          remove.setAttribute("aria-label", `Remove ${providerName} credential`);
+          if (state === "delete_pending") {
+            document.getElementById("provider-status").textContent = recoveryPresentation(new NativeBridgeError("credential_write_failed", true), "removal");
+          }
+        } else if (state === "missing") {
+          document.getElementById("provider-status").textContent = `${providerDisclosure(selection.providerId).displayName} needs a credential. Save one to enable provider use.`;
+        }
+      }
+    }
   }
+  renderCommandAndMutationState();
   document.getElementById("provider-title").focus();
 }
 
@@ -1293,10 +1461,26 @@ async function requireReadyMutation(database, lifecycle, uuid = () => crypto.ran
 }
 
 async function persistVisibleDraft(database, uuid = () => crypto.randomUUID()) {
-  if (activeRoom === null) return;
+  if (activeRoom === null) return true;
   const text = document.getElementById("message-text").value;
-  await saveLocalDraft(database, activeRoom.id, text, uuid);
-  document.getElementById("message-status").textContent = text.length > 0 ? "Not sent" : "Ready. Lines and replies commit atomically.";
+  try {
+    await saveLocalDraft(database, activeRoom.id, text, uuid);
+    pendingDraftFailure = null;
+    const retry = document.getElementById("retry-draft-save");
+    retry.hidden = true;
+    retry.disabled = true;
+    retry.setAttribute("aria-hidden", "true");
+    document.getElementById("message-status").textContent = text.length > 0 ? "Not sent" : "Ready. Lines and replies commit atomically.";
+    return true;
+  } catch (failure) {
+    pendingDraftFailure = Object.freeze({ revision: draftRevision, roomId: activeRoom.id, text });
+    document.getElementById("message-status").textContent = recoveryPresentation(failure, "draft");
+    const retry = document.getElementById("retry-draft-save");
+    retry.hidden = false;
+    retry.disabled = false;
+    retry.removeAttribute("aria-hidden");
+    return false;
+  }
 }
 
 async function drainVisibleDrafts(database) {
@@ -1309,9 +1493,21 @@ async function drainVisibleDrafts(database) {
       if (!lifecycleAllowsLocalWrites(mutationGate)) continue;
       try {
         await saveLocalDraft(database, draft.roomId, draft.text);
-      } catch {
         if (draft.revision === draftRevision) {
-          document.getElementById("message-status").textContent = "Not sent · local draft save is pending.";
+          pendingDraftFailure = null;
+          const retry = document.getElementById("retry-draft-save");
+          retry.hidden = true;
+          retry.disabled = true;
+          retry.setAttribute("aria-hidden", "true");
+        }
+      } catch (failure) {
+        if (draft.revision === draftRevision) {
+          pendingDraftFailure = draft;
+          document.getElementById("message-status").textContent = recoveryPresentation(failure, "draft");
+          const retry = document.getElementById("retry-draft-save");
+          retry.hidden = false;
+          retry.disabled = false;
+          retry.removeAttribute("aria-hidden");
         }
       }
     }
@@ -1379,11 +1575,47 @@ export async function retryActiveGeneration(database, provider, lifecycle) {
 }
 
 export async function abandonActiveGeneration(database) {
-  if (activeCommand === null) return;
-  await abandonAtomicGeneration(database, activeCommand);
-  activeCommand = null;
-  renderCommandAndMutationState();
-  document.getElementById("message-status").textContent = "Not sent";
+  if (activeCommand === null) return false;
+  const operation = abandonLatch.begin();
+  if (operation === null) return false;
+  try {
+    const draft = document.getElementById("message-text").value;
+    await abandonAtomicGeneration(database, activeCommand);
+    activeCommand = null;
+    renderCommandAndMutationState();
+    document.getElementById("message-text").value = draft;
+    document.getElementById("message-status").textContent = "Exact command abandoned. Your draft remains Not sent.";
+    return true;
+  } finally {
+    abandonLatch.end(operation);
+  }
+}
+
+async function executeCredentialRemoval(database, credential, lifecycle) {
+  if (providerRemovalTarget === null) return false;
+  const operation = credentialRemovalLatch.begin();
+  if (operation === null) return false;
+  const target = providerRemovalTarget;
+  const providerName = providerDisclosure(target.selection.providerId).displayName;
+  const status = document.getElementById("provider-status");
+  try {
+    status.textContent = `Removing ${providerName} credential…`;
+    await removeProviderCredential(database, credential, target.selection, target.mutationId);
+    providerRemovalTarget = null;
+    providerReady = false;
+    status.textContent = `${providerName} credential removed. Provider use is disabled; local rooms are unchanged.`;
+    return true;
+  } catch (failure) {
+    providerReady = false;
+    if (nativeFailure(failure)?.code === "credential_write_failed") {
+      providerRemovalTarget = Object.freeze({ ...target, state: "delete_pending" });
+    }
+    status.textContent = recoveryPresentation(failure, "removal", providerName);
+    return false;
+  } finally {
+    await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
+    credentialRemovalLatch.end(operation);
+  }
 }
 
 export function bindProviderSetupForm(database, credential, lifecycle, editor = providerEditor, documentRoot = document) {
@@ -1402,7 +1634,18 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
       if (accepted !== true) throw new TypeError("Provider data-use consent is required.");
       status.textContent = "Recording provider consent…";
       await requireReadyMutation(database, lifecycle, undefined, false);
-      await saveProviderSetup(database, credential, providerId, model, accepted);
+      const selection = await saveProviderSetup(database, credential, providerId, model, accepted);
+      if (typeof credential?.status === "function") {
+        const profile = await readProviderProfile(database, selection.profileId);
+        const credentialState = await readCredentialStatus(credential, selection);
+        if (profile !== null && credentialState === "ready") {
+          providerRemovalTarget = Object.freeze({ selection, mutationId: profile.mutationId, state: credentialState });
+          const providerName = providerDisclosure(providerId).displayName;
+          const remove = documentRoot.getElementById("remove-credential");
+          remove.textContent = `Remove ${providerName} credential…`;
+          remove.setAttribute("aria-label", `Remove ${providerName} credential`);
+        }
+      }
       editor?.reset();
       status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
       if (activeRoom !== null) await reopenAuthoritativeRoom(database);
@@ -1415,9 +1658,17 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
   });
 }
 
+function showBootRecovery(failure) {
+  document.getElementById("boot-error").textContent = recoveryPresentation(failure, "boot");
+  document.getElementById("boot-recovery").hidden = false;
+}
+
 async function boot() {
   providerEditor = providerConsentEditor();
   bindPrivacyNavigation();
+  abandonModal = modalController("abandon-dialog", "cancel-abandon", "confirm-abandon");
+  credentialRemovalModal = modalController("remove-credential-dialog", "cancel-credential-removal", "confirm-credential-removal");
+  document.getElementById("retry-boot").addEventListener("click", () => globalThis.location?.reload());
   try {
     const database = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
     const provider = globalThis.Capacitor?.Plugins?.GreenRoomProvider;
@@ -1434,26 +1685,57 @@ async function boot() {
     });
     document.getElementById("rooms-button").addEventListener("click", async (event) => {
       try { await showRoomList(database, undefined, event.currentTarget); }
-      catch { document.getElementById("boot-error").hidden = false; }
+      catch (failure) { showBootRecovery(failure); }
     });
     document.getElementById("provider-button").addEventListener("click", async (event) => {
-      try { await showProviderSetup(database, undefined, event.currentTarget); }
-      catch { document.getElementById("boot-error").hidden = false; }
+      try { await showProviderSetup(database, undefined, event.currentTarget, credential); }
+      catch (failure) { showBootRecovery(failure); }
     });
     for (const id of ["rooms-cancel", "provider-cancel"]) {
       document.getElementById(id).addEventListener("click", async () => {
         if (activeRoom === null) showPicker();
-        else if (!await reopenAuthoritativeRoom(database)) document.getElementById("boot-error").hidden = false;
+        else if (!await reopenAuthoritativeRoom(database)) showBootRecovery(new NativeBridgeError("database_unavailable", true));
       });
     }
     bindProviderSetupForm(database, credential, lifecycle);
 
+    document.getElementById("retry-draft-save").addEventListener("click", () => {
+      if (pendingDraftFailure !== null) queueVisibleDraft(database);
+    });
+    document.getElementById("retry-room-reopen").addEventListener("click", async () => {
+      if (pendingRoomReopen === null) return;
+      const pending = pendingRoomReopen;
+      try {
+        renderRoom(await reopenLocalRoom(pending.plugin, pending.roomId));
+        pendingRoomReopen = null;
+      } catch (failure) {
+        document.getElementById("rooms-status").textContent = recoveryPresentation(failure, "room");
+      }
+    });
+    document.getElementById("remove-credential").addEventListener("click", (event) => {
+      credentialRemovalModal.open(event.currentTarget);
+    });
+    document.getElementById("confirm-credential-removal").addEventListener("click", async () => {
+      const removed = await executeCredentialRemoval(database, credential, lifecycle);
+      credentialRemovalModal.close(removed ? document.getElementById("provider-save") : document.getElementById("retry-credential-removal"));
+    });
+    document.getElementById("retry-credential-removal").addEventListener("click", async () => {
+      await executeCredentialRemoval(database, credential, lifecycle);
+    });
+
     document.getElementById("retry-reply").addEventListener("click", async () => {
       await retryActiveGeneration(database, provider, lifecycle);
     });
-    document.getElementById("abandon-reply").addEventListener("click", async () => {
-      try { await abandonActiveGeneration(database); }
-      catch { document.getElementById("message-status").textContent = "The exact command could not be abandoned."; }
+    document.getElementById("abandon-reply").addEventListener("click", (event) => {
+      abandonModal.open(event.currentTarget);
+    });
+    document.getElementById("confirm-abandon").addEventListener("click", async () => {
+      try {
+        if (await abandonActiveGeneration(database)) abandonModal.close(document.getElementById("message-text"));
+      } catch {
+        abandonModal.close(document.getElementById("abandon-reply"));
+        document.getElementById("message-status").textContent = "The exact command could not be abandoned. Retry when ready.";
+      }
     });
     document.getElementById("message-text").addEventListener("input", () => queueVisibleDraft(database));
     document.getElementById("message-text").addEventListener("blur", async () => {
@@ -1473,7 +1755,7 @@ async function boot() {
       status.textContent = "Preparing an atomic turn. Nothing is sent or acknowledged yet…";
       try {
         await requireReadyMutation(database, lifecycle);
-        await persistVisibleDraft(database);
+        if (!await persistVisibleDraft(database)) return;
         const prepared = await prepareAtomicTurn(
           database, room, input.value, undefined,
           targetPersonaSlug === "" ? {} : { targetPersonaSlug },
@@ -1525,8 +1807,8 @@ async function boot() {
         }
       } catch { /* the next activation event performs the same reconciliation */ }
     }, 1_000);
-  } catch {
-    document.getElementById("boot-error").hidden = false;
+  } catch (failure) {
+    showBootRecovery(failure);
     document.documentElement.dataset.localRoomBoot = "failed";
   }
 }

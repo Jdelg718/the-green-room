@@ -99,6 +99,7 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .button { min-height: 3rem; padding: .8rem 1rem; border: var(--rule); border-radius: 0; background: var(--ink); color: var(--paper); box-shadow: 5px 5px 0 var(--acid); font: 800 .72rem/1 var(--mono); text-transform: uppercase; }
 .button:disabled { opacity: .45; box-shadow: none; }
 .button-paper { background: var(--paper); color: var(--ink); box-shadow: 5px 5px 0 var(--ink); }
+.button-destructive { background: var(--red); color: white; box-shadow: 5px 5px 0 var(--ink); }
 .boundary, .catalog-reality { margin-top: 1.4rem; padding: 1rem; border: var(--rule); background: var(--paper-deep); font: 700 .75rem/1.5 var(--mono); }
 .catalog-reality { background: var(--acid); box-shadow: var(--shadow); }
 .picker-bar { position: sticky; z-index: 5; top: 0; display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 1.5rem 0 1rem; padding: .75rem; border: var(--rule); background: var(--paper); box-shadow: 0 5px 0 var(--acid); }
@@ -136,6 +137,11 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .privacy-copy section { padding: 1rem; border: var(--rule); background: var(--white); }
 .privacy-copy section:nth-child(odd) { background: var(--paper-deep); }
 .error { padding: 1rem; border: var(--rule); background: var(--red); color: white; font-weight: 800; }
+.recovery p { margin: 0 0 .75rem; }
+.modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; min-width: 0; padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); place-items: center; overflow: auto; background: rgb(18 20 17 / 72%); }
+.modal-card { width: min(30rem, 100%); min-width: 0; padding: 1rem; border: var(--rule); background: var(--paper); box-shadow: var(--shadow); }
+.modal-card h2 { margin-top: 0; }
+.modal-card p { overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
 @media (min-width: 38rem) { .persona-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 23rem) {
