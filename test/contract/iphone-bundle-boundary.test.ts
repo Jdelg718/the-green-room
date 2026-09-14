@@ -206,11 +206,36 @@ test("default Keychain group is explicit in both Xcode configurations and cannot
   rejects(root, /keychain access group/u);
 });
 
-test("schema-7 migration and manifest are required in source and built bundles", { skip: process.platform !== "darwin" }, (context) => {
+test("schema-8 migrations are exact, ordered, checksum-pinned, and closed to additions", (context) => {
   const root = fixture(context);
-  rmSync(join(root, "ios/App/App/Resources/Migrations/0007-generation-commands.sql"));
-  rejects(root, /missing required file.*0007-generation-commands\.sql|migration inventory/u);
+  const migrations = "ios/App/App/Resources/Migrations";
+  const migration = `${migrations}/0008-provider-data-use-consent.sql`;
+  const manifest = `${migrations}/manifest.json`;
 
+  rmSync(join(root, migration));
+  rejects(root, /missing required file.*0008-provider-data-use-consent\.sql|migration inventory/u);
+  cpSync(join(ROOT, migration), join(root, migration));
+
+  rewrite(root, migration, (source) => `${source}\n-- unreviewed mutation\n`);
+  rejects(root, /migration 8.*reviewed bytes/u);
+  cpSync(join(ROOT, migration), join(root, migration));
+
+  for (const mutateManifest of [
+    (source: string) => source.replace('"sha256": "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"', '"sha256": "0000000000000000000000000000000000000000000000000000000000000000"'),
+    (source: string) => source.replace(',\n      "sha256": "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"', ""),
+    (source: string) => source.replace(/(\s+\{\n      "version": 7,[\s\S]*?\n    \},)(\s+\{\n      "version": 8,[\s\S]*?\n    \})/u, "$2,$1"),
+    (source: string) => source.replace(/(\s+\{\n      "version": 8,[\s\S]*?\n    \})(\n  \])/u, "$1,$1$2"),
+  ]) {
+    rewrite(root, manifest, mutateManifest);
+    rejects(root, /migration manifest.*reviewed bytes|migration manifest|migration 8/u);
+    cpSync(join(ROOT, manifest), join(root, manifest));
+  }
+
+  writeFileSync(join(root, migrations, "0009-unreviewed.sql"), "SELECT 1;\n");
+  rejects(root, /tree exceeds|migration inventory/u);
+});
+
+test("schema-8 migration is required in the built bundle", { skip: process.platform !== "darwin" }, (context) => {
   const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
   if (!existsSync(sourceApp)) {
     context.skip("Darwin built-app mutations run after ios:build in the declared ios:test gate");
@@ -219,8 +244,29 @@ test("schema-7 migration and manifest are required in source and built bundles",
   const app = join(mkdtempSync(join(tmpdir(), "greenroom-built-migration-")), "App.app");
   context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
   cpSync(sourceApp, app, { recursive: true });
-  rmSync(join(app, "Migrations/0007-generation-commands.sql"));
-  assert.throws(() => verifyBuiltApp(app), /migration inventory|missing required file.*0007-generation-commands\.sql/u);
+  rmSync(join(app, "Migrations/0008-provider-data-use-consent.sql"));
+  assert.throws(() => verifyBuiltApp(app), /migration inventory|missing required file.*0008-provider-data-use-consent\.sql/u);
+});
+
+test("generated provider data-use assets are required reviewed bytes with exact inventory", (context) => {
+  const root = fixture(context);
+  const sourceAsset = "ios-web/provider-data-use.js";
+  const publicAsset = "ios/App/App/public/provider-data-use.js";
+
+  rmSync(join(root, sourceAsset));
+  rejects(root, /missing required file.*provider-data-use\.js|inventory/u);
+  cpSync(join(ROOT, sourceAsset), join(root, sourceAsset));
+
+  rewrite(root, sourceAsset, (source) => source.replace("api.openai.com", "evil.invalid"));
+  rejects(root, /provider-data-use\.js.*reviewed bytes/u);
+  cpSync(join(ROOT, sourceAsset), join(root, sourceAsset));
+
+  rewrite(root, publicAsset, (source) => `${source}\n// duplicate disclosure payload\n`);
+  rejects(root, /provider-data-use\.js.*reviewed bytes/u);
+  cpSync(join(ROOT, publicAsset), join(root, publicAsset));
+
+  writeFileSync(join(root, "ios-web/provider-data-use-copy.js"), readFileSync(join(ROOT, sourceAsset)));
+  rejects(root, /inventory/u);
 });
 
 test("physical credential harness is explicit, Debug-only, state-only, and probes real lock state", () => {

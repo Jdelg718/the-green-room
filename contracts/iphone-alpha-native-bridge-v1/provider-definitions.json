@@ -1,7 +1,10 @@
 [
   {
     "id": "openrouter",
+    "displayName": "OpenRouter",
     "version": 1,
+    "definitionVersion": 1,
+    "disclosureVersion": 1,
     "adapter": "openai-compatible",
     "scheme": "https",
     "hostname": "openrouter.ai",
@@ -18,7 +21,10 @@
   },
   {
     "id": "openai",
+    "displayName": "OpenAI",
     "version": 1,
+    "definitionVersion": 1,
+    "disclosureVersion": 1,
     "adapter": "openai-compatible",
     "scheme": "https",
     "hostname": "api.openai.com",
@@ -35,7 +41,10 @@
   },
   {
     "id": "xai",
+    "displayName": "xAI",
     "version": 1,
+    "definitionVersion": 1,
+    "disclosureVersion": 1,
     "adapter": "openai-compatible",
     "scheme": "https",
     "hostname": "api.x.ai",
@@ -52,7 +61,10 @@
   },
   {
     "id": "groq",
+    "displayName": "Groq",
     "version": 1,
+    "definitionVersion": 1,
+    "disclosureVersion": 1,
     "adapter": "openai-compatible",
     "scheme": "https",
     "hostname": "api.groq.com",
@@ -69,7 +81,10 @@
   },
   {
     "id": "together",
+    "displayName": "Together AI",
     "version": 1,
+    "definitionVersion": 1,
+    "disclosureVersion": 1,
     "adapter": "openai-compatible",
     "scheme": "https",
     "hostname": "api.together.ai",

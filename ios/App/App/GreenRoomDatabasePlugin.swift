@@ -22,6 +22,33 @@ struct ProviderCommandAuthority: Sendable {
     let attemptEpoch: Int
 }
 
+struct ProviderDataUseConsent: Equatable, Sendable {
+    let providerId: String
+    let providerDefinitionVersion: Int
+    let model: String
+    let disclosureVersion: Int
+    let acceptedAt: String
+
+    var bridgeValue: [String: Any] {
+        [
+            "providerId": providerId,
+            "providerDefinitionVersion": providerDefinitionVersion,
+            "model": model,
+            "disclosureVersion": disclosureVersion,
+            "acceptedAt": acceptedAt,
+        ]
+    }
+}
+
+struct ProviderDataUseConsentRequest: Equatable, Sendable {
+    let providerId: String
+    let profileId: String
+    let profileRevision: Int
+    let model: String
+    let providerDefinitionVersion: Int
+    let disclosureVersion: Int
+}
+
 func encodedBridgeJSONObject(_ value: Any, code: String, maximumBytes: Int = bridgeMaximumBytes) throws -> Data {
     guard JSONSerialization.isValidJSONObject(value),
           let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
@@ -29,6 +56,13 @@ func encodedBridgeJSONObject(_ value: Any, code: String, maximumBytes: Int = bri
         throw DatabaseFailure(code: code, retryable: false)
     }
     return data
+}
+
+func bridgeInteger(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue == Double(number.intValue) else { return nil }
+    return number.intValue
 }
 
 func bridgeSuccessValueBudget(callId: String) throws -> Int {
@@ -85,7 +119,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try serializationLock.withLock {
-            guard expectedSchema == 7 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 8 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -408,6 +442,106 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
+    func providerDataUseConsent() throws -> ProviderDataUseConsent? {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
+            let statement = try prepare(
+                """
+                SELECT consent.provider_id, consent.provider_definition_version, consent.model,
+                       consent.disclosure_version, consent.accepted_at
+                FROM iphone_provider_data_use_consent consent
+                JOIN iphone_provider_selection selection
+                  ON selection.singleton = consent.singleton
+                 AND selection.provider_id = consent.provider_id
+                 AND selection.model = consent.model
+                WHERE consent.singleton = 1
+                """,
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { return nil }
+            guard step == SQLITE_ROW else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
+            let consent = ProviderDataUseConsent(
+                providerId: columnText(statement, 0),
+                providerDefinitionVersion: Int(sqlite3_column_int64(statement, 1)),
+                model: columnText(statement, 2),
+                disclosureVersion: Int(sqlite3_column_int64(statement, 3)),
+                acceptedAt: columnText(statement, 4)
+            )
+            guard let providerID = ApprovedProviderID(rawValue: consent.providerId) else { return nil }
+            let definition = ApprovedProviderDefinitions.definition(for: providerID)
+            guard consent.providerDefinitionVersion == definition.definitionVersion,
+                  consent.disclosureVersion == definition.disclosureVersion else { return nil }
+            return consent
+        }
+    }
+
+    func saveProviderSelectionAndConsent(_ request: ProviderDataUseConsentRequest) throws -> ProviderDataUseConsent {
+        try serializationLock.withLock {
+            guard let database,
+                  let providerID = ApprovedProviderID(rawValue: request.providerId),
+                  request.profileId == "iphone.\(request.providerId)",
+                  (1...2_147_483_647).contains(request.profileRevision),
+                  ProviderBridgeCodec.validModelId(request.model) else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            let definition = ApprovedProviderDefinitions.definition(for: providerID)
+            guard request.providerDefinitionVersion == definition.definitionVersion,
+                  request.disclosureVersion == definition.disclosureVersion else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            try execute("BEGIN IMMEDIATE", on: database)
+            do {
+                let selection = try prepare(Self.statements["save_provider_selection"]!, on: database)
+                defer { sqlite3_finalize(selection) }
+                try bind([
+                    request.providerId, request.profileId, request.profileRevision, request.model,
+                    request.profileId, request.profileRevision, request.providerId,
+                ], to: selection)
+                guard sqlite3_step(selection) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                    throw DatabaseFailure(code: "transaction_rejected", retryable: false)
+                }
+                let consent = try prepare(
+                    """
+                    INSERT INTO iphone_provider_data_use_consent(
+                      singleton, provider_id, provider_definition_version, model,
+                      disclosure_version, accepted_at
+                    ) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(singleton) DO UPDATE SET
+                      provider_id = excluded.provider_id,
+                      provider_definition_version = excluded.provider_definition_version,
+                      model = excluded.model,
+                      disclosure_version = excluded.disclosure_version,
+                      accepted_at = excluded.accepted_at
+                    """,
+                    on: database
+                )
+                defer { sqlite3_finalize(consent) }
+                try bind([
+                    request.providerId, request.providerDefinitionVersion,
+                    request.model, request.disclosureVersion,
+                ], to: consent)
+                guard sqlite3_step(consent) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                    throw DatabaseFailure(code: "transaction_rejected", retryable: false)
+                }
+                try protectDatabaseFiles(try databaseURL())
+                try execute("COMMIT", on: database)
+            } catch {
+                _ = try? execute("ROLLBACK", on: database)
+                throw error
+            }
+            guard let stored = try providerDataUseConsent(),
+                  stored.providerId == request.providerId,
+                  stored.providerDefinitionVersion == request.providerDefinitionVersion,
+                  stored.model == request.model,
+                  stored.disclosureVersion == request.disclosureVersion else {
+                throw DatabaseFailure(code: "internal_failure", retryable: false)
+            }
+            return stored
+        }
+    }
+
     func supersededCredentialReferences(profileId: String, before revision: Int) throws -> [String] {
         try serializationLock.withLock {
             guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
@@ -646,7 +780,8 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 SELECT command.request_plan_json, command.attempt_epoch,
                        credential.profile_id, credential.profile_revision, credential.provider_id,
                        credential.credential_ref, credential.mutation_id,
-                       credential.lifecycle_state, credential.tombstoned
+                       credential.lifecycle_state, credential.tombstoned,
+                       consent.provider_definition_version, consent.disclosure_version
                 FROM generation_commands command
                 JOIN iphone_provider_selection selection
                   ON selection.singleton = 1
@@ -654,6 +789,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                  AND selection.profile_revision = json_extract(command.request_plan_json, '$.profileRevision')
                  AND selection.provider_id = json_extract(command.request_plan_json, '$.providerId')
                  AND selection.model = json_extract(command.request_plan_json, '$.model')
+                JOIN iphone_provider_data_use_consent consent
+                  ON consent.singleton = 1
+                 AND consent.provider_id = selection.provider_id
+                 AND consent.model = selection.model
                 JOIN credential_revisions credential
                   ON credential.profile_id = selection.profile_id
                  AND credential.profile_revision = selection.profile_revision
@@ -685,7 +824,40 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             )
             defer { sqlite3_finalize(statement) }
             try bind([commandId, requestId, requestDigest], to: statement)
-            guard sqlite3_step(statement) == SQLITE_ROW else {
+            let step = sqlite3_step(statement)
+            guard step == SQLITE_ROW else {
+                let planStatement = try prepare(
+                    "SELECT request_plan_json FROM generation_commands WHERE command_id = ? AND request_id = ? AND request_digest = ?",
+                    on: database
+                )
+                defer { sqlite3_finalize(planStatement) }
+                try bind([commandId, requestId, requestDigest], to: planStatement)
+                guard sqlite3_step(planStatement) == SQLITE_ROW else {
+                    throw DatabaseFailure(code: "canceled", retryable: false)
+                }
+                let rawPlan = columnText(planStatement, 0)
+                let decoded = try ProviderBridgeCodec.decodeRequestPlan(rawPlan)
+                guard let approved = ApprovedProviderID(rawValue: decoded.providerId) else {
+                    throw DatabaseFailure(code: "canceled", retryable: false)
+                }
+                let expectedDefinition = ApprovedProviderDefinitions.definition(for: approved)
+                guard let consent = try providerDataUseConsent(),
+                      consent.providerId == decoded.providerId,
+                      consent.model == decoded.model,
+                      consent.providerDefinitionVersion == expectedDefinition.definitionVersion,
+                      consent.disclosureVersion == expectedDefinition.disclosureVersion else {
+                    throw DatabaseFailure(code: "provider_consent_required", retryable: false)
+                }
+                let credentialRef = "credential:\(decoded.profileId):\(decoded.profileRevision)"
+                guard let currentCredential = try credentialReservation(
+                    profileId: decoded.profileId, profileRevision: decoded.profileRevision,
+                    providerId: decoded.providerId, credentialRef: credentialRef
+                ) else {
+                    throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+                }
+                guard currentCredential.lifecycleState == "ready", !currentCredential.tombstoned else {
+                    throw DatabaseFailure(code: "credential_missing", retryable: true)
+                }
                 throw DatabaseFailure(code: "canceled", retryable: false)
             }
             let plan = columnText(statement, 0)
@@ -698,6 +870,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "canceled", retryable: false)
             }
             let definition = ApprovedProviderDefinitions.definition(for: approvedId)
+            guard Int(sqlite3_column_int64(statement, 9)) == definition.definitionVersion,
+                  Int(sqlite3_column_int64(statement, 10)) == definition.disclosureVersion else {
+                throw DatabaseFailure(code: "provider_consent_required", retryable: false)
+            }
             return ProviderCommandAuthority(
                 reservation: CredentialReservation(
                     profileId: columnText(statement, 2),
@@ -723,9 +899,14 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     ) throws -> CredentialReservation {
         try serializationLock.withLock {
             guard let database else { throw DatabaseFailure(code: "credential_unavailable", retryable: true) }
+            guard let approvedID = ApprovedProviderID(rawValue: providerId) else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            let definition = ApprovedProviderDefinitions.definition(for: approvedID)
             let statement = try prepare(
                 """
-                SELECT credential.mutation_id, credential.lifecycle_state, credential.tombstoned
+                SELECT credential.mutation_id, credential.lifecycle_state, credential.tombstoned,
+                       consent.provider_definition_version, consent.disclosure_version
                 FROM iphone_provider_selection selection
                 JOIN connection_profile_revisions profile
                   ON profile.profile_id = selection.profile_id
@@ -735,6 +916,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                   ON credential.profile_id = selection.profile_id
                  AND credential.profile_revision = selection.profile_revision
                  AND credential.provider_id = selection.provider_id
+                JOIN iphone_provider_data_use_consent consent
+                  ON consent.singleton = 1
+                 AND consent.provider_id = selection.provider_id
+                 AND consent.model = selection.model
                 WHERE selection.singleton = 1
                   AND selection.profile_id = ? AND selection.profile_revision = ?
                   AND selection.provider_id = ? AND credential.credential_ref = ?
@@ -750,8 +935,38 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             )
             defer { sqlite3_finalize(statement) }
             try bind([profileId, profileRevision, providerId, credentialRef], to: statement)
-            guard sqlite3_step(statement) == SQLITE_ROW else {
-                throw DatabaseFailure(code: "credential_missing", retryable: true)
+            let step = sqlite3_step(statement)
+            guard step == SQLITE_ROW else {
+                let selectedModelStatement = try prepare(
+                    "SELECT model FROM iphone_provider_selection WHERE singleton = 1 AND profile_id = ? AND profile_revision = ? AND provider_id = ?",
+                    on: database
+                )
+                defer { sqlite3_finalize(selectedModelStatement) }
+                try bind([profileId, profileRevision, providerId], to: selectedModelStatement)
+                guard sqlite3_step(selectedModelStatement) == SQLITE_ROW else {
+                    throw DatabaseFailure(code: "provider_consent_required", retryable: false)
+                }
+                let selectedModel = columnText(selectedModelStatement, 0)
+                guard let consent = try providerDataUseConsent(),
+                      consent.providerId == providerId, consent.model == selectedModel,
+                      consent.providerDefinitionVersion == definition.definitionVersion,
+                      consent.disclosureVersion == definition.disclosureVersion else {
+                    throw DatabaseFailure(code: "provider_consent_required", retryable: false)
+                }
+                guard let currentCredential = try credentialReservation(
+                    profileId: profileId, profileRevision: profileRevision,
+                    providerId: providerId, credentialRef: credentialRef
+                ) else {
+                    throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+                }
+                guard currentCredential.lifecycleState == "ready", !currentCredential.tombstoned else {
+                    throw DatabaseFailure(code: "credential_missing", retryable: true)
+                }
+                throw DatabaseFailure(code: "credential_unavailable", retryable: true)
+            }
+            guard Int(sqlite3_column_int64(statement, 3)) == definition.definitionVersion,
+                  Int(sqlite3_column_int64(statement, 4)) == definition.disclosureVersion else {
+                throw DatabaseFailure(code: "provider_consent_required", retryable: false)
             }
             return CredentialReservation(
                 profileId: profileId, profileRevision: profileRevision, providerId: providerId,
@@ -901,6 +1116,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                   ON profile.profile_id = selection.profile_id
                  AND profile.profile_revision = selection.profile_revision
                  AND profile.provider_id = selection.provider_id
+                JOIN iphone_provider_data_use_consent consent
+                  ON consent.singleton = 1
+                 AND consent.provider_id = selection.provider_id
+                 AND consent.model = selection.model
                 WHERE selection.singleton = 1
                   AND selection.provider_id = json_extract(?, '$.providerId')
                   AND selection.profile_id = json_extract(?, '$.profileId')
@@ -930,6 +1149,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 ON credential.profile_id = selection.profile_id
                AND credential.profile_revision = selection.profile_revision
                AND credential.provider_id = selection.provider_id
+              JOIN iphone_provider_data_use_consent consent
+                ON consent.singleton = 1
+               AND consent.provider_id = selection.provider_id
+               AND consent.model = selection.model
               JOIN rooms room ON room.id = generation_commands.room_id
               WHERE selection.singleton = 1
                 AND selection.profile_id = json_extract(generation_commands.request_plan_json, '$.profileId')
@@ -1077,13 +1300,14 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         let expectedFiles = [
             "0001-iphone-alpha.sql", "0002-ordered-events.sql",
             "0003-shared-director-state.sql", "0004-transaction-replay.sql",
-            "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql"
+            "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql",
+            "0008-provider-data-use-consent.sql"
         ]
-        guard current <= 7,
+        guard current <= 8,
               let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 7,
+              manifest["schema"] as? Int == 8,
               let migrations = manifest["migrations"] as? [[String: Any]],
               migrations.count == expectedFiles.count else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
@@ -1112,7 +1336,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 7 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 8 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func migrationURL(file: String) -> URL? {
@@ -1250,6 +1474,8 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "executeBatch", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "query", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "providerDataUseConsent", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveProviderSelectionAndConsent", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "checkpoint", returnType: CAPPluginReturnPromise)
     ]
     private let store = GreenRoomNativeAuthority.shared.database
@@ -1287,6 +1513,42 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
             return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
                 try self.store.executeBatch(transactionId: transactionId, statements: statements)
             }
+        }
+    }
+
+    @objc func providerDataUseConsent(_ call: CAPPluginCall) {
+        respond(call, method: "database.providerDataUseConsent") { payload in
+            guard payload.isEmpty else { throw DatabaseFailure(code: "invalid_call", retryable: false) }
+            let consent = try GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                try self.store.providerDataUseConsent()
+            }
+            return ["consent": consent?.bridgeValue ?? NSNull()]
+        }
+    }
+
+    @objc func saveProviderSelectionAndConsent(_ call: CAPPluginCall) {
+        respond(call, method: "database.saveProviderSelectionAndConsent") { payload in
+            guard Set(payload.keys) == Set([
+                "providerId", "profileId", "profileRevision", "model",
+                "providerDefinitionVersion", "disclosureVersion",
+            ]),
+            let providerId = payload["providerId"] as? String,
+            let profileId = payload["profileId"] as? String,
+            let profileRevision = bridgeInteger(payload["profileRevision"]),
+            let model = payload["model"] as? String,
+            let providerDefinitionVersion = bridgeInteger(payload["providerDefinitionVersion"]),
+            let disclosureVersion = bridgeInteger(payload["disclosureVersion"]) else {
+                throw DatabaseFailure(code: "invalid_call", retryable: false)
+            }
+            let consent = try GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                try self.store.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+                    providerId: providerId, profileId: profileId,
+                    profileRevision: profileRevision, model: model,
+                    providerDefinitionVersion: providerDefinitionVersion,
+                    disclosureVersion: disclosureVersion
+                ))
+            }
+            return ["consent": consent.bridgeValue]
         }
     }
 

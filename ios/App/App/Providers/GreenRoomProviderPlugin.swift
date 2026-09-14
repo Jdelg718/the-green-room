@@ -90,7 +90,7 @@ enum ProviderResponseKind { case generate, cancel, listModels, lifecycle }
 enum ProviderBridgeCodec {
     private static let payloadKeys = Set(["requestId", "commandId", "requestDigest"])
     private static let providerFailureCodes = Set([
-        "invalid_call", "incompatible_contract", "credential_unavailable", "credential_missing", "offline",
+        "invalid_call", "incompatible_contract", "provider_consent_required", "credential_unavailable", "credential_missing", "offline",
         "provider_unreachable", "provider_rejected", "invalid_response", "response_too_large", "timeout",
         "capacity_rejected", "canceled", "internal_failure",
     ])
@@ -683,7 +683,15 @@ final class GreenRoomProviderService: @unchecked Sendable {
                             lifecycleEpoch: lifecycleEpoch
                         ) { resume in
                             try authority.withReconciledDatabase {
-                                try authority.credentials.performWithReadyCredential(loaded.reservation.mutationRequest) { credential in
+                                let current = try authority.database.providerCommandAuthority(
+                                    commandId: command.commandId, requestId: command.requestId,
+                                    requestDigest: command.requestDigest
+                                )
+                                guard current.reservation.mutationId == loaded.reservation.mutationId,
+                                      current.requestPlanJSON == loaded.requestPlanJSON else {
+                                    throw DatabaseFailure(code: "canceled", retryable: false)
+                                }
+                                try authority.credentials.performWithReadyCredential(current.reservation.mutationRequest) { credential in
                                     guard let value = String(data: credential, encoding: .utf8), !value.isEmpty,
                                           value.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) else {
                                         throw DatabaseFailure(code: "credential_missing", retryable: true)
@@ -701,8 +709,8 @@ final class GreenRoomProviderService: @unchecked Sendable {
                                         throw DatabaseFailure(code: "canceled", retryable: false)
                                     }
                                     let transport = ProviderTransport(
-                                        definition: loaded.definition, configuration: configuration,
-                                        authorizationValue: "\(loaded.definition.authorization.scheme) \(value)"
+                                        definition: current.definition, configuration: configuration,
+                                        authorizationValue: "\(current.definition.authorization.scheme) \(value)"
                                     )
                                     let task = try transport.makeTask(payload, timeoutInterval: remaining) { [authority, registry] result in
                                         guard registry.claimCompletion(

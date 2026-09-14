@@ -4,6 +4,7 @@ import SQLite3
 
 private final class ProviderCredentialStore: CredentialSecureStore, @unchecked Sendable {
     private var values: [String: (Data, CredentialMetadata)] = [:]
+    private(set) var resolutionCount = 0
 
     func inspectMetadata(credentialRef: String) throws -> CredentialMetadataInspection {
         values[credentialRef].map { .valid($0.1) } ?? .missing
@@ -24,6 +25,7 @@ private final class ProviderCredentialStore: CredentialSecureStore, @unchecked S
         expectedMetadata: CredentialMetadata,
         operation: (inout Data) throws -> Void
     ) throws {
+        resolutionCount += 1
         guard let stored = values[credentialRef], stored.1 == expectedMetadata else {
             throw DatabaseFailure(code: "credential_missing", retryable: true)
         }
@@ -404,7 +406,7 @@ func runProviderTransportTests() throws {
     )
     let credentialStore = ProviderCredentialStore()
     let authority = GreenRoomNativeAuthority(database: database, secureStore: credentialStore)
-    _ = try authority.openDatabase(expectedSchema: 7)
+    _ = try authority.openDatabase(expectedSchema: 8)
     _ = try database.executeBatch(transactionId: "provider-room", statements: [
         ["sqlId": "create_room", "parameters": [payload.roomId, "Provider room"]],
         ["sqlId": "create_human", "parameters": ["human-1", payload.roomId, "You"]],
@@ -424,6 +426,10 @@ func runProviderTransportTests() throws {
     ])
     var credential = Data("native-test-value".utf8)
     _ = try authority.credentials.completeSave(reservation, secret: &credential)
+    _ = try database.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+        providerId: payload.providerId, profileId: payload.profileId, profileRevision: 1,
+        model: payload.model, providerDefinitionVersion: 1, disclosureVersion: 1
+    ))
     let planData = try JSONEncoder().encode(payload)
     let planJSON = String(decoding: planData, as: UTF8.self)
     let digest = SHA256.hash(data: planData).map { String(format: "%02x", $0) }.joined()
@@ -451,7 +457,7 @@ func runProviderTransportTests() throws {
         )
         let fencedStore = ProviderCredentialStore()
         let fencedAuthority = GreenRoomNativeAuthority(database: fencedDatabase, secureStore: fencedStore)
-        _ = try fencedAuthority.openDatabase(expectedSchema: 7)
+        _ = try fencedAuthority.openDatabase(expectedSchema: 8)
         let roomId = "room-10000000-0000-4000-8000-000000000001"
         let otherRoomId = "room-10000000-0000-4000-8000-000000000002"
         let requestId = "10000000-0000-4000-8000-000000000003"
@@ -473,6 +479,10 @@ func runProviderTransportTests() throws {
         ])
         var fencedSecret = Data("native-test-value".utf8)
         _ = try fencedAuthority.credentials.completeSave(mutationRequest, secret: &fencedSecret)
+        _ = try fencedDatabase.saveProviderSelectionAndConsent(ProviderDataUseConsentRequest(
+            providerId: payload.providerId, profileId: payload.profileId, profileRevision: 1,
+            model: payload.model, providerDefinitionVersion: 1, disclosureVersion: 1
+        ))
         let fencedPayload = ProviderGeneratePayload(
             roomId: roomId, sourceEventSequence: 1, personaSlug: payload.personaSlug,
             messages: payload.messages, model: payload.model, temperature: payload.temperature,
@@ -506,6 +516,20 @@ func runProviderTransportTests() throws {
             }
         }
         var deadlineClockReads = 0
+        @Sendable func mutateConsent(_ sql: String, ignoreChecks: Bool = false) throws {
+            var raw: OpaquePointer?
+            guard sqlite3_open_v2(
+                root.appendingPathComponent("greenroom.sqlite").path,
+                &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil
+            ) == SQLITE_OK, let raw else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+            defer { sqlite3_close_v2(raw) }
+            if ignoreChecks { _ = sqlite3_exec(raw, "PRAGMA ignore_check_constraints = ON", nil, nil, nil) }
+            guard sqlite3_exec(raw, sql, nil, nil, nil) == SQLITE_OK else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+        }
         let serviceRegistry = ProviderTaskRegistry(
             maximumConcurrent: 1, maximumQueued: 1,
             totalDeadline: mutation == "deadline" ? 60 : providerTotalDeadline,
@@ -569,6 +593,16 @@ func runProviderTransportTests() throws {
                         )!)
                     )
                     replacement.resetBytes(in: 0..<replacement.count)
+                case "consent-missing":
+                    try mutateConsent("DELETE FROM iphone_provider_data_use_consent")
+                case "consent-provider":
+                    try mutateConsent("UPDATE iphone_provider_data_use_consent SET provider_id = 'openai'")
+                case "consent-model":
+                    try mutateConsent("UPDATE iphone_provider_data_use_consent SET model = 'stale-model'")
+                case "consent-definition":
+                    try mutateConsent("UPDATE iphone_provider_data_use_consent SET provider_definition_version = 2", ignoreChecks: true)
+                case "consent-disclosure":
+                    try mutateConsent("UPDATE iphone_provider_data_use_consent SET disclosure_version = 2", ignoreChecks: true)
                 case "deadline":
                     break
                 default:
@@ -619,7 +653,9 @@ func runProviderTransportTests() throws {
             return
         }
         let expectedCode: String
-        if mutation == "profile" && !listModels {
+        if mutation == "selection" || mutation.hasPrefix("consent-") {
+            expectedCode = "provider_consent_required"
+        } else if mutation == "profile" {
             expectedCode = "credential_unavailable"
         } else if mutation == "credential" || listModels {
             expectedCode = "credential_missing"
@@ -630,6 +666,9 @@ func runProviderTransportTests() throws {
         }
         providerTestRequire(failureCode == expectedCode, "\(mutation) fence returned \(failureCode ?? "success")")
         providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "\(mutation) fence reached network")
+        if mutation == "selection" || mutation.hasPrefix("consent-") {
+            providerTestRequire(fencedStore.resolutionCount == 0, "stale consent reached Keychain resolution")
+        }
         if !listModels {
             let unresolved = (try fencedDatabase.query(
                 sqlId: "unresolved_generation_command", parameters: [roomId]
@@ -683,6 +722,10 @@ func runProviderTransportTests() throws {
     try exerciseFinalAuthorityFence("profile", listModels: true)
     try exerciseFinalAuthorityFence("credential-bytes")
     try exerciseFinalAuthorityFence("credential-bytes", listModels: true)
+    for mismatch in ["consent-missing", "consent-provider", "consent-model", "consent-definition", "consent-disclosure"] {
+        try exerciseFinalAuthorityFence(mismatch)
+        try exerciseFinalAuthorityFence(mismatch, listModels: true)
+    }
     try exerciseFinalAuthorityFence("deadline")
 
     ProviderURLProtocolStub.install(.response(
@@ -709,7 +752,7 @@ func runProviderTransportTests() throws {
     } else { fatalError("valid exact command did not return success") }
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "valid command did not issue exactly one request")
     _ = try authority.closeDatabase()
-    _ = try authority.openDatabase(expectedSchema: 7)
+    _ = try authority.openDatabase(expectedSchema: 8)
     let reconciled = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
     providerTestRequire(
         (reconciled?.first?.first as? String)?.contains("\"state\":\"interrupted\"") == true,

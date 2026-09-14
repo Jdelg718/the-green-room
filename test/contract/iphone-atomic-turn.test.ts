@@ -51,7 +51,7 @@ class AtomicDatabase {
 
   async open(call: Envelope) {
     this.calls.push(call);
-    return success(call, { schema: 7 });
+    return success(call, { schema: 8 });
   }
 
   async executeBatch(call: Envelope) {

@@ -62,7 +62,7 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
             epoch += 1
         }
         if application.isProtectedDataAvailable {
-            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 7)
+            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
         }
         let available = lock.withLock { active && protectedDataAvailable && pathAvailable }
         ProviderTaskRegistry.shared.updateLifecycleAvailability(available)
@@ -76,7 +76,7 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
         lock.withLock { protectedDataAvailable = true; epoch += 1 }
         if application.applicationState == .active {
-            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 7)
+            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
         }
         let available = lock.withLock { active && protectedDataAvailable && pathAvailable }
         ProviderTaskRegistry.shared.updateLifecycleAvailability(available)

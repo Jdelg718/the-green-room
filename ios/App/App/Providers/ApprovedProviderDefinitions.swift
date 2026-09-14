@@ -25,7 +25,10 @@ struct ApprovedProviderAuthorization: Equatable, Sendable {
 
 struct ApprovedProviderDefinition: Equatable, Sendable {
     let id: ApprovedProviderID
+    let displayName: String
     let version: Int
+    let definitionVersion: Int
+    let disclosureVersion: Int
     let adapter: String
     let scheme: String
     let hostname: String
@@ -39,7 +42,10 @@ struct ApprovedProviderDefinition: Equatable, Sendable {
 
     fileprivate init(
         id: ApprovedProviderID,
+        displayName: String,
         version: Int,
+        definitionVersion: Int,
+        disclosureVersion: Int,
         adapter: String,
         scheme: String,
         hostname: String,
@@ -52,7 +58,10 @@ struct ApprovedProviderDefinition: Equatable, Sendable {
         modelParser: String
     ) {
         self.id = id
+        self.displayName = displayName
         self.version = version
+        self.definitionVersion = definitionVersion
+        self.disclosureVersion = disclosureVersion
         self.adapter = adapter
         self.scheme = scheme
         self.hostname = hostname
@@ -93,35 +102,40 @@ enum ApprovedProviderDefinitions {
     )
 
     static let openrouter = ApprovedProviderDefinition(
-        id: .openrouter, version: 1, adapter: "openai-compatible",
+        id: .openrouter, displayName: "OpenRouter", version: 1, definitionVersion: 1,
+        disclosureVersion: 1, adapter: "openai-compatible",
         scheme: "https", hostname: "openrouter.ai", port: 443,
         basePath: "/api/v1", modelsPath: "/api/v1/models",
         chatPath: "/api/v1/chat/completions", authorization: bearer,
         outputTokenField: "max_tokens", modelParser: "data-id"
     )
     static let openai = ApprovedProviderDefinition(
-        id: .openai, version: 1, adapter: "openai-compatible",
+        id: .openai, displayName: "OpenAI", version: 1, definitionVersion: 1,
+        disclosureVersion: 1, adapter: "openai-compatible",
         scheme: "https", hostname: "api.openai.com", port: 443,
         basePath: "/v1", modelsPath: "/v1/models",
         chatPath: "/v1/chat/completions", authorization: bearer,
         outputTokenField: "max_completion_tokens", modelParser: "data-id"
     )
     static let xai = ApprovedProviderDefinition(
-        id: .xai, version: 1, adapter: "openai-compatible",
+        id: .xai, displayName: "xAI", version: 1, definitionVersion: 1,
+        disclosureVersion: 1, adapter: "openai-compatible",
         scheme: "https", hostname: "api.x.ai", port: 443,
         basePath: "/v1", modelsPath: "/v1/models",
         chatPath: "/v1/chat/completions", authorization: bearer,
         outputTokenField: "max_tokens", modelParser: "data-id"
     )
     static let groq = ApprovedProviderDefinition(
-        id: .groq, version: 1, adapter: "openai-compatible",
+        id: .groq, displayName: "Groq", version: 1, definitionVersion: 1,
+        disclosureVersion: 1, adapter: "openai-compatible",
         scheme: "https", hostname: "api.groq.com", port: 443,
         basePath: "/openai/v1", modelsPath: "/openai/v1/models",
         chatPath: "/openai/v1/chat/completions", authorization: bearer,
         outputTokenField: "max_completion_tokens", modelParser: "data-id"
     )
     static let together = ApprovedProviderDefinition(
-        id: .together, version: 1, adapter: "openai-compatible",
+        id: .together, displayName: "Together AI", version: 1, definitionVersion: 1,
+        disclosureVersion: 1, adapter: "openai-compatible",
         scheme: "https", hostname: "api.together.ai", port: 443,
         basePath: "/v1", modelsPath: "/v1/models",
         chatPath: "/v1/chat/completions", authorization: bearer,

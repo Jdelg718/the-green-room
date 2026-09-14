@@ -74,7 +74,7 @@ class MemoryPlugin {
 
   async open(call: NativeEnvelope) {
     this.calls.push(call);
-    return success(call, { schema: 7 });
+    return success(call, { schema: 8 });
   }
 
   async executeBatch(call: NativeEnvelope) {
@@ -267,7 +267,7 @@ async function createdRoom(slugs = ["ada-lovelace", "isaac-newton", "ff2k"]) {
   return { api, created, plugin };
 }
 
-test("iPhone local-room milestone carries schema seven and the atomic runtime", () => {
+test("iPhone local-room milestone carries schema eight and the atomic runtime", () => {
   for (const path of [
     "packages/core/src/director.ts",
     "ios/App/App/GreenRoomDatabasePlugin.swift",
@@ -278,15 +278,16 @@ test("iPhone local-room milestone carries schema seven and the atomic runtime", 
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/0006-room-talk.sql",
     "ios/App/App/Resources/Migrations/0007-generation-commands.sql",
+    "ios/App/App/Resources/Migrations/0008-provider-data-use-consent.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios-web/director.js",
     "ios-web/personas.js",
     "ios-web/room-runtime.js",
   ]) assert.equal(existsSync(join(ROOT, path)), true, `missing ${path}`);
 
-  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql"];
+  const files = ["0001-iphone-alpha.sql", "0002-ordered-events.sql", "0003-shared-director-state.sql", "0004-transaction-replay.sql", "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql", "0008-provider-data-use-consent.sql"];
   const manifest = JSON.parse(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/manifest.json"), "utf8"));
-  assert.equal(manifest.schema, 7);
+  assert.equal(manifest.schema, 8);
   assert.deepEqual(manifest.migrations, files.map((file, index) => {
     const source = readFileSync(join(ROOT, "ios/App/App/Resources/Migrations", file), "utf8");
     return { version: index + 1, file, sha256: createHash("sha256").update(source).digest("hex") };
@@ -295,6 +296,7 @@ test("iPhone local-room milestone carries schema seven and the atomic runtime", 
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0004-transaction-replay.sql"), "utf8"), /bridge_transactions/u);
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql"), "utf8"), /credential_tombstones/u);
   assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0006-room-talk.sql"), "utf8"), /iphone_provider_selection/u);
+  assert.match(readFileSync(join(ROOT, "ios/App/App/Resources/Migrations/0008-provider-data-use-consent.sql"), "utf8"), /iphone_provider_data_use_consent/u);
 });
 
 test("the iPhone picker carries all nineteen desktop prompts exactly in source and synced assets", async () => {

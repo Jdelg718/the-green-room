@@ -9,11 +9,11 @@ import {
 } from "../../src/providers/provider-definitions.js";
 
 const expected = {
-  openrouter: ["openrouter.ai", "/api/v1", "max_tokens", "data-id"],
-  openai: ["api.openai.com", "/v1", "max_completion_tokens", "data-id"],
-  xai: ["api.x.ai", "/v1", "max_tokens", "data-id"],
-  groq: ["api.groq.com", "/openai/v1", "max_completion_tokens", "data-id"],
-  together: ["api.together.ai", "/v1", "max_tokens", "array-id"],
+  openrouter: ["OpenRouter", "openrouter.ai", "/api/v1", "max_tokens", "data-id"],
+  openai: ["OpenAI", "api.openai.com", "/v1", "max_completion_tokens", "data-id"],
+  xai: ["xAI", "api.x.ai", "/v1", "max_tokens", "data-id"],
+  groq: ["Groq", "api.groq.com", "/openai/v1", "max_completion_tokens", "data-id"],
+  together: ["Together AI", "api.together.ai", "/v1", "max_tokens", "array-id"],
 } as const;
 
 test("cloud definitions are an immutable versioned closed set", () => {
@@ -21,10 +21,13 @@ test("cloud definitions are an immutable versioned closed set", () => {
   assert.equal(Object.isFrozen(APPROVED_CLOUD_PROVIDER_IDS), true);
   for (const id of APPROVED_CLOUD_PROVIDER_IDS) {
     const definition = getProviderDefinition(id);
-    const [hostname, basePath, outputTokenField, modelParser] = expected[id];
+    const [displayName, hostname, basePath, outputTokenField, modelParser] = expected[id];
     assert.deepEqual(definition, {
       id,
+      displayName,
       version: 1,
+      definitionVersion: 1,
+      disclosureVersion: 1,
       adapter: "openai-compatible",
       scheme: "https",
       hostname,
@@ -39,8 +42,8 @@ test("cloud definitions are an immutable versioned closed set", () => {
     assert.equal(Object.isFrozen(definition), true);
     assert.equal(Object.isFrozen(definition.authorization), true);
     assert.deepEqual(Object.keys(definition).sort(), [
-      "adapter", "authorization", "basePath", "chatPath", "hostname", "id",
-      "modelParser", "modelsPath", "outputTokenField", "port", "scheme", "version",
+      "adapter", "authorization", "basePath", "chatPath", "definitionVersion", "disclosureVersion",
+      "displayName", "hostname", "id", "modelParser", "modelsPath", "outputTokenField", "port", "scheme", "version",
     ].sort());
     for (const forbidden of ["url", "baseUrl", "query", "headers", "proxy", "request", "pathOverride"]) {
       assert.equal(forbidden in definition, false);
