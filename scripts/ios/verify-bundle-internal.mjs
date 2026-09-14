@@ -39,6 +39,7 @@ const DYNAMIC_UPDATE_PATTERN = /(?:capacitor-updater|live-update|liveupdate|appf
 const REMOTE_URL_PATTERN = /(?:https?|wss?|ftp):\/\//iu;
 const FORBIDDEN_EXECUTABLE_NAME = /^(?:node(?:\.exe)?|nodejs|python(?:[0-9.]*)?(?:\.exe)?|pythonw|pip(?:[0-9.]*)?)$/iu;
 const DEBUG_ACCEPTANCE_MARKERS = [
+  "GREENROOM_DEVICE_ACCEPTANCE",
   "greenroom-credential-device-acceptance=",
   "net.greenroomai.GreenRoom.device-credential-acceptance",
   "DeviceCredentialAcceptance",
@@ -93,7 +94,7 @@ const REVIEWED_WEB_SHA256 = new Map([
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
-  ["App/ContainedBridgeViewController.swift", "55a32f8ebe62671d0db754e67a560aba9a364a10236b0276b851db76c1a32221"],
+  ["App/ContainedBridgeViewController.swift", "02662d6c07aae235631bc216c0230e569392e6cfad712675ef4997fd40d24691"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "63118e7ad0a5174eb374698371ca5aefd086696c29d1575c8c7dd65a96405225"],
   ["App/Credentials/DeviceCredentialAcceptance.swift", "168ddb64fa29d665f2474f97f75b399eefa751b994f9a37ed238b1ab6d604003"],

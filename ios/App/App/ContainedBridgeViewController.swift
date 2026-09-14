@@ -178,7 +178,11 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                    (boot == "open" && (source == "created" || source == "reopened") && (1...3).contains(castCount)) ||
                      (boot == "picker" && source == "empty" && castCount == 0) {
                     let networkAudit = environment["GREENROOM_NETWORK_AUDIT_LOADED"] == "true" && environment["GREENROOM_NETWORK_ATTEMPT"] == nil
+#if DEBUG
                     let deviceAcceptance = environment["GREENROOM_DEVICE_ACCEPTANCE"] == "true"
+#else
+                    let deviceAcceptance = false
+#endif
 #if DEBUG && targetEnvironment(simulator)
                     let directorAcceptance = environment["GREENROOM_SIMULATOR_DIRECTOR_ACCEPTANCE"] == "true"
 #else
