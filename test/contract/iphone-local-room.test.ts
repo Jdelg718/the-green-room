@@ -44,7 +44,10 @@ async function runtime(cacheKey = ""): Promise<{
   retryActiveGeneration(): Promise<void>;
   sendLocalMessage(plugin: object, room: Record<string, any>, text: string, uuid?: () => string, options?: { requestId?: string; targetPersonaSlug?: string; wantsResponse?: boolean }): Promise<{ decision: { speaker: string | null; reason: string }; events: any[] }>;
   generatePersonaReply(database: object, provider: object, room: Record<string, any>, events: any[], selection: Record<string, any>, uuid?: () => string): Promise<{ events: any[]; reply: any }>;
-  saveProviderSetup(database: object, credential: object, providerId: string, model: string, uuid?: () => string): Promise<Record<string, any>>;
+  saveProviderSetup(database: object, credential: object, providerId: string, model: string, accepted: boolean, uuid?: () => string): Promise<Record<string, any>>;
+  readProviderDataUseConsent(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
+  providerDisclosure(providerId: string): Record<string, any>;
+  providerConsentEditor(documentRoot?: any): { reset(): void; render(providerId: string): void };
   readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
   providerSetupDefaults(): { providerId: string; model: string };
   providerSetupFailureMessage(failure: unknown): string;
@@ -70,11 +73,35 @@ class MemoryPlugin {
   readonly rooms = new Map<string, { room: Record<string, any>; events: Array<{ event: Record<string, any>; sequence: number }>; nextEventSequence: number }>();
   readonly profiles = new Map<string, Record<string, any>>();
   providerSelection: Record<string, any> | null = null;
+  providerConsent: Record<string, any> | null = null;
   activityOrder = 0;
 
   async open(call: NativeEnvelope) {
     this.calls.push(call);
     return success(call, { schema: 8 });
+  }
+
+  async providerDataUseConsent(call: NativeEnvelope) {
+    this.calls.push(call);
+    return success(call, { consent: this.providerConsent });
+  }
+
+  async saveProviderSelectionAndConsent(call: NativeEnvelope) {
+    this.calls.push(call);
+    this.providerSelection = {
+      providerId: call.payload.providerId,
+      profileId: call.payload.profileId,
+      profileRevision: call.payload.profileRevision,
+      model: call.payload.model,
+    };
+    this.providerConsent = {
+      providerId: call.payload.providerId,
+      providerDefinitionVersion: call.payload.providerDefinitionVersion,
+      model: call.payload.model,
+      disclosureVersion: call.payload.disclosureVersion,
+      acceptedAt: "2026-09-14 12:00:00",
+    };
+    return success(call, { consent: this.providerConsent });
   }
 
   async executeBatch(call: NativeEnvelope) {
@@ -218,6 +245,7 @@ class FakeElement {
   className = "";
   dataset: Record<string, string> = {};
   disabled = false;
+  checked = false;
   hidden = false;
   style = { objectPosition: "" };
   textContent = "";
@@ -238,7 +266,7 @@ class FakeElement {
     this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
   }
   async dispatch(name: string) {
-    for (const listener of this.listeners.get(name) ?? []) await listener({ preventDefault() {} });
+    for (const listener of this.listeners.get(name) ?? []) await listener({ currentTarget: this, preventDefault() {} });
   }
   querySelectorAll(selector: string): FakeElement[] {
     return selector === "button[data-slug]" ? this.children.filter(({ dataset }) => dataset.slug !== undefined) : [];
@@ -253,8 +281,10 @@ function fakeRoomDocument() {
   };
   const documentRoot = {
     documentElement: new FakeElement(),
+    activeElement: null,
     createElement: () => new FakeElement(),
     getElementById: get,
+    addEventListener() {},
   };
   (globalThis as any).document = documentRoot;
   return { documentRoot, get };
@@ -454,8 +484,8 @@ test("external TestFlight accessibility contract has named controls, one-shot tr
   assert.match(html, /id="transcript-announcer"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u);
   assert.match(html, /id="room-title"[^>]*tabindex="-1"/u);
   for (const id of [
-    "rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room",
-    "cancel-picker", "create-room", "rooms-cancel", "rooms-new", "provider-cancel", "provider-save",
+    "rooms-button", "provider-button", "privacy-button", "message-target", "message-text", "send-line", "new-room",
+    "cancel-picker", "create-room", "rooms-cancel", "rooms-new", "provider-cancel", "provider-save", "provider-consent", "privacy-back",
   ]) assert.match(html, new RegExp(`id="${id}"[^>]*(?:aria-label|aria-labelledby)`, "u"), `${id} has no stable accessible name`);
 
   assert.match(css, /\.header-button \{[^}]*min-height: 2\.75rem/u);
@@ -549,7 +579,7 @@ test("provider UX maps required failures to distinct actionable sanitized messag
   ]);
   assert.equal(
     api.providerSetupFailureMessage(nativeFailure("canceled", true)),
-    "Credential entry canceled. Return to Provider when you’re ready to finish setup.",
+    "Credential entry canceled. Consent remains recorded; return when you’re ready to finish setup.",
   );
   assert.equal(api.providerSetupFailureMessage(new Error("Bearer secret status 401")), "Provider setup failed. Try again.");
 });
@@ -558,10 +588,12 @@ test("fresh provider setup recommends editable OpenAI gpt-4.1-mini while saved c
   const api = await runtime();
   assert.deepEqual(api.providerSetupDefaults(), { providerId: "openai", model: "gpt-4.1-mini" });
   const source = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
-  assert.match(source, /<option value="openai" selected>OpenAI \(recommended\)<\/option>/u);
+  assert.match(source, /<select id="provider-id" aria-label="Provider" required><\/select>/u);
+  assert.match(readFileSync(join(ROOT, "ios-web/provider-data-use.js"), "utf8"), /"displayName": "OpenAI"/u);
   assert.match(source, /<input id="provider-model"[^>]*value="gpt-4\.1-mini"[^>]*>/u);
   assert.doesNotMatch(source, /id="provider-model"[^>]*(?:maxlength|readonly|disabled)/u);
-  assert.match(source, /Recommended starting point[^<]*You can edit the model ID/u);
+  assert.match(source, /id="provider-recommendation"/u);
+  assert.doesNotMatch(source, />OpenRouter<|>OpenAI|>xAI<|>Groq<|>Together AI</u);
 
   const database: any = new MemoryPlugin();
   const { get } = fakeRoomDocument();
@@ -570,7 +602,7 @@ test("fresh provider setup recommends editable OpenAI gpt-4.1-mini while saved c
   await api.showProviderSetup(database, uuids());
   assert.equal(get("provider-id").value, "openai");
   assert.equal(get("provider-model").value, "gpt-4.1-mini");
-  assert.equal(get("provider-status").textContent, "Recommended starting point loaded; provider and model stay editable.");
+  assert.equal(get("provider-status").textContent, "Consent required before saving this provider and model.");
 
   database.providerSelection = {
     providerId: "groq", profileId: "iphone.groq", profileRevision: 3, model: "custom-model-v3",
@@ -595,7 +627,7 @@ test("provider setup enforces the closed model ID contract before persistence", 
   assert.equal(new TextEncoder().encode(exact).byteLength, 256);
   assert.equal(new TextEncoder().encode(oversized).byteLength, 257);
 
-  const saved = await api.saveProviderSetup(database, credential, "openai", exact, uuids());
+  const saved = await api.saveProviderSetup(database, credential, "openai", exact, true, uuids());
   assert.equal(saved.model, exact);
   const rejectedModels = [
     { label: "257 UTF-8 bytes", value: oversized },
@@ -610,7 +642,7 @@ test("provider setup enforces the closed model ID contract before persistence", 
     const databaseCallsBefore = database.calls.length;
     const credentialCallsBefore = credentialCalls.length;
     await assert.rejects(
-      api.saveProviderSetup(database, credential, "openai", rejected.value, uuids()),
+      api.saveProviderSetup(database, credential, "openai", rejected.value, true, uuids()),
       /plain-text model ID without spaces/u,
       rejected.label,
     );
@@ -628,4 +660,91 @@ test("provider setup enforces the closed model ID contract before persistence", 
     assert.equal(relaunchedSelection?.model, exact, `${rejected.label} survived reconstructed runtime/store`);
     assert.notEqual(relaunchedSelection?.model, rejected.value, `${rejected.label} appeared after reconstruction`);
   }
+});
+
+test("provider disclosure UI is generated for all five fixed providers and privacy is bundled before boot", async () => {
+  const api = await runtime(`consent-disclosure-${Date.now()}`);
+  const expected: Array<[string, string, string]> = [
+    ["openrouter", "OpenRouter", "openrouter.ai"], ["openai", "OpenAI", "api.openai.com"],
+    ["xai", "xAI", "api.x.ai"], ["groq", "Groq", "api.groq.com"],
+    ["together", "Together AI", "api.together.ai"],
+  ];
+  for (const [providerId, displayName, hostname] of expected) {
+    assert.deepEqual(api.providerDisclosure(providerId), {
+      providerId, displayName, hostname, scheme: "https", port: 443,
+      definitionVersion: 1, disclosureVersion: 1,
+    });
+  }
+  const html = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
+  const source = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
+  assert.match(html, /id="privacy-button"[^>]*aria-label="Open Privacy and Data Use"/u);
+  assert.match(html, /id="privacy-view"[^>]*aria-labelledby="privacy-title"[^>]*hidden/u);
+  assert.match(html, /Rooms, drafts, provider profiles and choices, and consent are stored locally/u);
+  assert.match(html, /WhenUnlockedThisDeviceOnly/u);
+  assert.match(html, /prompt, recent room messages, selected character instructions, model ID, and generation settings/u);
+  assert.match(html, /no Green Room account, analytics collector, model proxy, transcript service, or relay/u);
+  assert.match(html, /Keychain item may survive uninstall/u);
+  assert.doesNotMatch(html, /internal[- ]only|build 2|0\.1\.0 \(2\)/iu);
+  assert.ok(source.indexOf("bindPrivacyNavigation") < source.indexOf("openLocalRoom(database)"));
+});
+
+test("provider consent starts unchecked and every provider/model edit resets without revert restoration", async () => {
+  const api = await runtime(`consent-editor-${Date.now()}`);
+  const { get, documentRoot } = fakeRoomDocument();
+  get("provider-id").value = "openai";
+  get("provider-model").value = "gpt-4.1-mini";
+  get("provider-consent").checked = true;
+  api.providerConsentEditor(documentRoot);
+  assert.equal(get("provider-consent").checked, false);
+  assert.match(get("provider-disclosure").textContent, /OpenAI.*directly over HTTPS.*api\.openai\.com/u);
+  get("provider-consent").checked = true;
+  get("provider-id").value = "groq";
+  await get("provider-id").dispatch("change");
+  assert.equal(get("provider-consent").checked, false);
+  get("provider-consent").checked = true;
+  get("provider-model").value = "other-model";
+  await get("provider-model").dispatch("input");
+  assert.equal(get("provider-consent").checked, false);
+  get("provider-id").value = "openai";
+  get("provider-model").value = "gpt-4.1-mini";
+  await get("provider-id").dispatch("change");
+  assert.equal(get("provider-consent").checked, false, "reverting silently restored consent");
+});
+
+test("unchecked or invalid provider save has zero database and credential side effects", async () => {
+  const api = await runtime(`consent-zero-effects-${Date.now()}`);
+  const database = new MemoryPlugin();
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async presentSaveSheet(call: NativeEnvelope) { credentialCalls.push(call); return success(call, {}); } };
+  for (const [model, accepted] of [["gpt-4.1-mini", false], ["model id", true]] as const) {
+    const before = database.calls.length;
+    await assert.rejects(api.saveProviderSetup(database, credential, "openai", model, accepted, uuids()), /consent|model ID/u);
+    assert.equal(database.calls.length, before);
+    assert.equal(credentialCalls.length, 0);
+  }
+});
+
+test("valid provider save commits the exact native consent envelope before credential setup", async () => {
+  const api = await runtime(`consent-atomic-${Date.now()}`);
+  const database = new MemoryPlugin();
+  const order: string[] = [];
+  const originalConsent = database.saveProviderSelectionAndConsent.bind(database);
+  database.saveProviderSelectionAndConsent = async (call: NativeEnvelope) => { order.push(call.method); return originalConsent(call); };
+  const credential = { async presentSaveSheet(call: NativeEnvelope) {
+    order.push(call.method);
+    return success(call, { credentialRef: "credential:iphone.openai:1", state: "ready" });
+  } };
+  await api.saveProviderSetup(database, credential, "openai", "gpt-4.1-mini", true, uuids());
+  const consentCall = database.calls.find(({ method }) => method === "database.saveProviderSelectionAndConsent");
+  assert.deepEqual(consentCall?.payload, {
+    providerId: "openai", profileId: "iphone.openai", profileRevision: 1, model: "gpt-4.1-mini",
+    providerDefinitionVersion: 1, disclosureVersion: 1,
+  });
+  assert.deepEqual(order, ["database.saveProviderSelectionAndConsent", "credential.presentSaveSheet"]);
+  assert.deepEqual(await api.readProviderDataUseConsent(database, uuids()), database.providerConsent);
+  const currentConsent = database.providerConsent;
+  database.providerConsent = { ...currentConsent, disclosureVersion: 0 };
+  assert.equal(await api.readProviderDataUseConsent(database, uuids()), null);
+  database.providerConsent = { ...currentConsent, providerDefinitionVersion: 0 };
+  assert.equal(await api.readProviderDataUseConsent(database, uuids()), null);
 });

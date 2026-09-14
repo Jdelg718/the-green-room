@@ -126,6 +126,15 @@ h2 { margin: .2rem 0 1rem; font: 2.5rem/.9 var(--display); text-transform: upper
 .setup-form select { min-height: 4rem; font: 1.7rem/1.4 var(--sans); }
 .setup-form input { min-height: 3rem; font: 1rem/1.2 var(--sans); }
 .setup-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: .35rem; }
+.provider-disclosure { padding: .9rem; border: var(--rule); background: var(--white); }
+.provider-disclosure h2, .privacy-copy h2 { margin: 0 0 .55rem; font-size: 1.6rem; }
+.provider-disclosure p, .privacy-copy p { margin: 0; overflow-wrap: anywhere; }
+.consent-control { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); align-items: start; gap: .7rem; padding: .75rem; border: var(--rule); background: var(--white); font: 800 .82rem/1.45 var(--sans) !important; letter-spacing: normal !important; text-transform: none !important; }
+.consent-control input { width: 2.75rem; height: 2.75rem; margin: 0; accent-color: var(--ink); }
+.privacy-view > .button { margin-bottom: 1.25rem; }
+.privacy-copy { display: grid; gap: 1rem; }
+.privacy-copy section { padding: 1rem; border: var(--rule); background: var(--white); }
+.privacy-copy section:nth-child(odd) { background: var(--paper-deep); }
 .error { padding: 1rem; border: var(--rule); background: var(--red); color: white; font-weight: 800; }
 [hidden] { display: none !important; }
 @media (min-width: 38rem) { .persona-grid { grid-template-columns: 1fr 1fr; } }

@@ -10,6 +10,16 @@ const rows = (column, values) => ({ columns: [column], rows: values.map((value) 
 
 const database = {
   async open(call) { return success(call, { schema: 8 }); },
+  async providerDataUseConsent(call) { return success(call, { consent: null }); },
+  async saveProviderSelectionAndConsent(call) {
+    return success(call, { consent: {
+      providerId: call.payload.providerId,
+      providerDefinitionVersion: call.payload.providerDefinitionVersion,
+      model: call.payload.model,
+      disclosureVersion: call.payload.disclosureVersion,
+      acceptedAt: "2026-09-14 12:00:00",
+    } });
+  },
   async executeBatch(call) {
     for (const statement of call.payload.statements) {
       const parameters = statement.parameters;

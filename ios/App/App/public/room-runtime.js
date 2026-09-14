@@ -1,6 +1,7 @@
 import { BUNDLED_PERSONAS } from "./personas.js";
 import { TRUSTED_PERSONA_PORTRAITS } from "./portraits.js";
 import { DIRECTOR_REASON, Director, TrustedEventAdapter } from "./director.js";
+import { IPHONE_PROVIDER_DATA_USE } from "./provider-data-use.js";
 
 const CONTRACT_VERSION = "iphone-native-bridge/1.0";
 const MAX_CAST = 3;
@@ -8,7 +9,8 @@ const MAX_EVENT_PAGE = 100;
 const MAX_BRIDGE_BYTES = 256 * 1024;
 const MAX_PROVIDER_MESSAGE_BYTES = 64 * 1024;
 const MAX_PROVIDER_MESSAGES = 32;
-const PROVIDERS = new Set(["openrouter", "openai", "xai", "groq", "together"]);
+const PROVIDER_DATA_USE = new Map(IPHONE_PROVIDER_DATA_USE.map((definition) => [definition.providerId, Object.freeze(definition)]));
+const PROVIDERS = new Set(PROVIDER_DATA_USE.keys());
 const NATIVE_FAILURE_CODES = new Set([
   "invalid_call", "incompatible_contract", "database_locked", "database_unavailable",
   "migration_rejected", "transaction_rejected", "result_too_large", "provider_consent_required", "credential_unavailable",
@@ -27,12 +29,14 @@ let activeViewToken = 0;
 let activeCommand = null;
 let mutationGate = Object.freeze({ active: false, protectedDataAvailable: false, pathAvailable: false, databaseReady: false, epoch: 0 });
 let providerReady = false;
+let providerEditor = null;
 let draftRevision = 0;
 let pendingDraft = null;
 let draftWriteRunning = false;
 let returnFocusElement = null;
 let renderedTranscriptRoomId = null;
 let renderedTranscriptSequence = 0;
+let privacyReturnView = null;
 
 export const UNCERTAIN_REQUEST_WARNING = "Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.";
 
@@ -84,9 +88,74 @@ export function providerSetupDefaults() {
   return DEFAULT_PROVIDER_SETUP;
 }
 
+export function providerDisclosure(providerId) {
+  const definition = PROVIDER_DATA_USE.get(providerId);
+  if (!definition || definition.scheme !== "https" || definition.port !== 443) {
+    throw new TypeError("Choose an approved provider.");
+  }
+  return Object.freeze({
+    providerId: definition.providerId, displayName: definition.displayName, hostname: definition.hostname,
+    scheme: definition.scheme, port: definition.port, definitionVersion: definition.definitionVersion,
+    disclosureVersion: definition.disclosureVersion,
+  });
+}
+
+function parseProviderConsent(value) {
+  if (value === null) return null;
+  if (!exactRecord(value, ["acceptedAt", "disclosureVersion", "model", "providerDefinitionVersion", "providerId"]) ||
+      typeof value.acceptedAt !== "string" || value.acceptedAt.length < 1 || value.acceptedAt.length > 64 ||
+      !isCanonicalModelId(value.model)) throw new Error("Invalid provider consent readback.");
+  const definition = PROVIDER_DATA_USE.get(value.providerId);
+  if (!definition || value.providerDefinitionVersion !== definition.definitionVersion ||
+      value.disclosureVersion !== definition.disclosureVersion) return null;
+  return Object.freeze(value);
+}
+
+export async function readProviderDataUseConsent(database, uuid = () => crypto.randomUUID()) {
+  const value = await invoke(database, "database.providerDataUseConsent", {}, uuid);
+  if (!exactRecord(value, ["consent"])) throw new Error("Invalid provider consent readback.");
+  return parseProviderConsent(value.consent);
+}
+
+export function providerConsentEditor(documentRoot = document) {
+  const provider = documentRoot.getElementById("provider-id");
+  const model = documentRoot.getElementById("provider-model");
+  const consent = documentRoot.getElementById("provider-consent");
+  const disclosure = documentRoot.getElementById("provider-disclosure");
+  const recommendation = documentRoot.getElementById("provider-recommendation");
+  const options = IPHONE_PROVIDER_DATA_USE.map((definition) => {
+    const option = documentRoot.createElement("option");
+    option.value = definition.providerId;
+    option.textContent = definition.providerId === DEFAULT_PROVIDER_SETUP.providerId
+      ? `${definition.displayName} (recommended)` : definition.displayName;
+    return option;
+  });
+  provider.replaceChildren(...options);
+  provider.value = DEFAULT_PROVIDER_SETUP.providerId;
+  recommendation.textContent = `Recommended starting point: ${providerDisclosure(DEFAULT_PROVIDER_SETUP.providerId).displayName} with ${DEFAULT_PROVIDER_SETUP.model}. You can edit the model ID, and any saved provider and model remain your selection.`;
+  function reset() {
+    consent.checked = false;
+    consent.setAttribute("aria-checked", "false");
+  }
+  function render(providerId = provider.value) {
+    const selected = providerDisclosure(providerId);
+    disclosure.textContent = `${selected.displayName} sends requests directly over HTTPS to ${selected.hostname}. Green Room sends the prompt, recent room messages, selected character instructions, model ID, and generation settings. ${selected.displayName} may retain content under its own terms. Green Room operates no account, analytics collector, model proxy, transcript service, or relay.`;
+  }
+  provider.addEventListener("change", () => { reset(); render(); });
+  model.addEventListener("input", reset);
+  consent.addEventListener("change", () => consent.setAttribute("aria-checked", String(consent.checked)));
+  reset();
+  render();
+  return Object.freeze({ reset, render });
+}
+
 export function providerSetupFailureMessage(failure) {
+  if (failure instanceof TypeError && failure.message === "Provider data-use consent is required.") {
+    return "Check the required consent box before saving.";
+  }
+  if (failure instanceof TypeError) return "Enter a valid model ID without spaces.";
   return nativeFailure(failure)?.code === "canceled"
-    ? "Credential entry canceled. Return to Provider when you’re ready to finish setup."
+    ? "Credential entry canceled. Consent remains recorded; return when you’re ready to finish setup."
     : "Provider setup failed. Try again.";
 }
 
@@ -415,44 +484,44 @@ async function readProviderProfile(plugin, profileId, uuid) {
   return value;
 }
 
-function selectionStatement(selection) {
-  return { sqlId: "save_provider_selection", parameters: [
-    selection.providerId, selection.profileId, selection.profileRevision, selection.model,
-    selection.profileId, selection.profileRevision, selection.providerId,
-  ] };
-}
-
 export async function saveProviderSetup(
   database,
   credential,
   providerId,
   model,
+  accepted,
   uuid = () => crypto.randomUUID(),
 ) {
   if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
     throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
   }
+  if (accepted !== true) throw new TypeError("Provider data-use consent is required.");
+  const definition = providerDisclosure(providerId);
   const profileId = `iphone.${providerId}`;
   const existing = await readProviderProfile(database, profileId, uuid);
   const needsRevision = existing === null || existing.tombstoned || existing.state === "missing" || existing.state === "delete_pending";
   const profileRevision = needsRevision ? (existing?.profileRevision ?? 0) + 1 : existing.profileRevision;
   const mutationId = needsRevision ? nextUuid(uuid) : existing.mutationId;
   const selection = Object.freeze({ model, profileId, profileRevision, providerId });
-  const statements = [];
   if (needsRevision) {
-    statements.push(
-      { sqlId: "create_connection_profile_revision", parameters: [profileId, profileRevision, providerId, existing?.profileRevision ?? null] },
-      { sqlId: "reserve_credential", parameters: [
-        profileId, profileRevision, providerId, `credential:${profileId}:${profileRevision}`,
-        existing?.profileRevision ?? null, mutationId,
-      ] },
-    );
+    await invoke(database, "database.executeBatch", {
+      transactionId: `provider-reservation-${nextUuid(uuid)}`,
+      statements: [
+        { sqlId: "create_connection_profile_revision", parameters: [profileId, profileRevision, providerId, existing?.profileRevision ?? null] },
+        { sqlId: "reserve_credential", parameters: [
+          profileId, profileRevision, providerId, `credential:${profileId}:${profileRevision}`,
+          existing?.profileRevision ?? null, mutationId,
+        ] },
+      ],
+    }, uuid);
   }
-  statements.push(selectionStatement(selection));
-  await invoke(database, "database.executeBatch", {
-    transactionId: `provider-${nextUuid(uuid)}`,
-    statements,
+  const acceptedValue = await invoke(database, "database.saveProviderSelectionAndConsent", {
+    providerId, profileId, profileRevision, model,
+    providerDefinitionVersion: definition.definitionVersion,
+    disclosureVersion: definition.disclosureVersion,
   }, uuid);
+  if (!exactRecord(acceptedValue, ["consent"]) || parseProviderConsent(acceptedValue.consent)?.providerId !== providerId ||
+      acceptedValue.consent.model !== model) throw new Error("Provider consent was not recorded.");
   if (needsRevision || existing.state === "credential_pending") {
     await invoke(credential, "credential.presentSaveSheet", {
       mutationId, profileId, profileRevision, providerId,
@@ -877,6 +946,7 @@ export function renderRoom(opened) {
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
+  document.getElementById("privacy-view").hidden = true;
   exposeOnlyVisibleCancel();
   const input = document.getElementById("message-text");
   const target = document.getElementById("message-target");
@@ -902,8 +972,47 @@ function rememberReturnFocus(candidate = document.activeElement) {
   returnFocusElement = candidate?.matches?.("button, select, input, textarea") ? candidate : null;
 }
 
+const PRIMARY_VIEW_IDS = Object.freeze(["room-view", "picker-view", "rooms-view", "provider-view"]);
+
+function showPrivacy(trigger) {
+  if (!document.getElementById("privacy-view").hidden) return;
+  rememberReturnFocus(trigger);
+  privacyReturnView = PRIMARY_VIEW_IDS.find((id) => !document.getElementById(id).hidden) ?? null;
+  for (const id of PRIMARY_VIEW_IDS) document.getElementById(id).hidden = true;
+  document.getElementById("privacy-view").hidden = false;
+  exposeOnlyVisibleCancel("privacy-back");
+  document.getElementById("privacy-title").focus();
+}
+
+function closePrivacy() {
+  document.getElementById("privacy-view").hidden = true;
+  if (privacyReturnView !== null) document.getElementById(privacyReturnView).hidden = false;
+  const cancelByView = { "picker-view": "cancel-picker", "rooms-view": "rooms-cancel", "provider-view": "provider-cancel" };
+  exposeOnlyVisibleCancel(cancelByView[privacyReturnView] ?? null);
+  privacyReturnView = null;
+  const focusTarget = returnFocusElement;
+  returnFocusElement = null;
+  if (focusTarget?.isConnected !== false && !focusTarget?.hidden) focusTarget?.focus();
+}
+
+function bindPrivacyNavigation() {
+  document.getElementById("privacy-button").addEventListener("click", (event) => showPrivacy(event.currentTarget));
+  document.getElementById("privacy-back").addEventListener("click", closePrivacy);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const cancel = !document.getElementById("privacy-view").hidden ? document.getElementById("privacy-back")
+      : !document.getElementById("picker-view").hidden ? document.getElementById("cancel-picker")
+        : !document.getElementById("rooms-view").hidden ? document.getElementById("rooms-cancel")
+          : !document.getElementById("provider-view").hidden ? document.getElementById("provider-cancel") : null;
+    if (cancel !== null && !cancel.hidden) {
+      event.preventDefault();
+      cancel.click();
+    }
+  });
+}
+
 function exposeOnlyVisibleCancel(visibleId = null) {
-  for (const id of ["cancel-picker", "rooms-cancel", "provider-cancel"]) {
+  for (const id of ["cancel-picker", "rooms-cancel", "provider-cancel", "privacy-back"]) {
     const control = document.getElementById(id);
     if (id === visibleId) control.removeAttribute("aria-hidden");
     else control.setAttribute("aria-hidden", "true");
@@ -1058,6 +1167,7 @@ export function showPicker(trigger) {
   document.getElementById("picker-view").hidden = false;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
+  document.getElementById("privacy-view").hidden = true;
   document.documentElement.dataset.localRoomBoot = "picker";
   document.documentElement.dataset.localRoomSource = "empty";
   const cancel = document.getElementById("cancel-picker");
@@ -1073,6 +1183,7 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
+  document.getElementById("privacy-view").hidden = true;
   document.getElementById("rooms-view").hidden = false;
   exposeOnlyVisibleCancel("rooms-cancel");
   document.getElementById("rooms-title").focus();
@@ -1102,16 +1213,23 @@ export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
+  document.getElementById("privacy-view").hidden = true;
   document.getElementById("provider-view").hidden = false;
   exposeOnlyVisibleCancel("provider-cancel");
   const selection = await readProviderSelection(plugin, uuid);
+  const consent = await readProviderDataUseConsent(plugin, uuid);
   document.getElementById("provider-id").value = DEFAULT_PROVIDER_SETUP.providerId;
   document.getElementById("provider-model").value = DEFAULT_PROVIDER_SETUP.model;
-  document.getElementById("provider-status").textContent = "Recommended starting point loaded; provider and model stay editable.";
+  providerEditor?.reset();
+  providerEditor?.render(DEFAULT_PROVIDER_SETUP.providerId);
+  document.getElementById("provider-status").textContent = "Consent required before saving this provider and model.";
   if (selection !== null) {
     document.getElementById("provider-id").value = selection.providerId;
     document.getElementById("provider-model").value = selection.model;
-    document.getElementById("provider-status").textContent = "Saved selection loaded.";
+    providerEditor?.render(selection.providerId);
+    document.getElementById("provider-status").textContent = consent?.providerId === selection.providerId && consent.model === selection.model
+      ? `Consent recorded for ${providerDisclosure(selection.providerId).displayName} and this exact model. Check the box to save again.`
+      : "Consent required for this provider and exact model.";
   }
   document.getElementById("provider-title").focus();
 }
@@ -1119,6 +1237,8 @@ export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()
 async function selectedProviderIsReady(database, uuid = () => crypto.randomUUID()) {
   const selection = await readProviderSelection(database, uuid);
   if (selection === null) return false;
+  const consent = await readProviderDataUseConsent(database, uuid);
+  if (consent?.providerId !== selection.providerId || consent.model !== selection.model) return false;
   const profile = await readProviderProfile(database, selection.profileId, uuid);
   return profile?.state === "ready" && !profile.tombstoned && profile.profileRevision === selection.profileRevision;
 }
@@ -1233,6 +1353,8 @@ export async function abandonActiveGeneration(database) {
 }
 
 async function boot() {
+  providerEditor = providerConsentEditor();
+  bindPrivacyNavigation();
   try {
     const database = globalThis.Capacitor?.Plugins?.GreenRoomDatabase;
     const provider = globalThis.Capacitor?.Plugins?.GreenRoomProvider;
@@ -1261,31 +1383,24 @@ async function boot() {
         else if (!await reopenAuthoritativeRoom(database)) document.getElementById("boot-error").hidden = false;
       });
     }
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const cancel = !document.getElementById("picker-view").hidden ? document.getElementById("cancel-picker")
-        : !document.getElementById("rooms-view").hidden ? document.getElementById("rooms-cancel")
-          : !document.getElementById("provider-view").hidden ? document.getElementById("provider-cancel") : null;
-      if (cancel !== null && !cancel.hidden) {
-        event.preventDefault();
-        cancel.click();
-      }
-    });
     document.getElementById("provider-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const save = document.getElementById("provider-save");
       const status = document.getElementById("provider-status");
+      const providerId = document.getElementById("provider-id").value;
+      const model = document.getElementById("provider-model").value;
+      const accepted = document.getElementById("provider-consent").checked;
       save.disabled = true;
-      status.textContent = "Opening native credential entry…";
       try {
+        if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
+          throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
+        }
+        if (accepted !== true) throw new TypeError("Provider data-use consent is required.");
+        status.textContent = "Recording provider consent…";
         await requireReadyMutation(database, lifecycle, undefined, false);
-        await saveProviderSetup(
-          database,
-          credential,
-          document.getElementById("provider-id").value,
-          document.getElementById("provider-model").value,
-        );
-        status.textContent = "Provider and model saved. Credential is ready in Keychain.";
+        await saveProviderSetup(database, credential, providerId, model, accepted);
+        providerEditor?.reset();
+        status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
         if (activeRoom !== null) await reopenAuthoritativeRoom(database);
       } catch (error) {
         status.textContent = providerSetupFailureMessage(error);
