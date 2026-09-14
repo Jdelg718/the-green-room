@@ -195,6 +195,15 @@ PAGES = {
         for slug in CHARACTER_PROFILES
     },
 }
+PRIVACY_LINK_PAGES = frozenset(
+    {
+        "index.html",
+        "characters/index.html",
+        "docs/index.html",
+        "download/index.html",
+        "contribute/index.html",
+    }
+)
 REQUIRED_LANGUAGE = {
     "index.html": (
         "standalone",
@@ -331,6 +340,7 @@ URL_BEARING_HTML_ATTRS = frozenset(
     {"href", "src", "srcset", "poster", "cite", "background", "action", "formaction", "data"}
 )
 ALLOWED_NAVIGATION_HOST = "github.com"
+VOID_HTML_TAGS = frozenset({"img", "link", "meta"})
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 SVG_ATTRS: dict[str, frozenset[str]] = {
@@ -370,7 +380,7 @@ class PageParser(HTMLParser):
                 "parent": parent,
             }
         )
-        if normalized_tag not in {"meta", "link"}:
+        if normalized_tag not in VOID_HTML_TAGS:
             self.open_elements.append(len(self.elements) - 1)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -420,6 +430,26 @@ class PolicyHTMLParser(PageParser):
 
     def error(self, message: str) -> None:  # pragma: no cover - retained for old Python APIs
         self.parse_errors.append(message)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        if not self.open_elements:
+            self.parse_errors.append(f"unexpected closing tag </{normalized_tag}>")
+            return
+        open_tag = self.elements[self.open_elements[-1]]["tag"]
+        if open_tag != normalized_tag:
+            self.parse_errors.append(
+                f"mismatched closing tag </{normalized_tag}>; expected </{open_tag}>"
+            )
+        super().handle_endtag(tag)
+
+    def close(self) -> None:
+        super().close()
+        if self.open_elements:
+            open_tags = ", ".join(
+                f"<{self.elements[index]['tag']}>" for index in self.open_elements
+            )
+            self.parse_errors.append(f"unclosed HTML elements: {open_tags}")
 
 
 
@@ -688,11 +718,104 @@ def is_visible(parser: PageParser, index: int) -> bool:
     current: int | None = index
     while isinstance(current, int):
         attrs = element_attrs(parser.elements[current])
-        if "hidden" in attrs or attrs.get("aria-hidden", "").strip().lower() == "true":
+        class_names = set(attrs.get("class", "").split())
+        inline_style = re.sub(r"\s+", "", attrs.get("style", "").casefold())
+        if (
+            "hidden" in attrs
+            or "inert" in attrs
+            or attrs.get("aria-hidden", "").strip().casefold() == "true"
+            or "skip-link" in class_names
+            or re.search(
+                r"(?:^|;)(?:display:none|visibility:hidden|opacity:0)(?:;|$)",
+                inline_style,
+            )
+        ):
             return False
         parent = parser.elements[current]["parent"]
         current = parent if isinstance(parent, int) else None
     return True
+
+
+def has_expected_privacy_footer_path(parser: PageParser, index: int) -> bool:
+    parent = parser.elements[index]["parent"]
+    if not isinstance(parent, int):
+        return False
+    parent_element = parser.elements[parent]
+    if parent_element["tag"] != "span" or element_attrs(parent_element):
+        return False
+
+    container = parent_element["parent"]
+    if not isinstance(container, int):
+        return False
+    container_element = parser.elements[container]
+    if (
+        container_element["tag"] != "div"
+        or element_attrs(container_element) != {"class": "footer-inner"}
+    ):
+        return False
+
+    footer = container_element["parent"]
+    if not isinstance(footer, int):
+        return False
+    footer_element = parser.elements[footer]
+    return footer_element["tag"] == "footer" and element_attrs(footer_element) == {
+        "class": "site-footer"
+    }
+
+
+def normalized_accessible_name(parser: PageParser, index: int) -> str:
+    attrs = element_attrs(parser.elements[index])
+    if "aria-label" in attrs:
+        return " ".join(attrs["aria-label"].split())
+
+    parts: list[str] = []
+    for descendant_index, element in enumerate(parser.elements):
+        if descendant_index != index and not is_descendant(parser, descendant_index, index):
+            continue
+        if not is_visible(parser, descendant_index):
+            continue
+        direct_text = element["direct_text"]
+        if not isinstance(direct_text, list):
+            raise TypeError("parser element direct-text invariant failed")
+        parts.extend(direct_text)
+        if element["tag"] == "img":
+            parts.append(element_attrs(element).get("alt", ""))
+    return " ".join(" ".join(parts).split())
+
+
+def validate_privacy_navigation(relative: str, parser: PageParser, errors: list[str]) -> None:
+    candidates: list[int] = []
+    for index, element in scoped_elements(parser, "a"):
+        attrs = element_attrs(element)
+        raw_label = normalized_text(element)
+        visible_label = normalized_visible_text(parser, index)
+        accessible_label = normalized_accessible_name(parser, index)
+        if (
+            attrs.get("href") == "/privacy/"
+            or raw_label == "Privacy"
+            or visible_label == "Privacy"
+            or accessible_label == "Privacy"
+        ):
+            candidates.append(index)
+
+    valid = []
+    for index in candidates:
+        element = parser.elements[index]
+        attrs = element_attrs(element)
+        visible_label = normalized_visible_text(parser, index)
+        accessible_label = normalized_accessible_name(parser, index)
+        if (
+            attrs.get("href") == "/privacy/"
+            and visible_label == "Privacy"
+            and accessible_label == "Privacy"
+            and is_visible(parser, index)
+            and not attrs.get("class", "").strip()
+            and has_expected_privacy_footer_path(parser, index)
+        ):
+            valid.append(index)
+
+    if len(candidates) != 1 or len(valid) != 1:
+        fail(errors, f"{relative}: missing unique visible semantic Privacy link")
 
 
 def scoped_elements(parser: PageParser, tag: str, ancestor: int | None = None) -> list[tuple[int, dict[str, object]]]:
@@ -1086,6 +1209,8 @@ def validate_page(relative: str, errors: list[str], site: Path = SITE) -> None:
         if phrase in lower:
             fail(errors, f"{relative}: forbidden claim or collection language: {phrase!r}")
 
+    if relative in PRIVACY_LINK_PAGES:
+        validate_privacy_navigation(relative, parser, errors)
     if relative == "characters/index.html":
         validate_character_index(parser, errors)
     if relative == "download/index.html":
@@ -1285,6 +1410,16 @@ def collect_errors(site: Path = SITE) -> list[str]:
         validate_page(page, errors, site)
 
     primary_css = site / "assets/site.css"
+    actual_css = {
+        path
+        for path in site.rglob("*")
+        if path.is_file() and path.suffix.casefold() == ".css"
+    }
+    for unexpected in sorted(actual_css - {primary_css}):
+        fail(
+            errors,
+            f"unexpected CSS source outside the release gate: {display_path(unexpected, site)}",
+        )
     if not primary_css.is_file():
         fail(errors, "missing local stylesheet: assets/site.css")
     else:
@@ -1310,7 +1445,7 @@ def collect_errors(site: Path = SITE) -> list[str]:
             if hook not in content:
                 fail(errors, f"assets/site.css: missing split-layout responsive hook {hook!r}")
 
-    for css in sorted(site.rglob("*.css")):
+    for css in sorted(actual_css):
         validate_css_source(
             display_path(css, site),
             css.read_text(encoding="utf-8"),

@@ -48,6 +48,11 @@ class StaticPolicyTests(unittest.TestCase):
     def test_privacy_page_is_release_gated_and_discoverable(self) -> None:
         self.assertIn("privacy/index.html", validate.PAGES)
         self.assertIn("privacy/index.html", validate.SOCIAL_CARD_PAGES)
+        self.assertEqual(validate.collect_errors(), [])
+
+    def test_top_level_pages_reject_hidden_valid_privacy_link_and_visible_wrong_target(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        attack = f'<div aria-hidden="true">{exact_link}</div><a href="/docs/">Privacy</a>'
         for relative in (
             "index.html",
             "characters/index.html",
@@ -55,9 +60,79 @@ class StaticPolicyTests(unittest.TestCase):
             "download/index.html",
             "contribute/index.html",
         ):
-            with self.subTest(relative=relative):
-                source = (validate.SITE / relative).read_text(encoding="utf-8")
-                self.assertIn('<a href="/privacy/">Privacy</a>', source)
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / relative
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(source.replace(exact_link, attack, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_rejects_duplicates_concealment_and_accessible_name_tricks(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        mutations = {
+            "duplicate visible link": exact_link + exact_link,
+            "aria-hidden link": '<a href="/privacy/" aria-hidden="true">Privacy</a>',
+            "hidden ancestor": f'<div hidden>{exact_link}</div>',
+            "inert ancestor": f'<div inert>{exact_link}</div>',
+            "CSS-hidden link": '<a class="skip-link" href="/privacy/">Privacy</a>',
+            "CSS-obscured ancestor": f'<div class="portrait">{exact_link}</div>',
+            "wrong accessible name": '<a href="/privacy/" aria-label="Docs">Privacy</a>',
+            "descendant image changes accessible name": (
+                '<a href="/privacy/">Privacy'
+                '<img src="/assets/favicon.svg" alt="Docs" width="1" height="1"></a>'
+            ),
+            "hidden visible label": (
+                '<a href="/privacy/" aria-label="Privacy">'
+                '<span aria-hidden="true">Privacy</span></a>'
+            ),
+        }
+        for label, replacement in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(source.replace(exact_link, replacement, 1), encoding="utf-8")
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_fails_closed_on_malformed_nesting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            exact_link = '<a href="/privacy/">Privacy</a>'
+            malformed = '<div aria-hidden="true"><a href="/privacy/">Privacy</div></a>'
+            self.assertEqual(source.count(exact_link), 1)
+            page.write_text(source.replace(exact_link, malformed, 1), encoding="utf-8")
+            self.assert_rejected(validate.collect_errors(site), "malformed HTML")
+
+    def test_privacy_navigation_rejects_additional_css_concealment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            extra = site / "assets" / "conceal.CSS"
+            extra.write_text(".site-footer { display: none; }\n", encoding="utf-8")
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            page.write_text(
+                source.replace(
+                    "</head>",
+                    '<link rel="stylesheet" href="/assets/conceal.CSS"></head>',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assert_rejected(validate.collect_errors(site), "unexpected CSS source")
 
     def test_privacy_page_requires_provider_and_project_boundaries(self) -> None:
         mutations = {
