@@ -22,9 +22,28 @@ const boundary = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle.mjs");
 const { verifyBuiltApp, verifySource } = boundary;
-const { verifySourceCore } = await import(
+const { parseOtoolLibraries, verifySourceCore } = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle-internal.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle-internal.mjs");
+
+test("fat Mach-O dependency parsing excludes every architecture header", () => {
+  const output = [
+    "/tmp/App (architecture x86_64):",
+    "\t@rpath/Capacitor.framework/Capacitor (compatibility version 1.0.0)",
+    "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)",
+    "/tmp/App (architecture arm64):",
+    "\t@rpath/Capacitor.framework/Capacitor (compatibility version 1.0.0)",
+    "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseOtoolLibraries(output), [
+    "@rpath/Capacitor.framework/Capacitor",
+    "/usr/lib/libSystem.B.dylib",
+    "@rpath/Capacitor.framework/Capacitor",
+    "/usr/lib/libSystem.B.dylib",
+  ]);
+  assert.throws(() => parseOtoolLibraries("/tmp/App:\nnot-indented\n"), /unexpected otool output/u);
+});
 
 function verifySourceInternal(root: string) {
   return verifySourceCore(root, { parsePlist: parsePlistFile });

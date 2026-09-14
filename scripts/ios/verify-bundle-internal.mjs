@@ -74,11 +74,11 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "aff486ad0a63f748f1decad863e81655ddde78bb880705a1760a471140ab1a43"],
+  ["index.html", "20f4d1c53d5cebf67568b8831970a88a0d84e331f27ae6bb2c8e9d511247d3b5"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "f04dd1d4142947f28586c3af5c94d989e397501cf8c88e484338f3088fd1b930"],
-  ["shell.css", "2d0cf30c977337f6288f7ff2d3fce513175399a7fcf47e1063b162fe933a5c84"],
+  ["room-runtime.js", "7aeddf23682ff6d5ee3488eadbe96094adf08ba2e182ed4a17bd38687e8598e1"],
+  ["shell.css", "a2df79eb677b1da5f00458a47cd55d8cedcfa52852171128409094eeba73b015"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
@@ -101,6 +101,23 @@ function fail(message) {
 
 function requireCondition(condition, message) {
   if (!condition) fail(message);
+}
+
+export function parseOtoolLibraries(output) {
+  requireCondition(typeof output === "string", "otool output is not text");
+  const libraries = [];
+  let headers = 0;
+  for (const line of output.split("\n")) {
+    if (line.trim().length === 0) continue;
+    if (/^\S.*:\s*$/u.test(line)) {
+      headers += 1;
+      continue;
+    }
+    requireCondition(/^\s+\S/u.test(line), `unexpected otool output: ${line}`);
+    libraries.push(line.trim().split(/\s+/u)[0]);
+  }
+  requireCondition(headers > 0 && libraries.length > 0, "otool returned no architecture headers or linked libraries");
+  return libraries;
 }
 
 function portable(root, path) {
@@ -374,17 +391,18 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   const project = readText(join(sourceRoot, "ios/App/App.xcodeproj/project.pbxproj"), sourceRoot);
   requireCondition((project.match(/PRODUCT_BUNDLE_IDENTIFIER = net\.greenroomai\.GreenRoom;/gu) ?? []).length === 2, "Xcode target bundle identifier must be exact in Debug and Release");
   const deploymentValues = [...project.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([^;]+);/gu)].map((match) => match[1]);
-  requireCondition(deploymentValues.length === 4 && deploymentValues.every((value) => value === MINIMUM_IOS), "every Xcode deployment target must be exactly 18.6");
+  requireCondition(deploymentValues.length === 6 && deploymentValues.every((value) => value === MINIMUM_IOS), "every Xcode deployment target must be exactly 18.6");
   const familyValues = [...project.matchAll(/TARGETED_DEVICE_FAMILY = ([^;]+);/gu)].map((match) => match[1]);
-  requireCondition(familyValues.length === 2 && familyValues.every((value) => value === "1"), "Xcode target must be iPhone-only");
-  requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 2 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 2, "Swift 6 strict concurrency must be enabled");
-  requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 2, "development team must be exact");
+  requireCondition(familyValues.length === 4 && familyValues.every((value) => value === "1"), "Xcode targets must be iPhone-only");
+  requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 4 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 4, "Swift 6 strict concurrency must be enabled");
+  requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 4, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
   requireCondition((project.match(/CURRENT_PROJECT_VERSION = 2;/gu) ?? []).length === 2, "project build number must be 2 in Debug and Release");
   requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
+  requireCondition(/productType = "com\.apple\.product-type\.bundle\.ui-testing";/u.test(project) && /TEST_TARGET_NAME = App;/u.test(project), "Xcode accessibility UI-test target is missing or detached from App");
   const projectFrameworkNames = [...project.matchAll(/\b([A-Z][A-Za-z0-9_.-]+\.framework)\b/gu)].map((match) => match[1]);
   requireCondition(projectFrameworkNames.length === 7 && projectFrameworkNames.every((name) => name === "Security.framework"), "Xcode project framework references must be system Security.framework only");
   requireCondition(/path = System\/Library\/Frameworks\/Security\.framework; sourceTree = SDKROOT;/u.test(project), "Security.framework must resolve only from the iOS SDK");
@@ -399,7 +417,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((sourcesPhase.match(/A1600000000000000000000B \/\* GreenRoomProviderPlugin\.swift in Sources \*\//gu) ?? []).length === 1, "GreenRoomProviderPlugin.swift must occur exactly once in the Xcode Sources build phase");
   requireCondition((sourcesPhase.match(/A1600000000000000000000C \/\* NativeLifecycleCoordinator\.swift in Sources \*\//gu) ?? []).length === 1, "NativeLifecycleCoordinator.swift must occur exactly once in the Xcode Sources build phase");
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "GreenRoomProviderPlugin.swift", "NativeLifecycleCoordinator.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AccessibilityTests.swift", "AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "GreenRoomProviderPlugin.swift", "NativeLifecycleCoordinator.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
 
   const acceptance = readText(join(sourceRoot, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), sourceRoot);
   requireCondition(acceptance.startsWith("#if DEBUG\n") && acceptance.trimEnd().endsWith("#endif"), "device credential acceptance source must be wholly Debug-only");
@@ -535,11 +553,11 @@ export function verifyBuiltAppCore(appPath) {
     requireCondition(!DYNAMIC_UPDATE_PATTERN.test(text), `dynamic-update marker found in built resource: ${relativePath}`);
   }
 
-  const libraries = execFileSync("/usr/bin/otool", ["-L", executable], {
+  const libraries = parseOtoolLibraries(execFileSync("/usr/bin/otool", ["-L", executable], {
     encoding: "utf8",
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
     maxBuffer: 2 * 1024 * 1024,
-  }).split("\n").slice(1).map((line) => line.trim().split(/\s+/u)[0]).filter(Boolean);
+  }));
   for (const library of libraries) {
     requireCondition(library.startsWith("/System/Library/") || library.startsWith("/usr/lib/") || library === "@rpath/Capacitor.framework/Capacitor" || library === "@rpath/Cordova.framework/Cordova", `undeclared linked library: ${library}`);
   }

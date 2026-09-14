@@ -36,6 +36,7 @@
     "ios:sync": "node scripts/ios/sync.mjs",
     "ios:build": "npm run ios:sync && node scripts/ios/prepare-capacitor-runtime.mjs && node scripts/ios/build-simulator.mjs",
     "ios:test": "npm run build --silent && node scripts/ios/run-ios-test.mjs",
+    "ios:test-accessibility": "node scripts/ios/run-accessibility-ui-tests.mjs",
     "ios:verify-bundle": "node scripts/ios/verify-bundle.mjs --source && node scripts/ios/verify-bundle.mjs --app .build/ios/Build/Products/Debug-iphonesimulator/App.app",
     "ios:archive-controlled": "node scripts/ios/archive-controlled.mjs",
     "ios:export-controlled": "node scripts/ios/export-controlled.mjs",
