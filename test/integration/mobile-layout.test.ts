@@ -392,6 +392,23 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       await waitFor(() => !document.getElementById("room-view").hidden);
       const pickerFocus = await focus("new-room");
       const runtime = await import("/ios/room-runtime.js");
+      const abandonDialog = document.getElementById("abandon-dialog");
+      const removeDialog = document.getElementById("remove-credential-dialog");
+      const dialogsInitiallyHidden = [abandonDialog, removeDialog].every((dialog) => dialog.hidden && dialog.getClientRects().length === 0);
+      const abandonController = runtime.modalController("abandon-dialog", "cancel-abandon", "confirm-abandon", document);
+      document.getElementById("new-room").focus();
+      abandonController.open(document.getElementById("new-room"));
+      const abandonInitialFocus = document.activeElement?.id;
+      document.getElementById("cancel-abandon").dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
+      const abandonWrappedFocus = document.activeElement?.id;
+      abandonDialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const abandonReturnFocus = await focus("new-room");
+      const removalController = runtime.modalController("remove-credential-dialog", "cancel-credential-removal", "confirm-credential-removal", document);
+      removalController.open(document.getElementById("provider-button"));
+      const removalInitialFocus = document.activeElement?.id;
+      document.getElementById("cancel-credential-removal").click();
+      const removalReturnFocus = await focus("provider-button");
+      globalThis.__greenroomModalGeometry = { removalController };
       const room = globalThis.__greenroomAccessibilityFixture.room;
       const first = { sequence: 1, event: { participantId: "human", text: "First incremental line", type: "human_message" } };
       const second = { sequence: 2, event: { participantId: "human", text: "Second incremental line", type: "human_message" } };
@@ -402,7 +419,7 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       runtime.renderEvents([first, second], document, room);
       const secondAnnouncement = document.getElementById("transcript-announcer").textContent;
       const hiddenCommands = ["retry-reply", "abandon-reply"].map((id) => { const element = document.getElementById(id); return { id, hidden: element.hidden, disabled: element.disabled, clientRects: element.getClientRects().length }; });
-      return { stableLabel, selectedLabel, selectedState, roomsFocus, providerFocus, privacyFocus, pickerFocus, consentInitiallyChecked, consentAfterModelEdit, disclosure, firstAnnouncement, repeatedAnnouncement, secondAnnouncement, hiddenCommands };
+      return { stableLabel, selectedLabel, selectedState, roomsFocus, providerFocus, privacyFocus, pickerFocus, consentInitiallyChecked, consentAfterModelEdit, disclosure, firstAnnouncement, repeatedAnnouncement, secondAnnouncement, hiddenCommands, dialogsInitiallyHidden, abandonInitialFocus, abandonWrappedFocus, abandonReturnFocus, removalInitialFocus, removalReturnFocus };
     })()`,
     awaitPromise: true,
     returnByValue: true,
@@ -417,6 +434,12 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
   assert.match(behavior.result.value.firstAnnouncement, /First incremental line/u);
   assert.equal(behavior.result.value.repeatedAnnouncement, "");
   assert.match(behavior.result.value.secondAnnouncement, /Second incremental line/u);
+  assert.equal(behavior.result.value.dialogsInitiallyHidden, true);
+  assert.deepEqual([
+    behavior.result.value.abandonInitialFocus, behavior.result.value.abandonWrappedFocus,
+    behavior.result.value.abandonReturnFocus, behavior.result.value.removalInitialFocus,
+    behavior.result.value.removalReturnFocus,
+  ], ["cancel-abandon", "confirm-abandon", "new-room", "cancel-credential-removal", "provider-button"]);
   assert.deepEqual(behavior.result.value.hiddenCommands, [
     { id: "retry-reply", hidden: true, disabled: true, clientRects: 0 },
     { id: "abandon-reply", hidden: true, disabled: true, clientRects: 0 },
@@ -452,6 +475,20 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
         assert.ok(rectangle.left >= 0 && rectangle.right <= width, `${id} clips horizontally at ${label}`);
         assert.ok(rectangle.width >= 44 && rectangle.height >= 44, `${id} is undersized at ${label}`);
         assert.equal(rectangle.hit, true, `${id} is obstructed or unreachable at ${label}`);
+      }
+      const dialogGeometry = await send("Runtime.evaluate", {
+        expression: `(() => {
+          const controller = globalThis.__greenroomModalGeometry.removalController;
+          controller.open(document.getElementById("provider-button"));
+          const result = ["cancel-credential-removal", "confirm-credential-removal"].map((id) => { const rect = document.getElementById(id).getBoundingClientRect(); return { id, width: rect.width, height: rect.height, left: rect.left, right: rect.right }; });
+          document.getElementById("cancel-credential-removal").click();
+          return result;
+        })()`,
+        returnByValue: true,
+      }) as { result: { value: Array<{ id: string; width: number; height: number; left: number; right: number }> } };
+      for (const rectangle of dialogGeometry.result.value) {
+        assert.ok(rectangle.width >= 44 && rectangle.height >= 44, `${rectangle.id} is undersized at ${label}`);
+        assert.ok(rectangle.left >= 0 && rectangle.right <= width, `${rectangle.id} clips at ${label}`);
       }
     }
   }

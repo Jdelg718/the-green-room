@@ -55,7 +55,7 @@ async function runtime(cacheKey = ""): Promise<{
   providerSetupFailureMessage(failure: unknown): string;
   generationFailurePresentation(failure: unknown): { message: string; retryable: boolean };
   NativeBridgeError: new(code: string, retryable: boolean) => Error & { code: string; retryable: boolean };
-  showProviderSetup(plugin: object, uuid?: () => string): Promise<void>;
+  showProviderSetup(plugin: object, uuid?: () => string, trigger?: object, credential?: object): Promise<void>;
   listLocalRooms(database: object, uuid?: () => string): Promise<Record<string, any>[]>;
   reopenLocalRoom(database: object, roomId: string, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
 }> {
@@ -488,6 +488,8 @@ test("external TestFlight accessibility contract has named controls, one-shot tr
   for (const id of [
     "rooms-button", "provider-button", "privacy-button", "message-target", "message-text", "send-line", "new-room",
     "cancel-picker", "create-room", "rooms-cancel", "rooms-new", "provider-cancel", "provider-save", "provider-consent", "privacy-back",
+    "retry-draft-save", "retry-room-reopen", "remove-credential", "retry-credential-removal", "cancel-abandon", "confirm-abandon",
+    "cancel-credential-removal", "confirm-credential-removal", "retry-boot",
   ]) assert.match(html, new RegExp(`id="${id}"[^>]*(?:aria-label|aria-labelledby)`, "u"), `${id} has no stable accessible name`);
 
   assert.match(css, /\.header-button \{[^}]*min-height: 2\.75rem/u);
@@ -501,7 +503,7 @@ test("external TestFlight accessibility contract has named controls, one-shot tr
   assert.match(source, /room-title"\)\.focus\(\)/u);
   assert.match(source, /eventAnnouncement/u);
   assert.match(source, /retry\.hidden = !retryVisible;\s*retry\.disabled = !retryVisible;[\s\S]*retry\.setAttribute\("aria-hidden", "true"\)/u);
-  assert.match(source, /abandon\.hidden = !abandonVisible;\s*abandon\.disabled = !abandonVisible;[\s\S]*abandon\.setAttribute\("aria-hidden", "true"\)/u);
+  assert.match(source, /abandon\.hidden = !abandonVisible;\s*abandon\.disabled = !abandonVisible \|\| abandonLatch\.active\(\);[\s\S]*abandon\.setAttribute\("aria-hidden", "true"\)/u);
 });
 
 test("transcript rendering announces only a newly appended event once", async () => {
@@ -575,7 +577,7 @@ test("provider UX maps required failures to distinct actionable sanitized messag
   ], [
     { message: "Set up a provider to generate replies.", retryable: false },
     { message: "You’re offline. Reconnect, then retry the reply.", retryable: true },
-    { message: "The provider rejected the request. Check the credential and model in Provider settings.", retryable: false },
+    { message: "The provider rejected the credential or model. Check both in Provider settings.", retryable: false },
     { message: "The provider took too long to reply. Retry when ready.", retryable: true },
     { message: "The provider could not be reached. Check your connection, then retry.", retryable: true },
   ]);
@@ -614,6 +616,41 @@ test("fresh provider setup recommends editable OpenAI gpt-4.1-mini while saved c
   await api.showProviderSetup(database, uuids());
   assert.equal(get("provider-id").value, "groq");
   assert.equal(get("provider-model").value, "custom-model-v3");
+});
+
+test("provider screen exposes a dynamic destructive removal action only after native ready status", async () => {
+  const api = await runtime(`provider-removal-ready-${Date.now()}`);
+  const database = new MemoryPlugin();
+  database.providerSelection = {
+    providerId: "openai", profileId: "iphone.openai", profileRevision: 3, model: "gpt-test",
+  };
+  database.providerConsent = {
+    providerId: "openai", providerDefinitionVersion: 1, model: "gpt-test", disclosureVersion: 1,
+    acceptedAt: "2026-09-14 12:00:00",
+  };
+  database.profiles.set("iphone.openai", {
+    providerId: "openai", profileId: "iphone.openai", profileRevision: 3,
+    mutationId: "73000000-0000-4000-8000-000000000003", state: "ready", tombstoned: false,
+  });
+  const { get } = fakeRoomDocument();
+  get("remove-credential").hidden = true;
+  get("remove-credential").setAttribute("aria-hidden", "true");
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async status(call: NativeEnvelope) {
+    credentialCalls.push(call);
+    return success(call, { state: "ready" });
+  } };
+  await api.showProviderSetup(database, uuids(), undefined, credential);
+  assert.equal(get("remove-credential").hidden, false);
+  assert.equal(get("remove-credential").textContent, "Remove OpenAI credential…");
+  assert.equal(get("remove-credential").attributes.get("aria-label"), "Remove OpenAI credential");
+  assert.equal(get("retry-credential-removal").hidden, true);
+  assert.equal(credentialCalls.length, 1);
+  assert.equal(credentialCalls[0]!.method, "credential.status");
+  assert.deepEqual(credentialCalls[0]!.payload, {
+    profileId: "iphone.openai", profileRevision: 3, providerId: "openai",
+    credentialRef: "credential:iphone.openai:3",
+  });
 });
 
 test("provider setup enforces the closed model ID contract before persistence", async () => {

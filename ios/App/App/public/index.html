@@ -20,7 +20,10 @@
   </header>
 
   <main>
-    <p id="boot-error" class="error" role="alert" hidden>The app-private room database could not be opened.</p>
+    <div id="boot-recovery" class="error recovery" role="alert" hidden>
+      <p id="boot-error">Rooms are temporarily unavailable. Retry opening your protected local data.</p>
+      <button id="retry-boot" class="button button-paper" type="button" aria-label="Retry opening local data">Retry</button>
+    </div>
 
     <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
       <div class="eyebrow">Room open · local authority</div>
@@ -50,6 +53,7 @@
         <button id="abandon-reply" class="button button-paper" type="button" aria-label="Abandon exact command" aria-hidden="true" disabled hidden>Abandon</button>
         <p class="boundary">Draft status: <strong>Not sent</strong>. Interrupted requests are never retried automatically. Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.</p>
         <p id="message-status" class="message-status" role="status" aria-live="polite">Ready. Lines and replies save locally.</p>
+        <button id="retry-draft-save" class="button button-paper" type="button" aria-label="Retry saving draft" aria-hidden="true" disabled hidden>Retry draft save</button>
       </form>
       <div class="room-actions">
         <button id="new-room" class="button" type="button" aria-label="Create another room">Create another room</button>
@@ -82,6 +86,7 @@
         <button id="rooms-new" class="button" type="button" aria-label="Create a new room">New room</button>
       </div>
       <p id="rooms-status" class="picker-status" role="status" aria-live="polite"></p>
+      <button id="retry-room-reopen" class="button button-paper" type="button" aria-label="Retry opening selected room" aria-hidden="true" disabled hidden>Retry opening room</button>
       <div id="room-list" class="room-list"></div>
     </section>
 
@@ -107,6 +112,8 @@
         <div class="setup-actions">
           <button id="provider-cancel" class="button button-paper" type="button" aria-label="Close provider settings" aria-hidden="true">Cancel</button>
           <button id="provider-save" class="button" type="submit" aria-label="Save provider credential">Save credential</button>
+          <button id="remove-credential" class="button button-destructive" type="button" aria-label="Remove provider credential" aria-hidden="true" disabled hidden>Remove credential…</button>
+          <button id="retry-credential-removal" class="button button-destructive" type="button" aria-label="Retry credential removal" aria-hidden="true" disabled hidden>Retry removal</button>
         </div>
         <p id="provider-status" class="picker-status" role="status" aria-live="polite"></p>
       </form>
@@ -123,6 +130,28 @@
         <section><h2>What a provider receives</h2><p>When you request a reply, Green Room sends the prompt, recent room messages, selected character instructions, model ID, and generation settings directly over HTTPS to the selected fixed provider host. You cannot enter an arbitrary provider URL. The provider may retain content under its own terms.</p></section>
         <section><h2>No Green Room service in the path</h2><p>There is no Green Room account, analytics collector, model proxy, transcript service, or relay. Green Room project infrastructure receives none of your credentials, rooms, prompts, or replies.</p></section>
         <section><h2>Removal limits</h2><p>Removing a credential stops future requests with that credential; it does not delete local rooms or content a provider may have retained. An iOS Keychain item may survive uninstall, so uninstall is not guaranteed to erase a credential. A later fresh install removes an orphaned item after its first successful protected database open.</p></section>
+      </div>
+    </section>
+
+    <section id="abandon-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="abandon-dialog-title" aria-describedby="abandon-dialog-copy" hidden>
+      <div class="modal-card">
+        <h2 id="abandon-dialog-title">Abandon exact command?</h2>
+        <p id="abandon-dialog-copy">Nothing will be added to the room. Your unsent draft stays available.</p>
+        <div class="setup-actions">
+          <button id="cancel-abandon" class="button button-paper" type="button" aria-label="Cancel abandoning exact command">Cancel</button>
+          <button id="confirm-abandon" class="button button-destructive" type="button" aria-label="Confirm abandon exact command">Abandon command</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="remove-credential-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="remove-credential-title" aria-describedby="remove-credential-copy" hidden>
+      <div class="modal-card">
+        <h2 id="remove-credential-title">Remove provider credential?</h2>
+        <p id="remove-credential-copy">Removal disables new provider requests and deletes the current Keychain item. It does not delete local rooms or content the provider may have retained.</p>
+        <div class="setup-actions">
+          <button id="cancel-credential-removal" class="button button-paper" type="button" aria-label="Cancel credential removal">Cancel</button>
+          <button id="confirm-credential-removal" class="button button-destructive" type="button" aria-label="Confirm credential removal">Remove credential</button>
+        </div>
       </div>
     </section>
   </main>

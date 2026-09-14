@@ -84,12 +84,12 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "3e6cb72ec800edd8ff253adf3bd4a15c5a9cbf851522c82ab94c7ee59021fcbe"],
+  ["index.html", "56f70cc3d3ae012a59fbbffefa8dc8013d4f5f5151860121c17f9ee883deeb64"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
   ["provider-data-use.js", "094be80e9d92c72ef1a426f30fbf230e120979bddde7577e1a1aa9f6d167f813"],
-  ["room-runtime.js", "47507671bfad7e05da7ad27db7ce53bff979c9a5e0541e6799854894f3ffebfd"],
-  ["shell.css", "73de71c3e80f8e64744c46b4bc43f875399ed406e5567edaaf015a16278b5c2f"],
+  ["room-runtime.js", "560e1b687f410851cfd6752450cc66dd8a0a0044554675b7d4d9a84a4e791013"],
+  ["shell.css", "18cb48b2b3f70fa56ffd6812f02b6f7b578d710bc2f6ba16a12dc1d2197577d2"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
@@ -105,7 +105,7 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
-  ["ios/AppUITests/AccessibilityTests.swift", "b18ff0277e53fc33906ffc94fd3d740582c2b03e2d84e1c721b9cd97cf650e64"],
+  ["ios/AppUITests/AccessibilityTests.swift", "080b86a36085227c47f89e42b68701ad59a235e4b1e3f4cec460d912a4c50f94"],
   ["ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme", "fc07cfc26e150c00105eb4abba2d1e905e72b9445df8bba4171181d4afff0731"],
   ["scripts/ios/run-accessibility-ui-tests.mjs", "1648737da48de007ccdb4c2bc3f83693feb0e7a762b3726d8cfaf8379b41b01d"],
 ]);

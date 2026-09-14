@@ -84,7 +84,7 @@ test("credential implementation exposes native save but no browser secret entry 
   assert.doesNotMatch(nativeSource, /CAPPluginMethod\(name:\s*"(?:get|read|export)"/u);
   assert.match(webSources, /GreenRoomCredential/u);
   assert.match(webSources, /credential\.presentSaveSheet/u);
-  assert.doesNotMatch(webSources, /type=["']password["']|(?:id|name)=["'][^"']*(?:api[-_]?key|secret|credential)[^"']*["']|credential\.(?:get|read|export)/iu);
+  assert.doesNotMatch(webSources, /type=["']password["']|<input[^>]*(?:id|name)=["'][^"']*(?:api[-_]?key|secret|credential)[^"']*["']|credential\.(?:get|read|export)/iu);
 });
 
 test("Objective-C save-sheet bridge entry is nonisolated and hops explicitly to a private MainActor implementation", () => {

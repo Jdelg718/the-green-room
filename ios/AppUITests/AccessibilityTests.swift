@@ -32,7 +32,7 @@ final class AccessibilityTests: XCTestCase {
         let pickerTitle = app.staticTexts["CHOOSE THE CONVERSATION"]
         XCTAssertTrue(pickerTitle.waitForExistence(timeout: 15), "fresh app should open the character picker")
         try app.performAccessibilityAudit(for: .all.subtracting(.hitRegion))
-        assertAbsent(["Cancel character picker", "Retry exact command", "Abandon exact command", "Close saved rooms", "Close provider settings", "Back from Privacy and Data Use"], in: app)
+        assertAbsent(hiddenRecoveryControls, in: app)
 
         let adaName = Self.personaLabels[0]
         let ada = app.switches[adaName]
@@ -209,11 +209,11 @@ final class AccessibilityTests: XCTestCase {
             let frame = control.frame
             if app.frame.contains(frame) { break }
             if let scrollTowardTop {
-                if scrollTowardTop { app.swipeDown() } else { app.swipeUp() }
+                if scrollTowardTop { app.swipeDown(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
             } else if frame.midY >= app.frame.midY {
-                app.swipeUp()
+                app.swipeUp(velocity: .slow)
             } else {
-                app.swipeDown()
+                app.swipeDown(velocity: .slow)
             }
         }
         XCTAssertTrue(app.frame.intersects(control.frame) && app.frame.contains(control.frame), "\(name) is clipped or offscreen", file: file, line: line)
@@ -235,5 +235,15 @@ final class AccessibilityTests: XCTestCase {
         for name in names {
             XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).count, 0, "hidden \(name) must be absent from the accessibility tree", file: file, line: line)
         }
+    }
+
+    private var hiddenRecoveryControls: [String] {
+        [
+            "Cancel character picker", "Retry exact command", "Abandon exact command", "Close saved rooms",
+            "Close provider settings", "Back from Privacy and Data Use", "Retry saving draft",
+            "Retry opening selected room", "Remove provider credential", "Retry credential removal",
+            "Cancel abandoning exact command", "Confirm abandon exact command",
+            "Cancel credential removal", "Confirm credential removal", "Retry opening local data",
+        ]
     }
 }

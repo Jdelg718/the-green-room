@@ -106,6 +106,8 @@ The plugin clears the native field and mutable buffers where the platform permit
 
 The Keychain item is a generic password with a service scoped to the bundle identifier, non-synchronizing, non-migrating, and `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. The native sheet creates an item only for the verified pending immutable profile revision. Disable or deletion appends the SQLite tombstone first, preventing new request-plan creation and provider calls, then changes the item to `delete_pending` and deletes it idempotently; launch-time reconciliation removes orphan/delete-pending items and never re-enables a tombstoned profile. A failed save never commits an enabled profile, and a failed post-tombstone deletion stays visibly pending for retry without restoring provider use.
 
+The web UI derives the canonical reference from the current profile identity, reuses that profile's exact mutation ID for every delete retry, and sends only the existing `credential.delete` envelope. It follows every successful delete response with `credential.status` and displays “removed” only for an exact `missing` readback. `credential_write_failed` is presented as incomplete Keychain cleanup rather than success; the retry retains the same mutation ID and native launch reconciliation remains authoritative.
+
 Keychain items can persist after uninstall according to iOS behavior. The app does
 not promise uninstall-time erasure: delete in-app for immediate cleanup. If an item
 survives uninstall, a later fresh installation deletes it as an orphan during the
