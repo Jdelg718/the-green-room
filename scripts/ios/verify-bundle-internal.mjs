@@ -614,7 +614,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 4 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 4, "Swift 6 strict concurrency must be enabled");
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 4, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
-  requireCondition((project.match(/CURRENT_PROJECT_VERSION = 2;/gu) ?? []).length === 2, "project build number must be 2 in Debug and Release");
+  requireCondition((project.match(/CURRENT_PROJECT_VERSION = 3;/gu) ?? []).length === 2, "project build number must be 3 in Debug and Release");
   requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
@@ -732,7 +732,7 @@ export function verifyBuiltAppCore(appPath) {
   const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID, "built CFBundleIdentifier is not exact");
   requireCondition(info.CFBundleDisplayName === APP_NAME, "built display name is not exact");
-  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "2", "built version/build identity is not exactly 0.1.0 (2)");
+  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "3", "built version/build identity is not exactly 0.1.0 (3)");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "built export encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === "development" || /^[0-9a-f]{40}$/u.test(info.GreenRoomSourceCommit), "built source commit must be development or an exact lowercase Git commit");
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS, "built MinimumOSVersion is not exactly 18.6");
