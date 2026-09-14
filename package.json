@@ -41,6 +41,7 @@
     "ios:archive-controlled": "node scripts/ios/archive-controlled.mjs",
     "ios:export-controlled": "node scripts/ios/export-controlled.mjs",
     "ios:audit-archive": "node scripts/ios/audit-archive.mjs",
+    "ios:verify-external-candidate-policy": "node scripts/ios/verify-external-candidate-policy.mjs",
     "ios:simulator-offline": "node scripts/ios/run-simulator-offline.mjs",
     "ios:simulator-director": "node scripts/ios/run-simulator-director.mjs",
     "ios:device-smoke": "node scripts/ios/device-smoke.mjs",

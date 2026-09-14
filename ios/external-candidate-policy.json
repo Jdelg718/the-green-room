@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "kind": "greenroom-ios-external-testflight-candidate-policy",
+  "state": "reviewed-no-upload-identity-frozen",
+  "baseline": {
+    "protectedMainCommit": "476c513e55d17eba262370308514d2b3971ed3ef",
+    "protectedMainTree": "709910f12b1b8e2290ee9fe60f2cb8f2feecaeef"
+  },
+  "identity": {
+    "appStoreConnectAppId": "6809792258",
+    "bundleIdentifier": "net.greenroomai.GreenRoom",
+    "teamIdentifier": "JZ233HBW3Z",
+    "marketingVersion": "0.1.0",
+    "proposedBuildNumber": "3",
+    "committedXcodeBuildNumber": "3",
+    "minimumOS": "18.6",
+    "deviceFamily": [1],
+    "activation": "identity-frozen-no-archive-sign-upload"
+  },
+  "sourceBinding": {
+    "manifestKind": "greenroom-ios-external-candidate-source-manifest",
+    "requireCleanExactCommit": true,
+    "requireExactGitTree": true,
+    "requireProtectedMainAncestor": true,
+    "inventoryRoots": [
+      "ios/App/App/public",
+      "ios/App/App/Assets.xcassets",
+      "ios/App/App/Resources/Migrations"
+    ],
+    "requiredFiles": [
+      "ios/App/App/PrivacyInfo.xcprivacy",
+      "ios/App/App/App.entitlements",
+      "ios/App/App/Info.plist",
+      "ios/App/App.xcodeproj/project.pbxproj",
+      "ios/ExternalCandidateExportOptions.plist",
+      "ios/external-candidate-policy.json",
+      "docs/release/iphone-external-testflight-metadata.json",
+      "docs/release/iphone-privacy-data-flow.md",
+      "docs/release/iphone-external-testflight-candidate.md",
+      "scripts/ios/verify-external-candidate-policy.mjs",
+      "scripts/ios/verify-external-candidate-policy.d.mts",
+      "scripts/ios/verify-bundle-internal.mjs",
+      "test/contract/ios-external-candidate-policy.test.ts",
+      "package.json"
+    ]
+  },
+  "schema": {
+    "version": 8,
+    "manifestPath": "ios/App/App/Resources/Migrations/manifest.json"
+  },
+  "privacy": {
+    "manifestPath": "ios/App/App/PrivacyInfo.xcprivacy",
+    "dataFlowPath": "docs/release/iphone-privacy-data-flow.md",
+    "collectedDataType": "NSPrivacyCollectedDataTypeOtherUserContent",
+    "linkedToUser": true,
+    "tracking": false,
+    "purpose": "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+  },
+  "exportCompliance": {
+    "usesNonExemptEncryption": false,
+    "answer": "No",
+    "rationale": "Standard Apple HTTPS and Keychain cryptography only; no custom or non-exempt encryption."
+  },
+  "metadata": {
+    "path": "docs/release/iphone-external-testflight-metadata.json",
+    "supportUrl": "https://github.com/Jdelg718/the-green-room/issues",
+    "privacyUrl": "https://greenroomai.net/privacy/",
+    "privacyUrlGate": "live-verified-after-pr-198-merge-476c513e55d17eba262370308514d2b3971ed3ef-homepage-and-privacy-http-200-one-visible-link-substantive-policy"
+  },
+  "signing": {
+    "archiveAllowedNow": false,
+    "signingAllowedNow": false,
+    "uploadAllowed": false,
+    "installAllowedNow": false,
+    "deviceActionAllowedNow": false,
+    "exportOptionsPath": "ios/ExternalCandidateExportOptions.plist",
+    "expectedCertificateClass": "Apple Distribution",
+    "expectedProvisioningProfile": "Green Room App Store Connect 0.1.0 Build 1",
+    "expectedEntitlements": {
+      "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom",
+      "beta-reports-active": true,
+      "com.apple.developer.team-identifier": "JZ233HBW3Z",
+      "get-task-allow": false,
+      "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"]
+    }
+  },
+  "artifact": {
+    "mode": "manifest-only-no-archive-no-sign-no-upload",
+    "forbiddenPathFragments": [
+      ".mobileprovision",
+      ".p12",
+      ".cer",
+      ".xcarchive",
+      ".ipa",
+      "xcuserdata",
+      "transcript",
+      "raw-log",
+      ".log",
+      "fixtures",
+      "Debug-iphonesimulator"
+    ],
+    "forbiddenSecretPatterns": [
+      "-----BEGIN PRIVATE KEY-----",
+      "sk-or-v1-",
+      "sk-proj-",
+      "xai-",
+      "gsk_",
+      "rk-",
+      "pk-",
+      "gh-token",
+      "aws-access-key",
+      "jwt",
+      "credential-assignment"
+    ],
+    "futureArchiveInventory": "exact recursive regular-file paths, sizes, modes, and SHA-256 hashes; reject symlinks and special files",
+    "futureExportInventory": "exact IPA plus bounded policy evidence and Apple distribution summary; delete and exclude diagnostic logs"
+  },
+  "physicalAcceptance": {
+    "status": "required-not-run-for-build-3",
+    "requiredEvidence": [
+      "manual assistive-technology and supported-iPhone acceptance",
+      "exact installed version/build/source readback",
+      "clean install and update retention",
+      "Keychain continuity and credential removal",
+      "direct fixed-provider request with consent",
+      "offline existing-room behavior",
+      "force-quit and exact-command recovery",
+      "secret-free app-container scan"
+    ]
+  },
+  "preservedInternalCandidate": {
+    "version": "0.1.0",
+    "build": "2",
+    "sourceCommit": "2918846bb7b652d2b01626ab8587c134dd4bd2e0",
+    "policyPath": "ios/ExportOptions.plist",
+    "checklistPath": "docs/release/iphone-testflight-checklist.md",
+    "handoffPath": "docs/handoffs/2026-09-13-internal-testflight-build-2.md",
+    "mustRemainInternalOnly": true
+  }
+}
