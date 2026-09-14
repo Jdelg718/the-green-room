@@ -137,28 +137,34 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
     if (request.url === "/styles.css") {
       response.writeHead(200, { "Content-Type": "text/css" });
       response.end(stylesheet);
-    } else if (request.url === "/ios/mock-capacitor.js") {
+    } else if (request.url === "/ios/mock-capacitor.js" || request.url === "/ios/mock-capacitor-locked.js") {
       response.writeHead(200, { "Content-Type": "text/javascript" });
-      response.end(iosMock);
+      response.end(request.url.endsWith("locked.js")
+        ? iosMock.toString("utf8").replace(
+          "async open(call) { return success(call, { schema: 8 }); }",
+          "async open(call) { return { callId: call.callId, ok: false, error: { code: 'database_locked', retryable: true } }; }",
+        )
+        : iosMock);
     } else if (request.url?.startsWith("/ios/")) {
       const relativePath = request.url.slice("/ios/".length) || "index.html";
-      const allowed = new Set(["index.html", "shell.css", "room-runtime.js", "director.js", "personas.js", "portraits.js"]);
+      const allowed = new Set(["index.html", "locked.html", "shell.css", "room-runtime.js", "director.js", "personas.js", "portraits.js", "provider-data-use.js"]);
       if (!allowed.has(relativePath)) {
         response.writeHead(404).end();
         return;
       }
       const contentType = relativePath.endsWith(".css") ? "text/css" : relativePath.endsWith(".html") ? "text/html" : "text/javascript";
-      let bytes = readFileSync(join(iosRoot, relativePath));
-      if (relativePath === "room-runtime.js") {
+      const assetPath = relativePath === "locked.html" ? "index.html" : relativePath;
+      let bytes = readFileSync(join(iosRoot, assetPath));
+      if (assetPath === "room-runtime.js") {
         bytes = Buffer.from(bytes.toString("utf8").replace(
           "  } catch {\n    document.getElementById(\"boot-error\").hidden = false;\n    document.documentElement.dataset.localRoomBoot = \"failed\";\n  }\n}\n\nif (typeof document",
           "  } catch (error) {\n    globalThis.__greenroomBootError = String(error?.stack ?? error);\n    document.getElementById(\"boot-error\").hidden = false;\n    document.documentElement.dataset.localRoomBoot = \"failed\";\n  }\n}\n\nif (typeof document",
         ));
       }
-      if (relativePath === "index.html") {
+      if (assetPath === "index.html") {
         bytes = Buffer.from(bytes.toString("utf8").replace(
           '<script type="module" src="room-runtime.js"></script>',
-          '<script src="mock-capacitor.js"></script><script type="module" src="room-runtime.js"></script>',
+          `<script src="${relativePath === "locked.html" ? "mock-capacitor-locked.js" : "mock-capacitor.js"}"></script><script type="module" src="room-runtime.js"></script>`,
         ));
       }
       response.writeHead(200, { "Content-Type": contentType });
@@ -362,9 +368,23 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       document.getElementById("provider-button").focus();
       document.getElementById("provider-button").click();
       await waitFor(() => !document.getElementById("provider-view").hidden);
+      const consent = document.getElementById("provider-consent");
+      const consentInitiallyChecked = consent.checked;
+      consent.click();
+      document.getElementById("provider-model").value = "changed-model";
+      document.getElementById("provider-model").dispatchEvent(new InputEvent("input", { bubbles: true }));
+      const consentAfterModelEdit = consent.checked;
+      const disclosure = document.getElementById("provider-disclosure").textContent;
       document.getElementById("provider-cancel").click();
       await waitFor(() => !document.getElementById("room-view").hidden);
       const providerFocus = await focus("provider-button");
+      document.getElementById("privacy-button").focus();
+      document.getElementById("privacy-button").click();
+      await waitFor(() => !document.getElementById("privacy-view").hidden);
+      document.getElementById("privacy-button").click();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await waitFor(() => !document.getElementById("room-view").hidden);
+      const privacyFocus = await focus("privacy-button");
       document.getElementById("new-room").focus();
       document.getElementById("new-room").click();
       await waitFor(() => !document.getElementById("picker-view").hidden);
@@ -382,7 +402,7 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       runtime.renderEvents([first, second], document, room);
       const secondAnnouncement = document.getElementById("transcript-announcer").textContent;
       const hiddenCommands = ["retry-reply", "abandon-reply"].map((id) => { const element = document.getElementById(id); return { id, hidden: element.hidden, disabled: element.disabled, clientRects: element.getClientRects().length }; });
-      return { stableLabel, selectedLabel, selectedState, roomsFocus, providerFocus, pickerFocus, firstAnnouncement, repeatedAnnouncement, secondAnnouncement, hiddenCommands };
+      return { stableLabel, selectedLabel, selectedState, roomsFocus, providerFocus, privacyFocus, pickerFocus, consentInitiallyChecked, consentAfterModelEdit, disclosure, firstAnnouncement, repeatedAnnouncement, secondAnnouncement, hiddenCommands };
     })()`,
     awaitPromise: true,
     returnByValue: true,
@@ -390,7 +410,10 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
   assert.equal(behavior.result.value.stableLabel, "Ada Lovelace, historical interpretation");
   assert.equal(behavior.result.value.selectedLabel, behavior.result.value.stableLabel);
   assert.equal(behavior.result.value.selectedState, "true");
-  assert.deepEqual([behavior.result.value.roomsFocus, behavior.result.value.providerFocus, behavior.result.value.pickerFocus], ["rooms-button", "provider-button", "new-room"]);
+  assert.deepEqual([behavior.result.value.roomsFocus, behavior.result.value.providerFocus, behavior.result.value.privacyFocus, behavior.result.value.pickerFocus], ["rooms-button", "provider-button", "privacy-button", "new-room"]);
+  assert.equal(behavior.result.value.consentInitiallyChecked, false);
+  assert.equal(behavior.result.value.consentAfterModelEdit, false);
+  assert.match(behavior.result.value.disclosure, /OpenAI.*api\.openai\.com/u);
   assert.match(behavior.result.value.firstAnnouncement, /First incremental line/u);
   assert.equal(behavior.result.value.repeatedAnnouncement, "");
   assert.match(behavior.result.value.secondAnnouncement, /Second incremental line/u);
@@ -404,7 +427,7 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
       const evaluated = await send("Runtime.evaluate", {
         expression: `(async () => {
-          const ids = ["rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room"];
+          const ids = ["rooms-button", "provider-button", "privacy-button", "message-target", "message-text", "send-line", "new-room"];
           const geometry = {};
           for (const id of ids) {
             const element = document.getElementById(id);
@@ -434,7 +457,7 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
   }
   const enumerationRegression = await send("Runtime.evaluate", {
     expression: `(async () => {
-      const expected = ["rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room"];
+      const expected = ["rooms-button", "provider-button", "privacy-button", "message-target", "message-text", "send-line", "new-room"];
       const audit = () => expected.flatMap((id) => {
         const element = document.getElementById(id);
         if (!element || element.hidden || element.getClientRects().length === 0) return [id + ":missing-or-hidden"];
@@ -459,6 +482,24 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
   assert.deepEqual(enumerationRegression.result.value.baseline, []);
   assert.deepEqual(enumerationRegression.result.value.hiddenFailure, ["new-room:missing-or-hidden"]);
   assert.deepEqual(enumerationRegression.result.value.undersizedFailure, ["send-line:undersized"]);
+
+  const lockedUrl = `${fixtureUrl}ios/locked.html`;
+  await send("Page.navigate", { url: lockedUrl });
+  let lockedReady = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const state = await send("Runtime.evaluate", {
+      expression: `location.href === ${JSON.stringify(lockedUrl)} && document.documentElement.dataset.localRoomBoot === "failed"`,
+      returnByValue: true,
+    }) as { result: { value: boolean } };
+    if (state.result.value) { lockedReady = true; break; }
+    await delay(10);
+  }
+  assert.equal(lockedReady, true, "protected-data locked fixture did not reach fail-closed boot state");
+  const lockedPrivacy = await send("Runtime.evaluate", {
+    expression: `(() => { const trigger = document.getElementById("privacy-button"); trigger.focus(); trigger.click(); const opened = !document.getElementById("privacy-view").hidden; document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return { opened, focus: document.activeElement?.id, bootError: !document.getElementById("boot-error").hidden }; })()`,
+    returnByValue: true,
+  }) as { result: { value: { opened: boolean; focus: string; bootError: boolean } } };
+  assert.deepEqual(lockedPrivacy.result.value, { opened: true, focus: "privacy-button", bootError: true });
 
   activeSocket.close();
   socket = undefined;

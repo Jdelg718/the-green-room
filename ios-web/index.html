@@ -16,6 +16,7 @@
     <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
     <button id="rooms-button" class="header-button" type="button" aria-label="Open saved rooms">Rooms</button>
     <button id="provider-button" class="header-button" type="button" aria-label="Open provider settings">Provider</button>
+    <button id="privacy-button" class="header-button" type="button" aria-label="Open Privacy and Data Use">Privacy</button>
   </header>
 
   <main>
@@ -90,16 +91,19 @@
       <p class="lede">Choose one approved provider and its exact model ID. Credential entry opens in a native Keychain sheet.</p>
       <form id="provider-form" class="setup-form">
         <label for="provider-id">Provider</label>
-        <select id="provider-id" aria-label="Provider" required>
-          <option value="openrouter">OpenRouter</option>
-          <option value="openai" selected>OpenAI (recommended)</option>
-          <option value="xai">xAI</option>
-          <option value="groq">Groq</option>
-          <option value="together">Together</option>
-        </select>
+        <select id="provider-id" aria-label="Provider" required></select>
         <label for="provider-model">Model ID</label>
         <input id="provider-model" type="text" value="gpt-4.1-mini" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Provider model ID" required>
-        <p class="setup-help">Recommended starting point: OpenAI with gpt-4.1-mini. You can edit the model ID, and any saved provider and model remain your selection.</p>
+        <p id="provider-recommendation" class="setup-help"></p>
+        <section class="provider-disclosure" aria-labelledby="provider-disclosure-title">
+          <h2 id="provider-disclosure-title">Provider data use</h2>
+          <p id="provider-disclosure"></p>
+        </section>
+        <label class="consent-control" for="provider-consent">
+          <input id="provider-consent" type="checkbox" aria-label="Consent to selected provider data use" aria-describedby="provider-disclosure provider-consent-help" aria-checked="false" required>
+          <span>I consent to this selected provider and exact model receiving the disclosed content.</span>
+        </label>
+        <p id="provider-consent-help" class="setup-help">Required. Changing the provider or model clears this box, including when you change it back.</p>
         <div class="setup-actions">
           <button id="provider-cancel" class="button button-paper" type="button" aria-label="Close provider settings" aria-hidden="true">Cancel</button>
           <button id="provider-save" class="button" type="submit" aria-label="Save provider credential">Save credential</button>
@@ -107,6 +111,19 @@
         <p id="provider-status" class="picker-status" role="status" aria-live="polite"></p>
       </form>
       <p class="boundary">Green Room never receives the credential in JavaScript or SQLite. The native provider bridge resolves it only for calls to the selected pinned provider.</p>
+    </section>
+
+    <section id="privacy-view" class="picker-view privacy-view" aria-labelledby="privacy-title" hidden>
+      <div class="eyebrow">Bundled · available offline</div>
+      <h1 id="privacy-title" tabindex="-1">Privacy &amp; Data Use</h1>
+      <button id="privacy-back" class="button button-paper" type="button" aria-label="Back from Privacy and Data Use" aria-hidden="true">Back</button>
+      <div class="privacy-copy">
+        <section><h2>Stored on this iPhone</h2><p>Rooms, drafts, provider profiles and choices, and consent are stored locally in the app’s protected container. Room history is unavailable while protected data is locked.</p></section>
+        <section><h2>Credentials</h2><p>Provider credentials use non-synchronizing iOS Keychain items with WhenUnlockedThisDeviceOnly protection. Credentials are not stored in rooms, drafts, profiles, consent records, WebKit storage, logs, diagnostics, exports, or persona packs.</p></section>
+        <section><h2>What a provider receives</h2><p>When you request a reply, Green Room sends the prompt, recent room messages, selected character instructions, model ID, and generation settings directly over HTTPS to the selected fixed provider host. You cannot enter an arbitrary provider URL. The provider may retain content under its own terms.</p></section>
+        <section><h2>No Green Room service in the path</h2><p>There is no Green Room account, analytics collector, model proxy, transcript service, or relay. Green Room project infrastructure receives none of your credentials, rooms, prompts, or replies.</p></section>
+        <section><h2>Removal limits</h2><p>Removing a credential stops future requests with that credential; it does not delete local rooms or content a provider may have retained. An iOS Keychain item may survive uninstall, so uninstall is not guaranteed to erase a credential. A later fresh install removes an orphaned item after its first successful protected database open.</p></section>
+      </div>
     </section>
   </main>
 </body>

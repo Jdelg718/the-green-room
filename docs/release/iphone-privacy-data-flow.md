@@ -1,6 +1,6 @@
-# iPhone privacy data flow — internal Alpha
+# iPhone privacy data flow
 
-Scope: Green Room iPhone Alpha `0.1.0 (2)`, bundle ID `net.greenroomai.GreenRoom`, distributed only to the owner's authorized internal TestFlight group. This engineering record supports the current privacy declaration; it is not legal advice and does not approve external TestFlight or App Store distribution.
+Scope: the bundled standalone Green Room iPhone client. This engineering record supports the current privacy declaration; it is not legal advice and does not approve external TestFlight or App Store distribution.
 
 ## Measured product boundary
 
@@ -16,7 +16,9 @@ Model listing and generation require both that exact current consent and a curre
 
 Canonical generated disclosure metadata currently identifies exactly: OpenRouter (`openrouter.ai`), OpenAI (`api.openai.com`), xAI (`api.x.ai`), Groq (`api.groq.com`), and Together AI (`api.together.ai`), all HTTPS on port 443. The generated metadata and reviewed native definitions carry the same provider, host, definition-version, disclosure-version, model-list path, and generation path bindings.
 
-This change is consent-authority foundation only. The final unchecked consent control, bundled offline Privacy & Data Use screen, selection-reset interaction, credential-removal flow, and confirmation/recovery UI remain unimplemented follow-up work under issue #208. Nothing in this record approves external distribution or public privacy-policy wording.
+The bundled provider screen now renders provider display names and hosts from the generated canonical disclosure asset, shows the exact direct-HTTPS/content/retention/no-relay disclosure, and starts with an unchecked required consent control. Provider or model edits immediately clear that control, including a same-session revert. The UI reads native consent authority before showing recorded status, and a valid save uses the native atomic selection-and-consent method with exact definition/disclosure versions before opening credential entry when needed. Invalid model text or unchecked consent is rejected before database, Keychain, credential-sheet, or provider work.
+
+A bundled Privacy & Data Use screen is wired before database open and remains readable when protected data is locked or boot fails. It states the measured local storage, Keychain protection/non-sync boundary, exact provider content categories, direct fixed HTTPS destination, possible provider retention, absence of Green Room account/analytics/proxy/transcript/relay services, and credential-removal/uninstall limits. Credential removal UI, abandon confirmation, and broader recovery-copy changes remain follow-up Slice B work under issue #208. Nothing in this record approves external distribution or public privacy-policy wording.
 
 ## Conservative Apple declaration
 
