@@ -61,6 +61,14 @@ class StaticPolicyTests(unittest.TestCase):
 
     def test_privacy_page_requires_provider_and_project_boundaries(self) -> None:
         mutations = {
+            "Green Room iPhone Alpha 0.1.0 (2) is limited to the owner’s one-member internal TestFlight group": (
+                "Green Room iPhone Alpha 0.1.0 (2) is limited to the owner’s one-member internal TestFlight group",
+                "Green Room iPhone Alpha is publicly available",
+            ),
+            "A future optional private LM Studio path over the user’s Tailnet is roadmap work": (
+                "A future optional private LM Studio path over the user’s Tailnet is roadmap work, not a feature of the current internal TestFlight build",
+                "Private LM Studio over Tailnet is included in the current internal TestFlight build",
+            ),
             "Using your own key does not by itself guarantee zero-data retention": (
                 "Using your own key does not by itself guarantee zero-data retention",
                 "Using your own key keeps every provider request private",
