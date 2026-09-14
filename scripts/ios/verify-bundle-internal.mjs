@@ -134,6 +134,13 @@ function stripPbxComments(source) {
       output += character;
       continue;
     }
+    if (character === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index + 2);
+      const commentEnd = end === -1 ? source.length : end;
+      output += " ".repeat(commentEnd - index);
+      index = commentEnd - 1;
+      continue;
+    }
     if (character === "/" && source[index + 1] === "*") {
       const end = source.indexOf("*/", index + 2);
       requireCondition(end !== -1, "Xcode project contains an unterminated comment");
@@ -163,21 +170,68 @@ function matchingPbxBrace(source, opening) {
     else if (character === "{") depth += 1;
     else if (character === "}" && --depth === 0) return index;
   }
-  fail("Xcode project contains an unterminated object");
+  fail("Xcode project contains an unterminated or malformed object");
+}
+
+function parsePbxDictionaryEntries(source, opening, label) {
+  const closing = matchingPbxBrace(source, opening);
+  const entries = [];
+  const declaration = /([^\s=;{},()]+)\s*=\s*/uy;
+  let cursor = opening + 1;
+  while (cursor < closing) {
+    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    if (cursor >= closing) break;
+    declaration.lastIndex = cursor;
+    const match = declaration.exec(source);
+    requireCondition(match !== null, `Xcode project contains a malformed ${label} declaration`);
+    const valueStart = declaration.lastIndex;
+    let valueEnd = valueStart;
+    let quoted = false;
+    let escaped = false;
+    let parentheses = 0;
+    if (source[valueStart] === "{") {
+      valueEnd = matchingPbxBrace(source, valueStart) + 1;
+    } else {
+      while (valueEnd < closing) {
+        const character = source[valueEnd];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (character === "\\") escaped = true;
+          else if (character === '"') quoted = false;
+        } else if (character === '"') quoted = true;
+        else if (character === "(") parentheses += 1;
+        else if (character === ")") parentheses -= 1;
+        else if (character === ";" && parentheses === 0) break;
+        valueEnd += 1;
+      }
+    }
+    cursor = valueEnd;
+    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    requireCondition(source[cursor] === ";", `Xcode project contains an unterminated ${label} declaration: ${match[1]}`);
+    entries.push({ key: match[1], valueStart, valueEnd: valueEnd - (source[valueStart] === "{" ? 1 : 0), dictionary: source[valueStart] === "{" });
+    cursor += 1;
+  }
+  return entries;
 }
 
 function parsePbxObjects(project) {
   const source = stripPbxComments(project);
-  const declarations = [...source.matchAll(/^\t\t([^\s=]+)\s*=\s*\{/gmu)];
+  const rootOpening = source.search(/\S/u);
+  requireCondition(rootOpening !== -1 && source[rootOpening] === "{", "Xcode project contains no root dictionary");
+  const rootClosing = matchingPbxBrace(source, rootOpening);
+  requireCondition(source.slice(rootClosing + 1).trim() === "", "Xcode project contains data after the root dictionary");
+  const rootEntries = parsePbxDictionaryEntries(source, rootOpening, "root");
+  const objectDictionaries = rootEntries.filter(({ key }) => key === "objects");
+  requireCondition(objectDictionaries.length === 1 && objectDictionaries[0].dictionary, "Xcode project must contain exactly one objects dictionary");
+  const declarations = parsePbxDictionaryEntries(source, objectDictionaries[0].valueStart, "object");
   requireCondition(declarations.length > 0, "Xcode project contains no parseable objects");
   const objects = new Map();
   for (const declaration of declarations) {
-    const id = declaration[1];
+    const id = declaration.key;
     requireCondition(/^[A-F0-9]{24}$/u.test(id), `Xcode project contains malformed object ID: ${id}`);
+    requireCondition(declaration.dictionary, `Xcode object ${id} is not a dictionary`);
     requireCondition(!objects.has(id), `Xcode project contains duplicate object ID: ${id}`);
-    const opening = declaration.index + declaration[0].lastIndexOf("{");
-    const closing = matchingPbxBrace(source, opening);
-    objects.set(id, source.slice(opening + 1, closing));
+    objects.set(id, source.slice(declaration.valueStart + 1, declaration.valueEnd));
   }
   return objects;
 }

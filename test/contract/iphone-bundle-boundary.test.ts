@@ -97,6 +97,24 @@ test("accessibility evidence files, target graph, and shared scheme fail closed"
   rmSync(join(root, "ios/AppUITests/DecoyTests.swift"));
   cpSync(join(ROOT, projectPath), join(root, projectPath));
 
+  for (const indentation of ["    ", "\t ", ""]) {
+    writeFileSync(join(root, "ios/AppUITests/DecoyTests.swift"), "import XCTest\nfinal class DecoyTests: XCTestCase {}\n");
+    rewrite(root, projectPath, (source) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+      `A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };\n${indentation}A20600000000000000000002 /* duplicate object ID */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoyTests.swift; sourceTree = "<group>"; };`,
+    ));
+    rejects(root, /duplicate object ID/u);
+    rmSync(join(root, "ios/AppUITests/DecoyTests.swift"));
+    cpSync(join(ROOT, projectPath), join(root, projectPath));
+  }
+
+  rewrite(root, projectPath, (source) => `// { objects = {}; }\n${source}`);
+  assert.doesNotThrow(() => verifySourceInternal(root));
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+  rewrite(root, projectPath, (source) => `${source}\n{}\n`);
+  rejects(root, /data after the root dictionary/u);
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
   for (const mutation of [
     (source: string) => source.replace('path = AccessibilityTests.swift; sourceTree = "<group>";', 'path = AccessibilityTests.swift; sourceTree = SOURCE_ROOT;'),
     (source: string) => source.replace("path = AccessibilityTests.swift;", "path = ../AppUITests/AccessibilityTests.swift;"),
