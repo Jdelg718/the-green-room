@@ -35,7 +35,9 @@ final class ContainedBridgeViewController: CAPBridgeViewController {
 final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let capacitorDelegate: WebViewDelegationHandler
     private let localOrigin: URL?
+#if DEBUG && targetEnvironment(simulator)
     private var directorAcceptancePrepared = false
+#endif
 
     init(capacitorDelegate: WebViewDelegationHandler, localOrigin: URL?) {
         self.capacitorDelegate = capacitorDelegate
@@ -91,6 +93,7 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                 return
             }
             let environment = ProcessInfo.processInfo.environment
+#if DEBUG && targetEnvironment(simulator)
             if environment["GREENROOM_SIMULATOR_DIRECTOR_ACCEPTANCE"] == "true",
                !directorAcceptancePrepared {
                 directorAcceptancePrepared = true
@@ -110,40 +113,37 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                   opened = await runtime.createLocalRoom(plugin, ['ada-lovelace', 'isaac-newton']);
                 }
                 if (opened.events.length === 0) {
-                  const sent = await runtime.sendLocalMessage(
-                    plugin,
-                    opened.room,
-                    'Simulator director continuity proof',
-                    undefined,
-                    {
-                      requestId: '40000000-0000-4000-8000-000000000177',
-                      targetPersonaSlug: 'isaac-newton'
+                  const room = opened.room;
+                  const human = room.participants.find(({ kind }) => kind === 'human');
+                  const state = JSON.stringify({
+                    acceptedHumanEventNumber: 1,
+                    autonomousTurns: 1,
+                    cancelled: false,
+                    fallbackIndex: 0,
+                    lastSelectedAt: [['isaac-newton', 1]],
+                    maxAutonomousTurns: 10,
+                    seen: [[`iphone-room:${room.id}`, '40000000-0000-4000-8000-000000000177']],
+                    version: 1
+                  });
+                  const humanEvent = JSON.stringify({ participantId: human.id, text: 'Simulator director continuity proof', type: 'human_message' });
+                  const directorEvent = JSON.stringify({ generation: 0, reason: 'directed', sourceEventSequence: 1, speaker: 'isaac-newton', type: 'director_decision' });
+                  const personaEvent = JSON.stringify({ generation: 0, personaSlug: 'isaac-newton', sourceEventSequence: 1, text: 'A stubbed reply crossed the signed room runtime.', type: 'persona_message' });
+                  const callId = crypto.randomUUID().toLowerCase();
+                  const response = await plugin.executeBatch({
+                    contractVersion: 'iphone-native-bridge/1.0',
+                    callId,
+                    method: 'database.executeBatch',
+                    payload: {
+                      transactionId: `simulator-director-${room.id}`,
+                      statements: [
+                        { sqlId: 'update_director_state', parameters: [state, 1, 'isaac-newton', 'isaac-newton', 1, 0, room.id, 0, 1] },
+                        { sqlId: 'append_event', parameters: [humanEvent, room.id] },
+                        { sqlId: 'append_event', parameters: [directorEvent, room.id] },
+                        { sqlId: 'append_persona_event', parameters: [personaEvent, room.id, 0, 3, 2, 1, 'isaac-newton'] }
+                      ]
                     }
-                  );
-                  opened = { ...opened, events: sent.events };
-                }
-                if (!opened.events.some(({ event }) => event.type === 'persona_message')) {
-                  const stubProvider = {
-                    async generate(call) {
-                      return {
-                        callId: call.callId,
-                        ok: true,
-                        value: { text: 'A stubbed reply crossed the signed room runtime.', attemptEpoch: 1 }
-                      };
-                    }
-                  };
-                  await runtime.generatePersonaReply(
-                    plugin,
-                    stubProvider,
-                    opened.room,
-                    opened.events,
-                    {
-                      model: 'simulator-stub-v1',
-                      profileId: 'iphone.openrouter',
-                      profileRevision: 1,
-                      providerId: 'openrouter'
-                    }
-                  );
+                  });
+                  if (response?.ok !== true || response.callId !== callId) throw new Error('Simulator director transaction failed');
                 }
                 return true;
                 """
@@ -160,6 +160,7 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                 }
                 return
             }
+#endif
             for _ in 0..<50 {
                 let marker = try? await webView.evaluateJavaScript(
                     "JSON.stringify({boot:document.documentElement.dataset.localRoomBoot||'',source:document.documentElement.dataset.localRoomSource||'',castCount:document.documentElement.dataset.localRoomCastCount||'0',eventCount:document.documentElement.dataset.localRoomEventCount||'0'})"
@@ -178,7 +179,11 @@ final class LocalOnlyWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelega
                      (boot == "picker" && source == "empty" && castCount == 0) {
                     let networkAudit = environment["GREENROOM_NETWORK_AUDIT_LOADED"] == "true" && environment["GREENROOM_NETWORK_ATTEMPT"] == nil
                     let deviceAcceptance = environment["GREENROOM_DEVICE_ACCEPTANCE"] == "true"
+#if DEBUG && targetEnvironment(simulator)
                     let directorAcceptance = environment["GREENROOM_SIMULATOR_DIRECTOR_ACCEPTANCE"] == "true"
+#else
+                    let directorAcceptance = false
+#endif
                     guard networkAudit || deviceAcceptance || directorAcceptance else { return }
                     let evidence: [String: Any] = [
                         "networkPolicy": networkAudit ? "denied" : "not-measured",

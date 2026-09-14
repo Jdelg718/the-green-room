@@ -22,9 +22,120 @@ const boundary = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle.mjs");
 const { verifyBuiltApp, verifySource } = boundary;
-const { verifySourceCore } = await import(
+const { parseOtoolLibraries, verifySourceCore } = await import(
   pathToFileURL(join(ROOT, "scripts/ios/verify-bundle-internal.mjs")).href
 ) as typeof import("../../scripts/ios/verify-bundle-internal.mjs");
+
+test("fat Mach-O dependency parsing excludes every architecture header", () => {
+  const output = [
+    "/tmp/App (architecture x86_64):",
+    "\t@rpath/Capacitor.framework/Capacitor (compatibility version 1.0.0, current version 1.0.0)",
+    "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)",
+    "\t/usr/lib/swift/libswiftCoreImage.dylib (compatibility version 1.0.0, current version 2.2.0, weak)",
+    "/tmp/App (architecture arm64):",
+    "\t@rpath/Capacitor.framework/Capacitor (compatibility version 1.0.0, current version 1.0.0)",
+    "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)",
+    "\t/usr/lib/swift/libswiftCoreImage.dylib (compatibility version 1.0.0, current version 2.2.0, weak)",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseOtoolLibraries(output), [
+    "@rpath/Capacitor.framework/Capacitor",
+    "/usr/lib/libSystem.B.dylib",
+    "/usr/lib/swift/libswiftCoreImage.dylib",
+    "@rpath/Capacitor.framework/Capacitor",
+    "/usr/lib/libSystem.B.dylib",
+    "/usr/lib/swift/libswiftCoreImage.dylib",
+  ]);
+  assert.throws(() => parseOtoolLibraries("/tmp/App:\nnot-indented\n"), /unexpected otool output/u);
+  assert.throws(
+    () => parseOtoolLibraries("/tmp/App:\n\t/usr/lib/libSystem.B.dylib attacker-controlled.dylib (compatibility version 1.0.0, current version 1.0.0)\n"),
+    /whitespace|malformed linked library/u,
+  );
+  assert.throws(
+    () => parseOtoolLibraries("/tmp/App:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"),
+    /unexpected otool output/u,
+  );
+});
+
+test("accessibility evidence files, target graph, and shared scheme fail closed", (context) => {
+  const root = fixture(context);
+  const testSource = "ios/AppUITests/AccessibilityTests.swift";
+  const scheme = "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme";
+  const runner = "scripts/ios/run-accessibility-ui-tests.mjs";
+
+  rmSync(join(root, testSource));
+  rejects(root, /missing required file.*AccessibilityTests\.swift/u);
+  cpSync(join(ROOT, testSource), join(root, testSource));
+  rewrite(root, testSource, (source) => `${source}\n// arbitrary mutation\n`);
+  rejects(root, /AccessibilityTests\.swift.*reviewed bytes/u);
+  cpSync(join(ROOT, testSource), join(root, testSource));
+
+  rmSync(join(root, scheme));
+  rejects(root, /missing required file.*App\.xcscheme/u);
+  cpSync(join(ROOT, scheme), join(root, scheme));
+  rewrite(root, scheme, (source) => source.replace('skipped="NO"', 'skipped="YES"'));
+  rejects(root, /App\.xcscheme.*reviewed bytes|must not be skipped/u);
+  cpSync(join(ROOT, scheme), join(root, scheme));
+  rewrite(root, scheme, (source) => source.replaceAll("A20600000000000000000006", "504EC3031FED79650016851F"));
+  rejects(root, /App\.xcscheme.*reviewed bytes|AppUITests/u);
+  cpSync(join(ROOT, scheme), join(root, scheme));
+
+  const projectPath = "ios/App/App.xcodeproj/project.pbxproj";
+  rewrite(root, projectPath, (source) => source.replace(
+    "A20600000000000000000007 /* Sources */ = {\n\t\t\tisa = PBXSourcesBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t\tA20600000000000000000001 /* AccessibilityTests.swift in Sources */,",
+    "A20600000000000000000007 /* Sources */ = {\n\t\t\tisa = PBXSourcesBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (",
+  ));
+  rejects(root, /AccessibilityTests\.swift.*UI-test Sources phase/u);
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
+  writeFileSync(join(root, "ios/AppUITests/DecoyTests.swift"), "import XCTest\nfinal class DecoyTests: XCTestCase {}\n");
+  rewrite(root, projectPath, (source) => source.replace(
+    "isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\";",
+    "isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoyTests.swift; sourceTree = \"<group>\";",
+  ));
+  rejects(root, /AccessibilityTests\.swift.*path chain|UI-test source path/u);
+  rmSync(join(root, "ios/AppUITests/DecoyTests.swift"));
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
+  for (const indentation of ["    ", "\t ", ""]) {
+    writeFileSync(join(root, "ios/AppUITests/DecoyTests.swift"), "import XCTest\nfinal class DecoyTests: XCTestCase {}\n");
+    rewrite(root, projectPath, (source) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+      `A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };\n${indentation}A20600000000000000000002 /* duplicate object ID */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoyTests.swift; sourceTree = "<group>"; };`,
+    ));
+    rejects(root, /duplicate object ID/u);
+    rmSync(join(root, "ios/AppUITests/DecoyTests.swift"));
+    cpSync(join(ROOT, projectPath), join(root, projectPath));
+  }
+
+  rewrite(root, projectPath, (source) => `// { objects = {}; }\n${source}`);
+  assert.doesNotThrow(() => verifySourceInternal(root));
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+  rewrite(root, projectPath, (source) => `${source}\n{}\n`);
+  rejects(root, /data after the root dictionary/u);
+  cpSync(join(ROOT, projectPath), join(root, projectPath));
+
+  for (const mutation of [
+    (source: string) => source.replace('path = AccessibilityTests.swift; sourceTree = "<group>";', 'path = AccessibilityTests.swift; sourceTree = SOURCE_ROOT;'),
+    (source: string) => source.replace("path = AccessibilityTests.swift;", "path = ../AppUITests/AccessibilityTests.swift;"),
+    (source: string) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };\n\t\tA20600000000000000000009 /* misleading duplicate */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = \"<group>\"; };",
+    ),
+    (source: string) => source.replace(
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference;",
+      "A20600000000000000000002 /* AccessibilityTests.swift */ = {isa = PBXFileReference;\n\t\tA20600000000000000000002 /* duplicate object ID */ = {isa = PBXFileReference;",
+    ),
+    (source: string) => source.replace("A20600000000000000000002 /* AccessibilityTests.swift */ =", "A2060000000000000000002 /* malformed object ID */ ="),
+  ]) {
+    rewrite(root, projectPath, mutation);
+    rejects(root, /path chain|sourceTree|ambiguous|duplicate|malformed|UI-test source path/u);
+    cpSync(join(ROOT, projectPath), join(root, projectPath));
+  }
+
+  rmSync(join(root, runner));
+  rejects(root, /missing required file.*run-accessibility-ui-tests\.mjs/u);
+});
 
 function verifySourceInternal(root: string) {
   return verifySourceCore(root, { parsePlist: parsePlistFile });
@@ -39,8 +150,9 @@ function fixture(context: test.TestContext): string {
   cpSync(join(ROOT, "ios-web"), join(root, "ios-web"), { recursive: true });
   mkdirSync(join(root, "ios"), { recursive: true });
   cpSync(join(ROOT, "ios", "App"), join(root, "ios", "App"), { recursive: true });
+  cpSync(join(ROOT, "ios", "AppUITests"), join(root, "ios", "AppUITests"), { recursive: true });
   mkdirSync(join(root, "scripts", "ios"), { recursive: true });
-  for (const name of ["archive-controlled.mjs", "archive-controlled-internal.mjs", "export-controlled.mjs", "export-controlled-internal.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs", "verify-bundle-internal.mjs"]) {
+  for (const name of ["archive-controlled.mjs", "archive-controlled-internal.mjs", "export-controlled.mjs", "export-controlled-internal.mjs", "parse-provisioning-profile.py", "provisioning-profile.mjs", "run-accessibility-ui-tests.mjs", "verify-bundle-internal.mjs"]) {
     cpSync(join(ROOT, "scripts", "ios", name), join(root, "scripts", "ios", name));
   }
   return root;
@@ -79,6 +191,7 @@ test("repository contains and passes the complete iPhone source boundary", () =>
   assert.match(gate, /process\.platform !== "darwin"/u);
   assert.match(gate, /run-simulator-offline\.mjs/u);
   assert.match(gate, /build-simulator-release\.mjs/u);
+  assert.match(gate, /--debug-simulator-acceptance-boundary/u);
   assert.match(gate, /--release-acceptance-boundary/u);
 });
 
@@ -371,6 +484,7 @@ test("production source and built verifiers reject Linux before path or tool ins
 test("public bundle runtime exports cannot directly import the source adapter core", () => {
   assert.deepEqual(Object.keys(boundary).sort(), [
     "verifyBuiltApp",
+    "verifyDebugSimulatorAcceptanceBoundary",
     "verifyReleaseAcceptanceBoundary",
     "verifySignedDeviceApp",
     "verifySource",

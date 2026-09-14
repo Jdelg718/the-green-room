@@ -30,6 +30,9 @@ let providerReady = false;
 let draftRevision = 0;
 let pendingDraft = null;
 let draftWriteRunning = false;
+let returnFocusElement = null;
+let renderedTranscriptRoomId = null;
+let renderedTranscriptSequence = 0;
 
 export const UNCERTAIN_REQUEST_WARNING = "Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.";
 
@@ -763,9 +766,30 @@ function directorReason(reason) {
   return String(reason).replaceAll("_", " ");
 }
 
+function eventAnnouncement(record, room) {
+  let speaker;
+  let text;
+  if (record.event.type === "human_message") {
+    speaker = "You";
+    text = record.event.text;
+  } else if (record.event.type === "persona_message") {
+    const participant = room?.participants?.find(({ personaSlug }) => personaSlug === record.event.personaSlug);
+    speaker = participant?.displayName ?? CATALOG.get(record.event.personaSlug)?.name ?? "Character";
+    text = record.event.text;
+  } else if (record.event.speaker !== null) {
+    const participant = room?.participants?.find(({ id }) => id === record.event.speaker);
+    speaker = "Director";
+    text = `${participant?.displayName ?? "Selected character"} selected to speak`;
+  } else {
+    speaker = "Director";
+    text = `Silence: ${directorReason(record.event.reason)}`;
+  }
+  return `New transcript entry ${record.sequence}: ${speaker}: ${text}`;
+}
+
 export function renderEvents(events, documentRoot = document, room = activeRoom) {
   const transcript = documentRoot.getElementById("transcript");
-  transcript.replaceChildren(...events.map((record) => {
+  const renderedItems = events.map((record) => {
     const item = documentRoot.createElement("li");
     const sequence = documentRoot.createElement("span");
     sequence.className = "event-sequence";
@@ -790,9 +814,22 @@ export function renderEvents(events, documentRoot = document, room = activeRoom)
     }
     copy.append(speaker, text);
     item.append(sequence, copy);
+    item.setAttribute("aria-label", eventAnnouncement(record, room).replace(/^New transcript entry /u, "Transcript entry "));
     return item;
-  }));
+  });
+  transcript.replaceChildren(...renderedItems);
   documentRoot.getElementById("empty-transcript").hidden = events.length > 0;
+  const announcer = documentRoot.getElementById("transcript-announcer");
+  const roomId = room?.id ?? null;
+  if (renderedTranscriptRoomId !== roomId) {
+    renderedTranscriptRoomId = roomId;
+    renderedTranscriptSequence = events.at(-1)?.sequence ?? 0;
+    announcer.textContent = "";
+    return;
+  }
+  const additions = events.filter(({ sequence }) => sequence > renderedTranscriptSequence);
+  announcer.textContent = additions.length === 0 ? "" : additions.map((record) => eventAnnouncement(record, room)).join(". ");
+  renderedTranscriptSequence = Math.max(renderedTranscriptSequence, events.at(-1)?.sequence ?? 0);
 }
 
 export function refreshMessageTarget(room, documentRoot = document) {
@@ -840,6 +877,7 @@ export function renderRoom(opened) {
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
+  exposeOnlyVisibleCancel();
   const input = document.getElementById("message-text");
   const target = document.getElementById("message-target");
   refreshMessageTarget(room);
@@ -854,6 +892,22 @@ export function renderRoom(opened) {
   document.documentElement.dataset.localRoomSource = opened.source;
   document.documentElement.dataset.localRoomCastCount = String(cast.length);
   document.documentElement.dataset.localRoomEventCount = String(activeEvents.length);
+  const focusTarget = returnFocusElement;
+  returnFocusElement = null;
+  if (focusTarget?.isConnected && !focusTarget.hidden) focusTarget.focus();
+  else document.getElementById("room-title").focus();
+}
+
+function rememberReturnFocus(candidate = document.activeElement) {
+  returnFocusElement = candidate?.matches?.("button, select, input, textarea") ? candidate : null;
+}
+
+function exposeOnlyVisibleCancel(visibleId = null) {
+  for (const id of ["cancel-picker", "rooms-cancel", "provider-cancel"]) {
+    const control = document.getElementById(id);
+    if (id === visibleId) control.removeAttribute("aria-hidden");
+    else control.setAttribute("aria-hidden", "true");
+  }
 }
 
 function renderCommandAndMutationState() {
@@ -870,8 +924,14 @@ function renderCommandAndMutationState() {
   input.disabled = !availability.draft;
   target.disabled = !availability.draft;
   send.disabled = !availability.send;
-  retry.hidden = !availability.retry || activeCommand?.state === "in_flight";
-  abandon.hidden = !availability.abandon || activeCommand?.state === "in_flight";
+  const retryVisible = availability.retry && activeCommand?.state !== "in_flight";
+  const abandonVisible = availability.abandon && activeCommand?.state !== "in_flight";
+  retry.hidden = !retryVisible;
+  retry.disabled = !retryVisible;
+  if (retryVisible) retry.removeAttribute("aria-hidden"); else retry.setAttribute("aria-hidden", "true");
+  abandon.hidden = !abandonVisible;
+  abandon.disabled = !abandonVisible;
+  if (abandonVisible) abandon.removeAttribute("aria-hidden"); else abandon.setAttribute("aria-hidden", "true");
   if (activeCommand?.state === "interrupted") {
     error.textContent = UNCERTAIN_REQUEST_WARNING;
     error.hidden = false;
@@ -904,6 +964,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
   const create = document.getElementById("create-room");
   const cancel = document.getElementById("cancel-picker");
   cancel.hidden = activeRoom === null;
+  cancel.disabled = activeRoom === null;
 
   function refresh() {
     count.textContent = `${selected.size} of ${MAX_CAST} selected`;
@@ -912,6 +973,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     for (const button of grid.querySelectorAll("button[data-slug]")) {
       const active = selected.has(button.dataset.slug);
       button.setAttribute("aria-pressed", String(active));
+      button.setAttribute("aria-label", button.dataset.accessibleName);
       button.classList.toggle("selected", active);
       button.disabled = !active && selected.size === MAX_CAST;
     }
@@ -922,6 +984,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     button.type = "button";
     button.className = "persona-card";
     button.dataset.slug = persona.slug;
+    button.dataset.accessibleName = `${persona.name}, ${persona.catalogKind === "historical" ? "historical interpretation" : "creator-authorized original"}`;
     button.setAttribute("aria-pressed", "false");
     const portrait = personaPortrait(persona, "portrait-card");
     const number = document.createElement("span");
@@ -950,7 +1013,10 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     }
     create.disabled = true;
     document.getElementById("picker-status").textContent = "Committing the local room…";
-    try { renderRoom(await createLocalRoom(plugin, [...selected], uuid)); }
+    try {
+      returnFocusElement = null;
+      renderRoom(await createLocalRoom(plugin, [...selected], uuid));
+    }
     catch { document.getElementById("picker-status").textContent = "The local room could not be created."; refresh(); }
   });
   cancel.addEventListener("click", async () => {
@@ -985,7 +1051,8 @@ export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.random
   return false;
 }
 
-export function showPicker() {
+export function showPicker(trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = false;
@@ -993,22 +1060,28 @@ export function showPicker() {
   document.getElementById("provider-view").hidden = true;
   document.documentElement.dataset.localRoomBoot = "picker";
   document.documentElement.dataset.localRoomSource = "empty";
-  document.getElementById("cancel-picker").hidden = activeRoom === null;
+  const cancel = document.getElementById("cancel-picker");
+  cancel.hidden = activeRoom === null;
+  cancel.disabled = activeRoom === null;
+  exposeOnlyVisibleCancel(activeRoom === null ? null : "cancel-picker");
   document.getElementById("picker-title").focus();
 }
 
-async function showRoomList(plugin, uuid = () => crypto.randomUUID()) {
+async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("provider-view").hidden = true;
   document.getElementById("rooms-view").hidden = false;
+  exposeOnlyVisibleCancel("rooms-cancel");
   document.getElementById("rooms-title").focus();
   const list = document.getElementById("room-list");
   const rooms = await listLocalRooms(plugin, uuid);
-  list.replaceChildren(...rooms.map((room) => {
+  list.replaceChildren(...rooms.map((room, index) => {
     const button = document.createElement("button");
     button.type = "button";
+    button.setAttribute("aria-label", `Open saved room ${index + 1}: ${room.title}; ${room.lastActivityOrder === 0 ? "no lines yet" : `activity ${room.lastActivityOrder}`}`);
     const title = document.createElement("strong");
     title.textContent = room.title;
     const activity = document.createElement("span");
@@ -1023,12 +1096,14 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID()) {
   document.getElementById("rooms-status").textContent = rooms.length === 0 ? "No saved rooms yet." : "";
 }
 
-export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID()) {
+export async function showProviderSetup(plugin, uuid = () => crypto.randomUUID(), trigger) {
+  rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
   document.getElementById("picker-view").hidden = true;
   document.getElementById("rooms-view").hidden = true;
   document.getElementById("provider-view").hidden = false;
+  exposeOnlyVisibleCancel("provider-cancel");
   const selection = await readProviderSelection(plugin, uuid);
   document.getElementById("provider-id").value = DEFAULT_PROVIDER_SETUP.providerId;
   document.getElementById("provider-model").value = DEFAULT_PROVIDER_SETUP.model;
@@ -1166,18 +1241,18 @@ async function boot() {
     const opened = await openLocalRoom(database);
     await refreshMutationGate(database, lifecycle);
     pickerController(database);
-    document.getElementById("new-room").addEventListener("click", () => {
-      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
+    document.getElementById("new-room").addEventListener("click", (event) => {
+      if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker(event.currentTarget);
     });
     document.getElementById("rooms-new").addEventListener("click", () => {
       if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
     });
-    document.getElementById("rooms-button").addEventListener("click", async () => {
-      try { await showRoomList(database); }
+    document.getElementById("rooms-button").addEventListener("click", async (event) => {
+      try { await showRoomList(database, undefined, event.currentTarget); }
       catch { document.getElementById("boot-error").hidden = false; }
     });
-    document.getElementById("provider-button").addEventListener("click", async () => {
-      try { await showProviderSetup(database); }
+    document.getElementById("provider-button").addEventListener("click", async (event) => {
+      try { await showProviderSetup(database, undefined, event.currentTarget); }
       catch { document.getElementById("boot-error").hidden = false; }
     });
     for (const id of ["rooms-cancel", "provider-cancel"]) {
@@ -1186,6 +1261,16 @@ async function boot() {
         else if (!await reopenAuthoritativeRoom(database)) document.getElementById("boot-error").hidden = false;
       });
     }
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const cancel = !document.getElementById("picker-view").hidden ? document.getElementById("cancel-picker")
+        : !document.getElementById("rooms-view").hidden ? document.getElementById("rooms-cancel")
+          : !document.getElementById("provider-view").hidden ? document.getElementById("provider-cancel") : null;
+      if (cancel !== null && !cancel.hidden) {
+        event.preventDefault();
+        cancel.click();
+      }
+    });
     document.getElementById("provider-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const save = document.getElementById("provider-save");

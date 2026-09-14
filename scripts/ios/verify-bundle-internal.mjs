@@ -43,6 +43,14 @@ const DEBUG_ACCEPTANCE_MARKERS = [
   "net.greenroomai.GreenRoom.device-credential-acceptance",
   "DeviceCredentialAcceptance",
   "credential-acceptance-evidence.json",
+  "GREENROOM_SIMULATOR_DIRECTOR_ACCEPTANCE",
+  "Simulator director continuity proof",
+  "simulator-director-",
+];
+const SIMULATOR_DIRECTOR_ACCEPTANCE_MARKERS = [
+  "GREENROOM_SIMULATOR_DIRECTOR_ACCEPTANCE",
+  "Simulator director continuity proof",
+  "simulator-director-",
 ];
 const REQUIRED_MIGRATIONS = [
   "0001-iphone-alpha.sql",
@@ -74,15 +82,15 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "aff486ad0a63f748f1decad863e81655ddde78bb880705a1760a471140ab1a43"],
+  ["index.html", "d887ea164d34a070d065a81c5ad16713277924b8af5ab4946be8b5a69060b839"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
-  ["room-runtime.js", "f04dd1d4142947f28586c3af5c94d989e397501cf8c88e484338f3088fd1b930"],
-  ["shell.css", "2d0cf30c977337f6288f7ff2d3fce513175399a7fcf47e1063b162fe933a5c84"],
+  ["room-runtime.js", "073cf4fa0b7405b94ccf2194d939e2c9c3b2a0c72f2e10c6aedde994bb4e3dfe"],
+  ["shell.css", "e5cecde3af4a62ca0772aa6a1efa4217f7e332b94e3dbe27ffcc1a3be04e279d"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
-  ["App/ContainedBridgeViewController.swift", "2ba7567870d7318e0d050f9a6c0013257423d4c250935d7584ea2417d5393e08"],
+  ["App/ContainedBridgeViewController.swift", "55a32f8ebe62671d0db754e67a560aba9a364a10236b0276b851db76c1a32221"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
   ["App/Credentials/GreenRoomCredentialPlugin.swift", "63118e7ad0a5174eb374698371ca5aefd086696c29d1575c8c7dd65a96405225"],
   ["App/Credentials/DeviceCredentialAcceptance.swift", "22288f51f86afc1833961eadc84fc0c1566addd42daf28333879ad33539bbefc"],
@@ -93,6 +101,11 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Providers/GreenRoomProviderPlugin.swift", "4b052a2ddf45f7643ac8053bd9b314b42347657ceffe6b9d57108758805529a8"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
+const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
+  ["ios/AppUITests/AccessibilityTests.swift", "c81671e5b2b3f05c29b8d51226675a9bf05c95e28b8d2c1ed0291c47ccf2df09"],
+  ["ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme", "fc07cfc26e150c00105eb4abba2d1e905e72b9445df8bba4171181d4afff0731"],
+  ["scripts/ios/run-accessibility-ui-tests.mjs", "1648737da48de007ccdb4c2bc3f83693feb0e7a762b3726d8cfaf8379b41b01d"],
+]);
 const PRIVACY_KEYS = ["NSPrivacyAccessedAPITypes", "NSPrivacyCollectedDataTypes", "NSPrivacyTracking", "NSPrivacyTrackingDomains"];
 
 function fail(message) {
@@ -101,6 +114,211 @@ function fail(message) {
 
 function requireCondition(condition, message) {
   if (!condition) fail(message);
+}
+
+function stripPbxComments(source) {
+  let output = "";
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      output += character;
+      continue;
+    }
+    if (character === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index + 2);
+      const commentEnd = end === -1 ? source.length : end;
+      output += " ".repeat(commentEnd - index);
+      index = commentEnd - 1;
+      continue;
+    }
+    if (character === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2);
+      requireCondition(end !== -1, "Xcode project contains an unterminated comment");
+      output += " ".repeat(end + 2 - index);
+      index = end + 1;
+      continue;
+    }
+    output += character;
+  }
+  requireCondition(!quoted, "Xcode project contains an unterminated quoted value");
+  return output;
+}
+
+function matchingPbxBrace(source, opening) {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = opening; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return index;
+  }
+  fail("Xcode project contains an unterminated or malformed object");
+}
+
+function parsePbxDictionaryEntries(source, opening, label) {
+  const closing = matchingPbxBrace(source, opening);
+  const entries = [];
+  const declaration = /([^\s=;{},()]+)\s*=\s*/uy;
+  let cursor = opening + 1;
+  while (cursor < closing) {
+    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    if (cursor >= closing) break;
+    declaration.lastIndex = cursor;
+    const match = declaration.exec(source);
+    requireCondition(match !== null, `Xcode project contains a malformed ${label} declaration`);
+    const valueStart = declaration.lastIndex;
+    let valueEnd = valueStart;
+    let quoted = false;
+    let escaped = false;
+    let parentheses = 0;
+    if (source[valueStart] === "{") {
+      valueEnd = matchingPbxBrace(source, valueStart) + 1;
+    } else {
+      while (valueEnd < closing) {
+        const character = source[valueEnd];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (character === "\\") escaped = true;
+          else if (character === '"') quoted = false;
+        } else if (character === '"') quoted = true;
+        else if (character === "(") parentheses += 1;
+        else if (character === ")") parentheses -= 1;
+        else if (character === ";" && parentheses === 0) break;
+        valueEnd += 1;
+      }
+    }
+    cursor = valueEnd;
+    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    requireCondition(source[cursor] === ";", `Xcode project contains an unterminated ${label} declaration: ${match[1]}`);
+    entries.push({ key: match[1], valueStart, valueEnd: valueEnd - (source[valueStart] === "{" ? 1 : 0), dictionary: source[valueStart] === "{" });
+    cursor += 1;
+  }
+  return entries;
+}
+
+function parsePbxObjects(project) {
+  const source = stripPbxComments(project);
+  const rootOpening = source.search(/\S/u);
+  requireCondition(rootOpening !== -1 && source[rootOpening] === "{", "Xcode project contains no root dictionary");
+  const rootClosing = matchingPbxBrace(source, rootOpening);
+  requireCondition(source.slice(rootClosing + 1).trim() === "", "Xcode project contains data after the root dictionary");
+  const rootEntries = parsePbxDictionaryEntries(source, rootOpening, "root");
+  const objectDictionaries = rootEntries.filter(({ key }) => key === "objects");
+  requireCondition(objectDictionaries.length === 1 && objectDictionaries[0].dictionary, "Xcode project must contain exactly one objects dictionary");
+  const declarations = parsePbxDictionaryEntries(source, objectDictionaries[0].valueStart, "object");
+  requireCondition(declarations.length > 0, "Xcode project contains no parseable objects");
+  const objects = new Map();
+  for (const declaration of declarations) {
+    const id = declaration.key;
+    requireCondition(/^[A-F0-9]{24}$/u.test(id), `Xcode project contains malformed object ID: ${id}`);
+    requireCondition(declaration.dictionary, `Xcode object ${id} is not a dictionary`);
+    requireCondition(!objects.has(id), `Xcode project contains duplicate object ID: ${id}`);
+    objects.set(id, source.slice(declaration.valueStart + 1, declaration.valueEnd));
+  }
+  return objects;
+}
+
+function pbxScalar(body, field, objectId, required = true) {
+  const expression = new RegExp(`(?:^|[;\\n])\\s*${field}\\s*=\\s*(?:\"([^\"]*)\"|([^;,\\n(){}]+))\\s*;`, "gu");
+  const matches = [...body.matchAll(expression)];
+  requireCondition(matches.length <= 1, `Xcode object ${objectId} contains duplicate ${field} fields`);
+  if (required) requireCondition(matches.length === 1, `Xcode object ${objectId} is missing ${field}`);
+  return matches.length === 0 ? null : (matches[0][1] ?? matches[0][2]).trim();
+}
+
+function pbxIdList(body, field, objectId) {
+  const expression = new RegExp(`(?:^|[;\\n])\\s*${field}\\s*=\\s*\\(([\\s\\S]*?)\\)\\s*;`, "gu");
+  const matches = [...body.matchAll(expression)];
+  requireCondition(matches.length === 1, `Xcode object ${objectId} must contain one ${field} list`);
+  const entries = matches[0][1].split(",").map((entry) => entry.trim()).filter(Boolean);
+  requireCondition(entries.every((entry) => /^[A-F0-9]{24}$/u.test(entry)), `Xcode object ${objectId} contains malformed ${field} membership`);
+  return entries;
+}
+
+function verifyAccessibilityUITestPath(project, sourceRoot) {
+  const objects = parsePbxObjects(project);
+  const typed = [...objects].map(([id, body]) => ({ id, body, isa: pbxScalar(body, "isa", id) }));
+  const targets = typed.filter(({ isa, body, id }) => isa === "PBXNativeTarget" && pbxScalar(body, "name", id) === "AppUITests");
+  requireCondition(targets.length === 1, "AppUITests target membership is missing or ambiguous");
+  const target = targets[0];
+  requireCondition(pbxScalar(target.body, "productType", target.id) === "com.apple.product-type.bundle.ui-testing" &&
+    pbxScalar(target.body, "productName", target.id) === "AppUITests", "AppUITests target identity is not UI testing");
+  const productRefId = pbxScalar(target.body, "productReference", target.id);
+  requireCondition(/^[A-F0-9]{24}$/u.test(productRefId), "AppUITests target contains a malformed product reference");
+  const productRef = objects.get(productRefId);
+  requireCondition(productRef !== undefined && pbxScalar(productRef, "isa", productRefId) === "PBXFileReference" &&
+    pbxScalar(productRef, "explicitFileType", productRefId) === "wrapper.cfbundle" &&
+    pbxScalar(productRef, "path", productRefId) === "AppUITests.xctest" &&
+    pbxScalar(productRef, "sourceTree", productRefId) === "BUILT_PRODUCTS_DIR", "AppUITests target product reference is not exact");
+  const phaseIds = pbxIdList(target.body, "buildPhases", target.id);
+  requireCondition(phaseIds.length === 1, "AppUITests target must contain exactly one Sources build phase");
+  const phase = objects.get(phaseIds[0]);
+  requireCondition(phase !== undefined && pbxScalar(phase, "isa", phaseIds[0]) === "PBXSourcesBuildPhase", "AppUITests target build phase is not Sources");
+  const buildFileIds = pbxIdList(phase, "files", phaseIds[0]);
+  requireCondition(buildFileIds.length === 1, "AccessibilityTests.swift must be the exact UI-test Sources phase");
+  const buildFile = objects.get(buildFileIds[0]);
+  requireCondition(buildFile !== undefined && pbxScalar(buildFile, "isa", buildFileIds[0]) === "PBXBuildFile", "AppUITests Sources member is not a PBXBuildFile");
+  const fileRefId = pbxScalar(buildFile, "fileRef", buildFileIds[0]);
+  requireCondition(/^[A-F0-9]{24}$/u.test(fileRefId), "AppUITests build file contains a malformed file reference");
+  const fileRef = objects.get(fileRefId);
+  requireCondition(fileRef !== undefined && pbxScalar(fileRef, "isa", fileRefId) === "PBXFileReference", "AppUITests build file does not resolve to a PBXFileReference");
+  requireCondition(pbxScalar(fileRef, "lastKnownFileType", fileRefId) === "sourcecode.swift", "AppUITests source is not Swift");
+  requireCondition(pbxScalar(fileRef, "sourceTree", fileRefId) === "<group>", "AccessibilityTests.swift file reference has the wrong sourceTree");
+  const filePath = pbxScalar(fileRef, "path", fileRefId);
+  requireCondition(filePath === "AccessibilityTests.swift", "AccessibilityTests.swift UI-test source path chain is not exact");
+
+  const matchingFileRefs = typed.filter(({ isa, body, id }) => isa === "PBXFileReference" &&
+    pbxScalar(body, "path", id, false) === "AccessibilityTests.swift");
+  requireCondition(matchingFileRefs.length === 1 && matchingFileRefs[0].id === fileRefId, "AccessibilityTests.swift PBXFileReference is missing or ambiguous");
+  const parentGroups = typed.filter(({ isa, body, id }) => isa === "PBXGroup" && pbxIdList(body, "children", id).includes(fileRefId));
+  requireCondition(parentGroups.length === 1, "AccessibilityTests.swift group membership is missing or ambiguous");
+  const group = parentGroups[0];
+  requireCondition(pbxScalar(group.body, "name", group.id) === "AppUITests" &&
+    pbxScalar(group.body, "path", group.id) === "../AppUITests" &&
+    pbxScalar(group.body, "sourceTree", group.id) === "<group>",
+  "AccessibilityTests.swift group path chain or sourceTree is not exact");
+  const resolvedSource = resolve(sourceRoot, "ios/App", "../AppUITests", filePath);
+  requireCondition(resolvedSource === resolve(sourceRoot, "ios/AppUITests/AccessibilityTests.swift"), "AccessibilityTests.swift UI-test source path escapes ios/AppUITests");
+  checkedRegularFile(resolvedSource, sourceRoot);
+  return { targetId: target.id, phaseId: phaseIds[0], buildFileId: buildFileIds[0], fileRefId };
+}
+
+export function parseOtoolLibraries(output) {
+  requireCondition(typeof output === "string", "otool output is not text");
+  const libraries = [];
+  let headers = 0;
+  for (const line of output.split("\n")) {
+    if (line.trim().length === 0) continue;
+    if (/^\S.*:\s*$/u.test(line)) {
+      headers += 1;
+      continue;
+    }
+    const dependency = line.match(/^\s+(.+?) \(compatibility version ([0-9]+(?:\.[0-9]+)*), current version ([0-9]+(?:\.[0-9]+)*)(?:, weak)?\)\s*$/u);
+    requireCondition(dependency !== null, `unexpected otool output: ${line}`);
+    const installName = dependency[1];
+    requireCondition(!/\s/u.test(installName), `malformed linked library contains whitespace: ${installName}`);
+    libraries.push(installName);
+  }
+  requireCondition(headers > 0 && libraries.length > 0, "otool returned no architecture headers or linked libraries");
+  return libraries;
 }
 
 function portable(root, path) {
@@ -296,6 +514,8 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "ios-web/room-runtime.js",
     "ios-web/shell.css",
     "ios/App/App.xcodeproj/project.pbxproj",
+    "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme",
+    "ios/AppUITests/AccessibilityTests.swift",
     "ios/App/App/AppDelegate.swift",
     "ios/App/App/SceneDelegate.swift",
     "ios/App/App/ContainedBridgeViewController.swift",
@@ -325,9 +545,13 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "scripts/ios/export-controlled-internal.mjs",
     "scripts/ios/parse-provisioning-profile.py",
     "scripts/ios/provisioning-profile.mjs",
+    "scripts/ios/run-accessibility-ui-tests.mjs",
     "scripts/ios/verify-bundle-internal.mjs",
   ];
   for (const path of required) checkedRegularFile(join(sourceRoot, path), sourceRoot);
+  for (const [path, expected] of REVIEWED_ACCESSIBILITY_SHA256) {
+    requireReviewedBytes(join(sourceRoot, path), sourceRoot, expected, `${path} accessibility evidence`);
+  }
   verifyMigrations(join(sourceRoot, "ios/App/App/Resources/Migrations"), sourceRoot);
 
   const config = readText(join(sourceRoot, "capacitor.config.ts"), sourceRoot);
@@ -374,17 +598,31 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   const project = readText(join(sourceRoot, "ios/App/App.xcodeproj/project.pbxproj"), sourceRoot);
   requireCondition((project.match(/PRODUCT_BUNDLE_IDENTIFIER = net\.greenroomai\.GreenRoom;/gu) ?? []).length === 2, "Xcode target bundle identifier must be exact in Debug and Release");
   const deploymentValues = [...project.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([^;]+);/gu)].map((match) => match[1]);
-  requireCondition(deploymentValues.length === 4 && deploymentValues.every((value) => value === MINIMUM_IOS), "every Xcode deployment target must be exactly 18.6");
+  requireCondition(deploymentValues.length === 6 && deploymentValues.every((value) => value === MINIMUM_IOS), "every Xcode deployment target must be exactly 18.6");
   const familyValues = [...project.matchAll(/TARGETED_DEVICE_FAMILY = ([^;]+);/gu)].map((match) => match[1]);
-  requireCondition(familyValues.length === 2 && familyValues.every((value) => value === "1"), "Xcode target must be iPhone-only");
-  requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 2 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 2, "Swift 6 strict concurrency must be enabled");
-  requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 2, "development team must be exact");
+  requireCondition(familyValues.length === 4 && familyValues.every((value) => value === "1"), "Xcode targets must be iPhone-only");
+  requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 4 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 4, "Swift 6 strict concurrency must be enabled");
+  requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 4, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
   requireCondition((project.match(/CURRENT_PROJECT_VERSION = 2;/gu) ?? []).length === 2, "project build number must be 2 in Debug and Release");
   requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
   requireCondition(!/(?:PBXShellScriptBuildPhase|XCRemoteSwiftPackageReference|OTHER_LDFLAGS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS|\.xcframework\b)/u.test(project), "Xcode project contains an undeclared executable/package/framework hook");
+  const uiTestGraph = verifyAccessibilityUITestPath(project, sourceRoot);
+  requireCondition(
+    uiTestGraph.targetId === "A20600000000000000000006" &&
+      uiTestGraph.phaseId === "A20600000000000000000007" &&
+      uiTestGraph.buildFileId === "A20600000000000000000001" &&
+      uiTestGraph.fileRefId === "A20600000000000000000002",
+    "Xcode accessibility UI-test object identities are not exact",
+  );
+  requireCondition(
+    /A20600000000000000000003 \/\* PBXContainerItemProxy \*\/ = \{[\s\S]*?remoteGlobalIDString = 504EC3031FED79650016851F;[\s\S]*?remoteInfo = App;[\s\S]*?\n\t\t\};/u.test(project) &&
+      /A20600000000000000000008 \/\* PBXTargetDependency \*\/ = \{[\s\S]*?target = 504EC3031FED79650016851F \/\* App \*\/;[\s\S]*?targetProxy = A20600000000000000000003 \/\* PBXContainerItemProxy \*\/;[\s\S]*?\n\t\t\};/u.test(project) &&
+      /TEST_TARGET_NAME = App;/u.test(project),
+    "Xcode accessibility UI-test target is detached from App",
+  );
   const projectFrameworkNames = [...project.matchAll(/\b([A-Z][A-Za-z0-9_.-]+\.framework)\b/gu)].map((match) => match[1]);
   requireCondition(projectFrameworkNames.length === 7 && projectFrameworkNames.every((name) => name === "Security.framework"), "Xcode project framework references must be system Security.framework only");
   requireCondition(/path = System\/Library\/Frameworks\/Security\.framework; sourceTree = SDKROOT;/u.test(project), "Security.framework must resolve only from the iOS SDK");
@@ -399,7 +637,19 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((sourcesPhase.match(/A1600000000000000000000B \/\* GreenRoomProviderPlugin\.swift in Sources \*\//gu) ?? []).length === 1, "GreenRoomProviderPlugin.swift must occur exactly once in the Xcode Sources build phase");
   requireCondition((sourcesPhase.match(/A1600000000000000000000C \/\* NativeLifecycleCoordinator\.swift in Sources \*\//gu) ?? []).length === 1, "NativeLifecycleCoordinator.swift must occur exactly once in the Xcode Sources build phase");
   const declaredSources = [...sourcesPhase.matchAll(/\/\* ([^*]+\.swift) in Sources \*\//gu)].map((match) => match[1]).sort();
-  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "GreenRoomProviderPlugin.swift", "NativeLifecycleCoordinator.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+  requireCondition(JSON.stringify(declaredSources) === JSON.stringify(["AccessibilityTests.swift", "AppDelegate.swift", "ApprovedProviderDefinitions.swift", "ContainedBridgeViewController.swift", "DeviceCredentialAcceptance.swift", "GreenRoomCredentialLifecycle.swift", "GreenRoomCredentialPlugin.swift", "GreenRoomDatabasePlugin.swift", "GreenRoomProviderPlugin.swift", "NativeLifecycleCoordinator.swift", "SceneDelegate.swift", "SecurityCredentialStore.swift"]), "declared Swift Sources build phase inventory is not exact");
+
+  const scheme = readText(join(sourceRoot, "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme"), sourceRoot);
+  const testAction = scheme.match(/<TestAction\b[\s\S]*?<\/TestAction>/u)?.[0] ?? "";
+  const testableReferences = [...testAction.matchAll(/<TestableReference\s+skipped="([^"]+)">([\s\S]*?)<\/TestableReference>/gu)];
+  requireCondition(testableReferences.length === 1 && testableReferences[0][1] === "NO", "App.xcscheme AppUITests testable must not be skipped");
+  const exactUITestReference = /<BuildableReference\s+BuildableIdentifier="primary"\s+BlueprintIdentifier="A20600000000000000000006"\s+BuildableName="AppUITests\.xctest"\s+BlueprintName="AppUITests"\s+ReferencedContainer="container:App\.xcodeproj"\s*\/>/u;
+  requireCondition(exactUITestReference.test(testableReferences[0]?.[2] ?? ""), "App.xcscheme must include the exact AppUITests target");
+  const buildAction = scheme.match(/<BuildAction\b[\s\S]*?<\/BuildAction>/u)?.[0] ?? "";
+  requireCondition(
+    /<BuildActionEntry\s+buildForTesting="YES"\s+buildForRunning="NO"\s+buildForProfiling="NO"\s+buildForArchiving="NO"\s+buildForAnalyzing="NO">\s*<BuildableReference\s+BuildableIdentifier="primary"\s+BlueprintIdentifier="A20600000000000000000006"\s+BuildableName="AppUITests\.xctest"\s+BlueprintName="AppUITests"\s+ReferencedContainer="container:App\.xcodeproj"\s*\/>\s*<\/BuildActionEntry>/u.test(buildAction),
+    "App.xcscheme must build the exact AppUITests target for testing",
+  );
 
   const acceptance = readText(join(sourceRoot, "ios/App/App/Credentials/DeviceCredentialAcceptance.swift"), sourceRoot);
   requireCondition(acceptance.startsWith("#if DEBUG\n") && acceptance.trimEnd().endsWith("#endif"), "device credential acceptance source must be wholly Debug-only");
@@ -535,11 +785,11 @@ export function verifyBuiltAppCore(appPath) {
     requireCondition(!DYNAMIC_UPDATE_PATTERN.test(text), `dynamic-update marker found in built resource: ${relativePath}`);
   }
 
-  const libraries = execFileSync("/usr/bin/otool", ["-L", executable], {
+  const libraries = parseOtoolLibraries(execFileSync("/usr/bin/otool", ["-L", executable], {
     encoding: "utf8",
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
     maxBuffer: 2 * 1024 * 1024,
-  }).split("\n").slice(1).map((line) => line.trim().split(/\s+/u)[0]).filter(Boolean);
+  }));
   for (const library of libraries) {
     requireCondition(library.startsWith("/System/Library/") || library.startsWith("/usr/lib/") || library === "@rpath/Capacitor.framework/Capacitor" || library === "@rpath/Cordova.framework/Cordova", `undeclared linked library: ${library}`);
   }
@@ -599,7 +849,23 @@ export function verifyReleaseAcceptanceBoundaryCore(appPath) {
     maxBuffer: 16 * 1024 * 1024,
   });
   for (const marker of DEBUG_ACCEPTANCE_MARKERS) {
-    requireCondition(!strings.includes(marker), "Debug credential acceptance marker is present in Release executable");
+    requireCondition(!strings.includes(marker), "Debug acceptance marker is present in Release executable");
   }
   return { ...built, debugCredentialAcceptance: false };
+}
+
+export function verifyDebugSimulatorAcceptanceBoundaryCore(appPath) {
+  const built = verifyBuiltAppCore(appPath);
+  const appRoot = resolve(appPath);
+  const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
+  const executable = join(appRoot, info.CFBundleExecutable);
+  const strings = execFileSync("/usr/bin/xcrun", ["strings", "-a", executable], {
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  for (const marker of SIMULATOR_DIRECTOR_ACCEPTANCE_MARKERS) {
+    requireCondition(strings.includes(marker), `Debug simulator director acceptance marker is missing: ${marker}`);
+  }
+  return { ...built, simulatorDirectorAcceptance: true };
 }

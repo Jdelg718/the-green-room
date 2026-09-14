@@ -214,6 +214,7 @@ class MemoryPlugin {
 }
 
 class FakeElement {
+  readonly attributes = new Map<string, string>();
   className = "";
   dataset: Record<string, string> = {};
   disabled = false;
@@ -226,7 +227,11 @@ class FakeElement {
   readonly listeners = new Map<string, Array<(...arguments_: any[]) => any>>();
   append(...children: FakeElement[]) { this.children.push(...children); }
   replaceChildren(...children: FakeElement[]) { this.children.splice(0, this.children.length, ...children); }
-  setAttribute(name: string, value: string) { if (name.startsWith("data-")) this.dataset[name.slice(5)] = value; }
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+    if (name.startsWith("data-")) this.dataset[name.slice(5)] = value;
+  }
+  removeAttribute(name: string) { this.attributes.delete(name); }
   classList = { toggle() {} };
   focus() {}
   addEventListener(name: string, listener: (...arguments_: any[]) => any) {
@@ -367,6 +372,13 @@ test("picker cards and room roster render trusted images with monogram failure f
   const { api, created, plugin } = await createdRoom(["ada-lovelace"]);
   api.pickerController(plugin, uuids());
   const pickerPortrait = get("persona-grid").children[0]!.children[0]!;
+  const pickerCard = get("persona-grid").children[0]!;
+  const stableName = pickerCard.attributes.get("aria-label");
+  assert.match(stableName ?? "", /^Ada Lovelace, historical interpretation$/u);
+  assert.equal(pickerCard.attributes.get("aria-pressed"), "false");
+  await pickerCard.dispatch("click");
+  assert.equal(pickerCard.attributes.get("aria-label"), stableName, "selected state changed the accessible name");
+  assert.equal(pickerCard.attributes.get("aria-pressed"), "true");
   const pickerFallback = pickerPortrait.children[0]!;
   const pickerImage = pickerPortrait.children[1]! as FakeElement & { alt: string; src: string };
   assert.equal(pickerPortrait.className, "persona-portrait portrait-card");
@@ -396,17 +408,11 @@ test("one-to-three unique cast remains enforced", async () => {
 test("directed-message selector is labeled, cast-bound, accessible, and mobile-contained", async () => {
   const html = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
   const css = readFileSync(join(ROOT, "ios-web/shell.css"), "utf8");
-  assert.match(html, /<label for="message-target">To<\/label>\s*<select id="message-target">\s*<option value="">Anyone — director chooses<\/option>/u);
-  assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 2\.75rem;/u);
-  assert.match(css, /\.composer-target select:focus \{[^}]*outline:/u);
+  assert.match(html, /<label for="message-target">To<\/label>\s*<select id="message-target"[^>]*aria-label="Message recipient"[^>]*>\s*<option value="">Anyone — director chooses<\/option>/u);
+  assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 3\.5rem;/u);
+  assert.match(css, /select:focus-visible[^}]*\{[^}]*outline:/u);
   assert.ok(css.includes("@media (max-width: 23rem)"));
   assert.ok(css.includes(".composer-target { grid-template-columns: minmax(0, 1fr); }"));
-  for (const viewportWidth of [320, 375, 390]) {
-    const mainContentWidth = viewportWidth - 32;
-    const selectContentWidth = mainContentWidth - 6 - 32;
-    assert.ok(selectContentWidth > 0 && selectContentWidth <= viewportWidth, `selector escapes ${viewportWidth}px viewport`);
-  }
-
   const { get } = fakeRoomDocument();
   const { api, created } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
   api.refreshMessageTarget(created.room);
@@ -437,6 +443,48 @@ test("directed-message selector is labeled, cast-bound, accessible, and mobile-c
 
 
 
+test("external TestFlight accessibility contract has named controls, one-shot transcript announcements, and focus destinations", async () => {
+  const html = readFileSync(join(ROOT, "ios-web/index.html"), "utf8");
+  const css = readFileSync(join(ROOT, "ios-web/shell.css"), "utf8");
+  const source = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
+
+  assert.doesNotMatch(html, /id="transcript"[^>]*aria-live/u, "the whole transcript must not be a live region");
+  assert.match(html, /id="transcript-announcer"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u);
+  assert.match(html, /id="room-title"[^>]*tabindex="-1"/u);
+  for (const id of [
+    "rooms-button", "provider-button", "message-target", "message-text", "send-line", "new-room",
+    "cancel-picker", "create-room", "rooms-cancel", "rooms-new", "provider-cancel", "provider-save",
+  ]) assert.match(html, new RegExp(`id="${id}"[^>]*(?:aria-label|aria-labelledby)`, "u"), `${id} has no stable accessible name`);
+
+  assert.match(css, /\.header-button \{[^}]*min-height: 2\.75rem/u);
+  assert.match(css, /button,\s*select,\s*input \{[^}]*min-height: 2\.75rem/u);
+  assert.match(css, /--red: #a62a1b/u);
+  assert.match(css, /@media \(prefers-contrast: more\)/u);
+  assert.match(css, /\.persona-card\[aria-pressed="true"\]::after/u);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation-duration/u);
+  assert.match(css, /overflow-x: clip/u);
+  assert.match(source, /function rememberReturnFocus/u);
+  assert.match(source, /room-title"\)\.focus\(\)/u);
+  assert.match(source, /eventAnnouncement/u);
+  assert.match(source, /retry\.hidden = !retryVisible;\s*retry\.disabled = !retryVisible;[\s\S]*retry\.setAttribute\("aria-hidden", "true"\)/u);
+  assert.match(source, /abandon\.hidden = !abandonVisible;\s*abandon\.disabled = !abandonVisible;[\s\S]*abandon\.setAttribute\("aria-hidden", "true"\)/u);
+});
+
+test("transcript rendering announces only a newly appended event once", async () => {
+  const { renderEvents } = await runtime(`announcement-${Date.now()}`);
+  const { documentRoot, get } = fakeRoomDocument();
+  const room = { id: "room-local-default", participants: [{ id: "human", kind: "human", displayName: "You" }] };
+  const first = { sequence: 1, event: { participantId: "human", text: "Opening line", type: "human_message" } };
+  const second = { sequence: 2, event: { participantId: "human", text: "Next line", type: "human_message" } };
+
+  renderEvents([first], documentRoot, room);
+  assert.equal(get("transcript-announcer").textContent, "", "opening an existing room announced its full history");
+  renderEvents([first, second], documentRoot, room);
+  assert.match(get("transcript-announcer").textContent, /New transcript entry 2[.:] You[.:] Next line/u);
+  renderEvents([first, second], documentRoot, room);
+  assert.equal(get("transcript-announcer").textContent, "", "the same event was announced twice");
+});
+
 test("rendering uses text APIs for human, selected-speaker, and silence events", async () => {
   const { renderEvents } = await runtime();
   class Element {
@@ -446,6 +494,7 @@ test("rendering uses text APIs for human, selected-speaker, and silence events",
     children: Element[] = [];
     append(...children: Element[]) { this.children.push(...children); }
     replaceChildren(...children: Element[]) { this.children = children; }
+    setAttribute(_name: string, _value: string) {}
   }
   const transcript = new Element();
   const empty = new Element();

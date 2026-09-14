@@ -1,0 +1,40 @@
+# iPhone accessibility baseline matrix
+
+This matrix records the automated accessibility evidence for the issue [#206](https://github.com/Jdelg718/the-green-room/issues/206) baseline. It does **not** claim that a person has completed physical-device assistive-technology acceptance, and it does not authorize an archive, upload, external TestFlight group, public link, Beta App Review, App Store submission, or deployment.
+
+## Automated evidence
+
+| Surface or behavior | Automated evidence | Result |
+| --- | --- | --- |
+| First-launch character picker | `AppUITests/AccessibilityTests.testFirstLaunchPickerAndActiveRoomAccessibility` launches a clean app, waits for the picker, runs `XCUIApplication.performAccessibilityAudit`, verifies the Ada Lovelace card keeps one accessible name while its pressed value changes, and creates a room. | PASS on iPhone 16e and iPhone 16 Pro Max simulators, iOS 18.6. |
+| Accessible names and state | XCUITest resolves the picker by the exact stable name `Ada Lovelace, historical interpretation`, asserts that label is unchanged after selection, and separately checks the unselected/selected value. The rendered Chromium harness repeats the name/state behavior against the actual `ios-web` assets. | Automated regression. Physical VoiceOver wording remains a manual gate below. |
+| Automated accessibility audit and hit regions | XCUITest runs the system audit excluding `.hitRegion`, whose WKWebView findings are replaced by an explicit allowlist check: every expected visible active-room control must exist, be enabled when expected, be hittable, be wholly onscreen, and measure at least 44 × 44 points. Retry and abandon controls are explicitly required to be absent from the accessibility tree while hidden. | PASS on both iOS 18.6 simulator targets; the exclusion is not treated as blanket evidence. |
+| Cancellation and focus | XCUITest executes the visible Rooms Back, Provider Cancel, and picker Cancel controls, then waits for keyboard focus to return to the exact invoking control. XCTest on the iOS 18.6 simulator did not reliably deliver `XCUIApplication.typeKey(.escape)` into the focused `WKWebView`, so no simulator Escape PASS is claimed. The rendered Chromium harness executes actual DOM Escape cancellation for Rooms and the picker against the bundled runtime, plus Provider Cancel, with a deterministic mocked native boundary. | PASS for browser-executed Escape and XCUITest visible-control regressions. Physical hardware-keyboard Escape, VoiceOver, and Switch Control behavior remain manual gates. |
+| Active-room composer and orientation | XCUITest opens the software keyboard, requires recipient and send controls to remain hittable, rotates to landscape, repeats the reachability checks, and reruns the system audit. | PASS on iPhone 16e and iPhone 16 Pro Max simulators, iOS 18.6. |
+| Rendered narrow geometry | The serial Chromium geometry harness loads the actual `ios-web` HTML/CSS/JavaScript with a deterministic in-memory native boundary. At 320, 375, and 390 CSS-pixel widths in portrait and constrained-height landscape/keyboard stress, it measures the page, composer, header actions, recipient, message field, send, and new-room controls for horizontal overflow, clipping, obstruction, reachability, and 44-pixel minimum geometry. | PASS at all six width/orientation combinations. |
+| Transcript announcements | The rendered browser and focused contract harnesses call the actual incremental renderer: initial room history is silent, one appended event changes the polite atomic announcer, rerendering the same sequence clears rather than repeats it, and the next appended event produces the next announcement. The XCUITest deterministic director fixture separately verifies the ordered human/director/persona transcript content. | PASS for automated DOM/native-shell regression. Spoken VoiceOver timing remains a manual gate below. |
+| Contrast, reduced motion, Dynamic Type, and non-color state | CSS contracts retain visible focus, higher-contrast error styling, increased-contrast/forced-color rules, reduced-motion rules, and a text/checkmark selected-state cue. OS accessibility preference combinations and largest Dynamic Type categories are not reliably automated by this suite and remain manual gates below. | Source/rendered regression only; no automated assistive-technology PASS is claimed. |
+| Source and built-bundle identity | `npm run ios:verify-bundle` requires reviewed SHA-256 identities for `AccessibilityTests.swift`, the shared `App.xcscheme`, and the accessibility runner; it also semantically verifies the exact UI-test target, source phase, App dependency, build-for-testing entry, and unskipped scheme testable. Delete, mutation, wrong-target, missing-source-phase, and skipped-testable adversarial tests fail closed. | PASS in `npm run ios:test`, which rebuilt the Debug simulator app before verifying source and bundle. |
+
+Canonical simulator command:
+
+```sh
+PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin npm run ios:test-accessibility
+```
+
+The two simulator passes are useful regression evidence, not substitutes for physical assistive-technology use.
+
+## Remaining manual physical-device gates
+
+Every row below is **NOT RUN / HUMAN GATE** until Kent records a physical-device result against the exact candidate build. Do not convert automated evidence into a manual PASS.
+
+| Manual technology or configuration | Required physical check | Current state |
+| --- | --- | --- |
+| VoiceOver | On the intended iPhone, complete first-launch picker selection and room creation; verify control names, selected/unselected values and traits, logical swipe order, active-room focus, recipient/text/send reachability, and return focus after Rooms, Provider, and picker cancellation. Add transcript entries and confirm each new entry is spoken once in sequence without replaying existing history or emitting stale statuses; verify polite statuses and errors do not conceal urgent errors. | NOT RUN / HUMAN GATE |
+| Voice Control | Display names/numbers, speak the visible control names for picker, room, provider, recipient, message, and send actions, and confirm each target is unique and activatable without touch. Check portrait and landscape. | NOT RUN / HUMAN GATE |
+| Switch Control | Scan the first-launch picker and active room; verify logical scan order, unique reachable controls, selected-state feedback, activation, cancellation/back behavior, composer reachability with the keyboard present, and no focus trap. | NOT RUN / HUMAN GATE |
+| Dynamic Type | At every supported content-size category, including the largest accessibility sizes, check first launch, picker cards, saved rooms, provider setup, transcript, status/error text, and composer in portrait and landscape. At 320, 375, and 390 CSS-pixel widths, confirm no horizontal scrolling, clipped text, overlap, or hidden recipient/send action. | NOT RUN / HUMAN GATE |
+| Hardware and software keyboard | With a physical keyboard, verify Tab/Shift-Tab order, visible focus, Space/Return activation, picker selection, text entry, and Escape cancellation with focus restored to the invoking control. With the software keyboard, verify recipient and send remain reachable in portrait and landscape and that dismissal does not lose focus. | NOT RUN / HUMAN GATE |
+| Increase Contrast / Differentiate Without Color / Reduce Motion | Enable each iOS setting independently and together. Confirm error/status legibility, selected-state text/checkmark plus control value, visible focus, usable forced/high-contrast rendering, and absence of unnecessary motion. | NOT RUN / HUMAN GATE |
+
+Record device model, iOS version, exact build/commit, setting combination, result, and only non-secret evidence. Never record provider keys, Apple sessions, device identifiers, transcripts, or raw diagnostics.

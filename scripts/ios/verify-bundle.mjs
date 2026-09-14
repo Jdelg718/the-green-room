@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   verifyBuiltAppCore,
+  verifyDebugSimulatorAcceptanceBoundaryCore,
   verifyReleaseAcceptanceBoundaryCore,
   verifySignedDeviceAppCore,
   verifySourceCore,
@@ -50,8 +51,13 @@ export function verifyReleaseAcceptanceBoundary(appPath) {
   return verifyReleaseAcceptanceBoundaryCore(appPath);
 }
 
+export function verifyDebugSimulatorAcceptanceBoundary(appPath) {
+  requireCondition(process.platform === "darwin", "built .app verification requires trusted Apple plutil on Darwin");
+  return verifyDebugSimulatorAcceptanceBoundaryCore(appPath);
+}
+
 function usage() {
-  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app | --signed-device-app path/to/App.app | --release-acceptance-boundary path/to/App.app");
+  console.error("usage: node scripts/ios/verify-bundle.mjs --source [root] | --app path/to/App.app | --signed-device-app path/to/App.app | --debug-simulator-acceptance-boundary path/to/App.app | --release-acceptance-boundary path/to/App.app");
   process.exit(64);
 }
 
@@ -62,6 +68,7 @@ if (invoked) {
     if (process.argv[2] === "--source") result = verifySource(process.argv[3] ?? process.cwd());
     else if (process.argv[2] === "--app" && process.argv[3]) result = verifyBuiltApp(process.argv[3]);
     else if (process.argv[2] === "--signed-device-app" && process.argv[3]) result = verifySignedDeviceApp(process.argv[3]);
+    else if (process.argv[2] === "--debug-simulator-acceptance-boundary" && process.argv[3]) result = verifyDebugSimulatorAcceptanceBoundary(process.argv[3]);
     else if (process.argv[2] === "--release-acceptance-boundary" && process.argv[3]) result = verifyReleaseAcceptanceBoundary(process.argv[3]);
     else usage();
     console.log(JSON.stringify({ status: "PASS", ...result }, null, 2));

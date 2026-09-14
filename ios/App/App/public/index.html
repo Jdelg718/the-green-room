@@ -12,10 +12,10 @@
 <body>
   <div class="topline" aria-hidden="true"></div>
   <header class="masthead">
-    <div class="mark" aria-hidden="true">GR//</div>
+    <div class="mark" role="img" aria-label="Green Room logo">GR//</div>
     <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
-    <button id="rooms-button" class="header-button" type="button">Rooms</button>
-    <button id="provider-button" class="header-button" type="button">Provider</button>
+    <button id="rooms-button" class="header-button" type="button" aria-label="Open saved rooms">Rooms</button>
+    <button id="provider-button" class="header-button" type="button" aria-label="Open provider settings">Provider</button>
   </header>
 
   <main>
@@ -23,34 +23,35 @@
 
     <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
       <div class="eyebrow">Room open · local authority</div>
-      <h1 id="room-title">The Green Room</h1>
+      <h1 id="room-title" tabindex="-1">The Green Room</h1>
       <p id="room-state" class="lede" role="status" aria-live="polite">Opening saved room…</p>
       <div class="section-heading"><p>Call board</p><h2>On deck</h2></div>
       <ul id="room-cast" class="room-cast" aria-label="Selected characters"></ul>
       <section class="transcript-panel" aria-labelledby="transcript-title">
         <div class="section-heading"><p>Ordered events</p><h2 id="transcript-title">Transcript</h2></div>
         <p id="empty-transcript" class="empty-transcript">The room is quiet. Set the first cue.</p>
-        <ol id="transcript" class="transcript" aria-live="polite"></ol>
+        <ol id="transcript" class="transcript" aria-label="Ordered room transcript"></ol>
+        <p id="transcript-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
       </section>
       <form id="message-form" class="composer">
         <div class="composer-target">
           <label for="message-target">To</label>
-          <select id="message-target">
+          <select id="message-target" aria-label="Message recipient">
             <option value="">Anyone — director chooses</option>
           </select>
         </div>
         <label for="message-text">Your line</label>
-        <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" required></textarea>
-        <button id="send-line" class="button" type="submit">Send atomic turn</button>
+        <textarea id="message-text" rows="3" maxlength="16384" placeholder="Say something to the room…" aria-label="Your line" required></textarea>
+        <button id="send-line" class="button" type="submit" aria-label="Send atomic turn">Send atomic turn</button>
         <p id="reply-pending" class="reply-pending" role="status" aria-live="polite" hidden>Character …</p>
         <p id="reply-error" class="reply-error" role="alert" hidden>Reply failed.</p>
-        <button id="retry-reply" class="button button-paper" type="button" hidden>Retry exact command</button>
-        <button id="abandon-reply" class="button button-paper" type="button" hidden>Abandon</button>
+        <button id="retry-reply" class="button button-paper" type="button" aria-label="Retry exact command" aria-hidden="true" disabled hidden>Retry exact command</button>
+        <button id="abandon-reply" class="button button-paper" type="button" aria-label="Abandon exact command" aria-hidden="true" disabled hidden>Abandon</button>
         <p class="boundary">Draft status: <strong>Not sent</strong>. Interrupted requests are never retried automatically. Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.</p>
         <p id="message-status" class="message-status" role="status" aria-live="polite">Ready. Lines and replies save locally.</p>
       </form>
       <div class="room-actions">
-        <button id="new-room" class="button" type="button">Create another room</button>
+        <button id="new-room" class="button" type="button" aria-label="Create another room">Create another room</button>
       </div>
       <p class="boundary"><strong>Private rehearsal.</strong> Rooms and non-secret provider choices live on this iPhone. A selected provider receives bounded persona and transcript context; credentials stay in this iPhone’s Keychain.</p>
     </section>
@@ -63,8 +64,8 @@
       <div class="picker-bar">
         <p id="selection-count" role="status" aria-live="polite">0 of 3 selected</p>
         <div>
-          <button id="cancel-picker" class="button button-paper" type="button">Cancel</button>
-          <button id="create-room" class="button" type="button" disabled>Create room</button>
+          <button id="cancel-picker" class="button button-paper" type="button" aria-label="Cancel character picker" aria-hidden="true" disabled hidden>Cancel</button>
+          <button id="create-room" class="button" type="button" aria-label="Create room with selected characters" disabled>Create room</button>
         </div>
       </div>
       <p id="picker-status" class="picker-status" role="status" aria-live="polite"></p>
@@ -76,8 +77,8 @@
       <h1 id="rooms-title" tabindex="-1">Rooms</h1>
       <p class="lede">Most recently active rooms appear first.</p>
       <div class="picker-bar">
-        <button id="rooms-cancel" class="button button-paper" type="button">Cancel</button>
-        <button id="rooms-new" class="button" type="button">New room</button>
+        <button id="rooms-cancel" class="button button-paper" type="button" aria-label="Close saved rooms" aria-hidden="true">Cancel</button>
+        <button id="rooms-new" class="button" type="button" aria-label="Create a new room">New room</button>
       </div>
       <p id="rooms-status" class="picker-status" role="status" aria-live="polite"></p>
       <div id="room-list" class="room-list"></div>
@@ -89,7 +90,7 @@
       <p class="lede">Choose one approved provider and its exact model ID. Credential entry opens in a native Keychain sheet.</p>
       <form id="provider-form" class="setup-form">
         <label for="provider-id">Provider</label>
-        <select id="provider-id" required>
+        <select id="provider-id" aria-label="Provider" required>
           <option value="openrouter">OpenRouter</option>
           <option value="openai" selected>OpenAI (recommended)</option>
           <option value="xai">xAI</option>
@@ -97,11 +98,11 @@
           <option value="together">Together</option>
         </select>
         <label for="provider-model">Model ID</label>
-        <input id="provider-model" type="text" value="gpt-4.1-mini" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+        <input id="provider-model" type="text" value="gpt-4.1-mini" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Provider model ID" required>
         <p class="setup-help">Recommended starting point: OpenAI with gpt-4.1-mini. You can edit the model ID, and any saved provider and model remain your selection.</p>
         <div class="setup-actions">
-          <button id="provider-cancel" class="button button-paper" type="button">Cancel</button>
-          <button id="provider-save" class="button" type="submit">Save credential</button>
+          <button id="provider-cancel" class="button button-paper" type="button" aria-label="Close provider settings" aria-hidden="true">Cancel</button>
+          <button id="provider-save" class="button" type="submit" aria-label="Save provider credential">Save credential</button>
         </div>
         <p id="provider-status" class="picker-status" role="status" aria-live="polite"></p>
       </form>
