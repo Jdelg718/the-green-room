@@ -72,6 +72,51 @@ class StaticPolicyTests(unittest.TestCase):
                     "unique visible semantic Privacy link",
                 )
 
+    def test_privacy_navigation_rejects_case_and_unicode_normalized_visible_decoys(
+        self,
+    ) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        decoys = {
+            "uppercase": '<a href="/docs/">PRIVACY</a>',
+            "lowercase": '<a href="/docs/">privacy</a>',
+            "entity and whitespace normalized": '<a href="/docs/">  P&#82;IVACY&#x20;</a>',
+            "zero-width entity normalized": '<a href="/docs/">Pri&#x200B;vacy</a>',
+            "Unicode compatibility normalized": '<a href="/docs/">Ｐｒｉｖａｃｙ</a>',
+        }
+        for label, decoy in decoys.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                site = Path(temporary) / "site"
+                shutil.copytree(validate.SITE, site)
+                page = site / "index.html"
+                source = page.read_text(encoding="utf-8")
+                self.assertEqual(source.count(exact_link), 1)
+                page.write_text(
+                    source.replace(exact_link, exact_link + decoy, 1),
+                    encoding="utf-8",
+                )
+                self.assert_rejected(
+                    validate.collect_errors(site),
+                    "unique visible semantic Privacy link",
+                )
+
+    def test_privacy_navigation_does_not_misclassify_related_link_labels(self) -> None:
+        exact_link = '<a href="/privacy/">Privacy</a>'
+        related_links = (
+            '<a href="/docs/">Privacy policy guide</a>'
+            '<a href="/docs/">privacy-first documentation</a>'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            shutil.copytree(validate.SITE, site)
+            page = site / "index.html"
+            source = page.read_text(encoding="utf-8")
+            self.assertEqual(source.count(exact_link), 1)
+            page.write_text(
+                source.replace(exact_link, exact_link + related_links, 1),
+                encoding="utf-8",
+            )
+            self.assertEqual(validate.collect_errors(site), [])
+
     def test_privacy_navigation_rejects_duplicates_concealment_and_accessible_name_tricks(self) -> None:
         exact_link = '<a href="/privacy/">Privacy</a>'
         mutations = {

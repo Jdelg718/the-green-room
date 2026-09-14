@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
+import unicodedata
+
 # The SVG gate rejects declarations/entities before parsing repository-controlled assets.
 import xml.etree.ElementTree as ET  # nosec B405
 from html.parser import HTMLParser
@@ -783,6 +785,16 @@ def normalized_accessible_name(parser: PageParser, index: int) -> str:
     return " ".join(" ".join(parts).split())
 
 
+def normalized_navigation_label(label: str) -> str:
+    normalized = unicodedata.normalize("NFKC", label).casefold()
+    visible_text = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Cf"
+    )
+    return " ".join(visible_text.split())
+
+
 def validate_privacy_navigation(relative: str, parser: PageParser, errors: list[str]) -> None:
     candidates: list[int] = []
     for index, element in scoped_elements(parser, "a"):
@@ -792,9 +804,9 @@ def validate_privacy_navigation(relative: str, parser: PageParser, errors: list[
         accessible_label = normalized_accessible_name(parser, index)
         if (
             attrs.get("href") == "/privacy/"
-            or raw_label == "Privacy"
-            or visible_label == "Privacy"
-            or accessible_label == "Privacy"
+            or normalized_navigation_label(raw_label) == "privacy"
+            or normalized_navigation_label(visible_label) == "privacy"
+            or normalized_navigation_label(accessible_label) == "privacy"
         ):
             candidates.append(index)
 
