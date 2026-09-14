@@ -38,6 +38,29 @@ let renderedTranscriptRoomId = null;
 let renderedTranscriptSequence = 0;
 let privacyReturnView = null;
 
+export function operationLatch(onChange = () => {}) {
+  let current = null;
+  return Object.freeze({
+    active: () => current !== null,
+    begin() {
+      if (current !== null) return null;
+      current = Object.freeze({});
+      onChange();
+      return current;
+    },
+    end(operation) {
+      if (current !== operation) return false;
+      current = null;
+      onChange();
+      return true;
+    },
+  });
+}
+
+const providerSaveLatch = operationLatch(() => {
+  if (typeof document !== "undefined") renderCommandAndMutationState();
+});
+
 export const UNCERTAIN_REQUEST_WARNING = "Reply interrupted. Nothing was added to the room. The provider may already have processed this request and may charge again if you retry.";
 
 function encodedBytes(value) {
@@ -123,6 +146,7 @@ export function providerConsentEditor(documentRoot = document) {
   const consent = documentRoot.getElementById("provider-consent");
   const disclosure = documentRoot.getElementById("provider-disclosure");
   const recommendation = documentRoot.getElementById("provider-recommendation");
+  const status = documentRoot.getElementById("provider-status");
   const options = IPHONE_PROVIDER_DATA_USE.map((definition) => {
     const option = documentRoot.createElement("option");
     option.value = definition.providerId;
@@ -141,8 +165,13 @@ export function providerConsentEditor(documentRoot = document) {
     const selected = providerDisclosure(providerId);
     disclosure.textContent = `${selected.displayName} sends requests directly over HTTPS to ${selected.hostname}. Green Room sends the prompt, recent room messages, selected character instructions, model ID, and generation settings. ${selected.displayName} may retain content under its own terms. Green Room operates no account, analytics collector, model proxy, transcript service, or relay.`;
   }
-  provider.addEventListener("change", () => { reset(); render(); });
-  model.addEventListener("input", reset);
+  function requireEditedConsent() {
+    reset();
+    status.textContent = `Consent required for ${providerDisclosure(provider.value).displayName} and model “${model.value}”.`;
+  }
+  provider.addEventListener("change", () => { render(); requireEditedConsent(); });
+  model.addEventListener("input", requireEditedConsent);
+  model.addEventListener("change", requireEditedConsent);
   consent.addEventListener("change", () => consent.setAttribute("aria-checked", String(consent.checked)));
   reset();
   render();
@@ -1062,7 +1091,12 @@ function renderCommandAndMutationState() {
   for (const id of ["create-room", "rooms-new", "provider-save"]) {
     const control = document.getElementById(id);
     if (control) control.disabled = !(id === "provider-save" ? availability.providerSave : availability.createRoom) ||
-      (id === "create-room" && control.dataset.selectionReady !== "true");
+      (id === "create-room" && control.dataset.selectionReady !== "true") ||
+      (id === "provider-save" && providerSaveLatch.active());
+  }
+  for (const id of ["provider-id", "provider-model", "provider-consent"]) {
+    const control = document.getElementById(id);
+    if (control) control.disabled = providerSaveLatch.active();
   }
 }
 
@@ -1352,6 +1386,35 @@ export async function abandonActiveGeneration(database) {
   document.getElementById("message-status").textContent = "Not sent";
 }
 
+export function bindProviderSetupForm(database, credential, lifecycle, editor = providerEditor, documentRoot = document) {
+  documentRoot.getElementById("provider-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const operation = providerSaveLatch.begin();
+    if (operation === null) return;
+    const status = documentRoot.getElementById("provider-status");
+    const providerId = documentRoot.getElementById("provider-id").value;
+    const model = documentRoot.getElementById("provider-model").value;
+    const accepted = documentRoot.getElementById("provider-consent").checked;
+    try {
+      if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
+        throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
+      }
+      if (accepted !== true) throw new TypeError("Provider data-use consent is required.");
+      status.textContent = "Recording provider consent…";
+      await requireReadyMutation(database, lifecycle, undefined, false);
+      await saveProviderSetup(database, credential, providerId, model, accepted);
+      editor?.reset();
+      status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
+      if (activeRoom !== null) await reopenAuthoritativeRoom(database);
+    } catch (error) {
+      status.textContent = providerSetupFailureMessage(error);
+    } finally {
+      await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
+      providerSaveLatch.end(operation);
+    }
+  });
+}
+
 async function boot() {
   providerEditor = providerConsentEditor();
   bindPrivacyNavigation();
@@ -1383,31 +1446,7 @@ async function boot() {
         else if (!await reopenAuthoritativeRoom(database)) document.getElementById("boot-error").hidden = false;
       });
     }
-    document.getElementById("provider-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const save = document.getElementById("provider-save");
-      const status = document.getElementById("provider-status");
-      const providerId = document.getElementById("provider-id").value;
-      const model = document.getElementById("provider-model").value;
-      const accepted = document.getElementById("provider-consent").checked;
-      save.disabled = true;
-      try {
-        if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {
-          throw new TypeError("Choose an approved provider and enter a plain-text model ID without spaces.");
-        }
-        if (accepted !== true) throw new TypeError("Provider data-use consent is required.");
-        status.textContent = "Recording provider consent…";
-        await requireReadyMutation(database, lifecycle, undefined, false);
-        await saveProviderSetup(database, credential, providerId, model, accepted);
-        providerEditor?.reset();
-        status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
-        if (activeRoom !== null) await reopenAuthoritativeRoom(database);
-      } catch (error) {
-        status.textContent = providerSetupFailureMessage(error);
-      } finally {
-        await refreshMutationGate(database, lifecycle).catch(() => {});
-      }
-    });
+    bindProviderSetupForm(database, credential, lifecycle);
 
     document.getElementById("retry-reply").addEventListener("click", async () => {
       await retryActiveGeneration(database, provider, lifecycle);

@@ -48,6 +48,8 @@ async function runtime(cacheKey = ""): Promise<{
   readProviderDataUseConsent(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
   providerDisclosure(providerId: string): Record<string, any>;
   providerConsentEditor(documentRoot?: any): { reset(): void; render(providerId: string): void };
+  bindProviderSetupForm(database: object, credential: object, lifecycle: object, editor?: { reset(): void; render(providerId: string): void }, documentRoot?: any): void;
+  operationLatch(onChange?: () => void): { active(): boolean; begin(): object | null; end(operation: object): boolean };
   readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
   providerSetupDefaults(): { providerId: string; model: string };
   providerSetupFailureMessage(failure: unknown): string;
@@ -701,14 +703,111 @@ test("provider consent starts unchecked and every provider/model edit resets wit
   get("provider-id").value = "groq";
   await get("provider-id").dispatch("change");
   assert.equal(get("provider-consent").checked, false);
+  assert.equal(get("provider-status").textContent, "Consent required for Groq and model “gpt-4.1-mini”.");
   get("provider-consent").checked = true;
   get("provider-model").value = "other-model";
   await get("provider-model").dispatch("input");
   assert.equal(get("provider-consent").checked, false);
+  assert.equal(get("provider-status").textContent, "Consent required for Groq and model “other-model”.");
   get("provider-id").value = "openai";
   get("provider-model").value = "gpt-4.1-mini";
   await get("provider-id").dispatch("change");
   assert.equal(get("provider-consent").checked, false, "reverting silently restored consent");
+  assert.equal(get("provider-status").textContent, "Consent required for OpenAI and model “gpt-4.1-mini”.");
+});
+
+test("provider form rejects duplicate submits at every database, credential, and cleanup phase", async () => {
+  const api = await runtime(`provider-save-latch-${Date.now()}`);
+  const database = new MemoryPlugin();
+  const { get, documentRoot } = fakeRoomDocument();
+  const editor = api.providerConsentEditor(documentRoot);
+  get("provider-id").value = "openai";
+  get("provider-model").value = "gpt-4.1-mini";
+  get("provider-consent").checked = true;
+
+  function phaseGate() {
+    let markReached!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => { markReached = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    return { reached, release, async block() { markReached(); await held; } };
+  }
+  const phases = {
+    mutationRefresh: phaseGate(), profileRead: phaseGate(), reservation: phaseGate(),
+    consentWrite: phaseGate(), credentialSheet: phaseGate(), failureCleanup: phaseGate(),
+  };
+
+  const originalQuery = database.query.bind(database);
+  let profileReads = 0;
+  database.query = async (call: NativeEnvelope) => {
+    if (call.payload.sqlId === "provider_profile" && ++profileReads === 1) await phases.profileRead.block();
+    return originalQuery(call);
+  };
+  const originalBatch = database.executeBatch.bind(database);
+  database.executeBatch = async (call: NativeEnvelope) => {
+    await phases.reservation.block();
+    return originalBatch(call);
+  };
+  const originalConsent = database.saveProviderSelectionAndConsent.bind(database);
+  database.saveProviderSelectionAndConsent = async (call: NativeEnvelope) => {
+    await phases.consentWrite.block();
+    return originalConsent(call);
+  };
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async presentSaveSheet(call: NativeEnvelope) {
+    credentialCalls.push(call);
+    await phases.credentialSheet.block();
+    throw new api.NativeBridgeError("canceled", true);
+  } };
+  let lifecycleCalls = 0;
+  const lifecycle = { async status(call: NativeEnvelope) {
+    lifecycleCalls += 1;
+    await (lifecycleCalls === 1 ? phases.mutationRefresh : phases.failureCleanup).block();
+    return success(call, { active: true, databaseReady: true, epoch: lifecycleCalls, pathAvailable: true, protectedDataAvailable: true });
+  } };
+  api.bindProviderSetupForm(database, credential, lifecycle, editor, documentRoot);
+  const submit = get("provider-form").listeners.get("submit")![0]!;
+  const event = { preventDefault() {} };
+  const first = submit(event);
+
+  for (const [name, gate] of Object.entries(phases)) {
+    await gate.reached;
+    for (const id of ["provider-save", "provider-id", "provider-model", "provider-consent"]) {
+      assert.equal(get(id).disabled, true, `${id} was enabled during ${name}`);
+    }
+    const before = { database: database.calls.length, credential: credentialCalls.length, lifecycle: lifecycleCalls };
+    await submit(event);
+    assert.deepEqual(
+      { database: database.calls.length, credential: credentialCalls.length, lifecycle: lifecycleCalls },
+      before,
+      `duplicate submit produced a native call during ${name}`,
+    );
+    gate.release();
+  }
+
+  await first;
+  assert.equal(get("provider-status").textContent, "Credential entry canceled. Consent remains recorded; return when you’re ready to finish setup.");
+  assert.equal(credentialCalls.length, 1);
+  for (const id of ["provider-save", "provider-id", "provider-model", "provider-consent"]) {
+    assert.equal(get(id).disabled, false, `${id} stayed disabled after operation cleanup`);
+  }
+});
+
+test("operation latch ignores stale completion after a newer operation starts", async () => {
+  const api = await runtime(`provider-save-token-${Date.now()}`);
+  const states: boolean[] = [];
+  let latch!: { active(): boolean; begin(): object | null; end(operation: object): boolean };
+  latch = api.operationLatch(() => states.push(latch.active()));
+  const first = latch.begin();
+  assert.ok(first);
+  assert.equal(latch.end(first), true);
+  const second = latch.begin();
+  assert.ok(second);
+  assert.equal(latch.end(first), false, "stale completion cleared the newer operation");
+  assert.equal(latch.active(), true);
+  assert.deepEqual(states, [true, false, true], "stale completion re-rendered controls");
+  assert.equal(latch.end(second), true);
+  assert.deepEqual(states, [true, false, true, false]);
 });
 
 test("unchecked or invalid provider save has zero database and credential side effects", async () => {
