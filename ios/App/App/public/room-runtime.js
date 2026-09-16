@@ -1677,19 +1677,24 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
       status.textContent = "Recording provider consent…";
       await requireReadyMutation(database, lifecycle, undefined, false);
       const selection = await saveProviderSetup(database, credential, providerId, model, accepted);
-      if (typeof credential?.status === "function") {
-        const profile = await readProviderProfile(database, selection.profileId);
-        const credentialState = await readCredentialStatus(credential, selection);
-        if (profile !== null && credentialState === "ready") {
-          providerRemovalTarget = Object.freeze({ selection, mutationId: profile.mutationId, state: credentialState });
-          const providerName = providerDisclosure(providerId).displayName;
-          const remove = documentRoot.getElementById("remove-credential");
-          remove.textContent = `Remove ${providerName} credential…`;
-          remove.setAttribute("aria-label", `Remove ${providerName} credential`);
-        }
-      }
       editor?.reset();
       status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
+      providerRemovalTarget = null;
+      if (typeof credential?.status === "function") {
+        try {
+          const profile = await readProviderProfile(database, selection.profileId);
+          const credentialState = await readCredentialStatus(credential, selection);
+          if (profile !== null && credentialState === "ready") {
+            providerRemovalTarget = Object.freeze({ selection, mutationId: profile.mutationId, state: credentialState });
+            const providerName = providerDisclosure(providerId).displayName;
+            const remove = documentRoot.getElementById("remove-credential");
+            remove.textContent = `Remove ${providerName} credential…`;
+            remove.setAttribute("aria-label", `Remove ${providerName} credential`);
+          }
+        } catch {
+          // Saving is already complete. A best-effort removal-control refresh must not report it as failed.
+        }
+      }
     } catch (error) {
       status.textContent = providerSetupFailureMessage(error);
     } finally {

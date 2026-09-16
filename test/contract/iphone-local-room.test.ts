@@ -887,7 +887,7 @@ test("provider form rejects duplicate submits at every database, credential, and
   }
 });
 
-test("provider form normalizes mobile paste artifacts before validating an exact model ID", async () => {
+test("provider form normalizes mobile paste artifacts and preserves success if removal-control readback fails", async () => {
   const api = await runtime(`provider-model-boundary-whitespace-${Date.now()}`);
   const database = new MemoryPlugin();
   const { get, documentRoot } = fakeRoomDocument();
@@ -898,6 +898,8 @@ test("provider form normalizes mobile paste artifacts before validating an exact
   const credential = { async presentSaveSheet(call: NativeEnvelope) {
     credentialCalls.push(call);
     return success(call, {});
+  }, async status() {
+    throw new TypeError("best-effort credential status refresh failed");
   } };
   const lifecycle = { async status(call: NativeEnvelope) {
     return success(call, { active: true, databaseReady: true, epoch: 1, pathAvailable: true, protectedDataAvailable: true });
