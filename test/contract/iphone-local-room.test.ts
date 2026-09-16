@@ -53,6 +53,7 @@ async function runtime(cacheKey = ""): Promise<{
   readProviderSelection(database: object, uuid?: () => string): Promise<Record<string, any> | null>;
   providerSetupDefaults(): { providerId: string; model: string };
   providerSetupFailureMessage(failure: unknown): string;
+  normalizeMobileModelInput(value: string): string;
   generationFailurePresentation(failure: unknown): { message: string; retryable: boolean };
   NativeBridgeError: new(code: string, retryable: boolean) => Error & { code: string; retryable: boolean };
   showProviderSetup(plugin: object, uuid?: () => string, trigger?: object, credential?: object): Promise<void>;
@@ -879,12 +880,12 @@ test("provider form rejects duplicate submits at every database, credential, and
   }
 });
 
-test("provider form trims accidental boundary whitespace before validating an exact model ID", async () => {
+test("provider form normalizes mobile paste artifacts before validating an exact model ID", async () => {
   const api = await runtime(`provider-model-boundary-whitespace-${Date.now()}`);
   const database = new MemoryPlugin();
   const { get, documentRoot } = fakeRoomDocument();
   get("provider-id").value = "openrouter";
-  get("provider-model").value = "\u00a0openai/gpt-4.1-mini\n";
+  get("provider-model").value = "\u200b\u00a0openai/gpt-4.1-mini\n\u2060";
   get("provider-consent").checked = true;
   const credentialCalls: NativeEnvelope[] = [];
   const credential = { async presentSaveSheet(call: NativeEnvelope) {
@@ -903,6 +904,9 @@ test("provider form trims accidental boundary whitespace before validating an ex
   assert.equal(database.providerSelection?.model, "openai/gpt-4.1-mini");
   assert.equal(credentialCalls.length, 1);
   assert.equal(get("provider-status").textContent, "Provider, model, and consent saved. Credential is ready in Keychain.");
+  assert.equal(api.normalizeMobileModelInput("\u200b\u00a0openai/gpt-4.1-mini\n\u2060"), "openai/gpt-4.1-mini");
+  assert.equal(api.normalizeMobileModelInput("openai/gpt 4.1-mini"), "openai/gpt 4.1-mini",
+    "internal whitespace must remain visible to the closed validator rather than being silently removed");
 });
 
 test("operation latch ignores stale completion after a newer operation starts", async () => {
