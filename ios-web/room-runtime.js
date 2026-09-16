@@ -1445,6 +1445,20 @@ async function selectedProviderIsReady(database, uuid = () => crypto.randomUUID(
   return profile?.state === "ready" && !profile.tombstoned && profile.profileRevision === selection.profileRevision;
 }
 
+export async function reprojectVisibleRoom({ getActiveRoom, isDatabaseReady, isRoomViewVisible, getViewToken, reopenRoom, renderProjection }) {
+  const room = getActiveRoom();
+  if (room === null || !isDatabaseReady() || !isRoomViewVisible()) return false;
+  const expectedRoomId = room.id;
+  const expectedViewToken = getViewToken();
+  const reopened = await reopenRoom(expectedRoomId);
+  if (getActiveRoom()?.id !== expectedRoomId
+      || !isDatabaseReady()
+      || !isRoomViewVisible()
+      || getViewToken() !== expectedViewToken) return false;
+  renderProjection(reopened);
+  return true;
+}
+
 async function refreshMutationGate(database, lifecycle, uuid = () => crypto.randomUUID()) {
   mutationGate = await readLifecycleStatus(lifecycle, uuid);
   providerReady = lifecycleAllowsLocalWrites(mutationGate) && await selectedProviderIsReady(database, uuid);
@@ -1786,11 +1800,16 @@ async function boot() {
         }
         mutationGate = status;
         providerReady = lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
-        if (activeRoom !== null && status.databaseReady) {
-          renderRoom(await reopenLocalRoom(database, activeRoom.id));
-        } else {
-          renderCommandAndMutationState();
-        }
+        const roomView = document.getElementById("room-view");
+        const reprojected = await reprojectVisibleRoom({
+          getActiveRoom: () => activeRoom,
+          isDatabaseReady: () => mutationGate.databaseReady,
+          isRoomViewVisible: () => !roomView.hidden,
+          getViewToken: () => activeViewToken,
+          reopenRoom: (roomId) => reopenLocalRoom(database, roomId),
+          renderProjection: renderRoom,
+        });
+        if (!reprojected) renderCommandAndMutationState();
       } catch {
         mutationGate = Object.freeze({ ...mutationGate, active: false, databaseReady: false });
         renderCommandAndMutationState();
