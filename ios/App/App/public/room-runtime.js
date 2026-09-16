@@ -98,6 +98,10 @@ function isCanonicalModelId(value) {
     encodedBytes(value) <= 256 && !/[\p{C}\s]/u.test(value);
 }
 
+export function normalizeMobileModelInput(value) {
+  return value.normalize("NFC").replace(/^[\p{C}\s]+|[\p{C}\s]+$/gu, "");
+}
+
 function exactRecord(value, keys) {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
     Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
@@ -178,6 +182,7 @@ export function providerConsentEditor(documentRoot = document) {
     disclosure.textContent = `${selected.displayName} sends requests directly over HTTPS to ${selected.hostname}. Green Room sends the prompt, recent room messages, selected character instructions, model ID, and generation settings. ${selected.displayName} may retain content under its own terms. Green Room operates no account, analytics collector, model proxy, transcript service, or relay.`;
   }
   function requireEditedConsent() {
+    model.value = normalizeMobileModelInput(model.value);
     reset();
     status.textContent = `Consent required for ${providerDisclosure(provider.value).displayName} and model “${model.value}”.`;
   }
@@ -1640,7 +1645,7 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
     const status = documentRoot.getElementById("provider-status");
     const providerId = documentRoot.getElementById("provider-id").value;
     const modelInput = documentRoot.getElementById("provider-model");
-    const model = modelInput.value.trim();
+    const model = normalizeMobileModelInput(modelInput.value);
     modelInput.value = model;
     const accepted = documentRoot.getElementById("provider-consent").checked;
     try {
