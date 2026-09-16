@@ -1639,7 +1639,9 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
     if (operation === null) return;
     const status = documentRoot.getElementById("provider-status");
     const providerId = documentRoot.getElementById("provider-id").value;
-    const model = documentRoot.getElementById("provider-model").value;
+    const modelInput = documentRoot.getElementById("provider-model");
+    const model = modelInput.value.trim();
+    modelInput.value = model;
     const accepted = documentRoot.getElementById("provider-consent").checked;
     try {
       if (!PROVIDERS.has(providerId) || !isCanonicalModelId(model)) {

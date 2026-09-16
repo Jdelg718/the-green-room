@@ -879,6 +879,32 @@ test("provider form rejects duplicate submits at every database, credential, and
   }
 });
 
+test("provider form trims accidental boundary whitespace before validating an exact model ID", async () => {
+  const api = await runtime(`provider-model-boundary-whitespace-${Date.now()}`);
+  const database = new MemoryPlugin();
+  const { get, documentRoot } = fakeRoomDocument();
+  get("provider-id").value = "openrouter";
+  get("provider-model").value = "\u00a0openai/gpt-4.1-mini\n";
+  get("provider-consent").checked = true;
+  const credentialCalls: NativeEnvelope[] = [];
+  const credential = { async presentSaveSheet(call: NativeEnvelope) {
+    credentialCalls.push(call);
+    return success(call, {});
+  } };
+  const lifecycle = { async status(call: NativeEnvelope) {
+    return success(call, { active: true, databaseReady: true, epoch: 1, pathAvailable: true, protectedDataAvailable: true });
+  } };
+
+  api.bindProviderSetupForm(database, credential, lifecycle, undefined, documentRoot);
+  const submit = get("provider-form").listeners.get("submit")![0]!;
+  await submit({ preventDefault() {} });
+
+  assert.equal(get("provider-model").value, "openai/gpt-4.1-mini");
+  assert.equal(database.providerSelection?.model, "openai/gpt-4.1-mini");
+  assert.equal(credentialCalls.length, 1);
+  assert.equal(get("provider-status").textContent, "Provider, model, and consent saved. Credential is ready in Keychain.");
+});
+
 test("operation latch ignores stale completion after a newer operation starts", async () => {
   const api = await runtime(`provider-save-token-${Date.now()}`);
   const states: boolean[] = [];
