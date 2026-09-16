@@ -58,11 +58,60 @@ async function runtime(cacheKey = ""): Promise<{
   showProviderSetup(plugin: object, uuid?: () => string, trigger?: object, credential?: object): Promise<void>;
   listLocalRooms(database: object, uuid?: () => string): Promise<Record<string, any>[]>;
   reopenLocalRoom(database: object, roomId: string, uuid?: () => string): Promise<{ events: any[]; room: Record<string, any>; source: string }>;
+  reprojectVisibleRoom(options: {
+    getActiveRoom(): { id: string } | null;
+    isDatabaseReady(): boolean;
+    isRoomViewVisible(): boolean;
+    getViewToken(): number;
+    reopenRoom(roomId: string): Promise<Record<string, any>>;
+    renderProjection(projection: Record<string, any>): void;
+  }): Promise<boolean>;
 }> {
   const url = pathToFileURL(join(ROOT, "ios-web/room-runtime.js"));
   if (cacheKey !== "") url.searchParams.set("test-relaunch", cacheKey);
   return import(url.href) as never;
 }
+
+test("lifecycle reconciliation preserves secondary views before and during an async room reload", async () => {
+  const api = await runtime(`secondary-view-reconciliation-${Date.now()}`);
+  let activeRoom: { id: string } | null = { id: "room-1" };
+  let databaseReady = true;
+  let roomVisible = true;
+  let viewToken = 4;
+  let release!: (projection: Record<string, any>) => void;
+  const pendingProjection = new Promise<Record<string, any>>((resolve) => { release = resolve; });
+  const rendered: Record<string, any>[] = [];
+  const options = {
+    getActiveRoom: () => activeRoom,
+    isDatabaseReady: () => databaseReady,
+    isRoomViewVisible: () => roomVisible,
+    getViewToken: () => viewToken,
+    reopenRoom: async () => pendingProjection,
+    renderProjection: (projection: Record<string, any>) => { rendered.push(projection); },
+  };
+
+  const reprojecting = api.reprojectVisibleRoom(options);
+  roomVisible = false;
+  viewToken += 1;
+  release({ room: { id: "room-1" } });
+  assert.equal(await reprojecting, false,
+    "a secondary view opened during native room reads must invalidate the stale room projection");
+  assert.deepEqual(rendered, []);
+
+  roomVisible = true;
+  const visibleProjection = { room: { id: "room-1" } };
+  assert.equal(await api.reprojectVisibleRoom({ ...options, reopenRoom: async () => visibleProjection }), true);
+  assert.deepEqual(rendered, [visibleProjection]);
+
+  roomVisible = false;
+  assert.equal(await api.reprojectVisibleRoom({ ...options, reopenRoom: async () => visibleProjection }), false);
+  activeRoom = null;
+  roomVisible = true;
+  assert.equal(await api.reprojectVisibleRoom({ ...options, reopenRoom: async () => visibleProjection }), false);
+  activeRoom = { id: "room-1" };
+  databaseReady = false;
+  assert.equal(await api.reprojectVisibleRoom({ ...options, reopenRoom: async () => visibleProjection }), false);
+});
 
 class MemoryPlugin {
   room: Record<string, any> | undefined;
