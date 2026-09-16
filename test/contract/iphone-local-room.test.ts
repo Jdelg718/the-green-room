@@ -635,6 +635,8 @@ test("provider UX maps required failures to distinct actionable sanitized messag
     api.providerSetupFailureMessage(nativeFailure("canceled", true)),
     "Credential entry canceled. Consent remains recorded; return when you’re ready to finish setup.",
   );
+  assert.equal(api.providerSetupFailureMessage(new TypeError("A random UUID is required.")), "Provider setup failed. Try again.",
+    "unrelated TypeErrors must not be misreported as a model validation failure");
   assert.equal(api.providerSetupFailureMessage(new Error("Bearer secret status 401")), "Provider setup failed. Try again.");
 });
 
@@ -885,7 +887,7 @@ test("provider form normalizes mobile paste artifacts before validating an exact
   const database = new MemoryPlugin();
   const { get, documentRoot } = fakeRoomDocument();
   get("provider-id").value = "openrouter";
-  get("provider-model").value = "\u200b\u00a0openai/gpt-4.1-mini\n\u2060";
+  get("provider-model").value = "\u00a0openai/\u200bgpt-4.1-\u2060mini\n";
   get("provider-consent").checked = true;
   const credentialCalls: NativeEnvelope[] = [];
   const credential = { async presentSaveSheet(call: NativeEnvelope) {
@@ -904,7 +906,9 @@ test("provider form normalizes mobile paste artifacts before validating an exact
   assert.equal(database.providerSelection?.model, "openai/gpt-4.1-mini");
   assert.equal(credentialCalls.length, 1);
   assert.equal(get("provider-status").textContent, "Provider, model, and consent saved. Credential is ready in Keychain.");
-  assert.equal(api.normalizeMobileModelInput("\u200b\u00a0openai/gpt-4.1-mini\n\u2060"), "openai/gpt-4.1-mini");
+  assert.equal(api.normalizeMobileModelInput("\u00a0openai/\u200bgpt-4.1-\u2060mini\n"), "openai/gpt-4.1-mini");
+  assert.equal(api.normalizeMobileModelInput("modele\u200b\u0301"), "modelé",
+    "removing a format character must not leave a decomposed non-NFC identifier");
   assert.equal(api.normalizeMobileModelInput("openai/gpt 4.1-mini"), "openai/gpt 4.1-mini",
     "internal whitespace must remain visible to the closed validator rather than being silently removed");
 });

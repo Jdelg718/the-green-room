@@ -99,7 +99,7 @@ function isCanonicalModelId(value) {
 }
 
 export function normalizeMobileModelInput(value) {
-  return value.normalize("NFC").replace(/^[\p{C}\s]+|[\p{C}\s]+$/gu, "");
+  return value.replace(/\p{Cf}/gu, "").normalize("NFC").replace(/^[\p{C}\s]+|[\p{C}\s]+$/gu, "");
 }
 
 function exactRecord(value, keys) {
@@ -199,7 +199,9 @@ export function providerSetupFailureMessage(failure) {
   if (failure instanceof TypeError && failure.message === "Provider data-use consent is required.") {
     return "Check the required consent box before saving.";
   }
-  if (failure instanceof TypeError) return "Enter a valid model ID without spaces.";
+  if (failure instanceof TypeError && failure.message === "Choose an approved provider and enter a plain-text model ID without spaces.") {
+    return "Enter a valid model ID without spaces.";
+  }
   return nativeFailure(failure)?.code === "canceled"
     ? "Credential entry canceled. Consent remains recorded; return when you’re ready to finish setup."
     : "Provider setup failed. Try again.";
