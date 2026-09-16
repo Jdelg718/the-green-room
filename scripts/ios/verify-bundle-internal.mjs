@@ -85,12 +85,12 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "fb9353d29c70b884f45127f4dc0e0b1414563c815d1dd3ec0f30183a9c91fc29"],
-  ["index.html", "56f70cc3d3ae012a59fbbffefa8dc8013d4f5f5151860121c17f9ee883deeb64"],
+  ["index.html", "04c59395abe57a0d7a30ab1ecfdff9bdd74d41a6b10887525ac2fe948ecfb265"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
   ["provider-data-use.js", "094be80e9d92c72ef1a426f30fbf230e120979bddde7577e1a1aa9f6d167f813"],
-  ["room-runtime.js", "00542ede323c90034d50d73e658f728a91d562931b45273643f7cf539d7a7578"],
-  ["shell.css", "18cb48b2b3f70fa56ffd6812f02b6f7b578d710bc2f6ba16a12dc1d2197577d2"],
+  ["room-runtime.js", "437b9db89aa8b860835d0cd7b56b988fcd938854a1caf9a182e97933d750f676"],
+  ["shell.css", "2b1a606df3e3a7b65a7e68b7c6c1950f754ddb1c9672fd4e1cf7a6a671f1c271"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
