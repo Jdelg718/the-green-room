@@ -975,6 +975,10 @@ function eventAnnouncement(record, room) {
   return `New transcript entry ${record.sequence}: ${speaker}: ${text}`;
 }
 
+export function transcriptNeedsCollapse(events, room) {
+  return events.length > 8 || events.reduce((total, record) => total + eventAnnouncement(record, room).length, 0) > 1_600;
+}
+
 export function renderEvents(events, documentRoot = document, room = activeRoom) {
   const transcript = documentRoot.getElementById("transcript");
   const renderedItems = events.map((record) => {
@@ -1006,11 +1010,26 @@ export function renderEvents(events, documentRoot = document, room = activeRoom)
     return item;
   });
   transcript.replaceChildren(...renderedItems);
+  const transcriptWindow = documentRoot.getElementById("transcript-window");
+  const transcriptToggle = documentRoot.getElementById("transcript-toggle");
+  const roomId = room?.id ?? "";
+  if (transcriptWindow.dataset.roomId !== roomId) {
+    transcriptWindow.dataset.roomId = roomId;
+    transcriptWindow.dataset.expanded = "false";
+  }
+  const isLong = transcriptNeedsCollapse(events, room);
+  const expanded = transcriptWindow.dataset.expanded === "true";
+  transcriptWindow.classList.toggle("collapsed", isLong && !expanded);
+  transcriptToggle.hidden = !isLong;
+  transcriptToggle.setAttribute("aria-expanded", String(isLong && expanded));
+  transcriptToggle.setAttribute("aria-label", expanded ? "Collapse transcript" : "Show full transcript");
+  transcriptToggle.textContent = expanded ? "Collapse transcript" : `Show full transcript (${events.length} entries)`;
+  if (isLong && !expanded) transcriptWindow.scrollTop = transcriptWindow.scrollHeight;
   documentRoot.getElementById("empty-transcript").hidden = events.length > 0;
   const announcer = documentRoot.getElementById("transcript-announcer");
-  const roomId = room?.id ?? null;
-  if (renderedTranscriptRoomId !== roomId) {
-    renderedTranscriptRoomId = roomId;
+  const announcementRoomId = room?.id ?? null;
+  if (renderedTranscriptRoomId !== announcementRoomId) {
+    renderedTranscriptRoomId = announcementRoomId;
     renderedTranscriptSequence = events.at(-1)?.sequence ?? 0;
     announcer.textContent = "";
     return;
@@ -1671,7 +1690,6 @@ export function bindProviderSetupForm(database, credential, lifecycle, editor = 
       }
       editor?.reset();
       status.textContent = "Provider, model, and consent saved. Credential is ready in Keychain.";
-      if (activeRoom !== null) await reopenAuthoritativeRoom(database);
     } catch (error) {
       status.textContent = providerSetupFailureMessage(error);
     } finally {
@@ -1721,6 +1739,11 @@ async function boot() {
       });
     }
     bindProviderSetupForm(database, credential, lifecycle);
+    document.getElementById("transcript-toggle").addEventListener("click", () => {
+      const transcriptWindow = document.getElementById("transcript-window");
+      transcriptWindow.dataset.expanded = String(transcriptWindow.dataset.expanded !== "true");
+      renderEvents(activeEvents);
+    });
 
     document.getElementById("retry-draft-save").addEventListener("click", () => {
       if (pendingDraftFailure !== null) queueVisibleDraft(database);

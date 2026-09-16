@@ -14,9 +14,11 @@
   <header class="masthead">
     <div class="mark" role="img" aria-label="Green Room logo">GR//</div>
     <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
-    <button id="rooms-button" class="header-button" type="button" aria-label="Open saved rooms">Rooms</button>
-    <button id="provider-button" class="header-button" type="button" aria-label="Open provider settings">Provider</button>
-    <button id="privacy-button" class="header-button" type="button" aria-label="Open Privacy and Data Use">Privacy</button>
+    <nav class="header-nav" aria-label="Primary">
+      <button id="rooms-button" class="header-button" type="button" aria-label="Open saved rooms">Rooms</button>
+      <button id="provider-button" class="header-button" type="button" aria-label="Open provider settings">Provider</button>
+      <button id="privacy-button" class="header-button" type="button" aria-label="Open Privacy and Data Use">Privacy</button>
+    </nav>
   </header>
 
   <main>
@@ -34,7 +36,10 @@
       <section class="transcript-panel" aria-labelledby="transcript-title">
         <div class="section-heading"><p>Ordered events</p><h2 id="transcript-title">Transcript</h2></div>
         <p id="empty-transcript" class="empty-transcript">The room is quiet. Set the first cue.</p>
-        <ol id="transcript" class="transcript" aria-label="Ordered room transcript"></ol>
+        <div id="transcript-window" class="transcript-window">
+          <ol id="transcript" class="transcript" aria-label="Ordered room transcript"></ol>
+        </div>
+        <button id="transcript-toggle" class="button button-paper transcript-toggle" type="button" aria-label="Show full transcript" aria-expanded="false" hidden>Show full transcript</button>
         <p id="transcript-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
       </section>
       <form id="message-form" class="composer">

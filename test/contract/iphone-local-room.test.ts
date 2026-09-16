@@ -54,6 +54,7 @@ async function runtime(cacheKey = ""): Promise<{
   providerSetupDefaults(): { providerId: string; model: string };
   providerSetupFailureMessage(failure: unknown): string;
   normalizeMobileModelInput(value: string): string;
+  transcriptNeedsCollapse(events: any[], room: any): boolean;
   generationFailurePresentation(failure: unknown): { message: string; retryable: boolean };
   NativeBridgeError: new(code: string, retryable: boolean) => Error & { code: string; retryable: boolean };
   showProviderSetup(plugin: object, uuid?: () => string, trigger?: object, credential?: object): Promise<void>;
@@ -299,6 +300,8 @@ class FakeElement {
   disabled = false;
   checked = false;
   hidden = false;
+  scrollHeight = 0;
+  scrollTop = 0;
   style = { objectPosition: "" };
   textContent = "";
   type = "";
@@ -495,7 +498,7 @@ test("directed-message selector is labeled, cast-bound, accessible, and mobile-c
   assert.match(html, /<label for="message-target">To<\/label>\s*<select id="message-target"[^>]*aria-label="Message recipient"[^>]*>\s*<option value="">Anyone — director chooses<\/option>/u);
   assert.match(css, /\.composer-target select \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*width: 100%;[^}]*min-height: 3\.5rem;/u);
   assert.match(css, /select:focus-visible[^}]*\{[^}]*outline:/u);
-  assert.ok(css.includes("@media (max-width: 23rem)"));
+  assert.ok(css.includes("@media (max-width: 28rem)"));
   assert.ok(css.includes(".composer-target { grid-template-columns: minmax(0, 1fr); }"));
   const { get } = fakeRoomDocument();
   const { api, created } = await createdRoom(["ada-lovelace", "isaac-newton", "ff2k"]);
@@ -536,7 +539,7 @@ test("external TestFlight accessibility contract has named controls, one-shot tr
   assert.match(html, /id="transcript-announcer"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u);
   assert.match(html, /id="room-title"[^>]*tabindex="-1"/u);
   for (const id of [
-    "rooms-button", "provider-button", "privacy-button", "message-target", "message-text", "send-line", "new-room",
+    "rooms-button", "provider-button", "privacy-button", "transcript-toggle", "message-target", "message-text", "send-line", "new-room",
     "cancel-picker", "create-room", "rooms-cancel", "rooms-new", "provider-cancel", "provider-save", "provider-consent", "privacy-back",
     "retry-draft-save", "retry-room-reopen", "remove-credential", "retry-credential-removal", "cancel-abandon", "confirm-abandon",
     "cancel-credential-removal", "confirm-credential-removal", "retry-boot",
@@ -575,9 +578,11 @@ test("rendering uses text APIs for human, selected-speaker, and silence events",
   const { renderEvents } = await runtime();
   class Element {
     className = "";
+    dataset: Record<string, string> = {};
     hidden = false;
     textContent = "";
     children: Element[] = [];
+    classList = { toggle() {} };
     append(...children: Element[]) { this.children.push(...children); }
     replaceChildren(...children: Element[]) { this.children = children; }
     setAttribute(_name: string, _value: string) {}
@@ -911,6 +916,32 @@ test("provider form normalizes mobile paste artifacts before validating an exact
     "removing a format character must not leave a decomposed non-NFC identifier");
   assert.equal(api.normalizeMobileModelInput("openai/gpt 4.1-mini"), "openai/gpt 4.1-mini",
     "internal whitespace must remain visible to the closed validator rather than being silently removed");
+});
+
+test("long transcripts collapse deterministically while short threads remain open", async () => {
+  const api = await runtime(`transcript-collapse-${Date.now()}`);
+  const room = { id: "room-local-default", participants: [] };
+  const short = [{ sequence: 1, event: { participantId: "human", text: "Short line", type: "human_message" } }];
+  const long = [{ sequence: 1, event: { participantId: "human", text: "x".repeat(1_700), type: "human_message" } }];
+  assert.equal(api.transcriptNeedsCollapse(short, room), false);
+  assert.equal(api.transcriptNeedsCollapse(long, room), true);
+  assert.equal(api.transcriptNeedsCollapse(Array.from({ length: 9 }, (_, index) => ({
+    sequence: index + 1, event: { participantId: "human", text: "line", type: "human_message" },
+  })), room), true);
+  const { documentRoot, get } = fakeRoomDocument();
+  get("transcript-window").scrollHeight = 2_000;
+  api.renderEvents(long, documentRoot, room);
+  assert.equal(get("transcript-window").scrollTop, 2_000, "collapsed transcript hid the newest reply at the bottom");
+  assert.equal(get("transcript-toggle").hidden, false);
+});
+
+test("successful provider save is not overwritten by unrelated room reprojection", () => {
+  const source = readFileSync(join(ROOT, "ios-web/room-runtime.js"), "utf8");
+  const start = source.indexOf("export function bindProviderSetupForm");
+  const end = source.indexOf("function showBootRecovery", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /Provider, model, and consent saved\. Credential is ready in Keychain\./u);
+  assert.doesNotMatch(handler, /reopenAuthoritativeRoom/u);
 });
 
 test("operation latch ignores stale completion after a newer operation starts", async () => {
