@@ -382,6 +382,7 @@ function validateDistributionSummary(value, ipaName) {
       teamIdentifiers: [record.team.id],
       expirationDate: "2099-01-01T00:00:00Z",
       provisionsAllDevicesPresent: false,
+      provisionsAllDevices: null,
       provisionedDevicesPresent: false,
       provisionedDeviceCount: 0,
       entitlements: record.entitlements,

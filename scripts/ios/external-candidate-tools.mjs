@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "80ed83b8089814beff3cf7532651db5ea7e944e7";
-export const PROTECTED_BASELINE_TREE = "aea0666e5dcefb13ed3a20a5250b53916a0e3c6a";
+export const PROTECTED_BASELINE_COMMIT = "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353";
+export const PROTECTED_BASELINE_TREE = "ea9824601eeee1f6e9303d88c6386ed17bdd0f26";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -167,7 +167,7 @@ export function validateExternalExportOptions(value) {
   requireCondition(JSON.stringify(value) === JSON.stringify(expected), "external export options are not exact or confused with the internal-only policy");
 }
 
-function validateEntitlements(value) {
+function validateSignedAppEntitlements(value) {
   const expected = {
     "application-identifier": `${EXTERNAL_IDENTITY.teamIdentifier}.${EXTERNAL_IDENTITY.bundleIdentifier}`,
     "beta-reports-active": true,
@@ -175,21 +175,47 @@ function validateEntitlements(value) {
     "get-task-allow": false,
     "keychain-access-groups": [`${EXTERNAL_IDENTITY.teamIdentifier}.${EXTERNAL_IDENTITY.bundleIdentifier}`],
   };
-  exactKeys(value, Object.keys(expected), "distribution entitlements");
-  requireCondition(Object.keys(expected).every((key) => JSON.stringify(value[key]) === JSON.stringify(expected[key])), "distribution entitlements are not exact; get-task-allow must be false and beta-reports-active true");
+  exactKeys(value, Object.keys(expected), "signed app distribution entitlements");
+  requireCondition(Object.keys(expected).every((key) => JSON.stringify(value[key]) === JSON.stringify(expected[key])), "signed app distribution entitlements are not exact; app identifiers and keychain access must not be widened, get-task-allow must be false, and beta-reports-active must be true");
+}
+
+function validateDistributionProfileEntitlements(value, signedEntitlements) {
+  const entitlementKeys = [
+    "application-identifier",
+    "beta-reports-active",
+    "com.apple.developer.team-identifier",
+    "get-task-allow",
+    "keychain-access-groups",
+  ];
+  exactKeys(value, entitlementKeys, "App Store distribution profile entitlements");
+  const exactApplicationIdentifier = signedEntitlements["application-identifier"];
+  const teamWildcard = `${EXTERNAL_IDENTITY.teamIdentifier}.*`;
+  requireCondition(value["application-identifier"] === exactApplicationIdentifier || value["application-identifier"] === teamWildcard, "App Store distribution profile does not authorize the exact signed application identifier");
+  requireCondition(value["com.apple.developer.team-identifier"] === EXTERNAL_IDENTITY.teamIdentifier, "App Store distribution profile team entitlement is not exact");
+  requireCondition(value["get-task-allow"] === false, "App Store distribution profile get-task-allow must be Boolean false");
+  requireCondition(value["beta-reports-active"] === true, "App Store distribution profile beta-reports-active must be Boolean true");
+
+  const exactKeychainGroup = signedEntitlements["keychain-access-groups"][0];
+  const allowedGroups = new Set([exactKeychainGroup, teamWildcard, "com.apple.token"]);
+  const groups = value["keychain-access-groups"];
+  requireCondition(Array.isArray(groups) && groups.length > 0 && groups.every((group) => typeof group === "string"), "App Store distribution profile keychain access groups are malformed");
+  requireCondition(new Set(groups).size === groups.length, "App Store distribution profile keychain access groups contain duplicates");
+  requireCondition(groups.every((group) => allowedGroups.has(group)), "App Store distribution profile contains an unrelated keychain access group");
+  requireCondition(groups.includes(exactKeychainGroup) || groups.includes(teamWildcard), "App Store distribution profile does not authorize the exact signed keychain access group");
 }
 
 export function validateExternalDistributionSigning({ identityDetails, entitlements, profile }) {
   requireCondition(/^Identifier=net\.greenroomai\.GreenRoom$/mu.test(identityDetails), "codesign identifier is not exact");
   requireCondition(/^TeamIdentifier=JZ233HBW3Z$/mu.test(identityDetails), "codesign team is not exact");
   requireCondition(/^Authority=Apple Distribution: [^\r\n]+ \(JZ233HBW3Z\)$/mu.test(identityDetails), "signing identity must be Apple Distribution for the exact team");
-  validateEntitlements(entitlements);
+  validateSignedAppEntitlements(entitlements);
   requireCondition(profile && typeof profile === "object" && !Array.isArray(profile), "provisioning profile is malformed");
   requireCondition(profile.name === EXTERNAL_IDENTITY.profileName, "provisioning profile name is not exact");
   requireCondition(JSON.stringify(profile.teamIdentifiers) === JSON.stringify([EXTERNAL_IDENTITY.teamIdentifier]), "provisioning profile team is not exact");
   requireCondition(typeof profile.expirationDate === "string" && Number.isFinite(new Date(profile.expirationDate).getTime()) && new Date(profile.expirationDate).getTime() > Date.now(), "provisioning profile is expired or malformed");
-  requireCondition(profile.provisionsAllDevicesPresent === false && profile.provisionedDevicesPresent === false && profile.provisionedDeviceCount === 0, "enterprise or device provisioning profile is forbidden");
-  validateEntitlements(profile.entitlements);
+  requireCondition(profile.provisionsAllDevicesPresent === false && profile.provisionsAllDevices === null, "enterprise provisioning profiles are forbidden");
+  requireCondition(profile.provisionedDevicesPresent === false && profile.provisionedDeviceCount === 0, "device provisioning profiles are forbidden");
+  validateDistributionProfileEntitlements(profile.entitlements, entitlements);
   return { certificateClass: "Apple Distribution", profileName: profile.name, teamIdentifier: EXTERNAL_IDENTITY.teamIdentifier, getTaskAllow: false, betaReportsActive: true };
 }
 

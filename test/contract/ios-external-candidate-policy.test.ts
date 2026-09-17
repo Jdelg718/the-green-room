@@ -67,7 +67,7 @@ test("external candidate policy authorizes only the exact local archive/export/a
   assert.deepEqual(summary, {
     status: "PASS",
     policyState: "reviewed-local-archive-export-audit-no-upload",
-    baselineCommit: "80ed83b8089814beff3cf7532651db5ea7e944e7",
+    baselineCommit: "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353",
     candidateIdentity: "0.1.0 (4)",
     localArchiveAllowed: true,
     localExportAllowed: true,
@@ -268,6 +268,9 @@ test("candidate verifier fails closed on identity, privacy, metadata, signing, o
     (value) => { value.policy.signing.installAllowedNow = true; },
     (value) => { value.policy.signing.deviceActionAllowedNow = true; },
     (value) => { value.policy.signing.expectedEntitlements["get-task-allow"] = true; },
+    (value) => { value.policy.signing.profileEntitlementAuthorization.allowedKeychainAccessGroups.push("JZ233HBW3Z.unrelated"); },
+    (value) => { value.policy.signing.profileEntitlementAuthorization.requiredKeychainAuthorizers = ["com.apple.token"]; },
+    (value) => { value.policy.signing.profileEntitlementAuthorization.additionalEntitlementsAllowed = true; },
     (value) => { value.policy.physicalAcceptance.requiredEvidence[0] = "looks good"; },
     (value) => { value.internalOptions.testFlightInternalTestingOnly = false; },
     (value) => { value.internalHandoff = value.internalHandoff.replace("TestFlight Internal Only", "External"); },
