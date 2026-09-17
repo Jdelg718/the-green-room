@@ -11,6 +11,11 @@ import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 const SHA40 = /^[0-9a-f]{40}$/u;
 const EXPECTED_PROFILE = "Green Room App Store Connect 0.1.0 Build 1";
 const EXPECTED_HOSTS = new Set(["openrouter.ai", "api.openai.com", "api.x.ai", "api.groq.com", "api.together.ai"]);
+const FRAMEWORK_INFORMATIONAL_ORIGINS = Object.freeze({
+  capacitor: new Set(["http://cordova.apache.org", "http://www.w3.org", "https://capacitorjs.com"]),
+  cordova: new Set(),
+  main: new Set(),
+});
 const FORBIDDEN_BINARY_MARKERS = /(?:\bNWListener\b|GCDWebServer|CocoaHTTPServer|Swifter|Vapor|localhost:\d|127\.0\.0\.1|0\.0\.0\.0|capacitor-updater|live[ -]?update|ionic[ -]?deploy|codepush|hot[ -]?update|downloaded\s+(?:code|javascript)|FirebaseAnalytics|GoogleAnalytics|Amplitude|Mixpanel|SegmentAnalytics|SentrySDK|Datadog|AppCenter|(?:^|[\r\n/])node_modules(?:\/|$)|\bnode(?:\.exe)?\b|\bnodejs\b|\bpython(?:[0-9.]*)?(?:\.exe)?\b|\bpip[0-9.]*\b)/iu;
 const MAX_IPA_BYTES = 256 * 1024 * 1024;
 const MAX_IPA_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
@@ -268,10 +273,11 @@ export function validateMachOStringScans(scans) {
     requireCondition(typeof strings === "string", `${label} Mach-O strings output is malformed`);
     requireCondition(!FORBIDDEN_BINARY_MARKERS.test(strings), `${label} Mach-O contains a listener, downloaded-code, analytics, Node, or Python marker`);
     for (const match of strings.matchAll(/https?:\/\/([^\s/"'<>]+)/giu)) {
-      let host;
-      try { host = new URL(match[0]).hostname; } catch { fail(`${label} Mach-O contains malformed endpoint text`); }
-      requireCondition(match[0].startsWith("https://"), `${label} Mach-O contains a non-HTTPS provider endpoint`);
-      requireCondition(EXPECTED_HOSTS.has(host), `${label} Mach-O contains an unexpected endpoint host`);
+      let endpoint;
+      try { endpoint = new URL(match[0]); } catch { fail(`${label} Mach-O contains malformed endpoint text`); }
+      if (FRAMEWORK_INFORMATIONAL_ORIGINS[label]?.has(endpoint.origin)) continue;
+      requireCondition(endpoint.protocol === "https:", `${label} Mach-O contains a non-HTTPS provider endpoint`);
+      requireCondition(EXPECTED_HOSTS.has(endpoint.hostname), `${label} Mach-O contains an unexpected endpoint host`);
     }
   }
 }
