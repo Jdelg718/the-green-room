@@ -10,7 +10,7 @@ function requireCondition(condition, message) {
   if (!condition) fail(message);
 }
 
-export function parseDecodedProvisioningProfile(input) {
+export function parseDecodedProvisioningProfile(input, { timeout = 120_000 } = {}) {
   requireCondition(Buffer.isBuffer(input) || typeof input === "string", "decoded profile must be bytes or text");
   requireCondition(Buffer.byteLength(input) > 0 && Buffer.byteLength(input) <= 4 * 1024 * 1024, "decoded profile size is invalid");
   const parser = join(resolve(fileURLToPath(import.meta.url), ".."), "parse-provisioning-profile.py");
@@ -19,6 +19,7 @@ export function parseDecodedProvisioningProfile(input) {
     encoding: "utf8",
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" },
     maxBuffer: 1024 * 1024,
+    timeout,
   });
   requireCondition(result.status === 0, "decoded provisioning profile is malformed");
   try {
