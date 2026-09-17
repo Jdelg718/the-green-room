@@ -6,6 +6,7 @@ export const PROTECTED_BASELINE_TREE: string;
 export const REQUIRED_NODE_VERSION: string;
 export function validateExternalReleaseInfo(info: ExternalDictionary, expectedCommit: string): void;
 export function validateExternalExportOptions(value: ExternalDictionary): void;
+export function validateGeneratedExternalExportOptions(value: ExternalDictionary): void;
 export function validateExternalDistributionSigning(value: { identityDetails: string; entitlements: ExternalDictionary; profile: ExternalDictionary }): Record<string, unknown>;
 export type ArtifactInventory = { entries: ArtifactEntry[]; sha256: string };
 export function inventoryArtifactTree(rootPath: string | RetainedDirectory, adapters?: { injection: { action: "file-symlink" | "file-replacement" | "file-inplace" | "directory-symlink"; relativePath: string; target: string } }, resourceOptions?: { deadline: number }): ArtifactInventory;

@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "ad010e3cd860040cf633ed9dc9f343ebbc573838";
-export const PROTECTED_BASELINE_TREE = "2d592f357bb9f7e668f9f878773bcffbf8635baf";
+export const PROTECTED_BASELINE_COMMIT = "20bd654079a122dd311aa56d8b435d54581e814e";
+export const PROTECTED_BASELINE_TREE = "ae03ab183c1d46514bfffc3e304b58aa695fe55b";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -165,8 +165,7 @@ export function validateExternalReleaseInfo(info, expectedCommit) {
   requireCondition(info.GreenRoomSourceCommit === expectedCommit, "release source commit is not exact");
 }
 
-export function validateExternalExportOptions(value) {
-  const expected = {
+const EXTERNAL_EXPORT_OPTIONS = Object.freeze({
     destination: "export",
     manageAppVersionAndBuildNumber: false,
     method: "app-store-connect",
@@ -177,8 +176,17 @@ export function validateExternalExportOptions(value) {
     teamID: EXTERNAL_IDENTITY.teamIdentifier,
     testFlightInternalTestingOnly: false,
     uploadSymbols: true,
-  };
-  exactCanonicalValue(value, expected, "external export options");
+});
+
+export function validateExternalExportOptions(value) {
+  exactCanonicalValue(value, EXTERNAL_EXPORT_OPTIONS, "committed external export options");
+}
+
+export function validateGeneratedExternalExportOptions(value) {
+  const expected = Object.hasOwn(value ?? {}, "generateAppStoreInformation")
+    ? { ...EXTERNAL_EXPORT_OPTIONS, generateAppStoreInformation: false }
+    : EXTERNAL_EXPORT_OPTIONS;
+  exactCanonicalValue(value, expected, "Xcode-generated external export options");
 }
 
 function validateSignedAppEntitlements(value) {
