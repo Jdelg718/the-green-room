@@ -15,6 +15,7 @@ const tools = await import(
 const audit = await import(
   pathToFileURL(join(ROOT, "scripts/ios/audit-external-candidate.mjs")).href
 ) as typeof import("../../scripts/ios/audit-external-candidate.mjs");
+const exportLaneSource = readFileSync(join(ROOT, "scripts/ios/export-external-candidate.mjs"), "utf8");
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TREE = "123456789abcdef0123456789abcdef012345678";
@@ -81,6 +82,11 @@ test("external export options are exact independent of dictionary key order", ()
   for (const malformed of adversarial) {
     assert.throws(() => tools.validateExternalExportOptions(malformed as Record<string, unknown>), /external candidate/u);
   }
+});
+
+test("external export lane preserves archive-only prerequisite audit before export audit", () => {
+  assert.match(exportLaneSource, /phase: options\.exportPath === undefined \? "archive" : "export"/u);
+  assert.doesNotMatch(exportLaneSource, /phase: "export"/u);
 });
 
 const releaseInfo = {

@@ -35,7 +35,7 @@ function xcodeVersion() {
 export function exportExternalCandidate({ sourceRoot = process.cwd() } = {}) {
   requireExactNode();
   if (process.platform !== "darwin") fail("requires trusted Apple tools on Darwin");
-  return runExternalExportCore({ sourceRoot }, { run, parsePlist, auditArchive: (options) => auditExternalCandidate({ ...options, phase: "export" }), xcodeVersion, cleanupDiagnostics: removeDistributionDiagnostics });
+  return runExternalExportCore({ sourceRoot }, { run, parsePlist, auditArchive: (options) => auditExternalCandidate({ ...options, phase: options.exportPath === undefined ? "archive" : "export" }), xcodeVersion, cleanupDiagnostics: removeDistributionDiagnostics });
 }
 
 const invoked = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
