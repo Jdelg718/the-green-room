@@ -2,7 +2,7 @@
 
 ## Exact source freeze
 
-- Protected-main base: `20bd654079a122dd311aa56d8b435d54581e814e`, tree `ae03ab183c1d46514bfffc3e304b58aa695fe55b`.
+- Protected-main base: `a1999c3a5a919fe1743044e15fb18636803d187c`, tree `fdd75077459b5c0ba4638e1da970f9093683f782`.
 - App identity: `net.greenroomai.GreenRoom`, version `0.1.0`, build `4`, Team `JZ233HBW3Z`, iPhone only, minimum iOS `18.6`.
 - The atomic commit containing this handoff is the local source-freeze revision. Read back and record its exact commit/tree after integration; do not relabel the protected-main base as the final candidate artifact.
 - Build `0.1.0 (3)` is a previously used/reserved candidate identity that must not be reused; this source freeze makes no claim about its current App Store Connect state. Its dated handoff remains historical evidence. Build-2 internal-only policy and evidence remain byte-identical.
