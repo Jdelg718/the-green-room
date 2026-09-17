@@ -1,0 +1,38 @@
+export type ExternalDictionary = Record<string, any>;
+export type ArtifactEntry = { path: string; type: "directory"; mode: number } | { path: string; type: "file"; mode: number; bytes: number; sha256: string };
+export const EXTERNAL_IDENTITY: Readonly<Record<string, unknown>>;
+export const PROTECTED_BASELINE_COMMIT: string;
+export const PROTECTED_BASELINE_TREE: string;
+export const REQUIRED_NODE_VERSION: string;
+export function validateExternalReleaseInfo(info: ExternalDictionary, expectedCommit: string): void;
+export function validateExternalExportOptions(value: ExternalDictionary): void;
+export function validateExternalDistributionSigning(value: { identityDetails: string; entitlements: ExternalDictionary; profile: ExternalDictionary }): Record<string, unknown>;
+export type ArtifactInventory = { entries: ArtifactEntry[]; sha256: string };
+export function inventoryArtifactTree(rootPath: string | RetainedDirectory, adapters?: { injection: { action: "file-symlink" | "file-replacement" | "file-inplace" | "directory-symlink"; relativePath: string; target: string } }, resourceOptions?: { deadline: number }): ArtifactInventory;
+export function withArtifactTreeSnapshot<T>(rootPath: string | RetainedDirectory, callback: (snapshotPath: string, inventory: ArtifactInventory) => T, adapters?: { injection: { action: "file-symlink" | "file-replacement" | "file-inplace" | "directory-symlink"; relativePath: string; target: string } }, resourceOptions?: { deadline: number }): T;
+export function readRegularFileNoFollow(path: string, label?: string, adapters?: { injectInPlaceMutation: true }, resourceOptions?: { deadline: number }): { bytes: Buffer; sha256: string; mode: number };
+export function readRegularFileAt(parentDescriptor: number, name: string, resourceOptions?: { deadline: number }): { bytes: Buffer; sha256: string; mode: number };
+export type RetainedDirectory = { parentDescriptor: number; directoryDescriptor: number; owner: { dev: number; ino: number }; name: string; ownsParent: boolean };
+export function retainOwnedDirectory(path: string): RetainedDirectory;
+export function retainOwnedDirectoryAt(parentDescriptor: number, name: string, ownsParent?: boolean, expectedOwner?: { dev: number; ino: number }): RetainedDirectory;
+export function requireRetainedDirectory(retained: RetainedDirectory): void;
+export function closeRetainedDirectory(retained: RetainedDirectory | undefined): void;
+export function removeDistributionDiagnostics(retained: RetainedDirectory, adapters?: { injection: { action: "file-replacement" | "directory-replacement" | "file-after-quarantine" | "directory-after-quarantine"; relativePath: string } }): void;
+export function writeJsonNoClobber(path: string, value: unknown, retainedParent?: ExternalDictionary): { path: string; sha256: string };
+export function validateNoUploadCommand(command: string, args: string[], phase: "archive" | "export"): void;
+export function validateArchivePrerequisiteEvidence(options: ExternalDictionary): void;
+export function prepareExternalLaneParent(root: string): ExternalDictionary;
+export function closeExternalLaneParent(lane: ExternalDictionary): void;
+export function spawnInRetainedDirectory(command: string, args: string[], options: { environment?: NodeJS.ProcessEnv; directoryDescriptor: number; timeout?: number }): { error?: Error; status: number | null; stdout: string; stderr: string };
+export function getExternalSecondaryFailures(error: unknown): Error[];
+export function runExternalArchiveCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void }, adapters: {
+  run(command: string, args: string[], options: { cwd: string; environment: NodeJS.ProcessEnv; inheritedDirectoryDescriptor?: number; confinedParentPath?: string }): string;
+  auditArchive(options: ExternalDictionary): ExternalDictionary;
+}): ExternalDictionary;
+export function runExternalExportCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void }, adapters: {
+  run(command: string, args: string[], options: { cwd: string; environment: NodeJS.ProcessEnv; inheritedDirectoryDescriptor?: number; confinedParentPath?: string }): string;
+  parsePlist(bytes: Buffer): ExternalDictionary;
+  auditArchive(options: ExternalDictionary): ExternalDictionary;
+  xcodeVersion(): string;
+  cleanupDiagnostics(retained: RetainedDirectory): void;
+}): ExternalDictionary;

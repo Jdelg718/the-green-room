@@ -1,10 +1,10 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "kind": "greenroom-ios-external-testflight-candidate-policy",
-  "state": "reviewed-no-upload-identity-frozen",
+  "state": "reviewed-local-archive-export-audit-no-upload",
   "baseline": {
-    "protectedMainCommit": "adf129896814ebc3a45980833a059660096c7f56",
-    "protectedMainTree": "eb7b0a39438976a3171e920d877260c9e79c0e1e"
+    "protectedMainCommit": "c139672c4b651272c31dd2721c445f1b9ec04874",
+    "protectedMainTree": "dfcf05d8a8cdf3c1c883e0d3993a3d299f909411"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",
@@ -15,13 +15,13 @@
     "committedXcodeBuildNumber": "4",
     "minimumOS": "18.6",
     "deviceFamily": [1],
-    "activation": "identity-frozen-no-archive-sign-upload"
+    "activation": "external-build-4-local-archive-export-audit-only"
   },
   "sourceBinding": {
     "manifestKind": "greenroom-ios-external-candidate-source-manifest",
     "requireCleanExactCommit": true,
     "requireExactGitTree": true,
-    "requireProtectedMainAncestor": true,
+    "requireDirectBaselineParent": true,
     "inventoryRoots": [
       "ios/App/App/public",
       "ios/App/App/Assets.xcassets",
@@ -40,8 +40,18 @@
       "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
       "scripts/ios/verify-external-candidate-policy.mjs",
       "scripts/ios/verify-external-candidate-policy.d.mts",
+      "scripts/ios/external-candidate-tools.mjs",
+      "scripts/ios/external-candidate-tools.d.mts",
+      "scripts/ios/external-candidate-inventory.c",
+      "scripts/ios/archive-external-candidate.mjs",
+      "scripts/ios/archive-external-candidate.d.mts",
+      "scripts/ios/export-external-candidate.mjs",
+      "scripts/ios/export-external-candidate.d.mts",
+      "scripts/ios/audit-external-candidate.mjs",
+      "scripts/ios/audit-external-candidate.d.mts",
       "scripts/ios/verify-bundle-internal.mjs",
       "test/contract/ios-external-candidate-policy.test.ts",
+      "test/contract/ios-external-build4-tooling.test.ts",
       "package.json"
     ]
   },
@@ -77,8 +87,9 @@
     "appleActionsPerformed": false
   },
   "signing": {
-    "archiveAllowedNow": false,
-    "signingAllowedNow": false,
+    "archiveAllowedNow": true,
+    "signingAllowedNow": true,
+    "exportAllowedNow": true,
     "uploadAllowed": false,
     "installAllowedNow": false,
     "deviceActionAllowedNow": false,
@@ -91,10 +102,24 @@
       "com.apple.developer.team-identifier": "JZ233HBW3Z",
       "get-task-allow": false,
       "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"]
+    },
+    "exactLane": {
+      "archiveCommand": "npm run ios:archive-external-candidate",
+      "exportCommand": "npm run ios:export-external-candidate",
+      "auditCommand": "npm run ios:audit-external-candidate",
+      "archivePathTemplate": ".build/testflight/external-build-4-<HEAD>.xcarchive",
+      "exportPathTemplate": ".build/testflight/external-build-4-export-<HEAD>",
+      "evidencePathTemplates": [
+        ".build/testflight/external-build-4-archive-<HEAD>.json",
+        ".build/testflight/external-build-4-export-<HEAD>.json",
+        ".build/testflight/external-build-4-audit-<HEAD>.json"
+      ],
+      "acceptsPathOrCommitOverrides": false,
+      "uploadCapability": false
     }
   },
   "artifact": {
-    "mode": "manifest-only-no-archive-no-sign-no-upload",
+    "mode": "commit-bound-local-archive-export-audit-no-upload",
     "forbiddenPathFragments": [
       ".mobileprovision",
       ".p12",
@@ -121,8 +146,8 @@
       "jwt",
       "credential-assignment"
     ],
-    "futureArchiveInventory": "exact recursive regular-file paths, sizes, modes, and SHA-256 hashes; reject symlinks and special files",
-    "futureExportInventory": "exact IPA plus bounded policy evidence and Apple distribution summary; delete and exclude diagnostic logs"
+    "archiveInventory": "descriptor-bound recursive openat/fstatat immutable snapshot of exact regular-file paths, sizes, modes, and SHA-256 hashes; semantic audit uses that snapshot and its returned inventory hash must equal pre/post live inventories; reject symlinks, special files, and replacement races",
+    "exportInventory": "descriptor-bound immutable export snapshot whose returned inventory hash equals pre/post live inventories, exact snapshot-bound IPA byte size and SHA-256, separately labeled snapshot-bound extracted payload inventory, and relevant export-evidence SHA-256; delete and exclude diagnostic logs only through retained root/parent descriptors with atomic descriptor-relative quarantine rename plus exact retained-inode verification; nlink remains one and replacements are restored fail-closed"
   },
   "physicalAcceptance": {
     "status": "required-not-run-for-build-4",

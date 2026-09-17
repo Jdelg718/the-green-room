@@ -10,4 +10,4 @@ export type BoundedProvisioningProfile = {
   entitlements: Record<string, unknown>;
 };
 
-export function parseDecodedProvisioningProfile(value: Buffer | string): BoundedProvisioningProfile;
+export function parseDecodedProvisioningProfile(value: Buffer | string, options?: { timeout?: number }): BoundedProvisioningProfile;
