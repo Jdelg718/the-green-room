@@ -4,7 +4,7 @@ This is the reviewed **local archive/export/audit and NO-UPLOAD policy** for the
 
 ## Reviewed baseline and proposed identity
 
-- Reviewed protected-main baseline: commit `72bf31216177ed83f24a05e5a4cff57060698d9c`, tree `df2a3d8258803f7cffcf74bd46163183d71e7cca`.
+- Reviewed protected-main baseline: commit `ad010e3cd860040cf633ed9dc9f343ebbc573838`, tree `2d592f357bb9f7e668f9f878773bcffbf8635baf`.
 - Existing internal candidate: `0.1.0 (2)`, commit `2918846bb7b652d2b01626ab8587c134dd4bd2e0`, TestFlight Internal Only.
 - Prior external-candidate identity `0.1.0 (3)` was previously used/reserved and must not be reused. This draft makes no claim about its current App Store Connect state. Its dated physical-gate handoff remains historical evidence and is not build-4 acceptance.
 - Smallest non-repurposing external identity: **`0.1.0 (4)`**. Both App Debug/Release configurations carry that exact identity. The separate external lane may archive, Apple Distribution-sign, export locally, and audit this identity; upload/install/App Store actions remain forbidden. Build 2's committed internal-only tooling, export policy, and evidence remain unchanged.
