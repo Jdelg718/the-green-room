@@ -5,6 +5,9 @@ import { existsSync, lstatSync, mkdirSync, openSync, closeSync, readFileSync, wr
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import plist from "plist";
+import { resolveXcodeTargetBuildVersions } from "./verify-bundle-internal.mjs";
+
+export { resolveXcodeTargetBuildVersions } from "./verify-bundle-internal.mjs";
 
 const POLICY_PATH = "ios/external-candidate-policy.json";
 const METADATA_PATH = "docs/release/iphone-external-testflight-metadata.json";
@@ -25,6 +28,7 @@ const REQUIRED_FILES = [
   "ios/App/App.xcodeproj/project.pbxproj", "ios/ExternalCandidateExportOptions.plist",
   "ios/external-candidate-policy.json", "docs/release/iphone-external-testflight-metadata.json",
   "docs/release/iphone-privacy-data-flow.md", "docs/release/iphone-external-testflight-candidate.md",
+  "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
   "scripts/ios/verify-external-candidate-policy.mjs", "scripts/ios/verify-external-candidate-policy.d.mts",
   "scripts/ios/verify-bundle-internal.mjs", "test/contract/ios-external-candidate-policy.test.ts", "package.json",
 ];
@@ -69,26 +73,31 @@ export function assertArtifactSafe(path, text, policy) {
 }
 
 export function validatePolicyDocuments({ policy, metadata, internalOptions, externalOptions, projectText, infoText, entitlements, privacy, dataFlowText, migrationManifest, internalChecklist, internalHandoff }) {
-  exactKeys(policy, ["schemaVersion", "kind", "state", "baseline", "identity", "sourceBinding", "schema", "privacy", "exportCompliance", "metadata", "signing", "artifact", "physicalAcceptance", "preservedInternalCandidate"], "policy");
+  exactKeys(policy, ["schemaVersion", "kind", "state", "baseline", "identity", "sourceBinding", "schema", "privacy", "exportCompliance", "metadata", "distribution", "signing", "artifact", "physicalAcceptance", "preservedInternalCandidate"], "policy");
   requireCondition(policy.schemaVersion === 1 && policy.kind === "greenroom-ios-external-testflight-candidate-policy", "policy identity is not exact");
   requireCondition(policy.state === "reviewed-no-upload-identity-frozen", "policy must remain an identity-only no-upload freeze");
   requireCondition(SHA40.test(policy.baseline.protectedMainCommit) && SHA40.test(policy.baseline.protectedMainTree), "protected-main baseline binding is malformed");
-  requireCondition(policy.baseline.protectedMainCommit === "476c513e55d17eba262370308514d2b3971ed3ef" && policy.baseline.protectedMainTree === "709910f12b1b8e2290ee9fe60f2cb8f2feecaeef", "protected-main baseline binding changed");
+  requireCondition(policy.baseline.protectedMainCommit === "adf129896814ebc3a45980833a059660096c7f56" && policy.baseline.protectedMainTree === "eb7b0a39438976a3171e920d877260c9e79c0e1e", "protected-main baseline binding changed");
   exactKeys(policy.sourceBinding, ["manifestKind", "requireCleanExactCommit", "requireExactGitTree", "requireProtectedMainAncestor", "inventoryRoots", "requiredFiles"], "source binding");
   requireCondition(policy.sourceBinding.manifestKind === "greenroom-ios-external-candidate-source-manifest", "source manifest kind changed");
 
   const identity = policy.identity;
   exactKeys(identity, ["appStoreConnectAppId", "bundleIdentifier", "teamIdentifier", "marketingVersion", "proposedBuildNumber", "committedXcodeBuildNumber", "minimumOS", "deviceFamily", "activation"], "policy identity");
   requireCondition(identity.appStoreConnectAppId === "6809792258" && identity.bundleIdentifier === "net.greenroomai.GreenRoom" && identity.teamIdentifier === "JZ233HBW3Z", "Apple identity is not exact");
-  requireCondition(identity.marketingVersion === "0.1.0" && identity.proposedBuildNumber === "3" && identity.committedXcodeBuildNumber === "3", "external identity must be exactly 0.1.0 (3)");
+  requireCondition(identity.marketingVersion === "0.1.0" && identity.proposedBuildNumber === "4" && identity.committedXcodeBuildNumber === "4", "external identity must be exactly 0.1.0 (4)");
   requireCondition(identity.minimumOS === "18.6" && JSON.stringify(identity.deviceFamily) === "[1]", "platform identity is not exact");
   requireCondition(identity.activation === "identity-frozen-no-archive-sign-upload", "identity-only freeze boundary is missing");
   requireCondition(JSON.stringify(policy.sourceBinding.inventoryRoots) === JSON.stringify(INVENTORY_ROOTS) && JSON.stringify(policy.sourceBinding.requiredFiles) === JSON.stringify(REQUIRED_FILES), "source inventory scope was weakened");
   requireCondition(policy.sourceBinding.requireCleanExactCommit === true && policy.sourceBinding.requireExactGitTree === true && policy.sourceBinding.requireProtectedMainAncestor === true, "source binding gates were weakened");
   requireCondition(JSON.stringify(policy.artifact.forbiddenPathFragments) === JSON.stringify(FORBIDDEN_PATHS), "forbidden artifact paths were weakened");
   requireCondition(JSON.stringify(policy.artifact.forbiddenSecretPatterns) === JSON.stringify(["-----BEGIN PRIVATE KEY-----", "sk-or-v1-", "sk-proj-", "xai-", "gsk_", "rk-", "pk-", "gh-token", "aws-access-key", "jwt", "credential-assignment"]), "declared secret markers changed");
-  requireCondition((projectText.match(/CURRENT_PROJECT_VERSION = 3;/gu) ?? []).length === 2, "Xcode app configurations must freeze build 3 exactly");
-  requireCondition(!/CURRENT_PROJECT_VERSION = 2;/u.test(projectText), "app target still carries the repurposable build-2 identity");
+  let appBuildVersions;
+  try {
+    appBuildVersions = resolveXcodeTargetBuildVersions(projectText, "App");
+  } catch (error) {
+    fail(`Xcode App target identity did not resolve structurally: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  requireCondition(appBuildVersions.Debug === "4" && appBuildVersions.Release === "4", "Xcode App target Debug and Release configurations must both freeze build 4 exactly");
   for (const expected of ["MARKETING_VERSION = 0.1.0;", "PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.GreenRoom;", "IPHONEOS_DEPLOYMENT_TARGET = 18.6;", "TARGETED_DEVICE_FAMILY = 1;"]) requireCondition(projectText.includes(expected), `Xcode identity is missing ${expected}`);
   requireCondition(infoText.includes("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>"), "Info.plist export-compliance declaration is not Boolean false");
   exactKeys(entitlements, ["keychain-access-groups"], "source entitlements");
@@ -115,10 +124,14 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   ]) requireCondition(dataFlowText.includes(statement), `privacy data-flow record is missing: ${statement}`);
   requireCondition(sha256(Buffer.from(dataFlowText, "utf8")) === DATA_FLOW_SHA256, "privacy data-flow record bytes changed without a reviewed verifier update");
 
-  exactKeys(metadata, ["schemaVersion", "kind", "publicationState", "identity", "supportUrl", "privacyUrl", "exportCompliance", "betaReviewNotes", "testerInstructions", "knownLimitations", "appleOrKentInputsRequired", "forbiddenFabrication"], "metadata draft");
+  exactKeys(metadata, ["schemaVersion", "kind", "publicationState", "identity", "distribution", "supportUrl", "privacyUrl", "exportCompliance", "betaReviewNotes", "testerInstructions", "knownLimitations", "appleOrKentInputsRequired", "forbiddenFabrication"], "metadata draft");
   requireCondition(metadata.schemaVersion === 1 && metadata.kind === "greenroom-ios-external-testflight-metadata-draft" && metadata.publicationState === "local-draft-do-not-publish", "metadata must remain a local draft");
   exactKeys(metadata.identity, ["appName", "appStoreConnectAppId", "bundleIdentifier", "marketingVersion", "proposedBuildNumber", "activation"], "metadata identity");
   requireCondition(metadata.identity.appName === "The-Green-Room" && metadata.identity.appStoreConnectAppId === identity.appStoreConnectAppId && metadata.identity.bundleIdentifier === identity.bundleIdentifier && metadata.identity.marketingVersion === identity.marketingVersion && metadata.identity.proposedBuildNumber === identity.proposedBuildNumber && metadata.identity.activation === "identity-frozen-local-only", "metadata identity disagrees with policy");
+  const expectedDistribution = { mode: "private-email-only-external-testflight", approvedTesterCount: 2, testerRosterAuthority: "private-owner-approved-ops-record", publicLinkAllowed: false, appStoreReleaseAllowed: false, appleActionsPerformed: false };
+  exactKeys(policy.distribution, Object.keys(expectedDistribution), "distribution policy");
+  exactKeys(metadata.distribution, Object.keys(expectedDistribution), "metadata distribution");
+  requireCondition(JSON.stringify(policy.distribution) === JSON.stringify(expectedDistribution) && JSON.stringify(metadata.distribution) === JSON.stringify(expectedDistribution), "private external distribution scope changed");
   requireCondition(metadata.supportUrl.value === policy.metadata.supportUrl && metadata.privacyUrl.value === policy.metadata.privacyUrl, "metadata URLs disagree with policy");
   exactKeys(metadata.supportUrl, ["value", "status", "instructions"], "support URL draft");
   exactKeys(metadata.privacyUrl, ["value", "status", "gate"], "privacy URL draft");
@@ -137,7 +150,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   requireCondition(policy.signing.archiveAllowedNow === false && policy.signing.signingAllowedNow === false && policy.signing.uploadAllowed === false && policy.signing.installAllowedNow === false && policy.signing.deviceActionAllowedNow === false, "current archive/sign/upload/install/device gates must all be false");
   requireCondition(policy.signing.exportOptionsPath === "ios/ExternalCandidateExportOptions.plist" && policy.signing.expectedCertificateClass === "Apple Distribution" && policy.signing.expectedProvisioningProfile === "Green Room App Store Connect 0.1.0 Build 1" && JSON.stringify(policy.signing.expectedEntitlements) === JSON.stringify({ "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom", "beta-reports-active": true, "com.apple.developer.team-identifier": "JZ233HBW3Z", "get-task-allow": false, "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"] }), "signing expectations changed");
   requireCondition(policy.artifact.mode === "manifest-only-no-archive-no-sign-no-upload", "allowed artifact mode is too broad");
-  requireCondition(policy.physicalAcceptance.status === "required-not-run-for-build-3" && JSON.stringify(policy.physicalAcceptance.requiredEvidence) === JSON.stringify(["manual assistive-technology and supported-iPhone acceptance", "exact installed version/build/source readback", "clean install and update retention", "Keychain continuity and credential removal", "direct fixed-provider request with consent", "offline existing-room behavior", "force-quit and exact-command recovery", "secret-free app-container scan"]), "physical acceptance was overclaimed or weakened");
+  requireCondition(policy.physicalAcceptance.status === "required-not-run-for-build-4" && JSON.stringify(policy.physicalAcceptance.requiredEvidence) === JSON.stringify(["manual assistive-technology and supported-iPhone acceptance", "exact installed version/build/source readback", "clean install and update retention", "Keychain continuity and credential removal", "direct fixed-provider request with consent", "offline existing-room behavior", "force-quit and exact-command recovery", "secret-free app-container scan"]), "physical acceptance was overclaimed or weakened");
 
   requireCondition(internalChecklist.startsWith("# Internal TestFlight exact-candidate checklist") && internalChecklist.includes("0.1.0 (2)") && internalChecklist.includes("testFlightInternalTestingOnly=true"), "internal checklist was repurposed or weakened");
   requireCondition(internalHandoff.includes("Distribution: TestFlight Internal Only") && internalHandoff.includes("0.1.0 (2)") && internalHandoff.includes("2918846bb7b652d2b01626ab8587c134dd4bd2e0"), "internal build-2 evidence changed");
@@ -226,7 +239,7 @@ export function createReviewManifest(root, outputPath) {
       uploaded: false,
       installed: false,
       deviceActionPerformed: false,
-      physicalAcceptance: "required-not-run-for-build-3",
+      physicalAcceptance: "required-not-run-for-build-4",
       externalCandidateReady: false,
     },
   };
@@ -243,7 +256,7 @@ function main() {
   const root = process.cwd();
   if (process.argv.length === 2) {
     const { policy } = verifyRepository(root);
-    console.log(JSON.stringify({ status: "PASS", baselineCommit: policy.baseline.protectedMainCommit, frozenIdentity: "0.1.0 (3)", archiveCreated: false, signed: false, uploaded: false, externalCandidateReady: false }, null, 2));
+    console.log(JSON.stringify({ status: "PASS", baselineCommit: policy.baseline.protectedMainCommit, frozenIdentity: "0.1.0 (4)", archiveCreated: false, signed: false, uploaded: false, externalCandidateReady: false }, null, 2));
     return;
   }
   requireCondition(process.argv.length === 4 && process.argv[2] === "--write-review-manifest", "usage: verify-external-candidate-policy.mjs [--write-review-manifest .build/testflight/external-candidate-source-<HEAD>.json]");

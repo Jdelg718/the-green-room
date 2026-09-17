@@ -15,6 +15,7 @@ export type PolicyDocuments = {
 
 export function validatePolicyDocuments(documents: PolicyDocuments): void;
 export function assertArtifactSafe(path: string, text: string, policy: any): void;
+export function resolveXcodeTargetBuildVersions(projectText: string, targetName?: string): { Debug: string; Release: string };
 export function readRepositoryDocuments(root?: string): {
   policy: any;
   metadata: any;
