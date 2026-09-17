@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "c139672c4b651272c31dd2721c445f1b9ec04874";
-export const PROTECTED_BASELINE_TREE = "dfcf05d8a8cdf3c1c883e0d3993a3d299f909411";
+export const PROTECTED_BASELINE_COMMIT = "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e";
+export const PROTECTED_BASELINE_TREE = "f1e53a23591900292a6324cfe30761eee25351da";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;

@@ -16,6 +16,7 @@ export type PolicyDocuments = {
   exportLaneText: string;
   auditLaneText: string;
   externalToolsText: string;
+  syncText: string;
 };
 
 export function validatePolicyDocuments(documents: PolicyDocuments): void;

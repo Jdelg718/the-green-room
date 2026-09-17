@@ -35,6 +35,7 @@ const REQUIRED_FILES = [
   "ios/external-candidate-policy.json", "docs/release/iphone-external-testflight-metadata.json",
   "docs/release/iphone-privacy-data-flow.md", "docs/release/iphone-external-testflight-candidate.md",
   "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
+  "scripts/ios/sync.mjs",
   "scripts/ios/verify-external-candidate-policy.mjs", "scripts/ios/verify-external-candidate-policy.d.mts",
   "scripts/ios/external-candidate-tools.mjs", "scripts/ios/external-candidate-tools.d.mts",
   "scripts/ios/external-candidate-inventory.c",
@@ -65,8 +66,9 @@ const TEST_SENTINELS = [
   "AKIA1234567890ABCDEF", "eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmnop",
   "api_key = \"1234567890abcdef\"", "-----BEGIN OPENSSH PRIVATE KEY-----",
 ];
-const BASELINE_COMMIT = "c139672c4b651272c31dd2721c445f1b9ec04874";
-const BASELINE_TREE = "dfcf05d8a8cdf3c1c883e0d3993a3d299f909411";
+const BASELINE_COMMIT = "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e";
+const BASELINE_TREE = "f1e53a23591900292a6324cfe30761eee25351da";
+const REVIEWED_SYNC_SHA256 = "07286fbbd8c017f7262f9b7772a44475478845deabf07c5a1d465b06b27c3c42";
 
 function fail(message) { throw new Error(`external candidate policy: ${message}`); }
 function requireCondition(value, message) { if (!value) fail(message); }
@@ -117,7 +119,7 @@ export function assertNoUploadCommandCore(text) {
   requireCondition(!/(?:\/usr\/bin\/)?(?:altool|notarytool|iTMSTransporter)\b|["']--?upload["']|["']destination\s*=\s*upload["']/iu.test(executableCore), "command-core contains upload capability");
 }
 
-export function validatePolicyDocuments({ policy, metadata, internalOptions, externalOptions, projectText, infoText, entitlements, privacy, dataFlowText, migrationManifest, internalChecklist, internalHandoff, packageJson, archiveLaneText, exportLaneText, auditLaneText, externalToolsText }) {
+export function validatePolicyDocuments({ policy, metadata, internalOptions, externalOptions, projectText, infoText, entitlements, privacy, dataFlowText, migrationManifest, internalChecklist, internalHandoff, packageJson, archiveLaneText, exportLaneText, auditLaneText, externalToolsText, syncText }) {
   exactKeys(policy, ["schemaVersion", "kind", "state", "baseline", "identity", "sourceBinding", "schema", "privacy", "exportCompliance", "metadata", "distribution", "signing", "artifact", "physicalAcceptance", "preservedInternalCandidate"], "policy");
   requireCondition(policy.schemaVersion === 2 && policy.kind === "greenroom-ios-external-testflight-candidate-policy", "policy identity is not exact");
   requireCondition(policy.state === "reviewed-local-archive-export-audit-no-upload", "policy must authorize only the reviewed local no-upload lane");
@@ -134,6 +136,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   requireCondition(identity.activation === "external-build-4-local-archive-export-audit-only", "external build-4 activation boundary is missing");
   requireCondition(JSON.stringify(policy.sourceBinding.inventoryRoots) === JSON.stringify(INVENTORY_ROOTS) && JSON.stringify(policy.sourceBinding.requiredFiles) === JSON.stringify(REQUIRED_FILES), "source inventory scope was weakened");
   requireCondition(policy.sourceBinding.requireCleanExactCommit === true && policy.sourceBinding.requireExactGitTree === true && policy.sourceBinding.requireDirectBaselineParent === true, "source binding gates were weakened");
+  requireCondition(sha256(Buffer.from(syncText, "utf8")) === REVIEWED_SYNC_SHA256, "iOS sync bytes changed without reviewed source pin update");
   requireCondition(JSON.stringify(policy.artifact.forbiddenPathFragments) === JSON.stringify(FORBIDDEN_PATHS), "forbidden artifact paths were weakened");
   const expectedSecretMarkers = [["-----BEGIN ", "PRIVATE KEY-----"].join(""), "sk-or-v1-", "sk-proj-", "xai-", "gsk_", "rk-", "pk-", "gh-token", "aws-access-key", "jwt", "credential-assignment"];
   requireCondition(JSON.stringify(policy.artifact.forbiddenSecretPatterns) === JSON.stringify(expectedSecretMarkers), "declared secret markers changed");
@@ -243,6 +246,7 @@ export function readRepositoryDocuments(root = process.cwd()) {
       exportLaneText: readFileSync(join(root, "scripts/ios/export-external-candidate.mjs"), "utf8"),
       auditLaneText: readFileSync(join(root, "scripts/ios/audit-external-candidate.mjs"), "utf8"),
       externalToolsText: readFileSync(join(root, "scripts/ios/external-candidate-tools.mjs"), "utf8"),
+      syncText: readFileSync(join(root, "scripts/ios/sync.mjs"), "utf8"),
     },
   };
 }
