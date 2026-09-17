@@ -163,6 +163,27 @@ function syntheticZip(name: string, compressed: number, uncompressed: number): B
   return Buffer.concat([local, central, eocd]);
 }
 
+function syntheticStoredZipEntries(entries: Array<{ name: string; madeBy?: number; mode?: number }>): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const directory = entry.name.endsWith("/");
+    const payload = directory ? Buffer.alloc(0) : Buffer.from("x");
+    const crc = testCrc32(payload);
+    const local = Buffer.alloc(30 + name.length + payload.length);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(0x800, 6); local.writeUInt32LE(crc, 14); local.writeUInt32LE(payload.length, 18); local.writeUInt32LE(payload.length, 22); local.writeUInt16LE(name.length, 26); name.copy(local, 30); payload.copy(local, 30 + name.length);
+    const central = Buffer.alloc(46 + name.length);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE((entry.madeBy ?? 3) << 8, 4); central.writeUInt16LE(0x800, 8); central.writeUInt32LE(crc, 16); central.writeUInt32LE(payload.length, 20); central.writeUInt32LE(payload.length, 24); central.writeUInt16LE(name.length, 28); central.writeUInt32LE(((((entry.mode ?? (directory ? 0o40755 : 0o100644)) << 16) >>> 0) + (directory ? 0x10 : 0)) >>> 0, 38); central.writeUInt32LE(offset, 42); name.copy(central, 46);
+    locals.push(local); centrals.push(central); offset += local.length;
+  }
+  const central = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10); eocd.writeUInt32LE(central.length, 12); eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, central, eocd]);
+}
+
 function syntheticDeflatedZip(name: string, contents: Buffer): Buffer {
   const packed = deflateRawSync(contents);
   const zip = syntheticZip(name, packed.length, contents.length);
@@ -549,11 +570,54 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
 
   const signatures = ["Capacitor.xcframework-ios.signature", "Cordova.xcframework-ios.signature"];
   assert.doesNotThrow(() => audit.validateArchivePackageSignatures(signatures));
+  assert.doesNotThrow(() => audit.validatePackageSignatureHash(signatures[0]!, "f346852ef960daaecd6bd10d6db7e8516136206000cfd8027cce146194481150"));
+  assert.doesNotThrow(() => audit.validatePackageSignatureHash(signatures[1]!, "810145d5a3c06fa6de4f92cc4cd09df988ebc79ea0dd90b104a296cc7682339a"));
+  assert.throws(() => audit.validatePackageSignatureHash(signatures[0]!, "0".repeat(64)), /signature hash/u);
   for (const malformed of [
     ["Capacitor.xcframework-ios.signature"],
     [...signatures, "Unexpected.signature"],
     ["Capacitor.xcframework-ios.signature", "Substituted.signature"],
   ]) assert.throws(() => audit.validateArchivePackageSignatures(malformed), /package signatures are not exact/u);
+  const signatureFixture = (bundle: "Capacitor" | "Cordova") => ({
+    bundleIdentifier: bundle,
+    cdhashes: bundle === "Capacitor"
+      ? ["ad67c9247d596e4478a12fe7a1ebc2734ab903ba", "4c288ecdf03b065f215586517ed8941718c6891f"]
+      : ["cfc498ae642ac74e789f4c73a61b312c13056bd9", "18be1e205f4a77260761b287776d57c3581ee1e6"],
+    certificateSha256: ["e00cd54b0819556bb61345d52a1d30dfbcb8bb64a52cd06bc6fb2c4d34c24dcc", "7afc9d01a62f03a2de9637936d4afe68090d2de18d03f29c88cfb0b1ba63587f", "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024"],
+    isSecureTimestamp: false,
+    library: `${bundle}.framework`,
+    platform: "ios",
+    signatureIdentifier: "9YN2HU59K8",
+    signatureType: "AppleDeveloperProgram",
+    signed: true,
+    source: "embedded",
+  });
+  assert.doesNotThrow(() => audit.validatePackageSignatureSemantics(signatures[0]!, signatureFixture("Capacitor")));
+  assert.doesNotThrow(() => audit.validatePackageSignatureSemantics(signatures[1]!, signatureFixture("Cordova")));
+  for (const [label, mutate] of [
+    ["wrong library", (value: Record<string, any>) => { value.library = "Substituted.framework"; }],
+    ["extra key", (value: Record<string, any>) => { value.unreviewed = true; }],
+    ["duplicate cdhash", (value: Record<string, any>) => { value.cdhashes[1] = value.cdhashes[0]; }],
+    ["bad certificate", (value: Record<string, any>) => { value.certificateSha256[0] = "0".repeat(64); }],
+    ["unsigned", (value: Record<string, any>) => { value.signed = false; }],
+  ] as const) {
+    const malformed = signatureFixture("Capacitor");
+    mutate(malformed);
+    assert.throws(() => audit.validatePackageSignatureSemantics(signatures[0]!, malformed), /package signature/u, label);
+  }
+  const uuids = ["0A944EB8-BE0E-3C57-A206-F57372F7937D", "E954C8C9-84F1-3089-8747-CD152DB33C0D", "93EC7251-2FF6-3373-974C-393B354DCA44"];
+  const symbolNames = uuids.map((uuid) => `${uuid}.symbols`);
+  assert.doesNotThrow(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Symbols", "Payload", "Signatures"], signatureNames: signatures, symbolNames, dwarfUuids: uuids }));
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures"], signatureNames: signatures, symbolNames, dwarfUuids: uuids }), /top-level product/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols", "SwiftSupport"], signatureNames: signatures, symbolNames, dwarfUuids: uuids }), /top-level product/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames: [...symbolNames, "smuggled.symbols"], dwarfUuids: uuids }), /symbol files/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames: [symbolNames[0]!, symbolNames[0]!, symbolNames[2]!], dwarfUuids: uuids }), /symbol files/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames, dwarfUuids: [uuids[0]!, uuids[0]!, uuids[2]!] }), /UUID set/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames, dwarfUuids: [uuids[0]!.toLowerCase(), uuids[1]!, uuids[2]!] }), /UUID set/u);
+  assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames, dwarfUuids: uuids, archiveUuids: [uuids[1]!, uuids[0]!, uuids[2]!] }), /do not match the audited archive/u);
+  const symbolToolOutput = `${uuids[0]} arm64    /private/archive/App.app.dSYM/Contents/Resources/DWARF/App [dSYM_v3, FaultedFromDisk, Found-dSYM, MMap64]\n`;
+  assert.equal(audit.parseSymbolProductUuid(symbolToolOutput), uuids[0]);
+  for (const malformed of ["", `${uuids[0]}\n`, symbolToolOutput.toLowerCase(), `${symbolToolOutput}${symbolToolOutput}`, `${uuids[0]} arm64    relative/path [dSYM_v3]`]) assert.throws(() => audit.parseSymbolProductUuid(malformed), /symbol product output/u);
 
   const endpoints = "https://openrouter.ai https://api.openai.com https://api.x.ai https://api.groq.com https://api.together.ai";
   assert.doesNotThrow(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "safe", cordova: "safe" }));
@@ -630,6 +694,14 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/é", descriptorContents, { flags: 0x0008 })), /IPA_NAME_ENCODING_INVALID/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip("Payload/App.app/bomb", 1, 101)), /IPA_RATIO_INVALID/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip(`${"deep/".repeat(21)}x`, 1, 1)), /IPA_PATH_INVALID/u);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip("Payload/../escape", 1, 1)), /IPA_PATH_INVALID/u);
+  for (const collision of [
+    ["Payload/X", "Payload/X"],
+    ["Payload/X", "Payload/X/"],
+    ["Payload/Case", "payload/case"],
+    ["Payload/é", "Payload/e\u0301"],
+    ["Payload/X", "Payload/X/Y"],
+  ]) assert.throws(() => audit.inspectIpaCentralDirectory(syntheticStoredZipEntries(collision.map((name) => ({ name })))), /IPA_PATH_DUPLICATE|IPA_PATH_CANONICAL_COLLISION/u);
   const localNameMismatch = syntheticZip("Payload/App.app/App", 4, 4); localNameMismatch[30] = "X".charCodeAt(0);
   assert.throws(() => audit.inspectIpaCentralDirectory(localNameMismatch), /IPA_LOCAL_HEADER_MISMATCH/u);
   const localFlagsMismatch = syntheticZip("Payload/App.app/App", 4, 4); localFlagsMismatch.writeUInt16LE(0, 6);
@@ -640,6 +712,7 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   assert.throws(() => audit.inspectIpaCentralDirectory(encryptedFlags), /IPA_ZIP_FEATURE_FORBIDDEN/u);
   const symlink = syntheticZip("Payload/App.app/link", 4, 4); const symlinkCentral = 30 + Buffer.byteLength("Payload/App.app/link") + 4; symlink.writeUInt16LE(3 << 8, symlinkCentral + 4); symlink.writeUInt32LE((0o120777 << 16) >>> 0, symlinkCentral + 38);
   assert.throws(() => audit.inspectIpaCentralDirectory(symlink), /IPA_ENTRY_TYPE_INVALID/u);
+  for (const mode of [0o010644, 0o020644, 0o060644, 0o140644]) assert.throws(() => audit.inspectIpaCentralDirectory(syntheticStoredZipEntries([{ name: "Payload/App.app/special", madeBy: 0, mode }])), /IPA_ENTRY_TYPE_INVALID/u);
   const badCrc = syntheticZip("Payload/App.app/App", 4, 4); const badCrcCentral = 30 + Buffer.byteLength("Payload/App.app/App") + 4; badCrc.writeUInt32LE(1, 14); badCrc.writeUInt32LE(1, badCrcCentral + 16);
   assert.throws(() => audit.inspectIpaCentralDirectory(badCrc), /IPA_DECOMPRESSION_MISMATCH/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticOverlappingZip()), /IPA_LOCAL_RANGE_INVALID/u);

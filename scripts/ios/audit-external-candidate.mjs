@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
+import plist from "plist";
 import { closeExternalLaneParent, closeRetainedDirectory, inventoryArtifactTree, prepareExternalLaneParent, PROTECTED_BASELINE_COMMIT, PROTECTED_BASELINE_TREE, readRegularFileAt, readRegularFileNoFollow, requireRetainedDirectory, REQUIRED_NODE_VERSION, retainOwnedDirectoryAt, validateExternalDistributionSigning, validateExternalExportOptions, validateExternalReleaseInfo, validateGeneratedExternalExportOptions, withArtifactTreeSnapshot, writeJsonNoClobber } from "./external-candidate-tools.mjs";
 import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 
@@ -139,6 +141,9 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const names = [];
   const seen = new Set();
+  const canonicalPaths = new Set();
+  const canonicalFiles = new Set();
+  const canonicalAncestors = new Set();
   const ranges = [];
   let cursor = centralOffset;
   let totalCompressed = 0;
@@ -167,6 +172,10 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
     requireCondition(!name.startsWith("/") && !name.includes("\\") && !name.includes("\0") && posix.normalize(name) === name && !name.split("/").includes("..") && name.split("/").filter(Boolean).length <= MAX_ZIP_DEPTH, "IPA_PATH_INVALID");
     requireCondition(!seen.has(name), "IPA_PATH_DUPLICATE");
     seen.add(name);
+    const canonical = name.replace(/\/$/u, "").normalize("NFD").toLowerCase();
+    requireCondition(canonical.length > 0 && !canonicalPaths.has(canonical), "IPA_PATH_CANONICAL_COLLISION");
+    const segments = canonical.split("/");
+    for (let depth = 1; depth < segments.length; depth += 1) requireCondition(!canonicalFiles.has(segments.slice(0, depth).join("/")), "IPA_PATH_CANONICAL_COLLISION");
     const localFlags = bytes.readUInt16LE(localOffset + 6);
     const localMethod = bytes.readUInt16LE(localOffset + 8);
     const localCrc = bytes.readUInt32LE(localOffset + 14);
@@ -182,8 +191,12 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
     const unixMode = (externalAttributes >>> 16) & 0xffff;
     const unixKind = unixMode & 0xf000;
     const directory = name.endsWith("/");
-    if ((madeBy >>> 8) === 3) requireCondition(unixKind === 0 || unixKind === 0x8000 && !directory || unixKind === 0x4000 && directory, "IPA_ENTRY_TYPE_INVALID");
-    else requireCondition(((externalAttributes & 0x10) !== 0) === directory, "IPA_ENTRY_TYPE_INVALID");
+    requireCondition(unixKind === 0 || unixKind === 0x8000 && !directory || unixKind === 0x4000 && directory, "IPA_ENTRY_TYPE_INVALID");
+    if ((madeBy >>> 8) !== 3) requireCondition(((externalAttributes & 0x10) !== 0) === directory, "IPA_ENTRY_TYPE_INVALID");
+    requireCondition(directory || !canonicalAncestors.has(canonical), "IPA_PATH_CANONICAL_COLLISION");
+    canonicalPaths.add(canonical);
+    if (!directory) canonicalFiles.add(canonical);
+    for (let depth = 1; depth < segments.length; depth += 1) canonicalAncestors.add(segments.slice(0, depth).join("/"));
     requireCondition(!directory || compressed === 0 && uncompressed === 0 && method === 0 && !hasDescriptor, "IPA_DIRECTORY_INVALID");
     requireCondition(compressed > 0 || uncompressed === 0, "IPA_RATIO_INVALID");
     requireCondition(uncompressed <= 256 * 1024 * 1024 && (uncompressed === 0 || uncompressed / compressed <= MAX_ZIP_RATIO), "IPA_RATIO_INVALID");
@@ -285,6 +298,107 @@ export function validateArchivePackageSignatures(names) {
   requireCondition(Array.isArray(names) && names.every((name) => typeof name === "string") &&
     JSON.stringify([...names].sort()) === JSON.stringify(["Capacitor.xcframework-ios.signature", "Cordova.xcframework-ios.signature"]),
   "archive package signatures are not exact");
+}
+
+const PACKAGE_SIGNATURE_PRODUCTS = Object.freeze({
+  "Capacitor.xcframework-ios.signature": Object.freeze({
+    bundleIdentifier: "Capacitor", library: "Capacitor.framework", signatureSha256: "f346852ef960daaecd6bd10d6db7e8516136206000cfd8027cce146194481150",
+    cdhashes: ["ad67c9247d596e4478a12fe7a1ebc2734ab903ba", "4c288ecdf03b065f215586517ed8941718c6891f"],
+  }),
+  "Cordova.xcframework-ios.signature": Object.freeze({
+    bundleIdentifier: "Cordova", library: "Cordova.framework", signatureSha256: "810145d5a3c06fa6de4f92cc4cd09df988ebc79ea0dd90b104a296cc7682339a",
+    cdhashes: ["cfc498ae642ac74e789f4c73a61b312c13056bd9", "18be1e205f4a77260761b287776d57c3581ee1e6"],
+  }),
+});
+const PACKAGE_CERTIFICATE_SHA256 = Object.freeze([
+  "e00cd54b0819556bb61345d52a1d30dfbcb8bb64a52cd06bc6fb2c4d34c24dcc",
+  "7afc9d01a62f03a2de9637936d4afe68090d2de18d03f29c88cfb0b1ba63587f",
+  "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024",
+]);
+
+export function validatePackageSignatureHash(name, digest) {
+  const expected = PACKAGE_SIGNATURE_PRODUCTS[name];
+  requireCondition(expected !== undefined && digest === expected.signatureSha256, "archive package signature hash is not the reviewed package signature");
+}
+
+export function validatePackageSignatureSemantics(name, value) {
+  const expected = PACKAGE_SIGNATURE_PRODUCTS[name];
+  requireCondition(expected !== undefined, "package signature product is not approved");
+  exactKeys(value, ["bundleIdentifier", "cdhashes", "certificateSha256", "isSecureTimestamp", "library", "platform", "signatureIdentifier", "signatureType", "signed", "source"], "package signature semantic projection");
+  exactValue(value, {
+    bundleIdentifier: expected.bundleIdentifier,
+    cdhashes: expected.cdhashes,
+    certificateSha256: PACKAGE_CERTIFICATE_SHA256,
+    isSecureTimestamp: false,
+    library: expected.library,
+    platform: "ios",
+    signatureIdentifier: "9YN2HU59K8",
+    signatureType: "AppleDeveloperProgram",
+    signed: true,
+    source: "embedded",
+  }, "package signature semantic projection");
+}
+
+function packageSignaturePlist(bytes, label) {
+  requireCondition(Buffer.isBuffer(bytes) && bytes.length > 0 && bytes.length <= 1024 * 1024, `${label} size is invalid`);
+  let value;
+  try { value = plist.parse(bytes.toString("utf8")); }
+  catch { fail(`Apple package signature parser rejected ${label}`); }
+  exactKeys(value, ["bundleIndentifier", "cdhashes", "certificates", "isSecureTimestamp", "metadata", "signatureIdentifier", "signatureType", "signed", "source"], "package signature plist");
+  exactKeys(value.metadata, ["library", "platform"], "package signature metadata");
+  requireCondition(Array.isArray(value.cdhashes) && value.cdhashes.length === 2 && value.cdhashes.every((hash) => Buffer.isBuffer(hash) && hash.length === 20), "package signature cdhashes are malformed");
+  requireCondition(Array.isArray(value.certificates) && value.certificates.length === 3 && value.certificates.every((certificate) => Buffer.isBuffer(certificate) && certificate.length >= 512 && certificate.length <= 16_384), "package signature certificates are malformed");
+  return {
+    bundleIdentifier: value.bundleIndentifier,
+    cdhashes: value.cdhashes.map((hash) => hash.toString("hex")),
+    certificateSha256: value.certificates.map((certificate) => createHash("sha256").update(certificate).digest("hex")),
+    isSecureTimestamp: value.isSecureTimestamp,
+    library: value.metadata.library,
+    platform: value.metadata.platform,
+    signatureIdentifier: value.signatureIdentifier,
+    signatureType: value.signatureType,
+    signed: value.signed,
+    source: value.source,
+  };
+}
+
+export function validateIpaAuxiliaryLayout({ topLevel, signatureNames, symbolNames, dwarfUuids, archiveUuids = dwarfUuids }) {
+  requireCondition(Array.isArray(topLevel) && topLevel.every((name) => typeof name === "string") && JSON.stringify([...topLevel].sort()) === JSON.stringify(["Payload", "Signatures", "Symbols"]), "IPA contains an unexpected top-level product");
+  validateArchivePackageSignatures(signatureNames);
+  requireCondition(Array.isArray(dwarfUuids) && dwarfUuids.length === 3 && new Set(dwarfUuids).size === 3 && dwarfUuids.every((uuid) => /^[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}$/u.test(uuid)), "IPA Mach-O UUID set is invalid");
+  requireCondition(Array.isArray(archiveUuids) && JSON.stringify(archiveUuids) === JSON.stringify(dwarfUuids), "IPA Mach-O UUIDs do not match the audited archive");
+  const expectedSymbols = dwarfUuids.map((uuid) => `${uuid}.symbols`).sort();
+  requireCondition(Array.isArray(symbolNames) && symbolNames.every((name) => typeof name === "string") && JSON.stringify([...symbolNames].sort()) === JSON.stringify(expectedSymbols), "IPA symbol files do not exactly match the audited Mach-O UUIDs");
+}
+
+function machOUuids(appPath, mainExecutable, deadline) {
+  requireCondition(typeof mainExecutable === "string" && /^[A-Za-z0-9 ._-]{1,128}$/u.test(mainExecutable), "IPA main executable name is malformed");
+  const binaries = [
+    join(appPath, mainExecutable),
+    join(appPath, "Frameworks/Capacitor.framework/Capacitor"),
+    join(appPath, "Frameworks/Cordova.framework/Cordova"),
+  ];
+  const output = command("/usr/bin/dwarfdump", ["--uuid", ...binaries], { deadline });
+  const lines = output.trim().split("\n");
+  requireCondition(lines.length === binaries.length, "IPA Mach-O UUID output is incomplete");
+  return lines.map((line, index) => {
+    const match = /^UUID: ([0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}) \(arm64\) (.+)$/u.exec(line);
+    requireCondition(match !== null && match[2] === binaries[index], "IPA Mach-O UUID output is malformed");
+    return match[1];
+  });
+}
+
+export function parseSymbolProductUuid(output) {
+  requireCondition(typeof output === "string" && Buffer.byteLength(output, "utf8") <= 4096 && !output.includes("\0"), "IPA UUID symbol product output is malformed");
+  const line = output.replace(/\n$/u, "");
+  requireCondition(!line.includes("\n") && !line.includes("\r"), "IPA UUID symbol product output is malformed");
+  const match = /^([0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}) arm64 {4}([^\u0000-\u001f\u007f]{1,3584}) \[([A-Za-z0-9_, -]{1,256})\]$/u.exec(line);
+  requireCondition(match !== null && match[2].startsWith("/") && match[3].split(", ").includes("dSYM_v3"), "IPA UUID symbol product output is malformed");
+  return match[1];
+}
+
+function symbolProductUuid(path, deadline) {
+  return parseSymbolProductUuid(command("/usr/bin/xcrun", ["symbols", "-uuid", "-noHeaders", "-noRegions", "-noSymbols", "-noSources", "-noDiskFaults", "-noTaskFaults", "-noSelfDSCFaults", "-noDiskDSCFaults", "-privateData", "-noDaemon", path], { deadline }));
 }
 
 export function validateMachOStringScans(scans) {
@@ -410,7 +524,7 @@ function validateDistributionSummary(value, ipaName) {
   });
 }
 
-function auditExport(exportPath, expectedCommit, exactExportInventory, deadline) {
+function auditExport(exportPath, expectedCommit, exactExportInventory, archiveSnapshot, archiveUuids, deadline) {
   realDirectory(exportPath, "external export directory");
   const names = readdirSync(exportPath).sort();
   requireCondition(!names.some((name) => name === "Packaging.log" || name.endsWith(".xcdistributionlogs")), "export diagnostics must be deleted");
@@ -434,8 +548,32 @@ function auditExport(exportPath, expectedCommit, exactExportInventory, deadline)
     command("/usr/bin/ditto", ["-x", "-k", "--", stagedIpa, extracted], { deadline });
     const extractedAudit = withArtifactTreeSnapshot(extracted, (extractedSnapshot, extractedInventory) => {
       const top = readdirSync(extractedSnapshot);
-      requireCondition(JSON.stringify(top) === JSON.stringify(["Payload"]), "IPA contains an unexpected top-level product");
       const appPath = singleApp(join(extractedSnapshot, "Payload"), "IPA Payload snapshot");
+      const signaturesPath = join(extractedSnapshot, "Signatures");
+      const symbolsPath = join(extractedSnapshot, "Symbols");
+      realDirectory(signaturesPath, "IPA Signatures snapshot");
+      realDirectory(symbolsPath, "IPA Symbols snapshot");
+      const signatureNames = readdirSync(signaturesPath);
+      const symbolNames = readdirSync(symbolsPath);
+      const appInfo = plistFile(join(appPath, "Info.plist"), deadline);
+      const dwarfUuids = machOUuids(appPath, appInfo.CFBundleExecutable, deadline);
+      validateIpaAuxiliaryLayout({ topLevel: top, signatureNames, symbolNames, dwarfUuids, archiveUuids });
+      for (const name of signatureNames) {
+        const exportedSignature = readRegularFileNoFollow(join(signaturesPath, name), "exported package signature", undefined, { deadline });
+        const archivedSignature = readRegularFileNoFollow(join(archiveSnapshot, "Signatures", name), "archived package signature", undefined, { deadline });
+        requireCondition(exportedSignature.sha256 === archivedSignature.sha256 && exportedSignature.bytes.length === archivedSignature.bytes.length, "IPA package signature does not match the audited archive");
+        validatePackageSignatureHash(name, archivedSignature.sha256);
+        const archivedSemantics = packageSignaturePlist(archivedSignature.bytes, "archived package signature");
+        const exportedSemantics = packageSignaturePlist(exportedSignature.bytes, "exported package signature");
+        validatePackageSignatureSemantics(name, archivedSemantics);
+        validatePackageSignatureSemantics(name, exportedSemantics);
+        exactValue(exportedSemantics, archivedSemantics, "IPA package signature semantics");
+      }
+      for (const name of symbolNames) {
+        const path = join(symbolsPath, name);
+        requireCondition(readRegularFileNoFollow(path, "IPA UUID symbol product", undefined, { deadline }).bytes.length > 0, "IPA UUID symbol product is empty");
+        requireCondition(symbolProductUuid(path, deadline) === name.slice(0, -".symbols".length), "IPA UUID symbol product content does not match its audited Mach-O UUID");
+      }
       return { inventory: extractedInventory, app: auditApp(appPath, expectedCommit, deadline) };
     }, undefined, { deadline });
     validateDistributionSummary(plistInput(readRegularFileNoFollow(join(exportPath, "DistributionSummary.plist"), "DistributionSummary.plist", undefined, { deadline }).bytes, "DistributionSummary.plist", deadline), ipas[0]);
@@ -489,7 +627,14 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
     const allowedArchiveTopLevel = new Set(["BCSymbolMaps", "Info.plist", "Products", "Signatures", "dSYMs"]);
     requireCondition(archiveTopLevel.includes("Info.plist") && archiveTopLevel.includes("Products") && archiveTopLevel.every((name) => allowedArchiveTopLevel.has(name)), "archive contains an unexpected top-level product");
     const signatures = join(archiveSnapshot, "Signatures");
-    validateArchivePackageSignatures(readdirSync(signatures));
+    realDirectory(signatures, "archive Signatures snapshot");
+    const archiveSignatureNames = readdirSync(signatures);
+    validateArchivePackageSignatures(archiveSignatureNames);
+    for (const name of archiveSignatureNames) {
+      const signature = readRegularFileNoFollow(join(signatures, name), "archived package signature", undefined, { deadline });
+      validatePackageSignatureHash(name, signature.sha256);
+      validatePackageSignatureSemantics(name, packageSignaturePlist(signature.bytes, "archived package signature"));
+    }
     const products = join(archiveSnapshot, "Products");
     requireCondition(JSON.stringify(readdirSync(products)) === JSON.stringify(["Applications"]), "archive Products contains an unexpected product");
     const appPath = singleApp(join(products, "Applications"), "archive Products/Applications snapshot");
@@ -497,10 +642,12 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
     requireCondition(plistRaw(archiveInfo, "ApplicationProperties.CFBundleIdentifier", deadline) === "net.greenroomai.GreenRoom", "ARCHIVE_METADATA_INVALID");
     requireCondition(plistRaw(archiveInfo, "ApplicationProperties.CFBundleShortVersionString", deadline) === "0.1.0" && plistRaw(archiveInfo, "ApplicationProperties.CFBundleVersion", deadline) === "4", "ARCHIVE_METADATA_INVALID");
     requireCondition(plistRaw(archiveInfo, "ApplicationProperties.Team", deadline) === "JZ233HBW3Z", "ARCHIVE_METADATA_INVALID");
+    const archiveAppInfo = plistFile(join(appPath, "Info.plist"), deadline);
+    const archiveUuids = machOUuids(appPath, archiveAppInfo.CFBundleExecutable, deadline);
     const app = auditApp(appPath, head, deadline);
     const exported = exactExport === null ? null : withArtifactTreeSnapshot(retainedExport, (exportSnapshot, exportSnapshotInventory) => {
       requireCondition(exportBefore && exportSnapshotInventory.sha256 === exportBefore.sha256, "export semantic snapshot does not equal the pre-audit live inventory");
-      return { audit: auditExport(exportSnapshot, head, exportSnapshotInventory, deadline), inventory: exportSnapshotInventory };
+      return { audit: auditExport(exportSnapshot, head, exportSnapshotInventory, archiveSnapshot, archiveUuids, deadline), inventory: exportSnapshotInventory };
     }, undefined, { deadline });
     return { archiveInventory: archiveSnapshotInventory, app, exported };
   }, undefined, { deadline });

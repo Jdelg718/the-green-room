@@ -67,7 +67,7 @@ test("external candidate policy authorizes only the exact local archive/export/a
   assert.deepEqual(summary, {
     status: "PASS",
     policyState: "reviewed-local-archive-export-audit-no-upload",
-    baselineCommit: "a1999c3a5a919fe1743044e15fb18636803d187c",
+    baselineCommit: "03d71d4cb803b4b495101fd582bfd7248ba10856",
     candidateIdentity: "0.1.0 (4)",
     localArchiveAllowed: true,
     localExportAllowed: true,

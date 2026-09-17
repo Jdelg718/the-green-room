@@ -10,6 +10,10 @@ export function auditExternalCandidate(options?: {
   beforeFinalEvidencePublication?: (laneParentPath: string) => void;
 }): Record<string, any>;
 export function validateArchivePackageSignatures(names: string[]): void;
+export function validatePackageSignatureHash(name: string, sha256: string): void;
+export function validatePackageSignatureSemantics(name: string, value: Record<string, any>): void;
+export function validateIpaAuxiliaryLayout(options: { topLevel: string[]; signatureNames: string[]; symbolNames: string[]; dwarfUuids: string[]; archiveUuids?: string[] }): void;
+export function parseSymbolProductUuid(output: string): string;
 export function validateMachOStringScans(scans: { main: string; capacitor: string; cordova: string }): void;
 export function validateMachOBinaryPaths(entries: Array<{ path: string; magic: string }>, mainExecutable: string): void;
 export function parseMachODependencies(output: string): string[];
