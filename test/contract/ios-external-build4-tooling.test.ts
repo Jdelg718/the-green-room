@@ -150,6 +150,20 @@ test("external build-4 identity, options, and signing are exact and cannot use i
       entitlements,
     },
   }));
+  const reorderedEntitlements = Object.fromEntries(Object.entries(entitlements).reverse());
+  assert.doesNotThrow(() => tools.validateExternalDistributionSigning({
+    identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z",
+    entitlements: reorderedEntitlements,
+    profile: {
+      name: "Green Room App Store Connect 0.1.0 Build 1",
+      teamIdentifiers: ["JZ233HBW3Z"],
+      expirationDate: "2099-01-01T00:00:00Z",
+      provisionsAllDevicesPresent: false,
+      provisionedDevicesPresent: false,
+      provisionedDeviceCount: 0,
+      entitlements: reorderedEntitlements,
+    },
+  }));
   for (const malformed of [
     { ...releaseInfo, CFBundleVersion: "2" },
     { ...releaseInfo, GreenRoomSourceCommit: "development" },
