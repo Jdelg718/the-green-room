@@ -73,9 +73,9 @@ class AtomicDatabase {
             if (p[10] !== ROOM_ID || p[11] !== this.room.generation || p[12] !== this.nextEventSequence) throw new Error("stale");
             this.command = {
               commandId: p[0], requestId: p[1], roomId: ROOM_ID, requestDigest: p[2],
-              requestPlan: JSON.parse(p[3]), state: "prepared", attemptEpoch: 0,
-              failureCode: null, personaSlug: p[9], responseText: null,
-              humanEvent: JSON.parse(p[4]), directorEvent: JSON.parse(p[5]), directorState: JSON.parse(p[6]),
+              requestPlan: JSON.parse(p[9]), state: "prepared", attemptEpoch: 0,
+              failureCode: null, personaSlug: p[8], responseText: null,
+              humanEvent: JSON.parse(p[3]), directorEvent: JSON.parse(p[4]), directorState: JSON.parse(p[5]),
             };
             break;
           }
@@ -249,6 +249,29 @@ test("prepare mutates only one durable command and completion exposes one ordere
   await assert.rejects(runtime.retryAtomicGeneration(database, provider(database), prepared.command, ids()), /no longer retryable/u);
   assert.equal(database.providerCalls, replayCalls);
   assert.equal(database.events.length, 3);
+});
+
+test("long-room atomic preparation carries one provider plan within the 256 KiB bridge boundary", async () => {
+  const runtime = await api("compact-long-room-prepare");
+  const database = new AtomicDatabase();
+  database.events = Array.from({ length: 30 }, (_, index) => ({
+    sequence: index + 1,
+    event: index % 2 === 0
+      ? { participantId: "human-1", text: `question-${index}-${"q".repeat(1_400)}`, type: "human_message" }
+      : { generation: 0, personaSlug: "ada-lovelace", sourceEventSequence: index, text: `answer-${index}-${"a".repeat(1_400)}`, type: "persona_message" },
+  }));
+  database.nextEventSequence = 31;
+  await runtime.prepareAtomicTurn(database, database.room, "latest question", ids(), {
+    requestId: "12000000-0000-4000-8000-000000000018",
+  });
+  const call = database.calls.find(({ payload }) => String(payload.transactionId).startsWith("prepare-"));
+  assert.ok(call, "atomic preparation never reached the native bridge");
+  const statement = call.payload.statements[0];
+  assert.equal(statement.parameters.length, 13);
+  const plan = statement.parameters[9];
+  assert.equal(statement.parameters.filter((value: unknown) => value === plan).length, 1,
+    "the provider plan was duplicated inside the bridge envelope");
+  assert.ok(new TextEncoder().encode(JSON.stringify(call)).byteLength <= 256 * 1024);
 });
 
 test("delayed attempt-one success cannot complete attempt two, while current success commits once", async () => {

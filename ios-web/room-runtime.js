@@ -753,11 +753,9 @@ export async function prepareAtomicTurn(database, room, text, uuid = () => crypt
   await invoke(database, "database.executeBatch", {
     transactionId: `prepare-${commandId}`,
     statements: [{ sqlId: "prepare_generation_command", parameters: [
-      commandId, requestId, requestDigest, planJSON, JSON.stringify(humanEvent), JSON.stringify(directorEvent),
-      JSON.stringify(snapshot), context.generation, sourceEventSequence, personaSlug,
+      commandId, requestId, requestDigest, JSON.stringify(humanEvent), JSON.stringify(directorEvent),
+      JSON.stringify(snapshot), context.generation, sourceEventSequence, personaSlug, planJSON,
       room.id, context.generation, sourceEventSequence,
-      personaSlug, planJSON, personaSlug, planJSON,
-      planJSON, planJSON, planJSON, planJSON,
     ] }],
   }, uuid);
   const prepared = await readUnresolvedGenerationCommand(database, room.id, uuid);
@@ -1804,6 +1802,7 @@ async function boot() {
       input.disabled = true;
       target.disabled = true;
       status.textContent = "Preparing an atomic turn. Nothing is sent or acknowledged yet…";
+      let submitFailure = null;
       try {
         await requireReadyMutation(database, lifecycle);
         if (!await persistVisibleDraft(database)) return;
@@ -1816,14 +1815,16 @@ async function boot() {
         renderCommandAndMutationState();
         await runExactActiveCommand(database, provider, lifecycle, prepared.command, room, token);
       } catch (failure) {
-        if (currentView(room, token)) {
-          const presentation = generationFailurePresentation(failure);
-          document.getElementById("reply-error").textContent = presentation.message;
-          document.getElementById("reply-error").hidden = false;
-          status.textContent = "Not sent";
-        }
+        submitFailure = generationFailurePresentation(failure);
       } finally {
-        if (currentView(room, token)) await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
+        if (currentView(room, token)) {
+          await refreshMutationGate(database, lifecycle).catch(() => { renderCommandAndMutationState(); });
+          if (submitFailure !== null && activeCommand === null) {
+            document.getElementById("reply-error").textContent = submitFailure.message;
+            document.getElementById("reply-error").hidden = false;
+            status.textContent = "Not sent";
+          }
+        }
       }
     });
     if (opened.room === null) showPicker(); else renderRoom(opened);

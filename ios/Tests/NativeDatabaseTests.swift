@@ -103,10 +103,8 @@ private func atomicPrepareParameters(
     let state = "{\"acceptedHumanEventNumber\":1,\"autonomousTurns\":1,\"cancelled\":false,\"fallbackIndex\":0,\"lastSelectedAt\":[],\"maxAutonomousTurns\":10,\"seen\":[],\"version\":1}"
     let human = "{\"participantId\":\"\(humanId)\",\"text\":\"hello\",\"type\":\"human_message\"}"
     return [
-        commandId, requestId, digest, plan,
-        human,
-        director, state, 0, 1, personaValue, roomId, 0, 1,
-        personaValue, plan, personaValue, plan, plan, plan, plan, plan,
+        commandId, requestId, digest, human,
+        director, state, 0, 1, personaValue, plan, roomId, 0, 1,
     ]
 }
 
@@ -211,6 +209,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         ["sqlId": "create_director_state", "parameters": [failureRoom]],
         ["sqlId": "save_local_draft", "parameters": [failureRoom, "still not sent"]],
     ])
+
     let failureCommand = "92000000-0000-4000-8000-000000000012"
     let failureRequest = "93000000-0000-4000-8000-000000000013"
     let failurePlan = atomicPlan(roomId: failureRoom, requestId: failureRequest)
@@ -252,6 +251,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         ["sqlId": "create_director_state", "parameters": [silenceRoom]],
         ["sqlId": "save_local_draft", "parameters": [silenceRoom, "quiet"]],
     ])
+
     let silenceCommand = "92000000-0000-4000-8000-000000000022"
     let silenceRequest = "93000000-0000-4000-8000-000000000023"
     let silencePlan = atomicPlan(roomId: silenceRoom, requestId: silenceRequest, persona: nil)
@@ -276,6 +276,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         ["sqlId": "create_director_state", "parameters": [rollbackRoom]],
         ["sqlId": "save_local_draft", "parameters": [rollbackRoom, "rollback"]],
     ])
+
     let rollbackCommand = "92000000-0000-4000-8000-000000000032"
     let rollbackRequest = "93000000-0000-4000-8000-000000000033"
     let rollbackPlan = atomicPlan(roomId: rollbackRoom, requestId: rollbackRequest)
@@ -312,6 +313,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         ["sqlId": "create_director_state", "parameters": [recoveredRoom]],
         ["sqlId": "save_local_draft", "parameters": [recoveredRoom, "recover precisely"]],
     ])
+
     let recoveredCommand = "92000000-0000-4000-8000-000000000042"
     let recoveredRequest = "93000000-0000-4000-8000-000000000043"
     let recoveredPlan = atomicPlan(roomId: recoveredRoom, requestId: recoveredRequest, persona: nil)
@@ -329,6 +331,7 @@ private func runAtomicGenerationDatabaseTests() throws {
         "sqlId": "complete_silent_generation_command", "parameters": [recoveredCommand, recoveredRequest, recoveredDigest, 0],
     ]])
     require(rowStrings(try store.query(sqlId: "room_events", parameters: [recoveredRoom])).count == 2, "precisely failed silence was not retryable without a provider")
+
 
     let raceRoom = "room-00000000-0000-4000-8000-000000000097"
     let raceCommand = "92000000-0000-4000-8000-000000000052"
@@ -380,6 +383,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     require(raceEvents.isEmpty || raceEvents.count == 3, "completion/lifecycle race exposed a partial turn")
     require((raceEvents.count == 3) != !rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [raceRoom])).isEmpty, "completion/lifecycle race exposed conflicting outcomes")
 
+
     let epochRoom = "room-00000000-0000-4000-8000-000000000098"
     let epochCommand = "92000000-0000-4000-8000-000000000062"
     let epochRequest = "93000000-0000-4000-8000-000000000063"
@@ -427,6 +431,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     require(epochEvents.count == 3 && epochEvents[2].contains("CURRENT_ATTEMPT_2") && !epochEvents[2].contains("STALE_ATTEMPT_1"),
             "current attempt did not complete exactly once")
 
+
     let rollbackEpochRoom = "room-00000000-0000-4000-8000-000000000099"
     let rollbackEpochCommand = "92000000-0000-4000-8000-000000000072"
     let rollbackEpochRequest = "93000000-0000-4000-8000-000000000073"
@@ -452,10 +457,12 @@ private func runAtomicGenerationDatabaseTests() throws {
             rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, rollbackEpochPlan, attemptEpoch: 1
         )],
     ])
+
     try store.failGenerationCommandNotStarted(
         commandId: rollbackEpochCommand, requestId: rollbackEpochRequest,
         requestDigest: rollbackEpochDigest, priorAttemptEpoch: 1
     )
+
     let rolledBackRetry = rowStrings(try store.query(sqlId: "unresolved_generation_command", parameters: [rollbackEpochRoom])).first ?? ""
     require(rolledBackRetry.contains("\"state\":\"failed\"") &&
             rolledBackRetry.contains("\"attemptEpoch\":1") &&
@@ -466,6 +473,7 @@ private func runAtomicGenerationDatabaseTests() throws {
             rollbackEpochCommand, rollbackEpochRequest, rollbackEpochDigest, rollbackEpochPlan, attemptEpoch: 1
         ),
     ]])
+
     require(try store.generationCommandIsInFlight(
         commandId: rollbackEpochCommand, requestId: rollbackEpochRequest,
         requestDigest: rollbackEpochDigest, attemptEpoch: 2
@@ -800,10 +808,15 @@ struct NativeDatabaseTests {
 
         try runRoomTalkTests()
         try runAtomicGenerationDatabaseTests()
+
         try runSchemaSixUpgradeTest()
+
         try runSchemaSevenUpgradeAndConsentTests()
+
         try runCredentialStoreTests()
+
         try runProviderDefinitionTests()
+
         try runProviderTransportTests()
         print("PASS native database, credential lifecycle, fixed provider definitions, and bounded provider transport")
     }

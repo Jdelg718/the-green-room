@@ -438,12 +438,10 @@ func runProviderTransportTests() throws {
     _ = try database.executeBatch(transactionId: "provider-command", statements: [[
         "sqlId": "prepare_generation_command",
         "parameters": [
-            exactCommand.commandId, exactCommand.requestId, digest, planJSON,
+            exactCommand.commandId, exactCommand.requestId, digest,
             "{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}",
             "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
-            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
-            payload.personaSlug, planJSON, payload.personaSlug, planJSON,
-            planJSON, planJSON, planJSON, planJSON,
+            directorState, 0, 1, payload.personaSlug, planJSON, payload.roomId, 0, 1,
         ],
     ]])
 
@@ -495,12 +493,10 @@ func runProviderTransportTests() throws {
         if !listModels {
             _ = try fencedDatabase.executeBatch(transactionId: "fence-command-\(mutation)", statements: [[
                 "sqlId": "prepare_generation_command", "parameters": [
-                    commandId, requestId, fencedDigest, fencedPlan,
+                    commandId, requestId, fencedDigest,
                     "{\"participantId\":\"human-fence\",\"text\":\"hello\",\"type\":\"human_message\"}",
                     "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
-                    directorState, 0, 1, payload.personaSlug, roomId, 0, 1,
-                    payload.personaSlug, fencedPlan, payload.personaSlug, fencedPlan,
-                    fencedPlan, fencedPlan, fencedPlan, fencedPlan,
+                    directorState, 0, 1, payload.personaSlug, fencedPlan, roomId, 0, 1,
                 ],
             ]])
             if mutation == "deadline" {
@@ -782,12 +778,10 @@ func runProviderTransportTests() throws {
     _ = try database.executeBatch(transactionId: "provider-preflight-command", statements: [[
         "sqlId": "prepare_generation_command",
         "parameters": [
-            preflightCommand.commandId, preflightCommand.requestId, preflightDigest, preflightPlan,
+            preflightCommand.commandId, preflightCommand.requestId, preflightDigest,
             "{\"participantId\":\"human-1\",\"text\":\"hello\",\"type\":\"human_message\"}",
             "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
-            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
-            payload.personaSlug, preflightPlan, payload.personaSlug, preflightPlan,
-            preflightPlan, preflightPlan, preflightPlan, preflightPlan,
+            directorState, 0, 1, payload.personaSlug, preflightPlan, payload.roomId, 0, 1,
         ],
     ]])
     try credentialStore.delete(credentialRef: reservation.credentialRef)
@@ -1085,12 +1079,10 @@ func runProviderTransportTests() throws {
     _ = try database.executeBatch(transactionId: "provider-queued-command", statements: [[
         "sqlId": "prepare_generation_command",
         "parameters": [
-            queuedCommand.commandId, queuedCommand.requestId, queuedDigest, queuedPlan,
+            queuedCommand.commandId, queuedCommand.requestId, queuedDigest,
             "{\"participantId\":\"human-1\",\"text\":\"queued\",\"type\":\"human_message\"}",
             "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
-            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
-            payload.personaSlug, queuedPlan, payload.personaSlug, queuedPlan,
-            queuedPlan, queuedPlan, queuedPlan, queuedPlan,
+            directorState, 0, 1, payload.personaSlug, queuedPlan, payload.roomId, 0, 1,
         ],
     ]])
     let cancellationRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
@@ -1210,12 +1202,10 @@ func runProviderTransportTests() throws {
     _ = try database.executeBatch(transactionId: "provider-duplicate-command", statements: [[
         "sqlId": "prepare_generation_command",
         "parameters": [
-            duplicateCommand.commandId, duplicateCommand.requestId, duplicateDigest, duplicatePlan,
+            duplicateCommand.commandId, duplicateCommand.requestId, duplicateDigest,
             "{\"participantId\":\"human-1\",\"text\":\"duplicate\",\"type\":\"human_message\"}",
             "{\"generation\":0,\"reason\":\"directed\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}",
-            directorState, 0, 1, payload.personaSlug, payload.roomId, 0, 1,
-            payload.personaSlug, duplicatePlan, payload.personaSlug, duplicatePlan,
-            duplicatePlan, duplicatePlan, duplicatePlan, duplicatePlan,
+            directorState, 0, 1, payload.personaSlug, duplicatePlan, payload.roomId, 0, 1,
         ],
     ]])
     let duplicateRegistry = ProviderTaskRegistry(maximumConcurrent: 1, maximumQueued: 1)
