@@ -89,7 +89,7 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
   ["provider-data-use.js", "094be80e9d92c72ef1a426f30fbf230e120979bddde7577e1a1aa9f6d167f813"],
-  ["room-runtime.js", "e5c09df44595d319f89c1754a048001277668f0fcbb51857cd1b055266d758e4"],
+  ["room-runtime.js", "511433aaecd4248083ed26029cb662f1781e02d372bf25a4559370c120955e4a"],
   ["shell.css", "2b1a606df3e3a7b65a7e68b7c6c1950f754ddb1c9672fd4e1cf7a6a671f1c271"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
@@ -100,9 +100,9 @@ const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/Credentials/DeviceCredentialAcceptance.swift", "168ddb64fa29d665f2474f97f75b399eefa751b994f9a37ed238b1ab6d604003"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
   ["App/GreenRoomDatabasePlugin.swift", "5fa323a217fdd2409d1c494fc1c4c811306da1d3a94db2bedd49223ad09d9196"],
-  ["App/NativeLifecycleCoordinator.swift", "cbe3112ee1d953c1ac13e49ed53c69c49e423b6717a63c3e987eddb4e18587bf"],
+  ["App/NativeLifecycleCoordinator.swift", "28c28b3106856757be16d51dc5d538b80a84a0afe6ea7c60a854034654a1e37c"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "3399b7c370730437fbbe3e3277787702c003aea1474e0ae573bb64888c7d38e4"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "54c7c21f94ba874ac6571bce9c80c38b4d0bb808d5f29a8a8afbb3bc9a8d0ba0"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "94caa62eee16424b8c936e62328541568a731ad444a529e3368df87a342f34c6"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
