@@ -25,11 +25,11 @@ export function prepareExternalLaneParent(root: string): ExternalDictionary;
 export function closeExternalLaneParent(lane: ExternalDictionary): void;
 export function spawnInRetainedDirectory(command: string, args: string[], options: { environment?: NodeJS.ProcessEnv; directoryDescriptor: number; timeout?: number }): { error?: Error; status: number | null; stdout: string; stderr: string };
 export function getExternalSecondaryFailures(error: unknown): Error[];
-export function runExternalArchiveCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void }, adapters: {
+export function runExternalArchiveCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void; publicationSubstitutionTestHook?: "directory" | "file" | "symlink" }, adapters: {
   run(command: string, args: string[], options: { cwd: string; environment: NodeJS.ProcessEnv; inheritedDirectoryDescriptor?: number; confinedParentPath?: string }): string;
   auditArchive(options: ExternalDictionary): ExternalDictionary;
 }): ExternalDictionary;
-export function runExternalExportCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void }, adapters: {
+export function runExternalExportCore(options: { sourceRoot?: string; destinationCreationTestHook?: (path: string) => void; publicationSubstitutionTestHook?: "directory" | "file" | "symlink" }, adapters: {
   run(command: string, args: string[], options: { cwd: string; environment: NodeJS.ProcessEnv; inheritedDirectoryDescriptor?: number; confinedParentPath?: string }): string;
   parsePlist(bytes: Buffer): ExternalDictionary;
   auditArchive(options: ExternalDictionary): ExternalDictionary;

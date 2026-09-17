@@ -9,6 +9,7 @@ export function auditExternalCandidate(options?: {
   finalEvidencePath?: string;
   beforeFinalEvidencePublication?: (laneParentPath: string) => void;
 }): Record<string, any>;
+export function validateArchivePackageSignatures(names: string[]): void;
 export function validateMachOStringScans(scans: { main: string; capacitor: string; cordova: string }): void;
 export function validateMachOBinaryPaths(entries: Array<{ path: string; magic: string }>, mainExecutable: string): void;
 export function parseMachODependencies(output: string): string[];

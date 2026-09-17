@@ -30,6 +30,7 @@ static uint64_t inventory_entries;
 static uint64_t inventory_total_bytes;
 static struct timespec inventory_started;
 static uint64_t quarantine_sequence;
+static const char *publication_inject_action;
 
 static void die(const char *message) {
   fprintf(stderr, "external inventory helper: %s\n", message);
@@ -138,13 +139,20 @@ static void quarantine_name(char *buffer, size_t size) {
   }
 }
 
+static void publication_name(char *buffer, size_t size, const char *kind) {
+  quarantine_sequence++;
+  if (snprintf(buffer, size, ".greenroom-publication-%s-%ld-%llu", kind, (long)getpid(),
+               (unsigned long long)quarantine_sequence) >= (int)size) {
+    die("publication quarantine name is too long");
+  }
+}
+
 static void restore_quarantined_entry(int parent, const char *quarantine, const char *name, const char *failure) {
   if (renameatx_np(parent, quarantine, parent, name, RENAME_EXCL) != 0) die(failure);
 }
 
-static void quarantine_exact_entry(int parent, const char *name, const struct stat *expected, int retained,
-                                   char *quarantine, size_t quarantine_size, const char *failure) {
-  quarantine_name(quarantine, quarantine_size);
+static void quarantine_exact_entry_named(int parent, const char *name, const struct stat *expected, int retained,
+                                         const char *quarantine, const char *failure) {
   if (renameatx_np(parent, name, parent, quarantine, RENAME_EXCL) != 0) die(failure);
   struct stat moved;
   struct stat opened;
@@ -156,6 +164,12 @@ static void quarantine_exact_entry(int parent, const char *name, const struct st
     restore_quarantined_entry(parent, quarantine, name, failure);
     die(failure);
   }
+}
+
+static void quarantine_exact_entry(int parent, const char *name, const struct stat *expected, int retained,
+                                   char *quarantine, size_t quarantine_size, const char *failure) {
+  quarantine_name(quarantine, quarantine_size);
+  quarantine_exact_entry_named(parent, name, expected, retained, quarantine, failure);
 }
 
 static void cleanup_directory_contents(int directory) {
@@ -460,6 +474,75 @@ static void publish_owned_file(int parent, int retained, const char *staged, con
   struct stat published;
   if (fstatat(parent, destination, &published, AT_SYMLINK_NOFOLLOW) != 0 || !same_identity(&held, &published)) die("PUBLICATION_IDENTITY_INVALID");
   if (unlinkat(parent, staged, 0) != 0) die("PUBLICATION_STAGED_CLEANUP_FAILED");
+}
+
+static void publish_owned_directory(int source_parent, int retained, int destination_parent,
+                                    const char *staged, const char *destination) {
+  if (!safe_single_name(staged) || !safe_single_name(destination)) die("PUBLICATION_NAME_INVALID");
+  struct stat held;
+  struct stat staged_entry;
+  if (fstat(retained, &held) != 0 || !S_ISDIR(held.st_mode) ||
+      fstatat(source_parent, staged, &staged_entry, AT_SYMLINK_NOFOLLOW) != 0 ||
+      !S_ISDIR(staged_entry.st_mode) || !same_identity(&held, &staged_entry)) die("PUBLICATION_STAGED_IDENTITY_INVALID");
+  char injected_owner[512] = "";
+  if (publication_inject_action != NULL) {
+    publication_name(injected_owner, sizeof(injected_owner), "owner");
+    if (renameatx_np(source_parent, staged, source_parent, injected_owner, RENAME_EXCL) != 0) {
+      die("PUBLICATION_TEST_INJECTION_FAILED");
+    }
+    if (strcmp(publication_inject_action, "substitute-staged-directory") == 0) {
+      if (mkdirat(source_parent, staged, 0700) != 0) die("PUBLICATION_TEST_INJECTION_FAILED");
+      int competitor = openat(source_parent, staged, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+      int sentinel = competitor < 0 ? -1 : openat(competitor, "competitor-sentinel", O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+      if (sentinel < 0 || write(sentinel, "keep\n", 5) != 5 || fsync(sentinel) != 0 || close(sentinel) != 0 || close(competitor) != 0) {
+        die("PUBLICATION_TEST_INJECTION_FAILED");
+      }
+    } else if (strcmp(publication_inject_action, "substitute-staged-file") == 0) {
+      int competitor = openat(source_parent, staged, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0000);
+      if (competitor < 0 || write(competitor, "competitor-sentinel\n", 20) != 20 || fsync(competitor) != 0 || close(competitor) != 0) {
+        die("PUBLICATION_TEST_INJECTION_FAILED");
+      }
+    } else if (strcmp(publication_inject_action, "substitute-staged-symlink") == 0) {
+      if (symlinkat("competitor-sentinel-target", source_parent, staged) != 0) die("PUBLICATION_TEST_INJECTION_FAILED");
+    } else {
+      die("PUBLICATION_TEST_ACTION_INVALID");
+    }
+  }
+  if (renameatx_np(source_parent, staged, destination_parent, destination, RENAME_EXCL) != 0) die("PUBLICATION_NO_CLOBBER_FAILED");
+  struct stat published;
+  int published_status = fstatat(destination_parent, destination, &published, AT_SYMLINK_NOFOLLOW);
+  if (published_status != 0 || !S_ISDIR(published.st_mode) || !same_identity(&held, &published)) {
+    if (published_status != 0) {
+      if (errno != ENOENT) die("PUBLICATION_ROLLBACK_FAILED");
+    } else {
+      int mismatched = openat(destination_parent, destination, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+      struct stat opened;
+      const struct stat *expected = &published;
+      if (mismatched >= 0) {
+        if (fstat(mismatched, &opened) != 0 || !same_identity(&published, &opened)) die("PUBLICATION_ROLLBACK_FAILED");
+        expected = &opened;
+      }
+      char quarantine[512];
+      publication_name(quarantine, sizeof(quarantine), "quarantine");
+      quarantine_exact_entry_named(destination_parent, destination, expected, mismatched, quarantine,
+                                   "PUBLICATION_ROLLBACK_FAILED");
+      if (mismatched >= 0 && close(mismatched) != 0) die("PUBLICATION_ROLLBACK_FAILED");
+    }
+    struct stat absent;
+    if (fstatat(destination_parent, destination, &absent, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT) {
+      die("PUBLICATION_ROLLBACK_FAILED");
+    }
+    if (injected_owner[0] != '\0' && renameatx_np(source_parent, injected_owner, source_parent, staged, RENAME_EXCL) != 0) {
+      die("PUBLICATION_ROLLBACK_FAILED");
+    }
+    if (fsync(destination_parent) != 0 || (source_parent != destination_parent && fsync(source_parent) != 0)) {
+      die("PUBLICATION_ROLLBACK_FAILED");
+    }
+    die("PUBLICATION_IDENTITY_INVALID");
+  }
+  if (fsync(destination_parent) != 0 || (source_parent != destination_parent && fsync(source_parent) != 0)) {
+    die("PUBLICATION_SYNC_FAILED");
+  }
 }
 
 static void publish_stdin_file(int parent, const char *destination) {
@@ -772,6 +855,11 @@ int main(int argc, char **argv) {
   }
   if (argc == 4 && strcmp(argv[1], "publish-file-fds") == 0) {
     publish_owned_file(3, 4, argv[2], argv[3]);
+    return 0;
+  }
+  if ((argc == 4 || argc == 5) && strcmp(argv[1], "publish-directory-fds") == 0) {
+    if (argc == 5) publication_inject_action = argv[4];
+    publish_owned_directory(3, 4, 5, argv[2], argv[3]);
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "publish-stdin-fd") == 0) {
