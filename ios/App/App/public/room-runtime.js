@@ -1229,7 +1229,7 @@ function renderCommandAndMutationState() {
     status.textContent = "Not sent. No automatic retry.";
   } else if (unresolved) {
     error.textContent = activeCommand.state === "failed"
-      ? "The request did not start. Fix the issue, then retry this exact command or abandon it."
+      ? "The request did not start. Retry sends this exact command unchanged. To edit the recipient or draft, tap Abandon and confirm; your draft will be preserved."
       : "This exact command is prepared and has not been sent. Retry or abandon it.";
     error.hidden = false;
     status.textContent = "Not sent. No automatic retry.";

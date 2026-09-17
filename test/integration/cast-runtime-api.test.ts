@@ -198,7 +198,7 @@ test("selected historical slug reaches provider while durable participant id sta
   assert.equal(provider.calls.length, 3);
 });
 
-test("three-person casts schedule only selected slugs while preserving mute, cooldown, and budget policy", async (context) => {
+test("three-person casts keep scheduling human questions while preserving mute and cooldown policy", async (context) => {
   const store = temporaryStore(context);
   const provider = new RecordingProvider();
   const service = new RoomService({
@@ -243,17 +243,19 @@ test("three-person casts schedule only selected slugs while preserving mute, coo
     text: "Respect the last-speaker cooldown.",
   });
   assert.equal(third.decision.speaker, personas[0]?.id);
-  const exhausted = await service.sendMessage({
+  const fourth = await service.sendMessage({
     selectionRevision: 1,
     roomId: replaced.sessionId,
     requestId: "three-budget",
-    text: "The hard budget now applies.",
+    text: "Keep directing new human questions.",
   });
-  assert.equal(exhausted.decision.reason, "budget_exhausted");
+  assert.equal(fourth.decision.speaker, personas[2]?.id);
+  assert.equal(fourth.decision.reason, "selected");
   assert.deepEqual(provider.calls.map(({ personaId }) => personaId), [
     "ada-lovelace",
     "frederick-douglass",
     "ada-lovelace",
+    "frederick-douglass",
   ]);
 });
 

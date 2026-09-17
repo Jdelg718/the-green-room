@@ -97,7 +97,7 @@ test("director supports deliberate silence", () => {
   );
 });
 
-test("director suppresses duplicate identities before consuming budget", () => {
+test("director suppresses duplicate identities before consuming a turn", () => {
   const director = new Director(roster, { maxAutonomousTurns: 2 });
   const event = adapter.humanEvent("duplicate-1", "Once only.");
 
@@ -112,14 +112,15 @@ test("director suppresses duplicate identities before consuming budget", () => {
   );
 });
 
-test("director enforces its hard autonomous-turn budget", () => {
+test("director never uses the cumulative turn counter to block human questions", () => {
   const director = new Director(roster, { maxAutonomousTurns: 1 });
 
   assert.equal(director.schedule(adapter.humanEvent("budget-1", "Go")).speaker, "detective");
-  assert.deepEqual(director.schedule(adapter.humanEvent("budget-2", "Again")), {
-    speaker: null,
-    reason: DIRECTOR_REASON.BUDGET_EXHAUSTED,
-  });
+  assert.equal(director.schedule(adapter.humanEvent("budget-2", "Again")).speaker, "fixer");
+  assert.equal(
+    director.schedule(adapter.nonHumanEvent("budget-automatic", "Do not loop")).reason,
+    DIRECTOR_REASON.SELF_TRIGGER_BLOCKED,
+  );
 });
 
 test("director cancellation stops scheduling immediately", () => {
@@ -169,7 +170,7 @@ test("director rejects unverified events and validates canonical identities", ()
   );
 });
 
-test("director bounds duplicate tracking across blocked and exhausted events", () => {
+test("director bounds duplicate tracking across blocked and human events", () => {
   const director = new Director(roster, { maxAutonomousTurns: 1 });
   const streamSize = DIRECTOR_LIMITS.MAX_TRACKED_EVENT_IDENTITIES * 3;
 
@@ -183,11 +184,11 @@ test("director bounds duplicate tracking across blocked and exhausted events", (
     const event =
       index % 2 === 0
         ? source.nonHumanEvent(`blocked-${index}`, "Do not self-trigger")
-        : source.humanEvent(`exhausted-${index}`, "No budget remains");
+        : source.humanEvent(`human-${index}`, "Another human question");
     const expectedReason =
       index % 2 === 0
         ? DIRECTOR_REASON.SELF_TRIGGER_BLOCKED
-        : DIRECTOR_REASON.BUDGET_EXHAUSTED;
+        : DIRECTOR_REASON.SELECTED;
 
     assert.equal(director.schedule(event).reason, expectedReason);
     assert.ok(
@@ -212,7 +213,7 @@ test("director bounds duplicate tracking across blocked and exhausted events", (
   assert.equal(
     director.schedule(
       new TrustedEventAdapter(`source-${streamSize - 1}`).humanEvent(
-        `exhausted-${streamSize - 1}`,
+        `human-${streamSize - 1}`,
         "Recent identity remains tracked",
       ),
     ).reason,
