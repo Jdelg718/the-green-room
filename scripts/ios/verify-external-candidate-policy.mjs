@@ -66,8 +66,8 @@ const TEST_SENTINELS = [
   "AKIA1234567890ABCDEF", "eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmnop",
   "api_key = \"1234567890abcdef\"", "-----BEGIN OPENSSH PRIVATE KEY-----",
 ];
-const BASELINE_COMMIT = "80ed83b8089814beff3cf7532651db5ea7e944e7";
-const BASELINE_TREE = "aea0666e5dcefb13ed3a20a5250b53916a0e3c6a";
+const BASELINE_COMMIT = "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353";
+const BASELINE_TREE = "ea9824601eeee1f6e9303d88c6386ed17bdd0f26";
 const REVIEWED_SYNC_SHA256 = "07286fbbd8c017f7262f9b7772a44475478845deabf07c5a1d465b06b27c3c42";
 
 function fail(message) { throw new Error(`external candidate policy: ${message}`); }
@@ -156,7 +156,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   requireCondition(policy.schema.version === 8 && policy.schema.manifestPath === "ios/App/App/Resources/Migrations/manifest.json" && migrationManifest.schema === 8, "schema identity/path must remain version 8");
   exactKeys(policy.schema, ["version", "manifestPath"], "schema policy");
   exactKeys(policy.privacy, ["manifestPath", "dataFlowPath", "collectedDataType", "linkedToUser", "tracking", "purpose"], "privacy policy");
-  exactKeys(policy.signing, ["archiveAllowedNow", "signingAllowedNow", "exportAllowedNow", "uploadAllowed", "installAllowedNow", "deviceActionAllowedNow", "exportOptionsPath", "expectedCertificateClass", "expectedProvisioningProfile", "expectedEntitlements", "exactLane"], "signing policy");
+  exactKeys(policy.signing, ["archiveAllowedNow", "signingAllowedNow", "exportAllowedNow", "uploadAllowed", "installAllowedNow", "deviceActionAllowedNow", "exportOptionsPath", "expectedCertificateClass", "expectedProvisioningProfile", "expectedEntitlements", "profileEntitlementAuthorization", "exactLane"], "signing policy");
   requireCondition(policy.privacy.manifestPath === "ios/App/App/PrivacyInfo.xcprivacy" && policy.privacy.dataFlowPath === "docs/release/iphone-privacy-data-flow.md" && policy.privacy.collectedDataType === "NSPrivacyCollectedDataTypeOtherUserContent" && policy.privacy.linkedToUser === true && policy.privacy.tracking === false && policy.privacy.purpose === "NSPrivacyCollectedDataTypePurposeAppFunctionality", "privacy policy was weakened");
   requireCondition(policy.exportCompliance.usesNonExemptEncryption === false && policy.exportCompliance.answer === "No" && policy.exportCompliance.rationale.includes("no custom or non-exempt encryption"), "export compliance policy changed");
   requireCondition(migrationManifest.migrations.length === 8 && migrationManifest.migrations.at(-1)?.file === "0008-provider-data-use-consent.sql", "migration manifest is incomplete");
@@ -199,6 +199,9 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   requireCondition(JSON.stringify(externalOptions) === JSON.stringify(expectedExternal), "external export draft is not exact");
   requireCondition(policy.signing.archiveAllowedNow === true && policy.signing.signingAllowedNow === true && policy.signing.exportAllowedNow === true && policy.signing.uploadAllowed === false && policy.signing.installAllowedNow === false && policy.signing.deviceActionAllowedNow === false, "only local archive/sign/export may be enabled; upload/install/device must remain false");
   requireCondition(policy.signing.exportOptionsPath === "ios/ExternalCandidateExportOptions.plist" && policy.signing.expectedCertificateClass === "Apple Distribution" && policy.signing.expectedProvisioningProfile === "Green Room App Store Connect 0.1.0 Build 1" && JSON.stringify(policy.signing.expectedEntitlements) === JSON.stringify({ "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom", "beta-reports-active": true, "com.apple.developer.team-identifier": "JZ233HBW3Z", "get-task-allow": false, "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"] }), "signing expectations changed");
+  const expectedProfileAuthorization = { allowedApplicationIdentifiers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], teamIdentifier: "JZ233HBW3Z", getTaskAllow: false, betaReportsActive: true, allowedKeychainAccessGroups: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*", "com.apple.token"], requiredKeychainAuthorizers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], additionalEntitlementsAllowed: false };
+  exactKeys(policy.signing.profileEntitlementAuthorization, Object.keys(expectedProfileAuthorization), "profile entitlement authorization");
+  requireCondition(JSON.stringify(policy.signing.profileEntitlementAuthorization) === JSON.stringify(expectedProfileAuthorization), "App Store profile authorization policy changed");
   const expectedLane = { archiveCommand: "npm run ios:archive-external-candidate", exportCommand: "npm run ios:export-external-candidate", auditCommand: "npm run ios:audit-external-candidate", archivePathTemplate: ".build/testflight/external-build-4-<HEAD>.xcarchive", exportPathTemplate: ".build/testflight/external-build-4-export-<HEAD>", evidencePathTemplates: [".build/testflight/external-build-4-archive-<HEAD>.json", ".build/testflight/external-build-4-export-<HEAD>.json", ".build/testflight/external-build-4-audit-<HEAD>.json"], acceptsPathOrCommitOverrides: false, uploadCapability: false };
   exactKeys(policy.signing.exactLane, Object.keys(expectedLane), "exact external lane");
   requireCondition(JSON.stringify(policy.signing.exactLane) === JSON.stringify(expectedLane), "exact external lane changed");

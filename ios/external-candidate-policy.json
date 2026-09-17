@@ -3,8 +3,8 @@
   "kind": "greenroom-ios-external-testflight-candidate-policy",
   "state": "reviewed-local-archive-export-audit-no-upload",
   "baseline": {
-    "protectedMainCommit": "80ed83b8089814beff3cf7532651db5ea7e944e7",
-    "protectedMainTree": "aea0666e5dcefb13ed3a20a5250b53916a0e3c6a"
+    "protectedMainCommit": "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353",
+    "protectedMainTree": "ea9824601eeee1f6e9303d88c6386ed17bdd0f26"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",
@@ -103,6 +103,15 @@
       "com.apple.developer.team-identifier": "JZ233HBW3Z",
       "get-task-allow": false,
       "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"]
+    },
+    "profileEntitlementAuthorization": {
+      "allowedApplicationIdentifiers": ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"],
+      "teamIdentifier": "JZ233HBW3Z",
+      "getTaskAllow": false,
+      "betaReportsActive": true,
+      "allowedKeychainAccessGroups": ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*", "com.apple.token"],
+      "requiredKeychainAuthorizers": ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"],
+      "additionalEntitlementsAllowed": false
     },
     "exactLane": {
       "archiveCommand": "npm run ios:archive-external-candidate",

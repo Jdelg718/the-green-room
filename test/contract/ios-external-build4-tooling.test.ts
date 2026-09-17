@@ -71,6 +71,23 @@ const entitlements = {
   "get-task-allow": false,
   "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"],
 };
+const profileEntitlements = {
+  "application-identifier": "JZ233HBW3Z.*",
+  "beta-reports-active": true,
+  "com.apple.developer.team-identifier": "JZ233HBW3Z",
+  "get-task-allow": false,
+  "keychain-access-groups": ["JZ233HBW3Z.*", "com.apple.token"],
+};
+const distributionProfile = {
+  name: "Green Room App Store Connect 0.1.0 Build 1",
+  teamIdentifiers: ["JZ233HBW3Z"],
+  expirationDate: "2099-01-01T00:00:00Z",
+  provisionsAllDevicesPresent: false,
+  provisionsAllDevices: null,
+  provisionedDevicesPresent: false,
+  provisionedDeviceCount: 0,
+  entitlements: profileEntitlements,
+};
 
 function testCrc32(bytes: Buffer): number {
   let crc = 0xffffffff;
@@ -134,36 +151,25 @@ function syntheticOverlappingZip(): Buffer {
   return Buffer.concat([aLocal, central, eocd]);
 }
 
-test("external build-4 identity, options, and signing are exact and cannot use internal policy", () => {
+test("external build-4 signing keeps app entitlements exact while accepting Apple's bounded profile authorization", () => {
+  const identityDetails = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
+  const validate = (signedEntitlements: Record<string, unknown>, profile: Record<string, unknown>) => tools.validateExternalDistributionSigning({
+    identityDetails,
+    entitlements: signedEntitlements,
+    profile,
+  });
+  const withProfileEntitlements = (value: Record<string, unknown>) => ({ ...distributionProfile, entitlements: value });
+
   assert.doesNotThrow(() => tools.validateExternalReleaseInfo(releaseInfo, COMMIT));
   assert.doesNotThrow(() => tools.validateExternalExportOptions(options));
-  assert.doesNotThrow(() => tools.validateExternalDistributionSigning({
-    identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z",
-    entitlements,
-    profile: {
-      name: "Green Room App Store Connect 0.1.0 Build 1",
-      teamIdentifiers: ["JZ233HBW3Z"],
-      expirationDate: "2099-01-01T00:00:00Z",
-      provisionsAllDevicesPresent: false,
-      provisionedDevicesPresent: false,
-      provisionedDeviceCount: 0,
-      entitlements,
-    },
-  }));
-  const reorderedEntitlements = Object.fromEntries(Object.entries(entitlements).reverse());
-  assert.doesNotThrow(() => tools.validateExternalDistributionSigning({
-    identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z",
-    entitlements: reorderedEntitlements,
-    profile: {
-      name: "Green Room App Store Connect 0.1.0 Build 1",
-      teamIdentifiers: ["JZ233HBW3Z"],
-      expirationDate: "2099-01-01T00:00:00Z",
-      provisionsAllDevicesPresent: false,
-      provisionedDevicesPresent: false,
-      provisionedDeviceCount: 0,
-      entitlements: reorderedEntitlements,
-    },
-  }));
+  assert.doesNotThrow(() => validate(entitlements, distributionProfile));
+  assert.doesNotThrow(() => validate(Object.fromEntries(Object.entries(entitlements).reverse()), withProfileEntitlements(Object.fromEntries(Object.entries(profileEntitlements).reverse()))));
+  assert.doesNotThrow(() => validate(entitlements, withProfileEntitlements({
+    ...profileEntitlements,
+    "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom",
+    "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"],
+  })));
+
   for (const malformed of [
     { ...releaseInfo, CFBundleVersion: "2" },
     { ...releaseInfo, GreenRoomSourceCommit: "development" },
@@ -175,11 +181,46 @@ test("external build-4 identity, options, and signing are exact and cannot use i
     { ...options, signingCertificate: "Apple Development" },
     { ...options, teamID: "WRONG" },
   ]) assert.throws(() => tools.validateExternalExportOptions(malformed), /external candidate/u);
+
+  const widenedSignedEntitlements = [
+    { ...entitlements, "application-identifier": "JZ233HBW3Z.*" },
+    { ...entitlements, "keychain-access-groups": ["JZ233HBW3Z.*"] },
+    { ...entitlements, "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom", "com.apple.token"] },
+    { ...entitlements, "get-task-allow": true },
+    { ...entitlements, "beta-reports-active": false },
+    { ...entitlements, "aps-environment": "production" },
+  ];
+  for (const signedEntitlements of widenedSignedEntitlements) {
+    assert.throws(() => validate(signedEntitlements, distributionProfile), /external candidate/u, JSON.stringify(signedEntitlements));
+  }
+
+  const rejectedProfileEntitlements = [
+    { ...profileEntitlements, "application-identifier": "WRONGTEAM.*" },
+    { ...profileEntitlements, "keychain-access-groups": ["WRONGTEAM.*", "com.apple.token"] },
+    { ...profileEntitlements, "keychain-access-groups": ["JZ233HBW3Z.*", "JZ233HBW3Z.unrelated"] },
+    { ...profileEntitlements, "keychain-access-groups": ["com.apple.token"] },
+    { ...profileEntitlements, "keychain-access-groups": ["JZ233HBW3Z.*", "JZ233HBW3Z.*"] },
+    { ...profileEntitlements, "com.apple.developer.team-identifier": "WRONGTEAM" },
+    { ...profileEntitlements, "get-task-allow": true },
+    { ...profileEntitlements, "beta-reports-active": false },
+    { ...profileEntitlements, "aps-environment": "production" },
+    Object.fromEntries(Object.entries(profileEntitlements).filter(([key]) => key !== "beta-reports-active")),
+  ];
+  for (const profileValue of rejectedProfileEntitlements) {
+    assert.throws(() => validate(entitlements, withProfileEntitlements(profileValue)), /external candidate/u, JSON.stringify(profileValue));
+  }
+
+  for (const malformedProfile of [
+    { ...distributionProfile, teamIdentifiers: ["WRONGTEAM"] },
+    { ...distributionProfile, provisionsAllDevicesPresent: true, provisionsAllDevices: true },
+    { ...distributionProfile, provisionedDevicesPresent: true, provisionedDeviceCount: 1 },
+  ]) assert.throws(() => validate(entitlements, malformedProfile), /external candidate/u);
+
   assert.throws(() => tools.validateExternalDistributionSigning({
     identityDetails: "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Development: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z",
-    entitlements: { ...entitlements, "get-task-allow": true },
-    profile: { name: "Development", teamIdentifiers: ["JZ233HBW3Z"], expirationDate: "2099-01-01T00:00:00Z", provisionsAllDevicesPresent: false, provisionedDevicesPresent: true, provisionedDeviceCount: 1, entitlements: { ...entitlements, "get-task-allow": true } },
-  }), /Apple Distribution|get-task-allow/u);
+    entitlements,
+    profile: distributionProfile,
+  }), /Apple Distribution/u);
 });
 
 darwinTest("recursive inventory rejects links, logs, secrets, plugins, downloaded code, analytics, Node, and Python", (context) => {
