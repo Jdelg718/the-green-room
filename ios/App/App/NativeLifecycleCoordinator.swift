@@ -6,6 +6,7 @@ import UIKit
 final class NativeLifecycleCoordinator: @unchecked Sendable {
     static let shared = NativeLifecycleCoordinator()
     private let lock = NSLock()
+    private let availabilityPublicationLock = NSLock()
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "net.greenroomai.lifecycle.path")
     private var active = false
@@ -15,28 +16,23 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
     private var started = false
 
     func start(application: UIApplication) {
-        let shouldStart = lock.withLock { () -> Bool in
+        let publication = mutateAndPublishAvailability {
             active = application.applicationState == .active
             protectedDataAvailable = application.isProtectedDataAvailable
             guard !started else { return false }
             started = true
             return true
         }
-        guard shouldStart else { return }
-        ProviderTaskRegistry.shared.updateLifecycleAvailability(false)
+        guard publication.marker else { return }
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            let status = self.lock.withLock { () -> (available: Bool, lostPath: Bool) in
+            let publication = self.mutateAndPublishAvailability {
                 let hadPath = self.pathAvailable
                 self.pathAvailable = path.status == .satisfied
                 self.epoch += 1
-                return (
-                    self.active && self.protectedDataAvailable && self.pathAvailable,
-                    hadPath && !self.pathAvailable
-                )
+                return hadPath && !self.pathAvailable
             }
-            ProviderTaskRegistry.shared.updateLifecycleAvailability(status.available)
-            if status.lostPath {
+            if publication.marker {
                 try? GreenRoomNativeAuthority.shared.withReconciledDatabase {
                     try GreenRoomNativeAuthority.shared.database.interruptInFlightGenerationCommands()
                 }
@@ -46,44 +42,47 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
-        lock.withLock { active = false; epoch += 1 }
+        mutateAndPublishAvailability { active = false; epoch += 1; return false }
         cancelCloseAndFence()
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
-        lock.withLock { active = false; epoch += 1 }
+        mutateAndPublishAvailability { active = false; epoch += 1; return false }
         cancelCloseAndFence()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        lock.withLock {
+        mutateAndPublishAvailability {
             active = true
             protectedDataAvailable = application.isProtectedDataAvailable
             epoch += 1
+            return false
         }
         if application.isProtectedDataAvailable {
             _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
         }
-        let available = lock.withLock { active && protectedDataAvailable && pathAvailable }
-        ProviderTaskRegistry.shared.updateLifecycleAvailability(available)
     }
 
     func applicationProtectedDataWillBecomeUnavailable(_ application: UIApplication) {
-        lock.withLock { protectedDataAvailable = false; epoch += 1 }
+        mutateAndPublishAvailability { protectedDataAvailable = false; epoch += 1; return false }
         cancelCloseAndFence()
     }
 
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
-        lock.withLock { protectedDataAvailable = true; epoch += 1 }
+        mutateAndPublishAvailability { protectedDataAvailable = true; epoch += 1; return false }
         if application.applicationState == .active {
             _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
         }
-        let available = lock.withLock { active && protectedDataAvailable && pathAvailable }
-        ProviderTaskRegistry.shared.updateLifecycleAvailability(available)
+    }
+
+    @discardableResult
+    func synchronizeProviderAvailability() -> Bool {
+        mutateAndPublishAvailability { false }.available
     }
 
     func status(application: UIApplication) -> [String: Any] {
-        lock.withLock {
+        synchronizeProviderAvailability()
+        return lock.withLock {
             [
                 "active": active && application.applicationState == .active,
                 "protectedDataAvailable": protectedDataAvailable && application.isProtectedDataAvailable,
@@ -94,8 +93,19 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
         }
     }
 
+    private func mutateAndPublishAvailability(_ mutation: () -> Bool) -> (marker: Bool, available: Bool) {
+        availabilityPublicationLock.withLock {
+            let snapshot = lock.withLock { () -> (marker: Bool, available: Bool) in
+                let marker = mutation()
+                return (marker, active && protectedDataAvailable && pathAvailable)
+            }
+            ProviderTaskRegistry.shared.updateLifecycleAvailability(snapshot.available)
+            return snapshot
+        }
+    }
+
     private func cancelCloseAndFence() {
-        ProviderTaskRegistry.shared.cancelAllAndFence()
+        synchronizeProviderAvailability()
         try? GreenRoomNativeAuthority.shared.withReconciledDatabase {
             try GreenRoomNativeAuthority.shared.database.interruptInFlightGenerationCommands()
             _ = try GreenRoomNativeAuthority.shared.database.checkpoint()

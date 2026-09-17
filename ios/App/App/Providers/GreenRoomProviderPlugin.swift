@@ -1259,6 +1259,7 @@ final class GreenRoomProviderPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         do {
             let envelope = try ProviderBridgeDispatch.generate(options)
+            NativeLifecycleCoordinator.shared.synchronizeProviderAvailability()
             service.generate(envelope.payload) { [weak self] result in
                 guard let self else { return }
                 defer { self.inFlightCalls.finish(callId) }

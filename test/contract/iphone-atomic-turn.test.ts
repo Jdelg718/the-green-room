@@ -229,6 +229,16 @@ test("lifecycle gating permits offline drafts/readback but disables send, create
   ]) assert.equal(runtime.mutationAvailability(status, true, false).draft, false);
 });
 
+test("path and epoch-only lifecycle updates do not reproject the room or steal composer focus", async () => {
+  const runtime = await api("lifecycle-reprojection-gate");
+  const base = { active: true, protectedDataAvailable: true, databaseReady: true, pathAvailable: true, epoch: 3 };
+  assert.equal(runtime.lifecycleChangeNeedsRoomReprojection(base, { ...base, epoch: 4 }), false);
+  assert.equal(runtime.lifecycleChangeNeedsRoomReprojection(base, { ...base, pathAvailable: false, epoch: 4 }), false);
+  assert.equal(runtime.lifecycleChangeNeedsRoomReprojection(base, { ...base, active: false, epoch: 4 }), true);
+  assert.equal(runtime.lifecycleChangeNeedsRoomReprojection(base, { ...base, protectedDataAvailable: false, epoch: 4 }), true);
+  assert.equal(runtime.lifecycleChangeNeedsRoomReprojection(base, { ...base, databaseReady: false, epoch: 4 }), true);
+});
+
 test("prepare mutates only one durable command and completion exposes one ordered atomic triplet", async () => {
   const runtime = await api("success");
   const database = new AtomicDatabase();

@@ -284,6 +284,14 @@ export function mutationAvailability(status, hasReadyProvider, hasUnresolvedComm
   });
 }
 
+export function lifecycleChangeNeedsRoomReprojection(previous, current) {
+  const before = parseLifecycleStatus(previous);
+  const after = parseLifecycleStatus(current);
+  return before.active !== after.active ||
+    before.protectedDataAvailable !== after.protectedDataAvailable ||
+    before.databaseReady !== after.databaseReady;
+}
+
 function nextUuid(uuid) {
   const value = uuid();
   if (!UUID.test(value)) throw new TypeError("A random UUID is required.");
@@ -1859,8 +1867,12 @@ async function boot() {
     globalThis.setInterval?.(async () => {
       try {
         const status = await readLifecycleStatus(lifecycle);
-        if (status.epoch !== mutationGate.epoch || status.databaseReady !== mutationGate.databaseReady) {
+        if (lifecycleChangeNeedsRoomReprojection(mutationGate, status)) {
           await reconcileAndReproject();
+        } else if (status.epoch !== mutationGate.epoch || status.pathAvailable !== mutationGate.pathAvailable) {
+          mutationGate = status;
+          providerReady = lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
+          renderCommandAndMutationState();
         }
       } catch { /* the next activation event performs the same reconciliation */ }
     }, 1_000);
