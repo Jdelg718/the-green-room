@@ -428,6 +428,11 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   const endpoints = "https://openrouter.ai https://api.openai.com https://api.x.ai https://api.groq.com https://api.together.ai";
   assert.doesNotThrow(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "safe", cordova: "safe" }));
   assert.doesNotThrow(() => audit.validateMachOStringScans({ main: "openrouter openai xai groq together /v1/models /v1/chat/completions", capacitor: "safe", cordova: "safe" }));
+  const capacitorMetadata = "http://cordova.apache.org http://www.w3.org https://capacitorjs.com";
+  assert.doesNotThrow(() => audit.validateMachOStringScans({ main: endpoints, capacitor: capacitorMetadata, cordova: "safe" }));
+  assert.throws(() => audit.validateMachOStringScans({ main: capacitorMetadata, capacitor: "safe", cordova: "safe" }), /main Mach-O contains a non-HTTPS/u);
+  assert.throws(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "safe", cordova: capacitorMetadata }), /cordova Mach-O contains a non-HTTPS/u);
+  assert.throws(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "https://hostile.example.invalid", cordova: "safe" }), /unexpected endpoint host/u);
   assert.throws(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "FirebaseAnalytics", cordova: "safe" }), /capacitor Mach-O/u);
   assert.throws(() => audit.validateMachOStringScans({ main: endpoints, capacitor: "safe", cordova: "NWListener" }), /cordova Mach-O/u);
   for (const label of ["capacitor", "cordova"] as const) {
