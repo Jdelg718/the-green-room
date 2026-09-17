@@ -1095,8 +1095,9 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             human_event_json, director_event_json, director_state_json,
             expected_generation, expected_next_event_sequence, persona_slug, state
           )
-          SELECT ?, ?, room.id, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared'
+          SELECT ?, ?, room.id, ?, input.plan_json, ?, ?, ?, ?, ?, input.persona_slug, 'prepared'
           FROM rooms room
+          CROSS JOIN (SELECT ? AS persona_slug, ? AS plan_json) input
           WHERE room.id = ? AND room.status = 'active'
             AND room.generation = ? AND room.next_event_sequence = ?
             AND NOT EXISTS (
@@ -1105,8 +1106,8 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 AND unresolved.state IN ('prepared', 'in_flight', 'failed', 'interrupted')
             )
             AND (
-              (? IS NULL AND json_extract(?, '$.kind') = 'silence') OR
-              (? IS NOT NULL AND json_extract(?, '$.kind') = 'provider' AND EXISTS (
+              (input.persona_slug IS NULL AND json_extract(input.plan_json, '$.kind') = 'silence') OR
+              (input.persona_slug IS NOT NULL AND json_extract(input.plan_json, '$.kind') = 'provider' AND EXISTS (
                 SELECT 1 FROM iphone_provider_selection selection
                 JOIN credential_revisions credential
                   ON credential.profile_id = selection.profile_id
@@ -1121,10 +1122,10 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                  AND consent.provider_id = selection.provider_id
                  AND consent.model = selection.model
                 WHERE selection.singleton = 1
-                  AND selection.provider_id = json_extract(?, '$.providerId')
-                  AND selection.profile_id = json_extract(?, '$.profileId')
-                  AND selection.profile_revision = json_extract(?, '$.profileRevision')
-                  AND selection.model = json_extract(?, '$.model')
+                  AND selection.provider_id = json_extract(input.plan_json, '$.providerId')
+                  AND selection.profile_id = json_extract(input.plan_json, '$.profileId')
+                  AND selection.profile_revision = json_extract(input.plan_json, '$.profileRevision')
+                  AND selection.model = json_extract(input.plan_json, '$.model')
                   AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
                   AND profile.tombstoned = 0
               ))
