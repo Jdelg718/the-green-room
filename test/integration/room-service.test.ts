@@ -800,7 +800,7 @@ test("provider output is bounded before it can enter durable events", async (con
   );
 });
 
-test("restart state preserves pause mute cooldown budget generation and completed retries", async (context) => {
+test("restart state preserves pause mute cooldown generation and completed retries", async (context) => {
   const dataDir = temporaryDirectory(context);
   const first = openGreenRoomDatabase({ dataDir, migrationsDir });
   const firstService = new RoomService({
@@ -844,6 +844,7 @@ test("restart state preserves pause mute cooldown budget generation and complete
     database: reopened.database,
     provider: new DeterministicMockProvider({
       "first-playable:2:4:optimist": { kind: "text", text: "Second." },
+      "first-playable:2:7:detective": { kind: "text", text: "Third." },
     }),
     maxAutonomousTurns: 2,
   });
@@ -865,17 +866,17 @@ test("restart state preserves pause mute cooldown budget generation and complete
   assert.equal(second.decision.speaker, "optimist");
   assert.equal(second.personaEventSequence, 6);
 
-  const exhausted = await reopenedService.sendMessage({
+  const third = await reopenedService.sendMessage({
     selectionRevision: 0,
     roomId: "first-playable",
     requestId: "restart-message-3",
     text: "Third question.",
   });
-  assert.deepEqual(exhausted.decision, {
-    speaker: null,
-    reason: "budget_exhausted",
+  assert.deepEqual(third.decision, {
+    speaker: "detective",
+    reason: "selected",
   });
-  assert.equal(exhausted.personaEventSequence, null);
+  assert.equal(third.personaEventSequence, 9);
   assert.deepEqual(
     {
       ...reopened.database
@@ -889,8 +890,8 @@ test("restart state preserves pause mute cooldown budget generation and complete
     {
       status: "active",
       generation: 2,
-      last_speaker_id: "optimist",
-      autonomous_turns: 2,
+      last_speaker_id: "detective",
+      autonomous_turns: 3,
       scheduling_window_generation: 2,
     },
   );

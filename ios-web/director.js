@@ -161,9 +161,6 @@ export class Director {
         this.#recordSeen(event.namespace, event.eventId);
         if (!event.isHuman)
             return decision(null, DIRECTOR_REASON.SELF_TRIGGER_BLOCKED);
-        if (this.#autonomousTurns >= this.#maxAutonomousTurns) {
-            return decision(null, DIRECTOR_REASON.BUDGET_EXHAUSTED);
-        }
         this.#acceptedHumanEventNumber += 1;
         if (!event.wantsResponse)
             return decision(null, DIRECTOR_REASON.DELIBERATE_SILENCE);
@@ -192,8 +189,7 @@ export class Director {
         }
         this.#autonomousTurns = requireNonNegativeInteger(snapshot.autonomousTurns, "snapshot autonomousTurns");
         this.#acceptedHumanEventNumber = requireNonNegativeInteger(snapshot.acceptedHumanEventNumber, "snapshot acceptedHumanEventNumber");
-        if (this.#autonomousTurns > this.#maxAutonomousTurns ||
-            this.#autonomousTurns > this.#acceptedHumanEventNumber) {
+        if (this.#autonomousTurns > this.#acceptedHumanEventNumber) {
             throw new TypeError("snapshot autonomousTurns is inconsistent");
         }
         this.#fallbackIndex = requireNonNegativeInteger(snapshot.fallbackIndex, "snapshot fallbackIndex");

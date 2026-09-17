@@ -82,6 +82,24 @@ test("shared director records a directed target without invoking automatic rotat
   );
 });
 
+test("the director keeps selecting a character for every new human question", () => {
+  const adapter = new SharedTrustedEventAdapter("room:human-questions");
+  const director = new SharedDirector(roster, { maxAutonomousTurns: 1 });
+  assert.deepEqual(director.schedule(adapter.humanEvent("request:1", "First question.")), {
+    speaker: roster[0], reason: DIRECTOR_REASON.SELECTED,
+  });
+  assert.deepEqual(director.schedule(adapter.humanEvent("request:2", "Second question.")), {
+    speaker: roster[1], reason: DIRECTOR_REASON.SELECTED,
+  });
+  const restored = SharedDirector.restore(roster, director.snapshot());
+  assert.deepEqual(restored.schedule(adapter.humanEvent("request:3", "Third question.")), {
+    speaker: roster[2], reason: DIRECTOR_REASON.SELECTED,
+  });
+  assert.deepEqual(restored.schedule(adapter.nonHumanEvent("automatic:1", "Do not self-trigger.")), {
+    speaker: null, reason: DIRECTOR_REASON.SELF_TRIGGER_BLOCKED,
+  });
+});
+
 test("shared director rejects malformed cross-field snapshot states", () => {
   const valid: DirectorSnapshot = {
     version: 1,
@@ -95,7 +113,6 @@ test("shared director rejects malformed cross-field snapshot states", () => {
   };
   const attacks: Array<readonly [string, unknown]> = [
     ["reproduced autonomous counter forgery", { ...valid, autonomousTurns: 999, acceptedHumanEventNumber: 0 }],
-    ["autonomous turns beyond budget", { ...valid, autonomousTurns: 11 }],
     ["duplicate persona selection keys", { ...valid, lastSelectedAt: [[roster[0], 1], [roster[0], 2]] }],
     ["selection beyond accepted human event", { ...valid, lastSelectedAt: [[roster[0], 3]] }],
     ["zero selection event number", { ...valid, lastSelectedAt: [[roster[0], 0]] }],

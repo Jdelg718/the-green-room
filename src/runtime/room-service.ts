@@ -310,7 +310,6 @@ export class RoomService {
   readonly #providerDecisionEvidence: ProviderDecisionEvidence | undefined;
   readonly #providerResolver: ((decision: DecisionSnapshot) => GenerationProvider) | undefined;
   readonly #generationTimeoutMs: number;
-  readonly #maxAutonomousTurns: number;
   readonly #now: () => number;
   readonly #pendingWorkLeaseMs: number;
   readonly #pendingWorkPollMs: number;
@@ -373,8 +372,6 @@ export class RoomService {
       throw new TypeError("Provider decision revisions must be positive integers");
     }
     this.#generationTimeoutMs = generationTimeoutMs;
-    this.#maxAutonomousTurns =
-      options.maxAutonomousTurns ?? DEFAULT_AUTONOMOUS_TURN_BUDGET;
     this.#now = options.now ?? Date.now;
     this.#pendingWorkLeaseMs = pendingWorkLeaseMs;
     this.#pendingWorkPollMs = pendingWorkPollMs;
@@ -768,9 +765,6 @@ export class RoomService {
         throw new Error("Target persona is muted");
       }
       return { speaker: target.id, reason: DIRECTOR_REASON.DIRECTED };
-    }
-    if (state.autonomous_turns >= this.#maxAutonomousTurns) {
-      return { speaker: null, reason: DIRECTOR_REASON.BUDGET_EXHAUSTED };
     }
     if (!wantsResponse) {
       return { speaker: null, reason: DIRECTOR_REASON.DELIBERATE_SILENCE };

@@ -261,6 +261,32 @@ test("prepare mutates only one durable command and completion exposes one ordere
   assert.equal(database.events.length, 3);
 });
 
+test("director choice remains available for a new human question after the old room cap", async () => {
+  const runtime = await api("human-after-old-cap");
+  const database = new AtomicDatabase();
+  database.directorState = {
+    version: 1,
+    autonomousTurns: 10,
+    acceptedHumanEventNumber: 10,
+    fallbackIndex: 0,
+    cancelled: false,
+    maxAutonomousTurns: 10,
+    lastSelectedAt: [["ada-lovelace", 10]],
+    seen: Array.from({ length: 10 }, (_, index) => [
+      `iphone-room:${ROOM_ID}`,
+      `12000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    ]),
+  };
+  const prepared = await runtime.prepareAtomicTurn(database, database.room, "Keep directing.", ids(), {
+    requestId: "12000000-0000-4000-8000-000000000099",
+  });
+  assert.equal(prepared.command.personaSlug, "ada-lovelace");
+  assert.equal(prepared.decision.reason, "selected");
+  const completed = await runtime.executePreparedGeneration(database, provider(database), prepared.command, ids());
+  assert.equal(completed.events[2]?.event.personaSlug, "ada-lovelace");
+  assert.equal(database.directorState.autonomousTurns, 11);
+});
+
 test("long-room atomic preparation carries one provider plan within the 256 KiB bridge boundary", async () => {
   const runtime = await api("compact-long-room-prepare");
   const database = new AtomicDatabase();
