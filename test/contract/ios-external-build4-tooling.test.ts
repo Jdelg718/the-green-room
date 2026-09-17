@@ -617,6 +617,7 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   assert.throws(() => audit.validateIpaAuxiliaryLayout({ topLevel: ["Payload", "Signatures", "Symbols"], signatureNames: signatures, symbolNames, dwarfUuids: uuids, archiveUuids: [uuids[1]!, uuids[0]!, uuids[2]!] }), /do not match the audited archive/u);
   const symbolToolOutput = `${uuids[0]} arm64    /private/archive/App.app.dSYM/Contents/Resources/DWARF/App [dSYM_v3, FaultedFromDisk, Found-dSYM, MMap64]\n`;
   assert.equal(audit.parseSymbolProductUuid(symbolToolOutput), uuids[0]);
+  assert.equal(audit.parseSymbolProductUuid(`    ${symbolToolOutput.trim()} \n`), uuids[0]);
   for (const malformed of ["", `${uuids[0]}\n`, symbolToolOutput.toLowerCase(), `${symbolToolOutput}${symbolToolOutput}`, `${uuids[0]} arm64    relative/path [dSYM_v3]`]) assert.throws(() => audit.parseSymbolProductUuid(malformed), /symbol product output/u);
 
   const endpoints = "https://openrouter.ai https://api.openai.com https://api.x.ai https://api.groq.com https://api.together.ai";
