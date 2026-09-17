@@ -175,6 +175,31 @@ function syntheticDeflatedZip(name: string, contents: Buffer): Buffer {
   return zip;
 }
 
+function syntheticDescriptorZip(name: string, contents: Buffer, options: { signed?: boolean; flags?: number; descriptor?: Buffer; trailing?: Buffer } = {}): Buffer {
+  const nameBytes = Buffer.from(name);
+  const packed = deflateRawSync(contents);
+  const checksum = testCrc32(contents);
+  const flags = options.flags ?? 0x0008;
+  const local = Buffer.alloc(30 + nameBytes.length + packed.length);
+  local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(flags, 6); local.writeUInt16LE(8, 8);
+  local.writeUInt16LE(nameBytes.length, 26); nameBytes.copy(local, 30); packed.copy(local, 30 + nameBytes.length);
+  const standardDescriptor = Buffer.alloc(options.signed === false ? 12 : 16);
+  let descriptorOffset = 0;
+  if (options.signed !== false) { standardDescriptor.writeUInt32LE(0x08074b50, 0); descriptorOffset = 4; }
+  standardDescriptor.writeUInt32LE(checksum, descriptorOffset);
+  standardDescriptor.writeUInt32LE(packed.length, descriptorOffset + 4);
+  standardDescriptor.writeUInt32LE(contents.length, descriptorOffset + 8);
+  const descriptor = options.descriptor ?? standardDescriptor;
+  const trailing = options.trailing ?? Buffer.alloc(0);
+  const central = Buffer.alloc(46 + nameBytes.length);
+  central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(flags, 8); central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(checksum, 16); central.writeUInt32LE(packed.length, 20); central.writeUInt32LE(contents.length, 24); central.writeUInt16LE(nameBytes.length, 28); nameBytes.copy(central, 46);
+  const eocd = Buffer.alloc(22);
+  const centralOffset = local.length + descriptor.length + trailing.length;
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10); eocd.writeUInt32LE(central.length, 12); eocd.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([local, descriptor, trailing, central, eocd]);
+}
+
 function syntheticOverlappingZip(): Buffer {
   const makeLocal = (name: string, payload: Buffer) => {
     const nameBytes = Buffer.from(name);
@@ -578,14 +603,41 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
 
   assert.deepEqual(audit.inspectIpaCentralDirectory(syntheticZip("Payload/App.app/App", 4, 4)).names, ["Payload/App.app/App"]);
   assert.deepEqual(audit.inspectIpaCentralDirectory(syntheticDeflatedZip("Payload/App.app/data", Buffer.from("bounded actual decompression proof\n"))).names, ["Payload/App.app/data"]);
+  const descriptorContents = Buffer.from("Xcode 27 data descriptor shape\n");
+  assert.deepEqual(audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/Xcode27", descriptorContents)).names, ["Payload/App.app/Xcode27"]);
+  assert.deepEqual(audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/Xcode27Unsigned", descriptorContents, { signed: false })).names, ["Payload/App.app/Xcode27Unsigned"]);
+  const descriptorCrcMismatch = syntheticDescriptorZip("Payload/App.app/BadDescriptorCrc", descriptorContents); const descriptorCrcOffset = 30 + Buffer.byteLength("Payload/App.app/BadDescriptorCrc") + deflateRawSync(descriptorContents).length + 4; descriptorCrcMismatch.writeUInt32LE(0, descriptorCrcOffset);
+  assert.throws(() => audit.inspectIpaCentralDirectory(descriptorCrcMismatch), /IPA_DATA_DESCRIPTOR_INVALID/u);
+  const descriptorSizeMismatch = syntheticDescriptorZip("Payload/App.app/BadDescriptorSize", descriptorContents); const descriptorSizeOffset = 30 + Buffer.byteLength("Payload/App.app/BadDescriptorSize") + deflateRawSync(descriptorContents).length + 8; descriptorSizeMismatch.writeUInt32LE(0, descriptorSizeOffset);
+  assert.throws(() => audit.inspectIpaCentralDirectory(descriptorSizeMismatch), /IPA_DATA_DESCRIPTOR_INVALID/u);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/MissingDescriptor", descriptorContents, { descriptor: Buffer.alloc(0) })), /IPA_DATA_DESCRIPTOR_INVALID/u);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/TruncatedDescriptor", descriptorContents, { descriptor: Buffer.alloc(8) })), /IPA_DATA_DESCRIPTOR_INVALID/u);
+  const fakeSignature = Buffer.alloc(16); fakeSignature.writeUInt32LE(0x08074b50, 0);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/FakeSignature", descriptorContents, { descriptor: fakeSignature })), /IPA_DATA_DESCRIPTOR_INVALID/u);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/DescriptorSmuggling", descriptorContents, { trailing: Buffer.from("smuggled") })), /IPA_LOCAL_RANGE_INVALID/u);
+  const overlappedName = "Payload/App.app/DescriptorOverlap";
+  const descriptorOverlap = syntheticDescriptorZip(overlappedName, descriptorContents);
+  const packedLength = deflateRawSync(descriptorContents).length;
+  const descriptorStart = 30 + Buffer.byteLength(overlappedName) + packedLength;
+  const overlapCentral = descriptorOverlap.readUInt32LE(descriptorOverlap.length - 22 + 16);
+  descriptorOverlap.writeUInt32LE(packedLength + 4, descriptorStart + 8);
+  descriptorOverlap.writeUInt32LE(packedLength + 4, overlapCentral + 20);
+  assert.throws(() => audit.inspectIpaCentralDirectory(descriptorOverlap), /IPA_DECOMPRESSION_MISMATCH/u);
+  const zip64Descriptor = Buffer.alloc(24); zip64Descriptor.writeUInt32LE(0x08074b50, 0); zip64Descriptor.writeUInt32LE(testCrc32(descriptorContents), 4); zip64Descriptor.writeBigUInt64LE(BigInt(deflateRawSync(descriptorContents).length), 8); zip64Descriptor.writeBigUInt64LE(BigInt(descriptorContents.length), 16);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/Zip64Descriptor", descriptorContents, { descriptor: zip64Descriptor })), /IPA_DATA_DESCRIPTOR_INVALID|IPA_LOCAL_RANGE_INVALID/u);
+  const descriptorWithKnownLocalValues = syntheticDescriptorZip("Payload/App.app/KnownLocal", descriptorContents); descriptorWithKnownLocalValues.writeUInt32LE(1, 14);
+  assert.throws(() => audit.inspectIpaCentralDirectory(descriptorWithKnownLocalValues), /IPA_LOCAL_HEADER_MISMATCH/u);
+  assert.throws(() => audit.inspectIpaCentralDirectory(syntheticDescriptorZip("Payload/App.app/é", descriptorContents, { flags: 0x0008 })), /IPA_NAME_ENCODING_INVALID/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip("Payload/App.app/bomb", 1, 101)), /IPA_RATIO_INVALID/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip(`${"deep/".repeat(21)}x`, 1, 1)), /IPA_PATH_INVALID/u);
   const localNameMismatch = syntheticZip("Payload/App.app/App", 4, 4); localNameMismatch[30] = "X".charCodeAt(0);
   assert.throws(() => audit.inspectIpaCentralDirectory(localNameMismatch), /IPA_LOCAL_HEADER_MISMATCH/u);
   const localFlagsMismatch = syntheticZip("Payload/App.app/App", 4, 4); localFlagsMismatch.writeUInt16LE(0, 6);
   assert.throws(() => audit.inspectIpaCentralDirectory(localFlagsMismatch), /IPA_LOCAL_HEADER_MISMATCH/u);
-  const unsupportedFlags = syntheticZip("Payload/App.app/App", 4, 4); unsupportedFlags.writeUInt16LE(0x808, 6); unsupportedFlags.writeUInt16LE(0x808, 30 + Buffer.byteLength("Payload/App.app/App") + 4 + 8);
+  const unsupportedFlags = syntheticZip("Payload/App.app/App", 4, 4); unsupportedFlags.writeUInt16LE(0x810, 6); unsupportedFlags.writeUInt16LE(0x810, 30 + Buffer.byteLength("Payload/App.app/App") + 4 + 8);
   assert.throws(() => audit.inspectIpaCentralDirectory(unsupportedFlags), /IPA_ZIP_FEATURE_FORBIDDEN/u);
+  const encryptedFlags = syntheticZip("Payload/App.app/App", 4, 4); encryptedFlags.writeUInt16LE(0x801, 6); encryptedFlags.writeUInt16LE(0x801, 30 + Buffer.byteLength("Payload/App.app/App") + 4 + 8);
+  assert.throws(() => audit.inspectIpaCentralDirectory(encryptedFlags), /IPA_ZIP_FEATURE_FORBIDDEN/u);
   const symlink = syntheticZip("Payload/App.app/link", 4, 4); const symlinkCentral = 30 + Buffer.byteLength("Payload/App.app/link") + 4; symlink.writeUInt16LE(3 << 8, symlinkCentral + 4); symlink.writeUInt32LE((0o120777 << 16) >>> 0, symlinkCentral + 38);
   assert.throws(() => audit.inspectIpaCentralDirectory(symlink), /IPA_ENTRY_TYPE_INVALID/u);
   const badCrc = syntheticZip("Payload/App.app/App", 4, 4); const badCrcCentral = 30 + Buffer.byteLength("Payload/App.app/App") + 4; badCrc.writeUInt32LE(1, 14); badCrc.writeUInt32LE(1, badCrcCentral + 16);

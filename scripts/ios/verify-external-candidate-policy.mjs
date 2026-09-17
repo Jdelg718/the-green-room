@@ -66,8 +66,8 @@ const TEST_SENTINELS = [
   "AKIA1234567890ABCDEF", "eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmnop",
   "api_key = \"1234567890abcdef\"", "-----BEGIN OPENSSH PRIVATE KEY-----",
 ];
-const BASELINE_COMMIT = "20bd654079a122dd311aa56d8b435d54581e814e";
-const BASELINE_TREE = "ae03ab183c1d46514bfffc3e304b58aa695fe55b";
+const BASELINE_COMMIT = "a1999c3a5a919fe1743044e15fb18636803d187c";
+const BASELINE_TREE = "fdd75077459b5c0ba4638e1da970f9093683f782";
 const REVIEWED_SYNC_SHA256 = "07286fbbd8c017f7262f9b7772a44475478845deabf07c5a1d465b06b27c3c42";
 
 function fail(message) { throw new Error(`external candidate policy: ${message}`); }

@@ -158,9 +158,12 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
     const externalAttributes = bytes.readUInt32LE(cursor + 38);
     const end = cursor + 46 + nameLength + extraLength + commentLength;
     requireCondition(end <= eocd && bytes.readUInt16LE(cursor + 34) === 0 && nameLength > 0 && nameLength <= 1024 && compressed !== 0xffffffff && uncompressed !== 0xffffffff && localOffset !== 0xffffffff, "IPA_ZIP64_OR_NAME_LIMIT");
-    requireCondition((flags & ~0x0800) === 0 && (method === 0 || method === 8) && localOffset + 30 <= centralOffset && bytes.readUInt32LE(localOffset) === 0x04034b50, "IPA_ZIP_FEATURE_FORBIDDEN");
+    requireCondition((flags & ~0x0808) === 0 && (method === 0 || method === 8) && localOffset + 30 <= centralOffset && bytes.readUInt32LE(localOffset) === 0x04034b50, "IPA_ZIP_FEATURE_FORBIDDEN");
+    const hasDescriptor = (flags & 0x0008) !== 0;
     let name;
-    try { name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength)); } catch { fail("IPA_NAME_ENCODING_INVALID"); }
+    const centralName = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
+    try { name = decoder.decode(centralName); } catch { fail("IPA_NAME_ENCODING_INVALID"); }
+    requireCondition((flags & 0x0800) !== 0 || centralName.every((byte) => byte <= 0x7f), "IPA_NAME_ENCODING_INVALID");
     requireCondition(!name.startsWith("/") && !name.includes("\\") && !name.includes("\0") && posix.normalize(name) === name && !name.split("/").includes("..") && name.split("/").filter(Boolean).length <= MAX_ZIP_DEPTH, "IPA_PATH_INVALID");
     requireCondition(!seen.has(name), "IPA_PATH_DUPLICATE");
     seen.add(name);
@@ -173,13 +176,15 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
     const localExtraLength = bytes.readUInt16LE(localOffset + 28);
     const localHeaderEnd = localOffset + 30 + localNameLength + localExtraLength;
     const dataEnd = localHeaderEnd + compressed;
-    requireCondition(localHeaderEnd <= centralOffset && dataEnd <= centralOffset && localFlags === flags && localMethod === method && localCrc === expectedCrc && localCompressed === compressed && localUncompressed === uncompressed && localNameLength === nameLength && bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(bytes.subarray(cursor + 46, cursor + 46 + nameLength)), "IPA_LOCAL_HEADER_MISMATCH");
+    requireCondition(localHeaderEnd <= centralOffset && dataEnd <= centralOffset && localFlags === flags && localMethod === method && localNameLength === nameLength && bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(centralName), "IPA_LOCAL_HEADER_MISMATCH");
+    if (hasDescriptor) requireCondition(localCrc === 0 && localCompressed === 0 && localUncompressed === 0, "IPA_LOCAL_HEADER_MISMATCH");
+    else requireCondition(localCrc === expectedCrc && localCompressed === compressed && localUncompressed === uncompressed, "IPA_LOCAL_HEADER_MISMATCH");
     const unixMode = (externalAttributes >>> 16) & 0xffff;
     const unixKind = unixMode & 0xf000;
     const directory = name.endsWith("/");
     if ((madeBy >>> 8) === 3) requireCondition(unixKind === 0 || unixKind === 0x8000 && !directory || unixKind === 0x4000 && directory, "IPA_ENTRY_TYPE_INVALID");
     else requireCondition(((externalAttributes & 0x10) !== 0) === directory, "IPA_ENTRY_TYPE_INVALID");
-    requireCondition(!directory || compressed === 0 && uncompressed === 0 && method === 0, "IPA_DIRECTORY_INVALID");
+    requireCondition(!directory || compressed === 0 && uncompressed === 0 && method === 0 && !hasDescriptor, "IPA_DIRECTORY_INVALID");
     requireCondition(compressed > 0 || uncompressed === 0, "IPA_RATIO_INVALID");
     requireCondition(uncompressed <= 256 * 1024 * 1024 && (uncompressed === 0 || uncompressed / compressed <= MAX_ZIP_RATIO), "IPA_RATIO_INVALID");
     totalCompressed += compressed;
@@ -188,16 +193,31 @@ export function inspectIpaCentralDirectory(bytes, { deadline = Date.now() + AUDI
     remainingTime(deadline);
     const compressedPayload = bytes.subarray(localHeaderEnd, dataEnd);
     let actual;
+    let consumedCompressedBytes;
     try {
-      actual = method === 0 ? compressedPayload : inflateRawSync(compressedPayload, { maxOutputLength: uncompressed + 1 });
+      if (method === 0) actual = compressedPayload;
+      else {
+        const inflated = inflateRawSync(compressedPayload, { maxOutputLength: uncompressed + 1, info: true });
+        consumedCompressedBytes = inflated.engine.bytesWritten;
+        actual = inflated.buffer;
+      }
     } catch { fail("IPA_DECOMPRESSION_INVALID"); }
-    requireCondition(actual.length === uncompressed && crc32(actual) === expectedCrc, "IPA_DECOMPRESSION_MISMATCH");
-    ranges.push({ start: localOffset, end: dataEnd });
+    requireCondition((method === 0 || consumedCompressedBytes === compressedPayload.length) && actual.length === uncompressed && crc32(actual) === expectedCrc, "IPA_DECOMPRESSION_MISMATCH");
+    const candidateEnds = [];
+    if (hasDescriptor) {
+      if (dataEnd + 12 <= centralOffset && bytes.readUInt32LE(dataEnd) === expectedCrc && bytes.readUInt32LE(dataEnd + 4) === compressed && bytes.readUInt32LE(dataEnd + 8) === uncompressed) candidateEnds.push(dataEnd + 12);
+      if (dataEnd + 16 <= centralOffset && bytes.readUInt32LE(dataEnd) === 0x08074b50 && bytes.readUInt32LE(dataEnd + 4) === expectedCrc && bytes.readUInt32LE(dataEnd + 8) === compressed && bytes.readUInt32LE(dataEnd + 12) === uncompressed) candidateEnds.push(dataEnd + 16);
+      requireCondition(candidateEnds.length > 0, "IPA_DATA_DESCRIPTOR_INVALID");
+    } else candidateEnds.push(dataEnd);
+    ranges.push({ start: localOffset, candidateEnds });
     names.push(name);
     cursor = end;
   }
   ranges.sort((left, right) => left.start - right.start);
-  requireCondition(ranges.length === entries && ranges[0].start === 0 && ranges.every((range, index) => range.start >= 0 && range.end <= centralOffset && (index === 0 || ranges[index - 1].end === range.start)) && ranges.at(-1).end === centralOffset, "IPA_LOCAL_RANGE_INVALID");
+  requireCondition(ranges.length === entries && ranges[0].start === 0 && ranges.every((range, index) => {
+    const next = index + 1 < ranges.length ? ranges[index + 1].start : centralOffset;
+    return range.start >= 0 && range.start < next && range.candidateEnds.filter((end) => end === next).length === 1;
+  }), "IPA_LOCAL_RANGE_INVALID");
   requireCondition(cursor === eocd && (totalUncompressed === 0 || totalCompressed > 0 && totalUncompressed / totalCompressed <= MAX_ZIP_RATIO), "IPA_CENTRAL_DIRECTORY_INVALID");
   return { names, compressedBytes: totalCompressed, uncompressedBytes: totalUncompressed };
 }
