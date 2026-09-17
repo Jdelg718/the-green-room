@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import plist from "plist";
 import { resolveXcodeTargetBuildVersions } from "./verify-bundle-internal.mjs";
-import { closeExternalLaneParent, prepareExternalLaneParent, writeJsonNoClobber } from "./external-candidate-tools.mjs";
+import { closeExternalLaneParent, prepareExternalLaneParent, validateExternalExportOptions, writeJsonNoClobber } from "./external-candidate-tools.mjs";
 
 export { resolveXcodeTargetBuildVersions } from "./verify-bundle-internal.mjs";
 
@@ -66,8 +66,8 @@ const TEST_SENTINELS = [
   "AKIA1234567890ABCDEF", "eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmnop",
   "api_key = \"1234567890abcdef\"", "-----BEGIN OPENSSH PRIVATE KEY-----",
 ];
-const BASELINE_COMMIT = "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353";
-const BASELINE_TREE = "ea9824601eeee1f6e9303d88c6386ed17bdd0f26";
+const BASELINE_COMMIT = "72bf31216177ed83f24a05e5a4cff57060698d9c";
+const BASELINE_TREE = "df2a3d8258803f7cffcf74bd46163183d71e7cca";
 const REVIEWED_SYNC_SHA256 = "07286fbbd8c017f7262f9b7772a44475478845deabf07c5a1d465b06b27c3c42";
 
 function fail(message) { throw new Error(`external candidate policy: ${message}`); }
@@ -194,9 +194,11 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
 
   exactKeys(internalOptions, ["destination", "manageAppVersionAndBuildNumber", "method", "provisioningProfiles", "signingCertificate", "signingStyle", "stripSwiftSymbols", "teamID", "testFlightInternalTestingOnly", "uploadSymbols"], "internal export policy");
   requireCondition(internalOptions.destination === "export" && internalOptions.testFlightInternalTestingOnly === true, "internal-only export policy was weakened");
-  exactKeys(externalOptions, ["destination", "manageAppVersionAndBuildNumber", "method", "provisioningProfiles", "signingCertificate", "signingStyle", "stripSwiftSymbols", "teamID", "testFlightInternalTestingOnly", "uploadSymbols"], "external export draft");
-  const expectedExternal = { destination: "export", manageAppVersionAndBuildNumber: false, method: "app-store-connect", provisioningProfiles: { [identity.bundleIdentifier]: "Green Room App Store Connect 0.1.0 Build 1" }, signingCertificate: "Apple Distribution", signingStyle: "manual", stripSwiftSymbols: true, teamID: identity.teamIdentifier, testFlightInternalTestingOnly: false, uploadSymbols: true };
-  requireCondition(JSON.stringify(externalOptions) === JSON.stringify(expectedExternal), "external export draft is not exact");
+  try {
+    validateExternalExportOptions(externalOptions);
+  } catch {
+    fail("external export draft is not exact");
+  }
   requireCondition(policy.signing.archiveAllowedNow === true && policy.signing.signingAllowedNow === true && policy.signing.exportAllowedNow === true && policy.signing.uploadAllowed === false && policy.signing.installAllowedNow === false && policy.signing.deviceActionAllowedNow === false, "only local archive/sign/export may be enabled; upload/install/device must remain false");
   requireCondition(policy.signing.exportOptionsPath === "ios/ExternalCandidateExportOptions.plist" && policy.signing.expectedCertificateClass === "Apple Distribution" && policy.signing.expectedProvisioningProfile === "Green Room App Store Connect 0.1.0 Build 1" && JSON.stringify(policy.signing.expectedEntitlements) === JSON.stringify({ "application-identifier": "JZ233HBW3Z.net.greenroomai.GreenRoom", "beta-reports-active": true, "com.apple.developer.team-identifier": "JZ233HBW3Z", "get-task-allow": false, "keychain-access-groups": ["JZ233HBW3Z.net.greenroomai.GreenRoom"] }), "signing expectations changed");
   const expectedProfileAuthorization = { allowedApplicationIdentifiers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], teamIdentifier: "JZ233HBW3Z", getTaskAllow: false, betaReportsActive: true, allowedKeychainAccessGroups: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*", "com.apple.token"], requiredKeychainAuthorizers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], additionalEntitlementsAllowed: false };
