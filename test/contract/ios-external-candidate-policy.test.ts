@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -67,7 +67,7 @@ test("external candidate policy authorizes only the exact local archive/export/a
   assert.deepEqual(summary, {
     status: "PASS",
     policyState: "reviewed-local-archive-export-audit-no-upload",
-    baselineCommit: "c139672c4b651272c31dd2721c445f1b9ec04874",
+    baselineCommit: "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e",
     candidateIdentity: "0.1.0 (4)",
     localArchiveAllowed: true,
     localExportAllowed: true,
@@ -76,6 +76,45 @@ test("external candidate policy authorizes only the exact local archive/export/a
     uploaded: false,
     externalCandidateReady: false,
   });
+});
+
+test("iOS sync uses only committed ios-web before source verification", () => {
+  const documents = fresh();
+  const capacitorConfig = readFileSync(join(ROOT, "capacitor.config.ts"), "utf8");
+  const sync = documents.syncText;
+
+  assert.match(capacitorConfig, /webDir:\s*"ios-web"/u);
+  assert.equal((sync.match(/spawnSync\(/gu) ?? []).length, 1);
+  assert.match(sync, /join\(ROOT, "node_modules", "@capacitor", "cli", "bin", "capacitor"\)/u);
+  assert.match(sync, /spawnSync\(process\.execPath, \[cli, "sync", "ios"\]/u);
+  assert.doesNotMatch(sync, /\bdist\b|\bnpm\b|npm[_-]config|typescript|\btsc\b|copy-runtime-assets|build-local-room-assets|\bshell\b/iu);
+  assert.ok(sync.indexOf('[cli, "sync", "ios"]') < sync.indexOf("verifySource(ROOT)"));
+  assert.ok(documents.policy.sourceBinding.requiredFiles.includes("scripts/ios/sync.mjs"));
+});
+
+darwinTest("iOS sync is reproducible from a clean checkout with prepared dependencies and no dist", (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "greenroom-ios-sync-clean-"));
+  const root = join(parent, "candidate");
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  execFileSync("/usr/bin/git", ["clone", "--shared", "--no-checkout", ROOT, root], { stdio: "ignore" });
+  execFileSync("/usr/bin/git", ["checkout", "--detach", "HEAD"], { cwd: root, stdio: "ignore" });
+  mkdirSync(join(root, "node_modules"));
+  for (const name of readdirSync(join(ROOT, "node_modules"))) {
+    symlinkSync(join(ROOT, "node_modules", name), join(root, "node_modules", name));
+  }
+
+  assert.equal(existsSync(join(root, "dist")), false);
+  assert.equal(execFileSync("/usr/bin/git", ["status", "--short", "--untracked-files=all"], { cwd: root, encoding: "utf8" }), "");
+  const sync = spawnSync(process.execPath, ["scripts/ios/sync.mjs"], { cwd: root, encoding: "utf8" });
+  assert.equal(sync.status, 0, `${sync.stdout}\n${sync.stderr}`);
+  assert.match(sync.stdout, /"operation": "capacitor-sync"/u);
+  assert.equal(existsSync(join(root, "dist")), false);
+  assert.equal(execFileSync("/usr/bin/git", ["status", "--short", "--untracked-files=all"], { cwd: root, encoding: "utf8" }), "");
+  const verify = spawnSync(process.execPath, ["scripts/ios/verify-bundle.mjs", "--source", root], { cwd: root, encoding: "utf8" });
+  assert.equal(verify.status, 0, `${verify.stdout}\n${verify.stderr}`);
+  const evidence = JSON.parse(verify.stdout) as { status: string; sourceEntries: number };
+  assert.equal(evidence.status, "PASS");
+  assert.ok(evidence.sourceEntries > 0);
 });
 
 darwinTest("source review manifest generates from a clean detached candidate and keeps scanner definitions hash-bound", (context) => {
@@ -203,6 +242,7 @@ test("candidate verifier fails closed on identity, privacy, metadata, signing, o
     (value) => { value.policy.baseline.protectedMainCommit = "f".repeat(40); },
     (value) => { value.policy.baseline.protectedMainTree = "f".repeat(40); },
     (value) => { value.policy.sourceBinding.requireDirectBaselineParent = false; },
+    (value) => { value.syncText += "\n// reviewed marker decoy\n"; },
     (value) => { value.policy.identity.proposedBuildNumber = "2"; },
     (value) => { value.projectText = value.projectText.replaceAll("CURRENT_PROJECT_VERSION = 4;", "CURRENT_PROJECT_VERSION = 3;"); },
     (value) => { value.migrationManifest.schema = 7; },

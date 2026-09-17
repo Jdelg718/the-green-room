@@ -3,8 +3,8 @@
   "kind": "greenroom-ios-external-testflight-candidate-policy",
   "state": "reviewed-local-archive-export-audit-no-upload",
   "baseline": {
-    "protectedMainCommit": "c139672c4b651272c31dd2721c445f1b9ec04874",
-    "protectedMainTree": "dfcf05d8a8cdf3c1c883e0d3993a3d299f909411"
+    "protectedMainCommit": "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e",
+    "protectedMainTree": "f1e53a23591900292a6324cfe30761eee25351da"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",
@@ -38,6 +38,7 @@
       "docs/release/iphone-privacy-data-flow.md",
       "docs/release/iphone-external-testflight-candidate.md",
       "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
+      "scripts/ios/sync.mjs",
       "scripts/ios/verify-external-candidate-policy.mjs",
       "scripts/ios/verify-external-candidate-policy.d.mts",
       "scripts/ios/external-candidate-tools.mjs",
