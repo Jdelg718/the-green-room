@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "099b7309bc5b2824b7d37dad77a31e02678ffa21";
-export const PROTECTED_BASELINE_TREE = "a7fce1c97d59c7a5641e1528c6f6abdb9255f276";
+export const PROTECTED_BASELINE_COMMIT = "80ed83b8089814beff3cf7532651db5ea7e944e7";
+export const PROTECTED_BASELINE_TREE = "aea0666e5dcefb13ed3a20a5250b53916a0e3c6a";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -176,7 +176,7 @@ function validateEntitlements(value) {
     "keychain-access-groups": [`${EXTERNAL_IDENTITY.teamIdentifier}.${EXTERNAL_IDENTITY.bundleIdentifier}`],
   };
   exactKeys(value, Object.keys(expected), "distribution entitlements");
-  requireCondition(JSON.stringify(value) === JSON.stringify(expected), "distribution entitlements are not exact; get-task-allow must be false and beta-reports-active true");
+  requireCondition(Object.keys(expected).every((key) => JSON.stringify(value[key]) === JSON.stringify(expected[key])), "distribution entitlements are not exact; get-task-allow must be false and beta-reports-active true");
 }
 
 export function validateExternalDistributionSigning({ identityDetails, entitlements, profile }) {
