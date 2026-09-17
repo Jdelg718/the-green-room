@@ -390,7 +390,7 @@ function machOUuids(appPath, mainExecutable, deadline) {
 
 export function parseSymbolProductUuid(output) {
   requireCondition(typeof output === "string" && Buffer.byteLength(output, "utf8") <= 4096 && !output.includes("\0"), "IPA UUID symbol product output is malformed");
-  const line = output.replace(/\n$/u, "");
+  const line = output.trim();
   requireCondition(!line.includes("\n") && !line.includes("\r"), "IPA UUID symbol product output is malformed");
   const match = /^([0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}) arm64 {4}([^\u0000-\u001f\u007f]{1,3584}) \[([A-Za-z0-9_, -]{1,256})\]$/u.exec(line);
   requireCondition(match !== null && match[2].startsWith("/") && match[3].split(", ").includes("dSYM_v3"), "IPA UUID symbol product output is malformed");
