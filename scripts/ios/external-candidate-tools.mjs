@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "5f3e8f7046dbdac7b945f5b6f56ef9785fe9d353";
-export const PROTECTED_BASELINE_TREE = "ea9824601eeee1f6e9303d88c6386ed17bdd0f26";
+export const PROTECTED_BASELINE_COMMIT = "72bf31216177ed83f24a05e5a4cff57060698d9c";
+export const PROTECTED_BASELINE_TREE = "df2a3d8258803f7cffcf74bd46163183d71e7cca";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -68,6 +68,21 @@ export function getExternalSecondaryFailures(error) {
 function exactKeys(value, keys, label) {
   requireCondition(value && typeof value === "object" && !Array.isArray(value), `${label} must be a dictionary`);
   requireCondition(JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort()), `${label} keys are not exact`);
+}
+function exactCanonicalValue(value, expected, label) {
+  if (expected && typeof expected === "object") {
+    requireCondition(value && typeof value === "object" && !Array.isArray(value), `${label} must be a dictionary`);
+    const prototype = Object.getPrototypeOf(value);
+    requireCondition(prototype === Object.prototype || prototype === null, `${label} must be a plain dictionary`);
+    const ownKeys = Reflect.ownKeys(value);
+    requireCondition(ownKeys.every((key) => typeof key === "string"), `${label} contains non-string keys`);
+    const descriptors = ownKeys.map((key) => Object.getOwnPropertyDescriptor(value, key));
+    requireCondition(descriptors.every((descriptor) => descriptor && "value" in descriptor && descriptor.enumerable), `${label} contains unsafe properties`);
+    exactKeys(value, Object.keys(expected), label);
+    for (const key of Object.keys(expected)) exactCanonicalValue(value[key], expected[key], `${label}.${key}`);
+    return;
+  }
+  requireCondition(typeof value === typeof expected && Object.is(value, expected), `${label} is not exact`);
 }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 function portable(root, path) { return relative(root, path).split(sep).join("/"); }
@@ -163,8 +178,7 @@ export function validateExternalExportOptions(value) {
     testFlightInternalTestingOnly: false,
     uploadSymbols: true,
   };
-  exactKeys(value, Object.keys(expected), "external export options");
-  requireCondition(JSON.stringify(value) === JSON.stringify(expected), "external export options are not exact or confused with the internal-only policy");
+  exactCanonicalValue(value, expected, "external export options");
 }
 
 function validateSignedAppEntitlements(value) {

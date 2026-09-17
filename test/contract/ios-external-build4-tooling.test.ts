@@ -54,6 +54,35 @@ const options = {
   testFlightInternalTestingOnly: false,
   uploadSymbols: true,
 };
+
+test("external export options are exact independent of dictionary key order", () => {
+  const reversed: Record<string, unknown> = Object.fromEntries(Object.entries(options).reverse());
+  reversed.provisioningProfiles = Object.fromEntries(Object.entries(options.provisioningProfiles).reverse());
+  assert.doesNotThrow(() => tools.validateExternalExportOptions(reversed));
+
+  const withoutDestination = Object.fromEntries(Object.entries(options).filter(([key]) => key !== "destination"));
+  const adversarial: unknown[] = [
+    withoutDestination,
+    { ...options, unexpected: false },
+    { ...options, destination: new String("export") },
+    { ...options, manageAppVersionAndBuildNumber: 0 },
+    { ...options, provisioningProfiles: [] },
+    { ...options, provisioningProfiles: { ...options.provisioningProfiles, "net.greenroomai.Other": options.provisioningProfiles["net.greenroomai.GreenRoom"] } },
+    { ...options, provisioningProfiles: { "net.greenroomai.GreenRoom": [options.provisioningProfiles["net.greenroomai.GreenRoom"], options.provisioningProfiles["net.greenroomai.GreenRoom"]] } },
+    { ...options, provisioningProfiles: Object.create({ "net.greenroomai.GreenRoom": options.provisioningProfiles["net.greenroomai.GreenRoom"] }) },
+  ];
+  const accessor = { ...options };
+  Object.defineProperty(accessor, "destination", { enumerable: true, get: () => "export" });
+  const rootSymbol = { ...options };
+  Object.defineProperty(rootSymbol, Symbol("unexpected"), { enumerable: true, value: false });
+  const nestedSymbolProfiles = { ...options.provisioningProfiles };
+  Object.defineProperty(nestedSymbolProfiles, Symbol("unexpected"), { enumerable: true, value: options.provisioningProfiles["net.greenroomai.GreenRoom"] });
+  adversarial.push(accessor, rootSymbol, { ...options, provisioningProfiles: nestedSymbolProfiles });
+  for (const malformed of adversarial) {
+    assert.throws(() => tools.validateExternalExportOptions(malformed as Record<string, unknown>), /external candidate/u);
+  }
+});
+
 const releaseInfo = {
   CFBundleIdentifier: "net.greenroomai.GreenRoom",
   CFBundleDisplayName: "Green Room",
