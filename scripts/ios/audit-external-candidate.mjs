@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
-import { closeExternalLaneParent, closeRetainedDirectory, inventoryArtifactTree, prepareExternalLaneParent, PROTECTED_BASELINE_COMMIT, PROTECTED_BASELINE_TREE, readRegularFileAt, readRegularFileNoFollow, requireRetainedDirectory, REQUIRED_NODE_VERSION, retainOwnedDirectoryAt, validateExternalDistributionSigning, validateExternalExportOptions, validateExternalReleaseInfo, withArtifactTreeSnapshot, writeJsonNoClobber } from "./external-candidate-tools.mjs";
+import { closeExternalLaneParent, closeRetainedDirectory, inventoryArtifactTree, prepareExternalLaneParent, PROTECTED_BASELINE_COMMIT, PROTECTED_BASELINE_TREE, readRegularFileAt, readRegularFileNoFollow, requireRetainedDirectory, REQUIRED_NODE_VERSION, retainOwnedDirectoryAt, validateExternalDistributionSigning, validateExternalExportOptions, validateExternalReleaseInfo, validateGeneratedExternalExportOptions, withArtifactTreeSnapshot, writeJsonNoClobber } from "./external-candidate-tools.mjs";
 import { parseDecodedProvisioningProfile } from "./provisioning-profile.mjs";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -399,7 +399,7 @@ function auditExport(exportPath, expectedCommit, exactExportInventory, deadline)
   const allowed = new Set([ipas[0], "DistributionSummary.plist", "ExportOptions.plist"]);
   requireCondition(names.every((name) => allowed.has(name)), "external export contains an unexpected product");
   requireCondition(existsSync(join(exportPath, "DistributionSummary.plist")), "external export is missing DistributionSummary.plist");
-  if (existsSync(join(exportPath, "ExportOptions.plist"))) validateExternalExportOptions(plistInput(readRegularFileNoFollow(join(exportPath, "ExportOptions.plist"), "exported ExportOptions.plist", undefined, { deadline }).bytes, "exported ExportOptions.plist", deadline));
+  if (existsSync(join(exportPath, "ExportOptions.plist"))) validateGeneratedExternalExportOptions(plistInput(readRegularFileNoFollow(join(exportPath, "ExportOptions.plist"), "Xcode-generated ExportOptions.plist", undefined, { deadline }).bytes, "Xcode-generated ExportOptions.plist", deadline));
   const ipaPath = join(exportPath, ipas[0]);
   const ipa = readRegularFileNoFollow(ipaPath, "exact exported IPA", undefined, { deadline });
   const zip = inspectIpaCentralDirectory(ipa.bytes, { deadline });

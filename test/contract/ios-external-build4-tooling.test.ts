@@ -84,6 +84,21 @@ test("external export options are exact independent of dictionary key order", ()
   }
 });
 
+test("Xcode-generated export options permit only Boolean false App Store information generation", () => {
+  assert.doesNotThrow(() => tools.validateGeneratedExternalExportOptions({ ...options, generateAppStoreInformation: false }));
+  assert.doesNotThrow(() => tools.validateGeneratedExternalExportOptions(options));
+
+  for (const malformed of [
+    { ...options, generateAppStoreInformation: true },
+    { ...options, generateAppStoreInformation: "false" },
+    { ...options, generateAppStoreInformation: 0 },
+    { ...options, generateAppStoreInformation: false, unexpected: false },
+    Object.fromEntries(Object.entries(options).filter(([key]) => key !== "destination")),
+  ]) assert.throws(() => tools.validateGeneratedExternalExportOptions(malformed as Record<string, unknown>), /external candidate/u);
+
+  assert.throws(() => tools.validateExternalExportOptions({ ...options, generateAppStoreInformation: false }), /external candidate/u);
+});
+
 test("external export lane preserves archive-only prerequisite audit before export audit", () => {
   assert.match(exportLaneSource, /phase: options\.exportPath === undefined \? "archive" : "export"/u);
   assert.doesNotMatch(exportLaneSource, /phase: "export"/u);
