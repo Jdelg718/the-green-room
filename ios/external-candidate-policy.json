@@ -3,16 +3,16 @@
   "kind": "greenroom-ios-external-testflight-candidate-policy",
   "state": "reviewed-no-upload-identity-frozen",
   "baseline": {
-    "protectedMainCommit": "476c513e55d17eba262370308514d2b3971ed3ef",
-    "protectedMainTree": "709910f12b1b8e2290ee9fe60f2cb8f2feecaeef"
+    "protectedMainCommit": "adf129896814ebc3a45980833a059660096c7f56",
+    "protectedMainTree": "eb7b0a39438976a3171e920d877260c9e79c0e1e"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",
     "bundleIdentifier": "net.greenroomai.GreenRoom",
     "teamIdentifier": "JZ233HBW3Z",
     "marketingVersion": "0.1.0",
-    "proposedBuildNumber": "3",
-    "committedXcodeBuildNumber": "3",
+    "proposedBuildNumber": "4",
+    "committedXcodeBuildNumber": "4",
     "minimumOS": "18.6",
     "deviceFamily": [1],
     "activation": "identity-frozen-no-archive-sign-upload"
@@ -37,6 +37,7 @@
       "docs/release/iphone-external-testflight-metadata.json",
       "docs/release/iphone-privacy-data-flow.md",
       "docs/release/iphone-external-testflight-candidate.md",
+      "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
       "scripts/ios/verify-external-candidate-policy.mjs",
       "scripts/ios/verify-external-candidate-policy.d.mts",
       "scripts/ios/verify-bundle-internal.mjs",
@@ -66,6 +67,14 @@
     "supportUrl": "https://github.com/Jdelg718/the-green-room/issues",
     "privacyUrl": "https://greenroomai.net/privacy/",
     "privacyUrlGate": "live-verified-after-pr-198-merge-476c513e55d17eba262370308514d2b3971ed3ef-homepage-and-privacy-http-200-one-visible-link-substantive-policy"
+  },
+  "distribution": {
+    "mode": "private-email-only-external-testflight",
+    "approvedTesterCount": 2,
+    "testerRosterAuthority": "private-owner-approved-ops-record",
+    "publicLinkAllowed": false,
+    "appStoreReleaseAllowed": false,
+    "appleActionsPerformed": false
   },
   "signing": {
     "archiveAllowedNow": false,
@@ -116,7 +125,7 @@
     "futureExportInventory": "exact IPA plus bounded policy evidence and Apple distribution summary; delete and exclude diagnostic logs"
   },
   "physicalAcceptance": {
-    "status": "required-not-run-for-build-3",
+    "status": "required-not-run-for-build-4",
     "requiredEvidence": [
       "manual assistive-technology and supported-iPhone acceptance",
       "exact installed version/build/source readback",

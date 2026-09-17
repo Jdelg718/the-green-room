@@ -7,8 +7,16 @@
     "appStoreConnectAppId": "6809792258",
     "bundleIdentifier": "net.greenroomai.GreenRoom",
     "marketingVersion": "0.1.0",
-    "proposedBuildNumber": "3",
+    "proposedBuildNumber": "4",
     "activation": "identity-frozen-local-only"
+  },
+  "distribution": {
+    "mode": "private-email-only-external-testflight",
+    "approvedTesterCount": 2,
+    "testerRosterAuthority": "private-owner-approved-ops-record",
+    "publicLinkAllowed": false,
+    "appStoreReleaseAllowed": false,
+    "appleActionsPerformed": false
   },
   "supportUrl": {
     "value": "https://github.com/Jdelg718/the-green-room/issues",
@@ -27,7 +35,7 @@
   },
   "betaReviewNotes": "Green Room is a local-first ensemble conversation app. Rooms, drafts, events, provider selection, and provider-consent records are persisted locally in the app container; provider credentials remain in iOS Keychain. The app has no Green Room account, analytics collector, model proxy, transcript service, or relay. When a tester explicitly consents and sends a prompt, the app transmits the prompt, bounded recent room messages, selected character instructions, model ID, and generation settings directly over HTTPS to the tester-selected fixed BYOK provider; those transmitted content fields may be retained under the provider/account/route terms. No demo account exists. Apple/Kent must approve a non-secret review path and any tester credential arrangement before Beta App Review; no credential is included in this draft.",
   "testerInstructions": [
-    "Install only the exact owner-approved TestFlight build and confirm version 0.1.0 build 3.",
+    "Install only the exact owner-approved TestFlight build and confirm version 0.1.0 build 4.",
     "Open Privacy & Data Use before provider setup.",
     "Use only a provider API key you obtained independently and are authorized to use; Green Room does not sell or provide model access.",
     "Select one of the five fixed providers and a valid model, review the named host/content disclosure, and explicitly consent before model listing or generation.",
@@ -46,7 +54,7 @@
     "Beta App Review contact first name, last name, phone number, and email",
     "whether Apple requires sign-in/demo access despite the app having no account",
     "approved non-secret review path and any separately handled provider test credential",
-    "exact external tester group, tester cap, and invitation mode after Apple approval"
+    "exact private external tester group name; exactly two owner-approved tester records must be resolved from the private operational roster"
   ],
   "forbiddenFabrication": [
     "contact identity or phone/email",

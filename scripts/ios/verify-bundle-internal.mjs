@@ -257,6 +257,14 @@ function pbxIdList(body, field, objectId) {
   return entries;
 }
 
+function pbxDictionaryBody(body, field, objectId) {
+  const source = `{${body}}`;
+  const entries = parsePbxDictionaryEntries(source, 0, `object ${objectId}`)
+    .filter(({ key }) => key === field);
+  requireCondition(entries.length === 1 && entries[0].dictionary, `Xcode object ${objectId} must contain one ${field} dictionary`);
+  return source.slice(entries[0].valueStart + 1, entries[0].valueEnd);
+}
+
 function verifyAccessibilityUITestPath(project, sourceRoot) {
   const objects = parsePbxObjects(project);
   const typed = [...objects].map(([id, body]) => ({ id, body, isa: pbxScalar(body, "isa", id) }));
@@ -501,6 +509,37 @@ function verifySourceExecutables(root, entries) {
 }
 
 /** @internal */
+export function resolveXcodeTargetBuildVersions(projectText, targetName = "App") {
+  requireCondition(typeof projectText === "string" && projectText.length > 0, "Xcode project text is missing");
+  requireCondition(typeof targetName === "string" && /^[A-Za-z0-9_.-]+$/u.test(targetName), "Xcode target name is invalid");
+  const declarations = parsePbxObjects(projectText);
+
+  const typed = [...declarations].map(([id, body]) => ({ id, body, isa: pbxScalar(body, "isa", id) }));
+  const targets = typed.filter(({ id, body, isa }) => isa === "PBXNativeTarget" && pbxScalar(body, "name", id) === targetName);
+  requireCondition(targets.length === 1, `Xcode target ${targetName} must resolve exactly once`);
+  const target = targets[0];
+  const listId = pbxScalar(target.body, "buildConfigurationList", target.id);
+  requireCondition(/^[A-F0-9]{24}$/u.test(listId), `Xcode target ${targetName} configuration list is malformed`);
+  const listBody = declarations.get(listId);
+  requireCondition(listBody && pbxScalar(listBody, "isa", listId) === "XCConfigurationList", `Xcode target ${targetName} configuration list does not resolve`);
+  const configurationIds = pbxIdList(listBody, "buildConfigurations", listId);
+  requireCondition(configurationIds.length === 2 && new Set(configurationIds).size === 2, `Xcode target ${targetName} must have exactly two distinct build configurations`);
+
+  const versions = {};
+  for (const configurationId of configurationIds) {
+    const configurationBody = declarations.get(configurationId);
+    requireCondition(configurationBody && pbxScalar(configurationBody, "isa", configurationId) === "XCBuildConfiguration", `Xcode target ${targetName} configuration ${configurationId} does not resolve`);
+    const name = pbxScalar(configurationBody, "name", configurationId);
+    requireCondition((name === "Debug" || name === "Release") && !Object.hasOwn(versions, name), `Xcode target ${targetName} configuration names are missing or ambiguous`);
+    const settingsBody = pbxDictionaryBody(configurationBody, "buildSettings", configurationId);
+    const version = pbxScalar(settingsBody, "CURRENT_PROJECT_VERSION", configurationId);
+    versions[name] = version.replace(/^"|"$/gu, "");
+  }
+  requireCondition(Object.keys(versions).length === 2 && Object.hasOwn(versions, "Debug") && Object.hasOwn(versions, "Release"), `Xcode target ${targetName} must resolve Debug and Release exactly once`);
+  return versions;
+}
+
+/** @internal */
 export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition(adapters && typeof adapters === "object" && Object.keys(adapters).length === 1 && typeof adapters.parsePlist === "function", "source verification requires one complete plist adapter");
   const sourceRoot = resolve(root);
@@ -615,7 +654,8 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((project.match(/SWIFT_STRICT_CONCURRENCY = complete;/gu) ?? []).length === 4 && (project.match(/SWIFT_VERSION = 6\.0;/gu) ?? []).length === 4, "Swift 6 strict concurrency must be enabled");
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 4, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
-  requireCondition((project.match(/CURRENT_PROJECT_VERSION = 3;/gu) ?? []).length === 2, "project build number must be 3 in Debug and Release");
+  const appBuildVersions = resolveXcodeTargetBuildVersions(project, "App");
+  requireCondition(appBuildVersions.Debug === "4" && appBuildVersions.Release === "4", "App target build number must be 4 in Debug and Release");
   requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
@@ -733,7 +773,7 @@ export function verifyBuiltAppCore(appPath) {
   const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID, "built CFBundleIdentifier is not exact");
   requireCondition(info.CFBundleDisplayName === APP_NAME, "built display name is not exact");
-  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "3", "built version/build identity is not exactly 0.1.0 (3)");
+  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "4", "built version/build identity is not exactly 0.1.0 (4)");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "built export encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === "development" || /^[0-9a-f]{40}$/u.test(info.GreenRoomSourceCommit), "built source commit must be development or an exact lowercase Git commit");
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS, "built MinimumOSVersion is not exactly 18.6");
