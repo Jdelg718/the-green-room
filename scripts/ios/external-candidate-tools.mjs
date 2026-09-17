@@ -29,8 +29,8 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e";
-export const PROTECTED_BASELINE_TREE = "f1e53a23591900292a6324cfe30761eee25351da";
+export const PROTECTED_BASELINE_COMMIT = "5df0b8b5940a903eb01e685ac5bcf239cf2e4468";
+export const PROTECTED_BASELINE_TREE = "10ae07c74dcc8cf0bf19470f13cbd41b40c8617e";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -413,6 +413,22 @@ export function closeRetainedDirectory(retained) {
   if (retained.ownsParent !== false) closeSync(retained.parentDescriptor);
 }
 
+function publishRetainedDirectory(retained, destinationParentDescriptor, destinationName, testInjection) {
+  requireCondition(retained?.parentDescriptor !== undefined && retained?.directoryDescriptor !== undefined &&
+    Number.isInteger(destinationParentDescriptor) && typeof destinationName === "string" && basename(destinationName) === destinationName,
+  "retained directory publication request is invalid");
+  requireCondition(testInjection === undefined || ["substitute-staged-directory", "substitute-staged-file", "substitute-staged-symlink"].includes(testInjection), "publication test injection is invalid");
+  const run = spawnSync(inventoryHelper(), ["publish-directory-fds", retained.name, destinationName, ...(testInjection ? [testInjection] : [])], {
+    encoding: "utf8", env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" }, maxBuffer: 1024 * 1024, timeout: 120_000,
+    stdio: ["ignore", "pipe", "pipe", retained.parentDescriptor, retained.directoryDescriptor, destinationParentDescriptor],
+  });
+  requireCondition(!run.error && run.status === 0, "OUTPUT_PUBLICATION_FAILED");
+  retained.parentDescriptor = destinationParentDescriptor;
+  retained.name = destinationName;
+  retained.ownsParent = false;
+  requireRetainedDirectory(retained);
+}
+
 function cleanupOwnedTree(path, retained) {
   requireCondition(retained, "retained output descriptor is required for cleanup");
   const run = spawnSync(inventoryHelper(), ["cleanup-tree-fds", retained.name], {
@@ -524,7 +540,7 @@ export function validateNoUploadCommand(command, args, phase) {
   requireCondition(phase === "archive" ? args[0] === "archive" && args.includes("-archivePath") : args[0] === "-exportArchive" && args.includes("-exportPath") && args.includes("-exportOptionsPlist"), "COMMAND_SHAPE_INVALID");
 }
 
-export function runExternalArchiveCore({ sourceRoot = process.cwd(), destinationCreationTestHook } = {}, adapters) {
+export function runExternalArchiveCore({ sourceRoot = process.cwd(), destinationCreationTestHook, publicationSubstitutionTestHook = false } = {}, adapters) {
   exactAdapters(adapters, ["run", "auditArchive"]);
   const root = realpathSync(resolve(sourceRoot));
   const invoke = (command, args, confinement = {}) => adapters.run(command, args, { cwd: root, environment: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" }, ...confinement }).replace?.(/\n$/u, "") ?? "";
@@ -537,21 +553,25 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
   const laneParent = ensureLaneParent(root);
   const parent = laneParent.path;
   const archivePath = join(parent, `external-build-4-${commit}.xcarchive`);
+  const stagingName = `.external-build-4-${commit}-archive-staging`;
+  const stagingPath = join(parent, stagingName);
+  const stagedArchiveName = "candidate.xcarchive";
   const evidencePath = join(parent, `external-build-4-archive-${commit}.json`);
   const packageResolution = "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
   let retainedArchive;
+  let retainedStaging;
   let validateSource = () => {};
   let completed = false;
   let primaryError;
   let result;
   try {
-    requireCondition(!existsSync(archivePath) && !existsSync(evidencePath), "refusing to overwrite an existing commit-named archive or evidence file");
+    requireCondition(!existsSync(archivePath) && !existsSync(evidencePath) && !existsSync(stagingPath), "refusing to overwrite an existing commit-named archive, staging directory, or evidence file");
     if (destinationCreationTestHook !== undefined) {
       requireCondition(typeof destinationCreationTestHook === "function", "destination creation test hook is invalid");
       destinationCreationTestHook(archivePath);
     }
-    const archiveOwner = mkdirAt(laneParent.parentDescriptor, basename(archivePath));
-    retainedArchive = retainOwnedDirectoryAt(laneParent.parentDescriptor, basename(archivePath), false, archiveOwner);
+    const stagingOwner = mkdirAt(laneParent.parentDescriptor, stagingName);
+    retainedStaging = retainOwnedDirectoryAt(laneParent.parentDescriptor, stagingName, false, stagingOwner);
     let packageWasWrapperOwned = false;
     try {
       const packageStats = lstatSync(join(root, packageResolution));
@@ -575,7 +595,7 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
     validateSource();
     const archiveArgs = [
       "archive", "-project", join(root, "ios/App/App.xcodeproj"), "-scheme", "App", "-configuration", "Release",
-      "-destination", "generic/platform=iOS", "-archivePath", basename(archivePath),
+      "-destination", "generic/platform=iOS", "-archivePath", `${stagingName}/${stagedArchiveName}`,
       `GREENROOM_SOURCE_COMMIT=${commit}`, "CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=Apple Distribution",
       `PROVISIONING_PROFILE_SPECIFIER=${EXTERNAL_IDENTITY.profileName}`, `DEVELOPMENT_TEAM=${EXTERNAL_IDENTITY.teamIdentifier}`,
     ];
@@ -583,6 +603,11 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
     invoke("/usr/bin/xcodebuild", archiveArgs, { inheritedDirectoryDescriptor: laneParent.parentDescriptor, confinedParentPath: laneParent.path });
     requireLaneParentIdentity(laneParent);
     validateSource();
+    retainedArchive = retainOwnedDirectoryAt(retainedStaging.directoryDescriptor, stagedArchiveName, false);
+    publishRetainedDirectory(retainedArchive, laneParent.parentDescriptor, basename(archivePath), publicationSubstitutionTestHook ? `substitute-staged-${publicationSubstitutionTestHook}` : undefined);
+    cleanupOwnedTree(stagingPath, retainedStaging);
+    closeRetainedDirectory(retainedStaging);
+    retainedStaging = undefined;
     requireRetainedDirectory(retainedArchive);
     const beforeAudit = inventoryArtifactTree(retainedArchive);
     const audit = adapters.auditArchive({ archivePath, sourceRoot: root, expectedCommit: commit });
@@ -613,8 +638,12 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
       try { validateSource(); } catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
       try { if (retainedArchive) cleanupOwnedTree(archivePath, retainedArchive); }
       catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
+      try { if (retainedStaging) cleanupOwnedTree(stagingPath, retainedStaging); }
+      catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
     }
     try { closeRetainedDirectory(retainedArchive); }
+    catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
+    try { closeRetainedDirectory(retainedStaging); }
     catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
     try { closeLaneParent(laneParent); }
     catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
@@ -691,7 +720,7 @@ function sameFile(path, owner) {
   return stats.isFile() && !stats.isSymbolicLink() && stats.dev === owner.dev && stats.ino === owner.ino;
 }
 
-export function runExternalExportCore({ sourceRoot = process.cwd(), destinationCreationTestHook } = {}, adapters) {
+export function runExternalExportCore({ sourceRoot = process.cwd(), destinationCreationTestHook, publicationSubstitutionTestHook = false } = {}, adapters) {
   exactAdapters(adapters, ["run", "parsePlist", "auditArchive", "xcodeVersion", "cleanupDiagnostics"]);
   const root = realpathSync(resolve(sourceRoot));
   const invokeRaw = (command, args, confinement = {}) => adapters.run(command, args, { cwd: root, environment: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C" }, ...confinement });
@@ -707,6 +736,9 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
   const archivePath = join(parent, `external-build-4-${commit}.xcarchive`);
   const archiveEvidencePath = join(parent, `external-build-4-archive-${commit}.json`);
   const exportPath = join(parent, `external-build-4-export-${commit}`);
+  const stagingName = `.external-build-4-${commit}-export-staging`;
+  const stagingPath = join(parent, stagingName);
+  const stagedExportName = "candidate-export";
   const evidencePath = join(parent, `external-build-4-export-${commit}.json`);
   const privateOptionsPath = join(parent, `.external-build-4-options-${commit}-${randomBytes(16).toString("hex")}.plist`);
   const optionsRelative = "ios/ExternalCandidateExportOptions.plist";
@@ -714,6 +746,7 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
   let retainedArchive;
   let retainedPrivateOptions;
   let retainedExport;
+  let retainedStaging;
   let archiveBefore;
   let committedBytes;
   let semanticOptions;
@@ -723,7 +756,7 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
   let result;
   try {
     requireCondition(existsSync(archivePath) && existsSync(archiveEvidencePath), "exact commit-named archive and archive evidence are required");
-    requireCondition(!existsSync(exportPath) && !existsSync(evidencePath) && !existsSync(privateOptionsPath), "refusing to overwrite a commit-named export, evidence, or private options file");
+    requireCondition(!existsSync(exportPath) && !existsSync(stagingPath) && !existsSync(evidencePath) && !existsSync(privateOptionsPath), "refusing to overwrite a commit-named export, staging directory, evidence, or private options file");
     retainedArchive = retainOwnedDirectoryAt(laneParent.parentDescriptor, basename(archivePath));
     archiveBefore = inventoryArtifactTree(retainedArchive);
     let archiveEvidence;
@@ -751,18 +784,23 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
       requireCondition(typeof destinationCreationTestHook === "function", "destination creation test hook is invalid");
       destinationCreationTestHook(exportPath);
     }
-    const exportOwner = mkdirAt(laneParent.parentDescriptor, basename(exportPath));
-    retainedExport = retainOwnedDirectoryAt(laneParent.parentDescriptor, basename(exportPath), false, exportOwner);
+    const stagingOwner = mkdirAt(laneParent.parentDescriptor, stagingName);
+    retainedStaging = retainOwnedDirectoryAt(laneParent.parentDescriptor, stagingName, false, stagingOwner);
     invoke(process.execPath, [join(root, "scripts/ios/verify-external-candidate-policy.mjs")]);
     const exportArgs = [
       "-exportArchive",
       "-archivePath", basename(archivePath),
-      "-exportPath", basename(exportPath),
+      "-exportPath", `${stagingName}/${stagedExportName}`,
       "-exportOptionsPlist", basename(privateOptionsPath),
     ];
     validateNoUploadCommand("/usr/bin/xcodebuild", exportArgs, "export");
     invokeRaw("/usr/bin/xcodebuild", exportArgs, { inheritedDirectoryDescriptor: laneParent.parentDescriptor, confinedParentPath: laneParent.path });
     requireLaneParentIdentity(laneParent);
+    retainedExport = retainOwnedDirectoryAt(retainedStaging.directoryDescriptor, stagedExportName, false);
+    publishRetainedDirectory(retainedExport, laneParent.parentDescriptor, basename(exportPath), publicationSubstitutionTestHook ? `substitute-staged-${publicationSubstitutionTestHook}` : undefined);
+    cleanupOwnedTree(stagingPath, retainedStaging);
+    closeRetainedDirectory(retainedStaging);
+    retainedStaging = undefined;
     requireRetainedDirectory(retainedExport);
     try { adapters.cleanupDiagnostics(retainedExport); }
     catch (error) { throw error; }
@@ -813,7 +851,13 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
         cleanupOwnedTree(exportPath, retainedExport);
       } catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
     }
+    if (!completed && retainedStaging) {
+      try { cleanupOwnedTree(stagingPath, retainedStaging); }
+      catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
+    }
     try { closeRetainedDirectory(retainedExport); }
+    catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
+    try { closeRetainedDirectory(retainedStaging); }
     catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }
     try { closeRetainedDirectory(retainedArchive); }
     catch (error) { primaryError = primaryError ? attachSecondary(primaryError, error) : asError(error); }

@@ -3,8 +3,8 @@
   "kind": "greenroom-ios-external-testflight-candidate-policy",
   "state": "reviewed-local-archive-export-audit-no-upload",
   "baseline": {
-    "protectedMainCommit": "93bdd25e2b9c64478a6b8b93d3cb0dc034a1270e",
-    "protectedMainTree": "f1e53a23591900292a6324cfe30761eee25351da"
+    "protectedMainCommit": "5df0b8b5940a903eb01e685ac5bcf239cf2e4468",
+    "protectedMainTree": "10ae07c74dcc8cf0bf19470f13cbd41b40c8617e"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",

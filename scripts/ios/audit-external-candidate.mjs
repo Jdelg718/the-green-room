@@ -256,20 +256,24 @@ export function validateMachOBinaryPaths(entries, mainExecutable) {
   requireCondition(detected.size === allowed.size && [...allowed].every((path) => detected.has(path)), "exact main, Capacitor, and Cordova Mach-O binaries were not all detected");
 }
 
+export function validateArchivePackageSignatures(names) {
+  requireCondition(Array.isArray(names) && names.every((name) => typeof name === "string") &&
+    JSON.stringify([...names].sort()) === JSON.stringify(["Capacitor.xcframework-ios.signature", "Cordova.xcframework-ios.signature"]),
+  "archive package signatures are not exact");
+}
+
 export function validateMachOStringScans(scans) {
   requireCondition(scans && typeof scans === "object" && !Array.isArray(scans) && JSON.stringify(Object.keys(scans).sort()) === JSON.stringify(["capacitor", "cordova", "main"]), "Mach-O strings scan set must be exact");
   for (const [label, strings] of Object.entries(scans)) {
     requireCondition(typeof strings === "string", `${label} Mach-O strings output is malformed`);
     requireCondition(!FORBIDDEN_BINARY_MARKERS.test(strings), `${label} Mach-O contains a listener, downloaded-code, analytics, Node, or Python marker`);
+    for (const match of strings.matchAll(/https?:\/\/([^\s/"'<>]+)/giu)) {
+      let host;
+      try { host = new URL(match[0]).hostname; } catch { fail(`${label} Mach-O contains malformed endpoint text`); }
+      requireCondition(match[0].startsWith("https://"), `${label} Mach-O contains a non-HTTPS provider endpoint`);
+      requireCondition(EXPECTED_HOSTS.has(host), `${label} Mach-O contains an unexpected endpoint host`);
+    }
   }
-  const strings = scans.main;
-  for (const match of strings.matchAll(/https?:\/\/([^\s/"'<>]+)/giu)) {
-    let host;
-    try { host = new URL(match[0]).hostname; } catch { fail("release executable contains malformed endpoint text"); }
-    requireCondition(match[0].startsWith("https://"), "release executable contains a non-HTTPS provider endpoint");
-    requireCondition(EXPECTED_HOSTS.has(host), "release executable contains an unexpected endpoint host");
-  }
-  for (const host of EXPECTED_HOSTS) requireCondition(strings.includes(host), "MACH_O_REQUIRED_ENDPOINT_MISSING");
 }
 
 const OTOOL_ANNOTATION = / \(compatibility version (?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*), current version (?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:, (?:weak|reexport|upward))?\)$/u;
@@ -455,8 +459,10 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
   const semantic = withArtifactTreeSnapshot(retainedArchive, (archiveSnapshot, archiveSnapshotInventory) => {
     requireCondition(archiveSnapshotInventory.sha256 === archiveBefore.sha256, "archive semantic snapshot does not equal the pre-audit live inventory");
     const archiveTopLevel = readdirSync(archiveSnapshot).sort();
-    const allowedArchiveTopLevel = new Set(["BCSymbolMaps", "Info.plist", "Products", "dSYMs"]);
+    const allowedArchiveTopLevel = new Set(["BCSymbolMaps", "Info.plist", "Products", "Signatures", "dSYMs"]);
     requireCondition(archiveTopLevel.includes("Info.plist") && archiveTopLevel.includes("Products") && archiveTopLevel.every((name) => allowedArchiveTopLevel.has(name)), "archive contains an unexpected top-level product");
+    const signatures = join(archiveSnapshot, "Signatures");
+    validateArchivePackageSignatures(readdirSync(signatures));
     const products = join(archiveSnapshot, "Products");
     requireCondition(JSON.stringify(readdirSync(products)) === JSON.stringify(["Applications"]), "archive Products contains an unexpected product");
     const appPath = singleApp(join(products, "Applications"), "archive Products/Applications snapshot");
