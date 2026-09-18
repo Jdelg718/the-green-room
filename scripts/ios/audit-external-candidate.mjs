@@ -65,7 +65,7 @@ export function validateExternalAuditPhase(phase, exportPath) {
 
 export function validateFinalExportEvidence({ evidence, sourceCommit, archive, exported, exportOptions, xcodebuildVersion }) {
   exactKeys(evidence, ["schemaVersion", "kind", "sourceCommit", "archive", "export", "exportOptions", "tool", "audit", "actions"], "export evidence");
-  requireCondition(evidence.schemaVersion === 1 && evidence.kind === "greenroom-ios-external-build-4-no-upload-export-evidence" && evidence.sourceCommit === sourceCommit, "export evidence schema/kind/source binding is not exact");
+  requireCondition(evidence.schemaVersion === 1 && evidence.kind === "greenroom-ios-external-build-5-no-upload-export-evidence" && evidence.sourceCommit === sourceCommit, "export evidence schema/kind/source binding is not exact");
   exactKeys(evidence.archive, ["path", "inventorySha256"], "export evidence archive");
   exactKeys(evidence.export, ["path", "inventorySha256", "entries"], "export evidence export");
   validateInventoryEntries(evidence.export.entries, "export evidence export inventory");
@@ -83,7 +83,7 @@ export function validateFinalExportEvidence({ evidence, sourceCommit, archive, e
   const audited = evidence.audit;
   exactKeys(audited, ["identity", "archive", "export", "exportEvidence", "actions"], "embedded final export audit");
   exactKeys(audited.identity, ["bundleIdentifier", "version", "build", "minimumOS", "deviceFamily", "sourceCommit"], "embedded audit identity");
-  exactValue(audited.identity, { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "4", minimumOS: "18.6", deviceFamily: [1], sourceCommit }, "embedded audit identity");
+  exactValue(audited.identity, { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "5", minimumOS: "18.6", deviceFamily: [1], sourceCommit }, "embedded audit identity");
   exactKeys(audited.archive, ["path", "inventorySha256", "entries", "signing"], "embedded audit archive");
   validateInventoryEntries(audited.archive.entries, "embedded audit archive inventory");
   validateSigningSummary(audited.archive.signing, "embedded audit archive signing");
@@ -505,7 +505,7 @@ function validateDistributionSummary(value, ipaName) {
   const records = value[ipaName];
   requireCondition(Array.isArray(records) && records.length === 1, "distribution summary must contain exactly one app record");
   const record = records[0];
-  requireCondition(record.versionNumber === "0.1.0" && record.buildNumber === "4", "distribution summary identity is not 0.1.0 (4)");
+  requireCondition(record.versionNumber === "0.1.0" && record.buildNumber === "5", "distribution summary identity is not 0.1.0 (5)");
   requireCondition(["Apple Distribution", "Cloud Managed Apple Distribution"].includes(record.certificate?.type), "distribution summary certificate is not Apple Distribution class");
   requireCondition(record.profile?.name === EXPECTED_PROFILE && record.team?.id === "JZ233HBW3Z", "distribution summary profile/team is not exact");
   validateExternalDistributionSigning({
@@ -585,7 +585,7 @@ function auditExport(exportPath, expectedCommit, exactExportInventory, archiveSn
 
 export function publishFinalAuditEvidence(evidencePath, result, retainedLaneParent) {
   requireCondition(retainedLaneParent?.directoryDescriptor !== undefined && dirname(evidencePath) === retainedLaneParent.path, "final audit publication requires the retained lane parent");
-  return writeJsonNoClobber(evidencePath, { schemaVersion: 1, kind: "greenroom-ios-external-build-4-audit-evidence", ...result }, retainedLaneParent);
+  return writeJsonNoClobber(evidencePath, { schemaVersion: 1, kind: "greenroom-ios-external-build-5-audit-evidence", ...result }, retainedLaneParent);
 }
 
 export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCommit, archivePath, archiveLogicalPath = archivePath, exportPath, exportLogicalPath = exportPath, phase, finalEvidencePath, beforeFinalEvidencePublication } = {}) {
@@ -607,7 +607,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
   requireCondition(parentRecord.length === 2 && parentRecord[0] === head && parentRecord[1] === PROTECTED_BASELINE_COMMIT, "candidate source boundary is not the exact single direct baseline parent");
   const baselineTree = command("/usr/bin/git", ["rev-parse", `${PROTECTED_BASELINE_COMMIT}^{tree}`], { cwd: root, deadline }).trim();
   requireCondition(baselineTree === PROTECTED_BASELINE_TREE, "pinned baseline tree does not match the exact baseline commit");
-  const exactArchive = join(laneParent.path, `external-build-4-${head}.xcarchive`);
+  const exactArchive = join(laneParent.path, `external-build-5-${head}.xcarchive`);
   requireCondition(resolve(archiveLogicalPath) === exactArchive, "archive path is not the exact commit-named external lane");
   retainedArchive = retainOwnedDirectoryAt(laneParent.parentDescriptor, basename(exactArchive));
   const archiveBefore = inventoryArtifactTree(retainedArchive, undefined, { deadline });
@@ -615,7 +615,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
   let exportBefore = null;
   let exactExport = null;
   if (exportPath !== undefined) {
-    exactExport = join(laneParent.path, `external-build-4-export-${head}`);
+    exactExport = join(laneParent.path, `external-build-5-export-${head}`);
     requireCondition(resolve(exportLogicalPath) === exactExport, "export path is not the exact commit-named external lane");
     retainedExport = retainOwnedDirectoryAt(laneParent.parentDescriptor, basename(exactExport));
     exportOwner = retainedExport.owner;
@@ -640,7 +640,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
     const appPath = singleApp(join(products, "Applications"), "archive Products/Applications snapshot");
     const archiveInfo = join(archiveSnapshot, "Info.plist");
     requireCondition(plistRaw(archiveInfo, "ApplicationProperties.CFBundleIdentifier", deadline) === "net.greenroomai.GreenRoom", "ARCHIVE_METADATA_INVALID");
-    requireCondition(plistRaw(archiveInfo, "ApplicationProperties.CFBundleShortVersionString", deadline) === "0.1.0" && plistRaw(archiveInfo, "ApplicationProperties.CFBundleVersion", deadline) === "4", "ARCHIVE_METADATA_INVALID");
+    requireCondition(plistRaw(archiveInfo, "ApplicationProperties.CFBundleShortVersionString", deadline) === "0.1.0" && plistRaw(archiveInfo, "ApplicationProperties.CFBundleVersion", deadline) === "5", "ARCHIVE_METADATA_INVALID");
     requireCondition(plistRaw(archiveInfo, "ApplicationProperties.Team", deadline) === "JZ233HBW3Z", "ARCHIVE_METADATA_INVALID");
     const archiveAppInfo = plistFile(join(appPath, "Info.plist"), deadline);
     const archiveUuids = machOUuids(appPath, archiveAppInfo.CFBundleExecutable, deadline);
@@ -665,7 +665,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
   }
   let exportEvidence = null;
   if (phase === "final") {
-    const exportEvidencePath = join(laneParent.path, `external-build-4-export-${head}.json`);
+    const exportEvidencePath = join(laneParent.path, `external-build-5-export-${head}.json`);
     const exactEvidence = readRegularFileAt(laneParent.parentDescriptor, basename(exportEvidencePath), { deadline });
     let parsed;
     try { parsed = JSON.parse(exactEvidence.bytes.toString("utf8")); } catch { fail("exact export evidence is not valid JSON"); }
@@ -688,7 +688,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
     exportEvidence = { path: portable(root, exportEvidencePath), sha256: exactEvidence.sha256 };
   }
   const result = {
-    identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "4", minimumOS: "18.6", deviceFamily: [1], sourceCommit: head },
+    identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "5", minimumOS: "18.6", deviceFamily: [1], sourceCommit: head },
     archive: { path: portable(root, exactArchive), inventorySha256: semantic.archiveInventory.sha256, entries: semantic.archiveInventory.entries, signing: semantic.app.signing },
     export: semantic.exported ? {
       path: portable(root, resolve(exportLogicalPath)),
@@ -702,7 +702,7 @@ export function auditExternalCandidate({ sourceRoot = process.cwd(), expectedCom
     actions: { uploaded: false, installed: false, deviceActionPerformed: false, appStoreActionPerformed: false, publicLinkCreated: false },
   };
   if (finalEvidencePath !== undefined) {
-    requireCondition(phase === "final" && resolve(finalEvidencePath) === join(laneParent.path, `external-build-4-audit-${head}.json`), "final audit evidence path is not exact");
+    requireCondition(phase === "final" && resolve(finalEvidencePath) === join(laneParent.path, `external-build-5-audit-${head}.json`), "final audit evidence path is not exact");
     if (beforeFinalEvidencePublication !== undefined) {
       requireCondition(typeof beforeFinalEvidencePublication === "function", "final evidence publication test hook is invalid");
       beforeFinalEvidencePublication(laneParent.path);
@@ -728,9 +728,9 @@ function main() {
   requireCondition(process.argv.length === 2, "takes no arguments; clean HEAD and exact external paths are resolved internally");
   const root = realpathSync(process.cwd());
   const commit = execFileSync("/usr/bin/git", ["rev-parse", "--verify", "HEAD"], { cwd: root, encoding: "utf8", env: environment() }).trim();
-  const archivePath = join(root, ".build/testflight", `external-build-4-${commit}.xcarchive`);
-  const exportPath = join(root, ".build/testflight", `external-build-4-export-${commit}`);
-  const evidencePath = join(root, ".build/testflight", `external-build-4-audit-${commit}.json`);
+  const archivePath = join(root, ".build/testflight", `external-build-5-${commit}.xcarchive`);
+  const exportPath = join(root, ".build/testflight", `external-build-5-export-${commit}`);
+  const evidencePath = join(root, ".build/testflight", `external-build-5-audit-${commit}.json`);
   const completed = auditExternalCandidate({ sourceRoot: root, expectedCommit: commit, archivePath, exportPath, phase: "final", finalEvidencePath: evidencePath });
   console.log(JSON.stringify({ status: "PASS", ...completed.publication, sourceCommit: commit, uploaded: false }, null, 2));
 }

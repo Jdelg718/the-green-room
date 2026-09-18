@@ -27,14 +27,16 @@ const INTERNAL_HASHES = {
   [INTERNAL_CHECKLIST_PATH]: "6ecdefe0858e03b8160fb297b4f8f478ef642c53bf35ab7bb5906417eb96a41c",
   [INTERNAL_HANDOFF_PATH]: "01acc75326081958e9098ae9bf6001739c642386b96df37d02c49737264a674d",
 };
-const DATA_FLOW_SHA256 = "41154b25d0785b91c0e0fcd59c2404573486fcec19786863bd1fc3f7cae5730e";
+const DATA_FLOW_SHA256 = "a0e7c14f9a66da65a296af00a777003ec1006c207a98962b9c09a5f563178edb";
 const INVENTORY_ROOTS = ["ios/App/App/public", "ios/App/App/Assets.xcassets", "ios/App/App/Resources/Migrations"];
 const REQUIRED_FILES = [
   "ios/App/App/PrivacyInfo.xcprivacy", "ios/App/App/App.entitlements", "ios/App/App/Info.plist",
   "ios/App/App.xcodeproj/project.pbxproj", "ios/ExternalCandidateExportOptions.plist",
   "ios/external-candidate-policy.json", "docs/release/iphone-external-testflight-metadata.json",
   "docs/release/iphone-privacy-data-flow.md", "docs/release/iphone-external-testflight-candidate.md",
-  "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
+  "docs/handoffs/2026-09-18-external-testflight-build-5-review-demo.md",
+  "docs/release/apple-review-build-5.md", "docs/adr/0007-offline-review-demonstration-mode.md",
+  "docs/contracts/iphone-alpha-native-bridge.md",
   "scripts/ios/sync.mjs",
   "scripts/ios/verify-external-candidate-policy.mjs", "scripts/ios/verify-external-candidate-policy.d.mts",
   "scripts/ios/external-candidate-tools.mjs", "scripts/ios/external-candidate-tools.d.mts",
@@ -43,7 +45,7 @@ const REQUIRED_FILES = [
   "scripts/ios/export-external-candidate.mjs", "scripts/ios/export-external-candidate.d.mts",
   "scripts/ios/audit-external-candidate.mjs", "scripts/ios/audit-external-candidate.d.mts",
   "scripts/ios/verify-bundle-internal.mjs", "test/contract/ios-external-candidate-policy.test.ts",
-  "test/contract/ios-external-build4-tooling.test.ts", "package.json",
+  "test/contract/ios-external-build5-tooling.test.ts", "package.json",
 ];
 const FORBIDDEN_PATHS = [".mobileprovision", ".p12", ".cer", ".xcarchive", ".ipa", "xcuserdata", "transcript", "raw-log", ".log", "fixtures", "Debug-iphonesimulator"];
 const SECRET_PATTERNS = [
@@ -66,8 +68,8 @@ const TEST_SENTINELS = [
   "AKIA1234567890ABCDEF", "eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmnop",
   "api_key = \"1234567890abcdef\"", "-----BEGIN OPENSSH PRIVATE KEY-----",
 ];
-const BASELINE_COMMIT = "ea6d1ed881d26b24e78a30bad7a3555620a5b853";
-const BASELINE_TREE = "152b275abdae8089c5684ed24e48abaaeb437c5e";
+const BASELINE_COMMIT = "14f48401cfac12f740f369ad0e658382473fb171";
+const BASELINE_TREE = "075d3a2f14b90693b7b0414d812730b9a1c5572a";
 const REVIEWED_SYNC_SHA256 = "07286fbbd8c017f7262f9b7772a44475478845deabf07c5a1d465b06b27c3c42";
 
 function fail(message) { throw new Error(`external candidate policy: ${message}`); }
@@ -131,9 +133,9 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   const identity = policy.identity;
   exactKeys(identity, ["appStoreConnectAppId", "bundleIdentifier", "teamIdentifier", "marketingVersion", "proposedBuildNumber", "committedXcodeBuildNumber", "minimumOS", "deviceFamily", "activation"], "policy identity");
   requireCondition(identity.appStoreConnectAppId === "6809792258" && identity.bundleIdentifier === "net.greenroomai.GreenRoom" && identity.teamIdentifier === "JZ233HBW3Z", "Apple identity is not exact");
-  requireCondition(identity.marketingVersion === "0.1.0" && identity.proposedBuildNumber === "4" && identity.committedXcodeBuildNumber === "4", "external identity must be exactly 0.1.0 (4)");
+  requireCondition(identity.marketingVersion === "0.1.0" && identity.proposedBuildNumber === "5" && identity.committedXcodeBuildNumber === "5", "external identity must be exactly 0.1.0 (5)");
   requireCondition(identity.minimumOS === "18.6" && JSON.stringify(identity.deviceFamily) === "[1]", "platform identity is not exact");
-  requireCondition(identity.activation === "external-build-4-local-archive-export-audit-only", "external build-4 activation boundary is missing");
+  requireCondition(identity.activation === "external-build-5-local-archive-export-audit-only", "external build-5 activation boundary is missing");
   requireCondition(JSON.stringify(policy.sourceBinding.inventoryRoots) === JSON.stringify(INVENTORY_ROOTS) && JSON.stringify(policy.sourceBinding.requiredFiles) === JSON.stringify(REQUIRED_FILES), "source inventory scope was weakened");
   requireCondition(policy.sourceBinding.requireCleanExactCommit === true && policy.sourceBinding.requireExactGitTree === true && policy.sourceBinding.requireDirectBaselineParent === true, "source binding gates were weakened");
   requireCondition(sha256(Buffer.from(syncText, "utf8")) === REVIEWED_SYNC_SHA256, "iOS sync bytes changed without reviewed source pin update");
@@ -147,19 +149,19 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   } catch {
     fail("Xcode App target identity did not resolve structurally");
   }
-  requireCondition(appBuildVersions.Debug === "4" && appBuildVersions.Release === "4", "Xcode App target Debug and Release configurations must both freeze build 4 exactly");
+  requireCondition(appBuildVersions.Debug === "5" && appBuildVersions.Release === "5", "Xcode App target Debug and Release configurations must both freeze build 5 exactly");
   for (const expected of ["MARKETING_VERSION = 0.1.0;", "PRODUCT_BUNDLE_IDENTIFIER = net.greenroomai.GreenRoom;", "IPHONEOS_DEPLOYMENT_TARGET = 18.6;", "TARGETED_DEVICE_FAMILY = 1;"]) requireCondition(projectText.includes(expected), `Xcode identity is missing ${expected}`);
   requireCondition(infoText.includes("<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>"), "Info.plist export-compliance declaration is not Boolean false");
   exactKeys(entitlements, ["keychain-access-groups"], "source entitlements");
   requireCondition(JSON.stringify(entitlements["keychain-access-groups"]) === JSON.stringify(["$(AppIdentifierPrefix)net.greenroomai.GreenRoom"]), "Keychain entitlement is not exact");
 
-  requireCondition(policy.schema.version === 8 && policy.schema.manifestPath === "ios/App/App/Resources/Migrations/manifest.json" && migrationManifest.schema === 8, "schema identity/path must remain version 8");
+  requireCondition(policy.schema.version === 9 && policy.schema.manifestPath === "ios/App/App/Resources/Migrations/manifest.json" && migrationManifest.schema === 9, "schema identity/path must remain version 9");
   exactKeys(policy.schema, ["version", "manifestPath"], "schema policy");
   exactKeys(policy.privacy, ["manifestPath", "dataFlowPath", "collectedDataType", "linkedToUser", "tracking", "purpose"], "privacy policy");
   exactKeys(policy.signing, ["archiveAllowedNow", "signingAllowedNow", "exportAllowedNow", "uploadAllowed", "installAllowedNow", "deviceActionAllowedNow", "exportOptionsPath", "expectedCertificateClass", "expectedProvisioningProfile", "expectedEntitlements", "profileEntitlementAuthorization", "exactLane"], "signing policy");
   requireCondition(policy.privacy.manifestPath === "ios/App/App/PrivacyInfo.xcprivacy" && policy.privacy.dataFlowPath === "docs/release/iphone-privacy-data-flow.md" && policy.privacy.collectedDataType === "NSPrivacyCollectedDataTypeOtherUserContent" && policy.privacy.linkedToUser === true && policy.privacy.tracking === false && policy.privacy.purpose === "NSPrivacyCollectedDataTypePurposeAppFunctionality", "privacy policy was weakened");
   requireCondition(policy.exportCompliance.usesNonExemptEncryption === false && policy.exportCompliance.answer === "No" && policy.exportCompliance.rationale.includes("no custom or non-exempt encryption"), "export compliance policy changed");
-  requireCondition(migrationManifest.migrations.length === 8 && migrationManifest.migrations.at(-1)?.file === "0008-provider-data-use-consent.sql", "migration manifest is incomplete");
+  requireCondition(migrationManifest.migrations.length === 9 && migrationManifest.migrations.at(-1)?.file === "0009-review-demo-mode.sql", "migration manifest is incomplete");
   requireCondition(privacy.NSPrivacyTracking === false && privacy.NSPrivacyTrackingDomains.length === 0 && privacy.NSPrivacyAccessedAPITypes.length === 0, "privacy manifest tracking/API declarations are not exact");
   requireCondition(privacy.NSPrivacyCollectedDataTypes.length === 1, "privacy manifest must have one conservative data declaration");
   const declaration = privacy.NSPrivacyCollectedDataTypes[0];
@@ -167,7 +169,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   for (const statement of [
     "Rooms, events, personas, provider profiles, and replies are stored locally in the app container.",
     "Provider credentials are stored in the iOS Keychain",
-    "schema-8 native consent authority stores one current non-secret consent record in SQLite",
+    "schema-9 native consent authority stores one current non-secret consent record in SQLite",
     "directly over HTTPS to the selected, closed-list BYOK provider endpoint",
     "no project-operated account, inference relay, analytics service, telemetry collector, crash-reporting SDK, advertising SDK, or hosted transcript service",
     "Some supported providers document default prompt/response or abuse-monitoring retention",
@@ -204,7 +206,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   const expectedProfileAuthorization = { allowedApplicationIdentifiers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], teamIdentifier: "JZ233HBW3Z", getTaskAllow: false, betaReportsActive: true, allowedKeychainAccessGroups: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*", "com.apple.token"], requiredKeychainAuthorizers: ["JZ233HBW3Z.net.greenroomai.GreenRoom", "JZ233HBW3Z.*"], additionalEntitlementsAllowed: false };
   exactKeys(policy.signing.profileEntitlementAuthorization, Object.keys(expectedProfileAuthorization), "profile entitlement authorization");
   requireCondition(JSON.stringify(policy.signing.profileEntitlementAuthorization) === JSON.stringify(expectedProfileAuthorization), "App Store profile authorization policy changed");
-  const expectedLane = { archiveCommand: "npm run ios:archive-external-candidate", exportCommand: "npm run ios:export-external-candidate", auditCommand: "npm run ios:audit-external-candidate", archivePathTemplate: ".build/testflight/external-build-4-<HEAD>.xcarchive", exportPathTemplate: ".build/testflight/external-build-4-export-<HEAD>", evidencePathTemplates: [".build/testflight/external-build-4-archive-<HEAD>.json", ".build/testflight/external-build-4-export-<HEAD>.json", ".build/testflight/external-build-4-audit-<HEAD>.json"], acceptsPathOrCommitOverrides: false, uploadCapability: false };
+  const expectedLane = { archiveCommand: "npm run ios:archive-external-candidate", exportCommand: "npm run ios:export-external-candidate", auditCommand: "npm run ios:audit-external-candidate", archivePathTemplate: ".build/testflight/external-build-5-<HEAD>.xcarchive", exportPathTemplate: ".build/testflight/external-build-5-export-<HEAD>", evidencePathTemplates: [".build/testflight/external-build-5-archive-<HEAD>.json", ".build/testflight/external-build-5-export-<HEAD>.json", ".build/testflight/external-build-5-audit-<HEAD>.json"], acceptsPathOrCommitOverrides: false, uploadCapability: false };
   exactKeys(policy.signing.exactLane, Object.keys(expectedLane), "exact external lane");
   requireCondition(JSON.stringify(policy.signing.exactLane) === JSON.stringify(expectedLane), "exact external lane changed");
   requireCondition(policy.artifact.mode === "commit-bound-local-archive-export-audit-no-upload", "allowed artifact mode is too broad");
@@ -218,7 +220,7 @@ export function validatePolicyDocuments({ policy, metadata, internalOptions, ext
   requireCondition(externalToolsText.includes("ios/ExternalCandidateExportOptions.plist") && !externalToolsText.includes('optionsRelative = "ios/ExportOptions.plist"'), "external lane export policy path is confused with the internal lane");
   requireCondition(externalToolsText.includes('validateNoUploadCommand("/usr/bin/xcodebuild", archiveArgs, "archive")') && externalToolsText.includes('validateNoUploadCommand("/usr/bin/xcodebuild", exportArgs, "export")'), "no-upload verification does not reach both command-building cores");
   assertNoUploadCommandCore(externalToolsText);
-  requireCondition(policy.physicalAcceptance.status === "required-not-run-for-build-4" && JSON.stringify(policy.physicalAcceptance.requiredEvidence) === JSON.stringify(["manual assistive-technology and supported-iPhone acceptance", "exact installed version/build/source readback", "clean install and update retention", "Keychain continuity and credential removal", "direct fixed-provider request with consent", "offline existing-room behavior", "force-quit and exact-command recovery", "secret-free app-container scan"]), "physical acceptance was overclaimed or weakened");
+  requireCondition(policy.physicalAcceptance.status === "required-not-run-for-build-5" && JSON.stringify(policy.physicalAcceptance.requiredEvidence) === JSON.stringify(["manual assistive-technology and supported-iPhone acceptance", "exact installed version/build/source readback", "clean install and update retention", "Review Demo explicit opt-in, offline turn, saved-room reopen, and relaunch persistence", "Keychain continuity and credential removal", "direct fixed-provider request with consent", "offline existing-room behavior", "force-quit and exact-command recovery", "secret-free app-container scan"]), "physical acceptance was overclaimed or weakened");
 
   requireCondition(internalChecklist.startsWith("# Internal TestFlight exact-candidate checklist") && internalChecklist.includes("0.1.0 (2)") && internalChecklist.includes("testFlightInternalTestingOnly=true"), "internal checklist was repurposed or weakened");
   requireCondition(internalHandoff.includes("Distribution: TestFlight Internal Only") && internalHandoff.includes("0.1.0 (2)") && internalHandoff.includes("2918846bb7b652d2b01626ab8587c134dd4bd2e0"), "internal build-2 evidence changed");
@@ -333,7 +335,7 @@ export function createReviewManifest(root, outputPath) {
       deviceActionPerformed: false,
       appStoreActionPerformed: false,
       publicLinkCreated: false,
-      physicalAcceptance: "required-not-run-for-build-4",
+      physicalAcceptance: "required-not-run-for-build-5",
       externalCandidateReady: false,
     },
   };
@@ -351,7 +353,7 @@ function main() {
   const root = process.cwd();
   if (process.argv.length === 2) {
     const { policy } = verifyRepository(root);
-    console.log(JSON.stringify({ status: "PASS", policyState: policy.state, baselineCommit: policy.baseline.protectedMainCommit, candidateIdentity: "0.1.0 (4)", localArchiveAllowed: true, localExportAllowed: true, archiveCreatedByVerification: false, signedByVerification: false, uploaded: false, externalCandidateReady: false }, null, 2));
+    console.log(JSON.stringify({ status: "PASS", policyState: policy.state, baselineCommit: policy.baseline.protectedMainCommit, candidateIdentity: "0.1.0 (5)", localArchiveAllowed: true, localExportAllowed: true, archiveCreatedByVerification: false, signedByVerification: false, uploaded: false, externalCandidateReady: false }, null, 2));
     return;
   }
   requireCondition(process.argv.length === 4 && process.argv[2] === "--write-review-manifest", "usage: verify-external-candidate-policy.mjs [--write-review-manifest .build/testflight/external-candidate-source-<HEAD>.json]");

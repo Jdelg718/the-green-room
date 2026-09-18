@@ -1,5 +1,5 @@
 {
-  "schema": 8,
+  "schema": 9,
   "migrations": [
     {
       "version": 1,
@@ -40,6 +40,11 @@
       "version": 8,
       "file": "0008-provider-data-use-consent.sql",
       "sha256": "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"
+    },
+    {
+      "version": 9,
+      "file": "0009-review-demo-mode.sql",
+      "sha256": "0b4198dd23b84cc96eae32cdc1806d5840d676326a340d5f1930d3b9bc496a60"
     }
   ]
 }

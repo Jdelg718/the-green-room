@@ -1,13 +1,13 @@
 # External TestFlight candidate policy and exact-candidate checklist
 
-This is the reviewed **local archive/export/audit and NO-UPLOAD policy** for the limited external TestFlight build-4 candidate. It authorizes Apple Distribution archive, local export, and audit only through the exact commands below. It does not authorize upload, install, device action, Beta App Review submission, external group, public link, website change, App Store submission, invitation, or announcement. Internal TestFlight `0.1.0 (2)` and its internal-only tooling, policy, and evidence remain immutable historical evidence.
+This is the reviewed **local archive/export/audit and NO-UPLOAD policy** for the limited external TestFlight build-5 candidate. It authorizes Apple Distribution archive, local export, and audit only through the exact commands below. It does not authorize upload, install, device action, Beta App Review submission, external group, public link, website change, App Store submission, invitation, or announcement. Internal TestFlight `0.1.0 (2)` and its internal-only tooling, policy, and evidence remain immutable historical evidence.
 
 ## Reviewed baseline and proposed identity
 
-- Reviewed protected-main baseline: commit `ea6d1ed881d26b24e78a30bad7a3555620a5b853`, tree `152b275abdae8089c5684ed24e48abaaeb437c5e`.
+- Reviewed protected-main baseline: commit `14f48401cfac12f740f369ad0e658382473fb171`, tree `075d3a2f14b90693b7b0414d812730b9a1c5572a`.
 - Existing internal candidate: `0.1.0 (2)`, commit `2918846bb7b652d2b01626ab8587c134dd4bd2e0`, TestFlight Internal Only.
-- Prior external-candidate identity `0.1.0 (3)` was previously used/reserved and must not be reused. This draft makes no claim about its current App Store Connect state. Its dated physical-gate handoff remains historical evidence and is not build-4 acceptance.
-- Smallest non-repurposing external identity: **`0.1.0 (4)`**. Both App Debug/Release configurations carry that exact identity. The separate external lane may archive, Apple Distribution-sign, export locally, and audit this identity; upload/install/App Store actions remain forbidden. Build 2's committed internal-only tooling, export policy, and evidence remain unchanged.
+- Prior external-candidate identity `0.1.0 (3)` was previously used/reserved and must not be reused. This draft makes no claim about its current App Store Connect state. Its dated physical-gate handoff remains historical evidence and is not build-5 acceptance.
+- Smallest non-repurposing external identity: **`0.1.0 (5)`**. Both App Debug/Release configurations carry that exact identity. The separate external lane may archive, Apple Distribution-sign, export locally, and audit this identity; upload/install/App Store actions remain forbidden. Build 2's committed internal-only tooling, export policy, and evidence remain unchanged.
 - Distribution scope is private email-only external TestFlight for exactly two owner-approved testers from the private operational roster; a public link and App Store release are forbidden. No Apple-side action has been performed by this freeze.
 
 The machine-readable authority is [`ios/external-candidate-policy.json`](../../ios/external-candidate-policy.json). `npm run ios:verify-external-candidate-policy` fails closed if identity, schema, privacy, metadata, entitlements, internal-only evidence, or export drafts diverge.
@@ -27,14 +27,14 @@ The no-clobber JSON binds the exact source commit, Git tree, reviewed baseline c
 
 ## Exact candidate freeze
 
-- [x] Candidate source/policy freeze is authorized for build 4; this does not perform any Apple-side action.
+- [x] Candidate source/policy freeze is authorized for build 5; this does not perform any Apple-side action.
 - [ ] Protected review and protected CI pass for the exact pushed candidate. Local command output is useful working-tree verification only and must not be represented as protected, commit-bound release evidence.
 - [ ] Protected `main` contains all intended code and policy; checkout is clean and `HEAD` equals the exact protected-main SHA selected for the candidate.
 - [ ] Record exact source SHA and `HEAD^{tree}`. Verify the selected SHA has exactly one parent and that direct parent is the reviewed baseline above.
-- [ ] Confirm the two App target `CURRENT_PROJECT_VERSION` values remain `4`; preserve `MARKETING_VERSION=0.1.0`, bundle `net.greenroomai.GreenRoom`, Team `JZ233HBW3Z`, iOS `18.6`, and device family `[1]`.
+- [ ] Confirm the two App target `CURRENT_PROJECT_VERSION` values remain `5`; preserve `MARKETING_VERSION=0.1.0`, bundle `net.greenroomai.GreenRoom`, Team `JZ233HBW3Z`, iOS `18.6`, and device family `[1]`.
 - [ ] Bind the identity-frozen policy to the independently reviewed exact protected-main source commit. Do not modify the build-2 internal plist, checklist, or handoff.
 - [ ] Regenerate the exact source manifest from the clean candidate commit and independently review every hash/inventory entry.
-- [ ] Confirm schema 8 and all migration hashes, including `0008-provider-data-use-consent.sql`.
+- [ ] Confirm schema 9 and all migration hashes, including `0009-review-demo-mode.sql`.
 - [ ] Confirm all bundled public files and asset-catalog bytes are inventoried and hashed; confirm the portrait manifest agrees with the bundled portrait bytes.
 - [ ] Confirm `PrivacyInfo.xcprivacy`: Other User Content, linked to user, App Functionality, no tracking, no tracking domains, no required-reason APIs.
 - [ ] Confirm measured data flow: rooms/events/drafts/provider profiles/non-secret consent local; credentials only in Keychain; direct HTTPS only to the five fixed providers; no Green Room account, analytics, proxy, hosted transcript service, or relay. Do not claim provider retention terms beyond the recorded possibility.
@@ -53,7 +53,7 @@ npm run ios:export-external-candidate
 npm run ios:audit-external-candidate
 ```
 
-The exact destinations are `.build/testflight/external-build-4-<HEAD>.xcarchive`, `.build/testflight/external-build-4-export-<HEAD>`, and the corresponding `external-build-4-{archive,export,audit}-<HEAD>.json` evidence files. Do not use the build-2 `ios:archive-controlled`, `ios:export-controlled`, or `ios:audit-archive` commands for build 4.
+The exact destinations are `.build/testflight/external-build-5-<HEAD>.xcarchive`, `.build/testflight/external-build-5-export-<HEAD>`, and the corresponding `external-build-5-{archive,export,audit}-<HEAD>.json` evidence files. Do not use the build-2 `ios:archive-controlled`, `ios:export-controlled`, or `ios:audit-archive` commands for build 5.
 
 - [ ] Start from the exact activated protected-main candidate and a clean checkout. Run locked Node 24, `.venv`/`uv`, targeted policy/iOS checks, one `check:release`, iOS tests/build/bundle verifier, and independent staged review.
 - [ ] Archive only with `ios:archive-external-candidate`; it binds `GreenRoomSourceCommit` to internally resolved clean `HEAD`, pins Apple Distribution, Team `JZ233HBW3Z`, and the exact profile, then audits before emitting evidence.
@@ -68,12 +68,12 @@ The exact destinations are `.build/testflight/external-build-4-<HEAD>.xcarchive`
 
 ## Physical acceptance and distribution gates
 
-Build-2 and dated build-3 physical evidence are useful regression history but **cannot** be relabeled as build-4 acceptance.
+Build-2 and dated build-3 physical evidence are useful regression history but **cannot** be relabeled as build-5 acceptance.
 
 - [ ] Kent completes manual VoiceOver, Switch Control, Voice Control, Dynamic Type, and supported-iPhone interactions that automation cannot establish.
-- [ ] Exact installed build-4 readback passes clean install/update retention, Keychain continuity and removal, consent, one direct fixed-provider turn, offline existing-room behavior, protected-data recovery, force-quit/exact-command retry, and secret-free container scan.
+- [ ] Exact installed build-5 readback passes clean install/update retention; explicit Review Demo opt-in, one offline turn, saved-room reopen, and relaunch persistence without credential entry; Keychain continuity and removal; consent; one direct fixed-provider turn; offline existing-room behavior; protected-data recovery; force-quit/exact-command retry; and secret-free container scan.
 - [ ] Evidence is bounded and non-secret. Do not include device identifiers, profiles, transcripts, provider responses, credentials, or raw logs.
-- [ ] A human operator reviews the final audit’s exact IPA checksum before any separately authorized upload; this tooling task performs no upload.
+- [ ] A human operator reviews the final audit’s exact IPA checksum; upload remains forbidden for this task; this tooling task performs no upload.
 - [ ] After processing, read back exact App Store Connect identity/compliance before Beta App Review submission.
 - [ ] After Apple approval, resolve exactly two owner-approved email records from the private operational roster, attach only those records to a private external group, verify the public link remains disabled, and send invitations only as an explicit Apple-side action. Any `greenroomai.net` placement remains out of scope.
 
@@ -83,6 +83,6 @@ The local draft is [`iphone-external-testflight-metadata.json`](iphone-external-
 
 Issue #160 records the internal milestone and #206 remains the active external-readiness milestone. After this freeze merges and protected CI is verified, a safe issue comment is:
 
-> External-candidate policy/identity/metadata engineering merged via PR #<PR> at protected-main `<SHA>`. External identity `0.1.0 (4)` is frozen in source for private email-only TestFlight to the two policy-bound testers; no archive, signing, upload, install, Beta App Review, external group/link, invitation, provider/device action, or App Store release occurred. Physical and Apple-side gates remain tracked in #206.
+> External-candidate policy/identity/metadata engineering merged via PR #<PR> at protected-main `<SHA>`. External identity `0.1.0 (5)` is frozen in source for private email-only TestFlight to the two policy-bound testers; no archive, signing, upload, install, Beta App Review, external group/link, invitation, provider/device action, or App Store release occurred. Physical and Apple-side gates remain tracked in #206.
 
 Refs #160, #198, #206, #208.

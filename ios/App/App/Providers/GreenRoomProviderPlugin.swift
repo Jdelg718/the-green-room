@@ -655,7 +655,7 @@ final class GreenRoomProviderService: @unchecked Sendable {
             }
             let attemptEpoch = loaded.attemptEpoch + 1
             let cancellation: (Bool, DatabaseFailure) -> Void = { [authority] started, failure in
-                try? authority.withReconciledDatabase {
+                try? authority.withDatabaseAuthority {
                     if started {
                         try authority.database.interruptGenerationCommand(
                             requestId: command.requestId, attemptEpoch: attemptEpoch,
@@ -959,7 +959,8 @@ final class ProviderTaskRegistry: @unchecked Sendable {
     private var tasks: [String: Entry] = [:]
     private var queue: [String] = []
     private var lifecycleEpoch = 0
-    private var available = true
+    private var lifecycleAvailable = true
+    private var roomModeAvailable = true
 
     init(
         maximumConcurrent: Int = providerMaximumConcurrentRequests,
@@ -973,14 +974,27 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         self.now = now
     }
 
-    func lifecycleSnapshot() -> Int? { lock.withLock { available ? lifecycleEpoch : nil } }
+    func lifecycleSnapshot() -> Int? {
+        lock.withLock { lifecycleAvailable && roomModeAvailable ? lifecycleEpoch : nil }
+    }
 
     func updateLifecycleAvailability(_ value: Bool) {
+        updateAvailability(lifecycle: value)
+    }
+
+    func updateRoomModeAvailability(_ value: Bool) {
+        updateAvailability(roomMode: value)
+    }
+
+    private func updateAvailability(lifecycle: Bool? = nil, roomMode: Bool? = nil) {
         let canceled = lock.withLock { () -> [Entry] in
-            guard value != available else { return [] }
+            let wasAvailable = lifecycleAvailable && roomModeAvailable
+            if let lifecycle { lifecycleAvailable = lifecycle }
+            if let roomMode { roomModeAvailable = roomMode }
+            let isAvailable = lifecycleAvailable && roomModeAvailable
+            guard isAvailable != wasAvailable else { return [] }
             lifecycleEpoch += 1
-            available = value
-            guard !value else { return [] }
+            guard !isAvailable else { return [] }
             let canceled = Array(tasks.values)
             tasks.removeAll()
             queue.removeAll()
@@ -1007,7 +1021,7 @@ final class ProviderTaskRegistry: @unchecked Sendable {
             self?.expire(requestId: requestId)
         }
         let admission = lock.withLock { () -> ProviderTaskAdmission in
-            guard available, lifecycleEpoch == expected else { return .lifecycleUnavailable }
+            guard lifecycleAvailable && roomModeAvailable, lifecycleEpoch == expected else { return .lifecycleUnavailable }
             guard tasks[requestId] == nil else { return .duplicate }
             let activeCount = tasks.values.lazy.filter { $0.state == .active }.count
             let state: State
@@ -1044,7 +1058,7 @@ final class ProviderTaskRegistry: @unchecked Sendable {
         withAuthority: (_ resume: (any ProviderRetainedTask) -> Bool) throws -> Void
     ) throws -> Bool {
         let result = try lock.withLock { () -> (started: Bool, expired: Entry?, promotion: PromotionResult) in
-            guard available, lifecycleEpoch == expected, var entry = tasks[requestId],
+            guard lifecycleAvailable && roomModeAvailable, lifecycleEpoch == expected, var entry = tasks[requestId],
                   entry.state == .active, entry.attemptEpoch == attemptEpoch,
                   entry.lifecycleEpoch == expected, !entry.started, now() < entry.deadline else {
                 return (false, nil, ([], []))
@@ -1087,7 +1101,7 @@ final class ProviderTaskRegistry: @unchecked Sendable {
 
     func claimCompletion(requestId: String, attemptEpoch: Int, lifecycleEpoch expected: Int) -> Bool {
         let result = lock.withLock { () -> (claimed: Bool, expired: [Entry], promoted: [Promotion]) in
-            guard available, lifecycleEpoch == expected, let entry = tasks[requestId], entry.started,
+            guard lifecycleAvailable && roomModeAvailable, lifecycleEpoch == expected, let entry = tasks[requestId], entry.started,
                   entry.attemptEpoch == attemptEpoch, entry.lifecycleEpoch == expected else {
                 return (false, [], [])
             }

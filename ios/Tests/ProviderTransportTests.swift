@@ -406,9 +406,9 @@ func runProviderTransportTests() throws {
     )
     let credentialStore = ProviderCredentialStore()
     let authority = GreenRoomNativeAuthority(database: database, secureStore: credentialStore)
-    _ = try authority.openDatabase(expectedSchema: 8)
+    _ = try authority.openDatabase(expectedSchema: 9)
     _ = try database.executeBatch(transactionId: "provider-room", statements: [
-        ["sqlId": "create_room", "parameters": [payload.roomId, "Provider room"]],
+        ["sqlId": "create_room", "parameters": [payload.roomId, "Provider room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-1", payload.roomId, "You"]],
         ["sqlId": "create_persona", "parameters": [payload.personaSlug, payload.roomId, "Ada Lovelace", 1, payload.personaSlug]],
         ["sqlId": "create_director_state", "parameters": [payload.roomId]],
@@ -455,9 +455,10 @@ func runProviderTransportTests() throws {
         )
         let fencedStore = ProviderCredentialStore()
         let fencedAuthority = GreenRoomNativeAuthority(database: fencedDatabase, secureStore: fencedStore)
-        _ = try fencedAuthority.openDatabase(expectedSchema: 8)
+        _ = try fencedAuthority.openDatabase(expectedSchema: 9)
         let roomId = "room-10000000-0000-4000-8000-000000000001"
         let otherRoomId = "room-10000000-0000-4000-8000-000000000002"
+        let reviewDemoRoomId = "room-10000000-0000-4000-8000-000000000007"
         let requestId = "10000000-0000-4000-8000-000000000003"
         let commandId = "10000000-0000-4000-8000-000000000004"
         let mutationRequest = CredentialMutationRequest(
@@ -466,7 +467,7 @@ func runProviderTransportTests() throws {
             mutationId: "10000000-0000-4000-8000-000000000005"
         )
         _ = try fencedDatabase.executeBatch(transactionId: "fence-setup-\(mutation)", statements: [
-            ["sqlId": "create_room", "parameters": [roomId, "Fenced room"]],
+            ["sqlId": "create_room", "parameters": [roomId, "Fenced room", "provider"]],
             ["sqlId": "create_human", "parameters": ["human-fence", roomId, "You"]],
             ["sqlId": "create_persona", "parameters": [payload.personaSlug, roomId, "Ada Lovelace", 1, payload.personaSlug]],
             ["sqlId": "create_director_state", "parameters": [roomId]],
@@ -474,6 +475,7 @@ func runProviderTransportTests() throws {
             ["sqlId": "create_connection_profile_revision", "parameters": [payload.profileId, 1, payload.providerId, NSNull()]],
             ["sqlId": "reserve_credential", "parameters": mutationRequest.baseIdentityParameters + [NSNull(), mutationRequest.mutationId]],
             ["sqlId": "save_provider_selection", "parameters": [payload.providerId, payload.profileId, 1, payload.model, payload.profileId, 1, payload.providerId]],
+            ["sqlId": "create_room", "parameters": [reviewDemoRoomId, "Review Demo", "review_demo"]],
         ])
         var fencedSecret = Data("native-test-value".utf8)
         _ = try fencedAuthority.credentials.completeSave(mutationRequest, secret: &fencedSecret)
@@ -576,8 +578,12 @@ func runProviderTransportTests() throws {
                     ]])
                 case "room":
                     _ = try fencedDatabase.executeBatch(transactionId: "change-room-authority", statements: [
-                        ["sqlId": "create_room", "parameters": [otherRoomId, "Other room"]],
+                        ["sqlId": "create_room", "parameters": [otherRoomId, "Other room", "provider"]],
                         ["sqlId": "select_room", "parameters": [otherRoomId]],
+                    ])
+                case "review-demo-room":
+                    _ = try fencedDatabase.executeBatch(transactionId: "change-to-review-demo-authority", statements: [
+                        ["sqlId": "select_room", "parameters": [reviewDemoRoomId]],
                     ])
                 case "credential-bytes":
                     var replacement = Data("replacement-test-value".utf8)
@@ -653,6 +659,8 @@ func runProviderTransportTests() throws {
             expectedCode = "provider_consent_required"
         } else if mutation == "profile" {
             expectedCode = "credential_unavailable"
+        } else if mutation == "review-demo-room" {
+            expectedCode = listModels ? "credential_unavailable" : "internal_failure"
         } else if mutation == "credential" || listModels {
             expectedCode = "credential_missing"
         } else if mutation == "deadline" {
@@ -662,7 +670,7 @@ func runProviderTransportTests() throws {
         }
         providerTestRequire(failureCode == expectedCode, "\(mutation) fence returned \(failureCode ?? "success")")
         providerTestRequire(ProviderURLProtocolStub.capturedRequests.isEmpty, "\(mutation) fence reached network")
-        if mutation == "selection" || mutation.hasPrefix("consent-") {
+        if mutation == "selection" || mutation == "review-demo-room" || mutation.hasPrefix("consent-") {
             providerTestRequire(fencedStore.resolutionCount == 0, "stale consent reached Keychain resolution")
         }
         if !listModels {
@@ -671,13 +679,17 @@ func runProviderTransportTests() throws {
             ))["rows"] as? [[Any]]
             let unresolvedJSON = unresolved?.first?.first as? String ?? ""
             providerTestRequire(
-                unresolvedJSON.contains("\"state\":\"failed\"") &&
-                    (mutation != "deadline" || (
+                mutation == "review-demo-room"
+                    ? (unresolvedJSON.contains("\"state\":\"failed\"") &&
                         unresolvedJSON.contains("\"failureCode\":\"not_started\"") &&
-                        unresolvedJSON.contains("\"attemptEpoch\":1") &&
-                        !unresolvedJSON.contains("\"state\":\"interrupted\"")
-                    )),
-                "\(mutation) fence did not durably close the unstarted command: \(unresolvedJSON)"
+                        unresolvedJSON.contains("\"attemptEpoch\":0"))
+                    : (unresolvedJSON.contains("\"state\":\"failed\"") &&
+                        (mutation != "deadline" || (
+                            unresolvedJSON.contains("\"failureCode\":\"not_started\"") &&
+                            unresolvedJSON.contains("\"attemptEpoch\":1") &&
+                            !unresolvedJSON.contains("\"state\":\"interrupted\"")
+                        ))),
+                "\(mutation) fence did not preserve or durably close the unstarted command: \(unresolvedJSON)"
             )
             if mutation == "deadline" {
                 ProviderURLProtocolStub.install(.response(
@@ -713,9 +725,11 @@ func runProviderTransportTests() throws {
     try exerciseFinalAuthorityFence("selection")
     try exerciseFinalAuthorityFence("profile")
     try exerciseFinalAuthorityFence("room")
+    try exerciseFinalAuthorityFence("review-demo-room")
     try exerciseFinalAuthorityFence("credential", listModels: true)
     try exerciseFinalAuthorityFence("selection", listModels: true)
     try exerciseFinalAuthorityFence("profile", listModels: true)
+    try exerciseFinalAuthorityFence("review-demo-room", listModels: true)
     try exerciseFinalAuthorityFence("credential-bytes")
     try exerciseFinalAuthorityFence("credential-bytes", listModels: true)
     for mismatch in ["consent-missing", "consent-provider", "consent-model", "consent-definition", "consent-disclosure"] {
@@ -748,7 +762,15 @@ func runProviderTransportTests() throws {
     } else { fatalError("valid exact command did not return success") }
     providerTestRequire(ProviderURLProtocolStub.capturedRequests.count == 1, "valid command did not issue exactly one request")
     _ = try authority.closeDatabase()
-    _ = try authority.openDatabase(expectedSchema: 8)
+    _ = try authority.openDatabase(expectedSchema: 9)
+    let beforeLazyReconciliation = (try database.query(
+        sqlId: "unresolved_generation_command", parameters: [payload.roomId]
+    ))["rows"] as? [[Any]]
+    providerTestRequire(
+        (beforeLazyReconciliation?.first?.first as? String)?.contains("\"state\":\"in_flight\"") == true,
+        "database open unexpectedly reconciled provider work"
+    )
+    _ = try authority.withReconciledDatabase { true }
     let reconciled = (try database.query(sqlId: "unresolved_generation_command", parameters: [payload.roomId]))["rows"] as? [[Any]]
     providerTestRequire(
         (reconciled?.first?.first as? String)?.contains("\"state\":\"interrupted\"") == true,
@@ -800,6 +822,7 @@ func runProviderTransportTests() throws {
     let capacityEpoch = capacityRegistry.lifecycleSnapshot()!
     let activeTask = ProviderRetainedTaskStub()
     var activeStarts = 0
+    var activeStartedAtCancellation: Bool?
     providerTestRequire(capacityRegistry.install(
         requestId: "80000000-0000-4000-8000-000000000001", attemptEpoch: 1,
         lifecycleEpoch: capacityEpoch,
@@ -810,7 +833,7 @@ func runProviderTransportTests() throws {
                 attemptEpoch: 1, lifecycleEpoch: capacityEpoch, withAuthority: { _ = $0(activeTask) }
             )
         },
-        cancellation: { _, _ in }
+        cancellation: { started, _ in activeStartedAtCancellation = started }
     ) == .active, "first provider operation was not active")
     var queuedStarts = 0
     var queuedStartedAtCancellation: Bool?
@@ -826,10 +849,16 @@ func runProviderTransportTests() throws {
     ) == .capacityRejected, "provider overflow was not capacity_rejected")
     providerTestRequire(activeStarts == 1 && activeTask.resumeCount == 1 && queuedStarts == 0,
                         "queued operation resolved credentials or created/resumed a task")
-    providerTestRequire(capacityRegistry.cancel(requestId: "80000000-0000-4000-8000-000000000002"),
-                        "queued cancellation was not reported")
+    capacityRegistry.updateRoomModeAvailability(false)
+    providerTestRequire(activeStartedAtCancellation == true && activeTask.cancelCount == 1,
+                        "entering review demo did not cancel the active provider task")
     providerTestRequire(queuedStartedAtCancellation == false && queuedStarts == 0,
-                        "queued cancellation was classified as started")
+                        "entering review demo did not cancel the queued provider task before start")
+    providerTestRequire(capacityRegistry.lifecycleSnapshot() == nil,
+                        "review demo left provider admission available")
+    capacityRegistry.updateRoomModeAvailability(true)
+    providerTestRequire(capacityRegistry.lifecycleSnapshot() != nil,
+                        "leaving review demo did not restore lifecycle-qualified provider admission")
 
     let productionRegistry = ProviderTaskRegistry()
     let productionEpoch = productionRegistry.lifecycleSnapshot()!

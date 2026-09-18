@@ -43,8 +43,8 @@ function detachedCandidate(context: { after(callback: () => void): void }, mutat
 
 test("external candidate policy authorizes only the exact local archive/export/audit lane", () => {
   const result = verifier.verifyRepository(ROOT);
-  assert.equal(result.policy.identity.proposedBuildNumber, "4");
-  assert.equal(result.policy.identity.committedXcodeBuildNumber, "4");
+  assert.equal(result.policy.identity.proposedBuildNumber, "5");
+  assert.equal(result.policy.identity.committedXcodeBuildNumber, "5");
   assert.deepEqual(result.policy.distribution, {
     mode: "private-email-only-external-testflight",
     approvedTesterCount: 2,
@@ -67,8 +67,8 @@ test("external candidate policy authorizes only the exact local archive/export/a
   assert.deepEqual(summary, {
     status: "PASS",
     policyState: "reviewed-local-archive-export-audit-no-upload",
-    baselineCommit: "ea6d1ed881d26b24e78a30bad7a3555620a5b853",
-    candidateIdentity: "0.1.0 (4)",
+    baselineCommit: "14f48401cfac12f740f369ad0e658382473fb171",
+    candidateIdentity: "0.1.0 (5)",
     localArchiveAllowed: true,
     localExportAllowed: true,
     archiveCreatedByVerification: false,
@@ -163,7 +163,7 @@ darwinTest("source review manifest rejects secrets outside exact declarations in
 test("App target build identity resolves structurally and rejects ambiguous configuration graphs", () => {
   const documents = fresh();
   const project = documents.projectText;
-  assert.deepEqual(verifier.resolveXcodeTargetBuildVersions(project, "App"), { Debug: "4", Release: "4" });
+  assert.deepEqual(verifier.resolveXcodeTargetBuildVersions(project, "App"), { Debug: "5", Release: "5" });
 
   const projectDecoy = project.replace(
     "\t\t\t\tALWAYS_SEARCH_USER_PATHS = NO;",
@@ -180,11 +180,11 @@ test("App target build identity resolves structurally and rejects ambiguous conf
   assert.doesNotThrow(() => verifier.validatePolicyDocuments({ ...fresh(), projectText: wrongTargetSetting }));
 
   const wrongAppRelease = project.replace(
-    "\t\t504EC3181FED79650016851F /* Release */ = {\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {\n\t\t\t\tASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n\t\t\t\tCODE_SIGN_STYLE = Automatic;\n\t\t\t\tCURRENT_PROJECT_VERSION = 4;",
+    "\t\t504EC3181FED79650016851F /* Release */ = {\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {\n\t\t\t\tASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n\t\t\t\tCODE_SIGN_STYLE = Automatic;\n\t\t\t\tCURRENT_PROJECT_VERSION = 5;",
     "\t\t504EC3181FED79650016851F /* Release */ = {\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {\n\t\t\t\tASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n\t\t\t\tCODE_SIGN_STYLE = Automatic;\n\t\t\t\tCURRENT_PROJECT_VERSION = 3;",
   );
   assert.notEqual(wrongAppRelease, project);
-  assert.throws(() => verifier.validatePolicyDocuments({ ...fresh(), projectText: wrongAppRelease }), /Debug and Release configurations must both freeze build 4/u);
+  assert.throws(() => verifier.validatePolicyDocuments({ ...fresh(), projectText: wrongAppRelease }), /Debug and Release configurations must both freeze build 5/u);
 
   const duplicateDeclarations = [
     {
@@ -244,8 +244,8 @@ test("candidate verifier fails closed on identity, privacy, metadata, signing, o
     (value) => { value.policy.sourceBinding.requireDirectBaselineParent = false; },
     (value) => { value.syncText += "\n// reviewed marker decoy\n"; },
     (value) => { value.policy.identity.proposedBuildNumber = "2"; },
-    (value) => { value.projectText = value.projectText.replaceAll("CURRENT_PROJECT_VERSION = 4;", "CURRENT_PROJECT_VERSION = 3;"); },
-    (value) => { value.migrationManifest.schema = 7; },
+    (value) => { value.projectText = value.projectText.replaceAll("CURRENT_PROJECT_VERSION = 5;", "CURRENT_PROJECT_VERSION = 3;"); },
+    (value) => { value.migrationManifest.schema = 8; },
     (value) => { value.privacy.NSPrivacyTracking = true; },
     (value) => { value.entitlements["aps-environment"] = "production"; },
     (value) => { value.dataFlowText = value.dataFlowText.replace("Provider credentials are stored in the iOS Keychain", "Provider credentials are stored in browser storage"); },

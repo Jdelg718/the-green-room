@@ -3,19 +3,19 @@
   "kind": "greenroom-ios-external-testflight-candidate-policy",
   "state": "reviewed-local-archive-export-audit-no-upload",
   "baseline": {
-    "protectedMainCommit": "ea6d1ed881d26b24e78a30bad7a3555620a5b853",
-    "protectedMainTree": "152b275abdae8089c5684ed24e48abaaeb437c5e"
+    "protectedMainCommit": "14f48401cfac12f740f369ad0e658382473fb171",
+    "protectedMainTree": "075d3a2f14b90693b7b0414d812730b9a1c5572a"
   },
   "identity": {
     "appStoreConnectAppId": "6809792258",
     "bundleIdentifier": "net.greenroomai.GreenRoom",
     "teamIdentifier": "JZ233HBW3Z",
     "marketingVersion": "0.1.0",
-    "proposedBuildNumber": "4",
-    "committedXcodeBuildNumber": "4",
+    "proposedBuildNumber": "5",
+    "committedXcodeBuildNumber": "5",
     "minimumOS": "18.6",
     "deviceFamily": [1],
-    "activation": "external-build-4-local-archive-export-audit-only"
+    "activation": "external-build-5-local-archive-export-audit-only"
   },
   "sourceBinding": {
     "manifestKind": "greenroom-ios-external-candidate-source-manifest",
@@ -37,7 +37,10 @@
       "docs/release/iphone-external-testflight-metadata.json",
       "docs/release/iphone-privacy-data-flow.md",
       "docs/release/iphone-external-testflight-candidate.md",
-      "docs/handoffs/2026-09-17-external-testflight-build-4-source-freeze.md",
+      "docs/handoffs/2026-09-18-external-testflight-build-5-review-demo.md",
+      "docs/release/apple-review-build-5.md",
+      "docs/adr/0007-offline-review-demonstration-mode.md",
+      "docs/contracts/iphone-alpha-native-bridge.md",
       "scripts/ios/sync.mjs",
       "scripts/ios/verify-external-candidate-policy.mjs",
       "scripts/ios/verify-external-candidate-policy.d.mts",
@@ -52,12 +55,12 @@
       "scripts/ios/audit-external-candidate.d.mts",
       "scripts/ios/verify-bundle-internal.mjs",
       "test/contract/ios-external-candidate-policy.test.ts",
-      "test/contract/ios-external-build4-tooling.test.ts",
+      "test/contract/ios-external-build5-tooling.test.ts",
       "package.json"
     ]
   },
   "schema": {
-    "version": 8,
+    "version": 9,
     "manifestPath": "ios/App/App/Resources/Migrations/manifest.json"
   },
   "privacy": {
@@ -117,12 +120,12 @@
       "archiveCommand": "npm run ios:archive-external-candidate",
       "exportCommand": "npm run ios:export-external-candidate",
       "auditCommand": "npm run ios:audit-external-candidate",
-      "archivePathTemplate": ".build/testflight/external-build-4-<HEAD>.xcarchive",
-      "exportPathTemplate": ".build/testflight/external-build-4-export-<HEAD>",
+      "archivePathTemplate": ".build/testflight/external-build-5-<HEAD>.xcarchive",
+      "exportPathTemplate": ".build/testflight/external-build-5-export-<HEAD>",
       "evidencePathTemplates": [
-        ".build/testflight/external-build-4-archive-<HEAD>.json",
-        ".build/testflight/external-build-4-export-<HEAD>.json",
-        ".build/testflight/external-build-4-audit-<HEAD>.json"
+        ".build/testflight/external-build-5-archive-<HEAD>.json",
+        ".build/testflight/external-build-5-export-<HEAD>.json",
+        ".build/testflight/external-build-5-audit-<HEAD>.json"
       ],
       "acceptsPathOrCommitOverrides": false,
       "uploadCapability": false
@@ -160,11 +163,12 @@
     "exportInventory": "descriptor-bound immutable export snapshot whose returned inventory hash equals pre/post live inventories, exact snapshot-bound IPA byte size and SHA-256, separately labeled snapshot-bound extracted payload inventory, and relevant export-evidence SHA-256; delete and exclude diagnostic logs only through retained root/parent descriptors with atomic descriptor-relative quarantine rename plus exact retained-inode verification; nlink remains one and replacements are restored fail-closed"
   },
   "physicalAcceptance": {
-    "status": "required-not-run-for-build-4",
+    "status": "required-not-run-for-build-5",
     "requiredEvidence": [
       "manual assistive-technology and supported-iPhone acceptance",
       "exact installed version/build/source readback",
       "clean install and update retention",
+      "Review Demo explicit opt-in, offline turn, saved-room reopen, and relaunch persistence",
       "Keychain continuity and credential removal",
       "direct fixed-provider request with consent",
       "offline existing-room behavior",

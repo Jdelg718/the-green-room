@@ -36,9 +36,9 @@ function fixtureCommandPath(path: string, options: { confinedParentPath?: string
 const signingSummary = { certificateClass: "Apple Distribution", profileName: "Green Room App Store Connect 0.1.0 Build 1", teamIdentifier: "JZ233HBW3Z", getTaskAllow: false, betaReportsActive: true };
 function archiveAuditFor(archivePath: string) {
   const inventory = tools.inventoryArtifactTree(archivePath);
-  const archive = { path: `.build/testflight/external-build-4-${COMMIT}.xcarchive`, inventorySha256: inventory.sha256, entries: inventory.entries, signing: signingSummary };
+  const archive = { path: `.build/testflight/external-build-5-${COMMIT}.xcarchive`, inventorySha256: inventory.sha256, entries: inventory.entries, signing: signingSummary };
   return {
-    identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "4", minimumOS: "18.6", deviceFamily: [1], sourceCommit: COMMIT },
+    identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "5", minimumOS: "18.6", deviceFamily: [1], sourceCommit: COMMIT },
     archive, export: null, exportEvidence: null,
     actions: { uploaded: false, installed: false, deviceActionPerformed: false, appStoreActionPerformed: false, publicLinkCreated: false },
   };
@@ -108,7 +108,7 @@ const releaseInfo = {
   CFBundleIdentifier: "net.greenroomai.GreenRoom",
   CFBundleDisplayName: "Green Room",
   CFBundleShortVersionString: "0.1.0",
-  CFBundleVersion: "4",
+  CFBundleVersion: "5",
   MinimumOSVersion: "18.6",
   UIDeviceFamily: [1],
   ITSAppUsesNonExemptEncryption: false,
@@ -247,7 +247,7 @@ function syntheticOverlappingZip(): Buffer {
   return Buffer.concat([aLocal, central, eocd]);
 }
 
-test("external build-4 signing keeps app entitlements exact while accepting Apple's bounded profile authorization", () => {
+test("external build-5 signing keeps app entitlements exact while accepting Apple's bounded profile authorization", () => {
   const identityDetails = "Identifier=net.greenroomai.GreenRoom\nAuthority=Apple Distribution: Fixture (JZ233HBW3Z)\nTeamIdentifier=JZ233HBW3Z";
   const validate = (signedEntitlements: Record<string, unknown>, profile: Record<string, unknown>) => tools.validateExternalDistributionSigning({
     identityDetails,
@@ -511,9 +511,9 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   const archiveEntries = [{ path: "Products", type: "directory", mode: 0o755 }];
   const exportEntries = [{ path: "Green Room.ipa", type: "file", mode: 0o644, bytes: 123, sha256: "c".repeat(64) }];
   const payloadEntries = [{ path: "Payload", type: "directory", mode: 0o755 }];
-  const archive = { path: `.build/testflight/external-build-4-${COMMIT}.xcarchive`, inventorySha256: "a".repeat(64), entries: archiveEntries, signing };
+  const archive = { path: `.build/testflight/external-build-5-${COMMIT}.xcarchive`, inventorySha256: "a".repeat(64), entries: archiveEntries, signing };
   const exported = {
-    path: `.build/testflight/external-build-4-export-${COMMIT}`, inventorySha256: "b".repeat(64), entries: exportEntries,
+    path: `.build/testflight/external-build-5-export-${COMMIT}`, inventorySha256: "b".repeat(64), entries: exportEntries,
     ipa: { name: "Green Room.ipa", bytes: 123, sha256: "c".repeat(64) },
     extractedPayloadInventory: { inventorySha256: "d".repeat(64), entries: payloadEntries }, signing,
   };
@@ -522,14 +522,14 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   const auditActions = { uploaded: false, installed: false, deviceActionPerformed: false, appStoreActionPerformed: false, publicLinkCreated: false };
   const evidence: Record<string, any> = {
     schemaVersion: 1,
-    kind: "greenroom-ios-external-build-4-no-upload-export-evidence",
+    kind: "greenroom-ios-external-build-5-no-upload-export-evidence",
     sourceCommit: COMMIT,
     archive: { path: archive.path, inventorySha256: archive.inventorySha256 },
     export: { path: exported.path, inventorySha256: exported.inventorySha256, entries: exportEntries },
     exportOptions,
     tool: { xcodebuildVersion },
     audit: {
-      identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "4", minimumOS: "18.6", deviceFamily: [1], sourceCommit: COMMIT },
+      identity: { bundleIdentifier: "net.greenroomai.GreenRoom", version: "0.1.0", build: "5", minimumOS: "18.6", deviceFamily: [1], sourceCommit: COMMIT },
       archive,
       export: exported,
       exportEvidence: null,
@@ -719,7 +719,7 @@ test("audit phases, exact final evidence schema/bindings, and all three Mach-O s
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticOverlappingZip()), /IPA_LOCAL_RANGE_INVALID/u);
   assert.throws(() => audit.inspectIpaCentralDirectory(syntheticZip("Payload/App.app/App", 4, 4), { deadline: Date.now() - 1 }), /AUDIT_DEADLINE_EXCEEDED/u);
   assert.throws(() => tools.validateNoUploadCommand("/usr/bin/xcodebuild", ["-exportArchive", "-exportPath", "/tmp/out", "-exportOptionsPlist", "/tmp/options", "--upload"], "export"), /UPLOAD_COMMAND_FORBIDDEN/u);
-  assert.throws(() => tools.validateArchivePrerequisiteEvidence({ evidence: { kind: "greenroom-ios-external-build-4-archive-evidence", sourceCommit: COMMIT, archive: {} }, sourceCommit: COMMIT, sourceTree: TREE, archive: {} }), /keys are not exact/u);
+  assert.throws(() => tools.validateArchivePrerequisiteEvidence({ evidence: { kind: "greenroom-ios-external-build-5-archive-evidence", sourceCommit: COMMIT, archive: {} }, sourceCommit: COMMIT, sourceTree: TREE, archive: {} }), /keys are not exact/u);
   assert.throws(() => audit.validateMachOStringScans({ main: "openrouter.ai api.openai.com api.x.ai api.groq.com api.together.ai\nnode_modules/pkg", capacitor: "safe", cordova: "safe" }), /main Mach-O/u);
 });
 
@@ -815,10 +815,10 @@ darwinTest("archive lane resolves clean HEAD, binds source, uses fixed destinati
     },
     auditArchive({ archivePath }) { return archiveAuditFor(String(archivePath)); },
   });
-  assert.equal(result.archivePath, join(realpathSync(root), `.build/testflight/external-build-4-${COMMIT}.xcarchive`));
+  assert.equal(result.archivePath, join(realpathSync(root), `.build/testflight/external-build-5-${COMMIT}.xcarchive`));
   const invocation = calls.find(({ command }) => command === "/usr/bin/xcodebuild");
   assert.ok(invocation);
-  assert.equal(invocation.args[invocation.args.indexOf("-archivePath") + 1], `.external-build-4-${COMMIT}-archive-staging/candidate.xcarchive`);
+  assert.equal(invocation.args[invocation.args.indexOf("-archivePath") + 1], `.external-build-5-${COMMIT}-archive-staging/candidate.xcarchive`);
   assert.ok(Number.isInteger(invocation.inheritedDirectoryDescriptor));
   assert.ok(invocation.args.includes(`GREENROOM_SOURCE_COMMIT=${COMMIT}`));
   assert.ok(invocation.args.includes("CODE_SIGN_IDENTITY=Apple Distribution"));
@@ -852,7 +852,7 @@ darwinTest("archive destination creation rejects a competitor inserted after the
   const root = mkdtempSync(join(tmpdir(), "greenroom-external-archive-create-race-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".git"));
-  const archivePath = join(realpathSync(root), `.build/testflight/external-build-4-${COMMIT}.xcarchive`);
+  const archivePath = join(realpathSync(root), `.build/testflight/external-build-5-${COMMIT}.xcarchive`);
   assert.throws(() => tools.runExternalArchiveCore({
     sourceRoot: root,
     destinationCreationTestHook(path) {
@@ -882,7 +882,7 @@ darwinTest("archive publication quarantines a staged-path substitution and safel
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".git"));
   const lanePath = join(realpathSync(root), ".build/testflight");
-  const archivePath = join(lanePath, `external-build-4-${COMMIT}.xcarchive`);
+  const archivePath = join(lanePath, `external-build-5-${COMMIT}.xcarchive`);
   assert.throws(() => tools.runExternalArchiveCore({ sourceRoot: root, publicationSubstitutionTestHook: "directory" }, {
     run(command, args, runOptions) {
       const boundary = fixedBoundary(command, args); if (boundary !== undefined) return boundary;
@@ -910,7 +910,7 @@ darwinTest("archive publication quarantines a symlink substitution without touch
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".git"));
   const lanePath = join(realpathSync(root), ".build/testflight");
-  const archivePath = join(lanePath, `external-build-4-${COMMIT}.xcarchive`);
+  const archivePath = join(lanePath, `external-build-5-${COMMIT}.xcarchive`);
   assert.throws(() => tools.runExternalArchiveCore({ sourceRoot: root, publicationSubstitutionTestHook: "symlink" }, {
     run(command, args, runOptions) {
       const boundary = fixedBoundary(command, args); if (boundary !== undefined) return boundary;
@@ -972,7 +972,7 @@ darwinTest("archive retains its lane parent descriptor and preserves a pathname 
     auditArchive() { return {}; },
   }), /OUTPUT_PARENT_IDENTITY_INVALID/u);
   assert.equal(readFileSync(join(root, ".build/testflight/replacement-sentinel"), "utf8"), "keep\n");
-  assert.equal(existsSync(join(movedParent, `external-build-4-${COMMIT}.xcarchive`)), false);
+  assert.equal(existsSync(join(movedParent, `external-build-5-${COMMIT}.xcarchive`)), false);
 });
 
 darwinTest("archive core rejects a semantic audit of transient alternate bytes even when live pre/post inventories match", (context) => {
@@ -1057,7 +1057,7 @@ darwinTest("archive cleanup preserves the primary failure and refuses a replacem
   const cleanRoot = mkdtempSync(join(tmpdir(), "greenroom-external-native-cleanup-"));
   context.after(() => rmSync(cleanRoot, { recursive: true, force: true }));
   mkdirSync(join(cleanRoot, ".git"));
-  const cleanArchivePath = join(cleanRoot, `.build/testflight/external-build-4-${COMMIT}.xcarchive`);
+  const cleanArchivePath = join(cleanRoot, `.build/testflight/external-build-5-${COMMIT}.xcarchive`);
   assert.throws(() => tools.runExternalArchiveCore({ sourceRoot: cleanRoot }, {
     run(command, args, runOptions) {
       const boundary = fixedBoundary(command, args); if (boundary !== undefined) return boundary;
@@ -1078,7 +1078,7 @@ darwinTest("archive cleanup preserves the primary failure and refuses a replacem
   const root = mkdtempSync(join(tmpdir(), "greenroom-external-primary-failure-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, ".git"));
-  const archivePath = join(root, `.build/testflight/external-build-4-${COMMIT}.xcarchive`);
+  const archivePath = join(root, `.build/testflight/external-build-5-${COMMIT}.xcarchive`);
   const original = new Error("original xcodebuild failure");
   let caught: unknown;
   try {
@@ -1120,12 +1120,12 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
     mkdirSync(join(root, "ios"));
     const optionsBytes = readFileSync(join(ROOT, "ios/ExternalCandidateExportOptions.plist"));
     writeFileSync(join(root, "ios/ExternalCandidateExportOptions.plist"), optionsBytes);
-    const archivePath = join(root, `.build/testflight/external-build-4-${COMMIT}.xcarchive`);
+    const archivePath = join(root, `.build/testflight/external-build-5-${COMMIT}.xcarchive`);
     mkdirSync(archivePath, { recursive: true });
     writeFileSync(join(archivePath, "archive.bin"), "archive\n");
     const archiveAudit = archiveAuditFor(archivePath);
-    writeFileSync(join(root, `.build/testflight/external-build-4-archive-${COMMIT}.json`), JSON.stringify({
-      schemaVersion: 1, kind: "greenroom-ios-external-build-4-archive-evidence",
+    writeFileSync(join(root, `.build/testflight/external-build-5-archive-${COMMIT}.json`), JSON.stringify({
+      schemaVersion: 1, kind: "greenroom-ios-external-build-5-archive-evidence",
       source: { commit: COMMIT, tree: TREE, parentCommit: tools.PROTECTED_BASELINE_COMMIT, baselineCommit: tools.PROTECTED_BASELINE_COMMIT, baselineTree: tools.PROTECTED_BASELINE_TREE },
       archive: archiveAudit.archive, tool: { xcodebuildVersion: XCODE_VERSION }, audit: archiveAudit,
       actions: { archived: true, signed: true, exported: false, uploaded: false, installed: false, deviceActionPerformed: false, appStoreActionPerformed: false, publicLinkCreated: false },
@@ -1153,7 +1153,7 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
         const privateOptions = fixtureCommandPath(args[args.indexOf("-exportOptionsPlist") + 1]!, runOptions);
         mkdirSync(destination, { recursive: true });
         if (mode === "failure-replace") {
-          const final = join(fixture.root, `.build/testflight/external-build-4-export-${COMMIT}`);
+          const final = join(fixture.root, `.build/testflight/external-build-5-export-${COMMIT}`);
           mkdirSync(final);
           writeFileSync(join(final, "replacement-sentinel"), "keep\n");
         }
@@ -1182,7 +1182,7 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
       if (exportPath === undefined) return archiveAuditFor(String(archivePath));
       if (mode === "output") writeFileSync(join(String(exportPath), "mutation"), "changed\n");
       return {
-        identity: "0.1.0 (4)",
+        identity: "0.1.0 (5)",
         archive: { inventorySha256: tools.inventoryArtifactTree(String(archivePath)).sha256 },
         export: { inventorySha256: tools.inventoryArtifactTree(String(exportPath)).sha256 },
       };
@@ -1200,12 +1200,12 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
   assert.throws(() => execute(successFixture, "success"), /overwrite/u);
   assert.throws(() => execute(makeFixture(), "baseline"), /SOURCE_BOUNDARY_INVALID/u);
   const competitorFixture = makeFixture();
-  const competitorPath = join(competitorFixture.root, `.build/testflight/external-build-4-export-${COMMIT}`);
+  const competitorPath = join(competitorFixture.root, `.build/testflight/external-build-5-export-${COMMIT}`);
   assert.throws(() => execute(competitorFixture, "competitor"), /OUTPUT_PUBLICATION_FAILED/u);
   assert.equal(readFileSync(join(competitorPath, "competitor-sentinel"), "utf8"), "keep\n");
   const publicationFixture = makeFixture();
   const publicationLane = join(publicationFixture.root, ".build/testflight");
-  const publicationPath = join(publicationLane, `external-build-4-export-${COMMIT}`);
+  const publicationPath = join(publicationLane, `external-build-5-export-${COMMIT}`);
   assert.throws(() => execute(publicationFixture, "publication-substitution"), /OUTPUT_PUBLICATION_FAILED/u);
   assert.equal(existsSync(publicationPath), false);
   const publicationQuarantines = readdirSync(publicationLane).filter((name) => name.startsWith(".greenroom-publication-quarantine-"));
@@ -1214,7 +1214,7 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
   assert.equal(readFileSync(join(publicationLane, publicationQuarantines[0]!), "utf8"), "competitor-sentinel\n");
   assert.equal(readdirSync(publicationLane).some((name) => name.includes("export-staging") || name.includes("publication-owner")), false);
   const fabricatedPrerequisite = makeFixture();
-  const prerequisitePath = join(fabricatedPrerequisite.root, `.build/testflight/external-build-4-archive-${COMMIT}.json`);
+  const prerequisitePath = join(fabricatedPrerequisite.root, `.build/testflight/external-build-5-archive-${COMMIT}.json`);
   const prerequisite = JSON.parse(readFileSync(prerequisitePath, "utf8"));
   prerequisite.archive.signing.teamIdentifier = "ATTACKER";
   prerequisite.audit.archive.signing.teamIdentifier = "ATTACKER";
@@ -1229,13 +1229,13 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
   assert.match(String(caught), /EXPORT_OPERATION_FAILED/u);
   assert.doesNotMatch(String(caught), /original export failure/u);
   assert.equal(tools.getExternalSecondaryFailures(caught).length, 0);
-  assert.equal(readFileSync(join(failureFixture.root, `.build/testflight/external-build-4-export-${COMMIT}/replacement-sentinel`), "utf8"), "keep\n");
+  assert.equal(readFileSync(join(failureFixture.root, `.build/testflight/external-build-5-export-${COMMIT}/replacement-sentinel`), "utf8"), "keep\n");
 
   const privateReplacementFixture = makeFixture();
   caught = undefined;
   try { execute(privateReplacementFixture, "failure-private-options-replace"); } catch (error) { caught = error; }
   assert.match(String(caught), /EXPORT_OPERATION_FAILED/u);
-  const replacementOptions = readdirSync(join(privateReplacementFixture.root, ".build/testflight")).find((name) => name.startsWith(`.external-build-4-options-${COMMIT}-`));
+  const replacementOptions = readdirSync(join(privateReplacementFixture.root, ".build/testflight")).find((name) => name.startsWith(`.external-build-5-options-${COMMIT}-`));
   assert.ok(replacementOptions);
   assert.equal(readFileSync(join(privateReplacementFixture.root, ".build/testflight", replacementOptions), "utf8"), "replacement sentinel\n");
   assert.match(tools.getExternalSecondaryFailures(caught).at(-1)?.message ?? "", /OWNED_FILE_CLEANUP_REFUSED/u);
@@ -1244,5 +1244,5 @@ darwinTest("export lane detects committed-options, archive, and output mutation 
   let diagnosticError: unknown;
   try { execute(diagnosticReplacementFixture, "diagnostic-file-replace"); } catch (error) { diagnosticError = error; }
   assert.match(String(diagnosticError), /DIAGNOSTICS_CLEANUP_REFUSED/u);
-  assert.equal(existsSync(join(diagnosticReplacementFixture.root, `.build/testflight/external-build-4-export-${COMMIT}`)), false, tools.getExternalSecondaryFailures(diagnosticError).map((error) => error.message).join(" | "));
+  assert.equal(existsSync(join(diagnosticReplacementFixture.root, `.build/testflight/external-build-5-export-${COMMIT}`)), false, tools.getExternalSecondaryFailures(diagnosticError).map((error) => error.message).join(" | "));
 });

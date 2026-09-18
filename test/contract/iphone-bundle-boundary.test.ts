@@ -206,36 +206,36 @@ test("default Keychain group is explicit in both Xcode configurations and cannot
   rejects(root, /keychain access group/u);
 });
 
-test("schema-8 migrations are exact, ordered, checksum-pinned, and closed to additions", (context) => {
+test("schema-9 migrations are exact, ordered, checksum-pinned, and closed to additions", (context) => {
   const root = fixture(context);
   const migrations = "ios/App/App/Resources/Migrations";
-  const migration = `${migrations}/0008-provider-data-use-consent.sql`;
+  const migration = `${migrations}/0009-review-demo-mode.sql`;
   const manifest = `${migrations}/manifest.json`;
 
   rmSync(join(root, migration));
-  rejects(root, /missing required file.*0008-provider-data-use-consent\.sql|migration inventory/u);
+  rejects(root, /missing required file.*0009-review-demo-mode\.sql|migration inventory/u);
   cpSync(join(ROOT, migration), join(root, migration));
 
   rewrite(root, migration, (source) => `${source}\n-- unreviewed mutation\n`);
-  rejects(root, /migration 8.*reviewed bytes/u);
+  rejects(root, /migration 9.*reviewed bytes/u);
   cpSync(join(ROOT, migration), join(root, migration));
 
   for (const mutateManifest of [
-    (source: string) => source.replace('"sha256": "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"', '"sha256": "0000000000000000000000000000000000000000000000000000000000000000"'),
-    (source: string) => source.replace(',\n      "sha256": "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"', ""),
-    (source: string) => source.replace(/(\s+\{\n      "version": 7,[\s\S]*?\n    \},)(\s+\{\n      "version": 8,[\s\S]*?\n    \})/u, "$2,$1"),
-    (source: string) => source.replace(/(\s+\{\n      "version": 8,[\s\S]*?\n    \})(\n  \])/u, "$1,$1$2"),
+    (source: string) => source.replace('"sha256": "0b4198dd23b84cc96eae32cdc1806d5840d676326a340d5f1930d3b9bc496a60"', '"sha256": "0000000000000000000000000000000000000000000000000000000000000000"'),
+    (source: string) => source.replace(',\n      "sha256": "0b4198dd23b84cc96eae32cdc1806d5840d676326a340d5f1930d3b9bc496a60"', ""),
+    (source: string) => source.replace(/(\s+\{\n      "version": 8,[\s\S]*?\n    \},)(\s+\{\n      "version": 9,[\s\S]*?\n    \})/u, "$2,$1"),
+    (source: string) => source.replace(/(\s+\{\n      "version": 9,[\s\S]*?\n    \})(\n  \])/u, "$1,$1$2"),
   ]) {
     rewrite(root, manifest, mutateManifest);
-    rejects(root, /migration manifest.*reviewed bytes|migration manifest|migration 8/u);
+    rejects(root, /migration manifest.*reviewed bytes|migration manifest|migration 9/u);
     cpSync(join(ROOT, manifest), join(root, manifest));
   }
 
-  writeFileSync(join(root, migrations, "0009-unreviewed.sql"), "SELECT 1;\n");
+  writeFileSync(join(root, migrations, "0010-unreviewed.sql"), "SELECT 1;\n");
   rejects(root, /tree exceeds|migration inventory/u);
 });
 
-test("schema-8 migration is required in the built bundle", { skip: process.platform !== "darwin" }, (context) => {
+test("schema-9 migration is required in the built bundle", { skip: process.platform !== "darwin" }, (context) => {
   const sourceApp = join(ROOT, ".build/ios/Build/Products/Debug-iphonesimulator/App.app");
   if (!existsSync(sourceApp)) {
     context.skip("Darwin built-app mutations run after ios:build in the declared ios:test gate");
@@ -244,8 +244,8 @@ test("schema-8 migration is required in the built bundle", { skip: process.platf
   const app = join(mkdtempSync(join(tmpdir(), "greenroom-built-migration-")), "App.app");
   context.after(() => rmSync(dirname(app), { recursive: true, force: true }));
   cpSync(sourceApp, app, { recursive: true });
-  rmSync(join(app, "Migrations/0008-provider-data-use-consent.sql"));
-  assert.throws(() => verifyBuiltApp(app), /migration inventory|missing required file.*0008-provider-data-use-consent\.sql/u);
+  rmSync(join(app, "Migrations/0009-review-demo-mode.sql"));
+  assert.throws(() => verifyBuiltApp(app), /migration inventory|missing required file.*0009-review-demo-mode\.sql/u);
 });
 
 test("generated provider data-use assets are required reviewed bytes with exact inventory", (context) => {
