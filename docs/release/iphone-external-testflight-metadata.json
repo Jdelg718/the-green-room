@@ -7,7 +7,7 @@
     "appStoreConnectAppId": "6809792258",
     "bundleIdentifier": "net.greenroomai.GreenRoom",
     "marketingVersion": "0.1.0",
-    "proposedBuildNumber": "4",
+    "proposedBuildNumber": "5",
     "activation": "identity-frozen-local-only"
   },
   "distribution": {
@@ -33,9 +33,9 @@
     "usesNonExemptEncryption": false,
     "rationale": "The app uses standard Apple platform HTTPS and Keychain cryptography and implements no custom or non-exempt encryption. Reconfirm against the exact candidate."
   },
-  "betaReviewNotes": "Green Room is a local-first ensemble conversation app. Rooms, drafts, events, provider selection, and provider-consent records are persisted locally in the app container; provider credentials remain in iOS Keychain. The app has no Green Room account, analytics collector, model proxy, transcript service, or relay. When a tester explicitly consents and sends a prompt, the app transmits the prompt, bounded recent room messages, selected character instructions, model ID, and generation settings directly over HTTPS to the tester-selected fixed BYOK provider; those transmitted content fields may be retained under the provider/account/route terms. No demo account exists. Apple/Kent must approve a non-secret review path and any tester credential arrangement before Beta App Review; no credential is included in this draft.",
+  "betaReviewNotes": "Green Room is a local-first ensemble conversation app with an explicit offline Review Demo that requires no account or provider credential. Demonstration rooms use deterministic bundled replies, are visibly labeled, persist locally, and never access Keychain or the network. Normal BYOK rooms remain separate.  Rooms, drafts, events, provider selection, and provider-consent records are persisted locally in the app container; provider credentials remain in iOS Keychain. The app has no Green Room account, analytics collector, model proxy, transcript service, or relay. When a tester explicitly consents and sends a prompt, the app transmits the prompt, bounded recent room messages, selected character instructions, model ID, and generation settings directly over HTTPS to the tester-selected fixed BYOK provider; those transmitted content fields may be retained under the provider/account/route terms. No demo account exists. Apple/Kent must approve a non-secret review path and any tester credential arrangement before Beta App Review; no credential is included in this draft.",
   "testerInstructions": [
-    "Install only the exact owner-approved TestFlight build and confirm version 0.1.0 build 4.",
+    "Install only the exact owner-approved TestFlight build and confirm version 0.1.0 build 5.",
     "Open Privacy & Data Use before provider setup.",
     "Use only a provider API key you obtained independently and are authorized to use; Green Room does not sell or provide model access.",
     "Select one of the five fixed providers and a valid model, review the named host/content disclosure, and explicitly consent before model listing or generation.",
@@ -45,8 +45,8 @@
   "knownLimitations": [
     "Alpha software for iPhone only; minimum iOS 18.6. iPad-specific layouts are not supported.",
     "No Green Room account, relay, synchronization, invitations, hosted inference, on-device LLM, voice/video rooms, or push notifications.",
-    "Generation requires a separately obtained key for a supported fixed BYOK provider and network access; provider availability, model access, cost, and retention are controlled by that provider.",
-    "Offline use is limited to reading existing local rooms; new provider turns fail closed.",
+    "Normal-room generation requires a separately obtained key for a supported fixed BYOK provider and network access; the offline Review Demo does not. Provider availability, model access, cost, and retention are controlled by that provider.",
+    "Offline use supports persisted Review Demo rooms and reading existing normal rooms; new provider turns fail closed.",
     "Deleting a credential disables new provider requests and removes the current Keychain item after verified readback; it does not delete local rooms or data retained by a provider.",
     "Historical personas are creative educational interpretations, not the actual people or endorsed representatives."
   ],

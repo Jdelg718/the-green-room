@@ -16,6 +16,7 @@
     <div class="wordmark">The Green Room<small>Standalone · local-first</small></div>
     <nav class="header-nav" aria-label="Primary">
       <button id="rooms-button" class="header-button" type="button" aria-label="Open saved rooms">Rooms</button>
+      <button id="review-demo-button" class="header-button demo-button" type="button" aria-label="Start Review Demonstration Mode">Review Demo</button>
       <button id="provider-button" class="header-button" type="button" aria-label="Open provider settings">Provider</button>
       <button id="privacy-button" class="header-button" type="button" aria-label="Open Privacy and Data Use">Privacy</button>
     </nav>
@@ -31,6 +32,7 @@
       <div class="eyebrow">Room open · local authority</div>
       <h1 id="room-title" tabindex="-1">The Green Room</h1>
       <p id="room-state" class="lede" role="status" aria-live="polite">Opening saved room…</p>
+      <div id="review-demo-banner" class="demo-banner" role="status" hidden><strong>Demonstration Mode · Offline</strong><span>Replies are deterministic, bundled locally, and are not model inference. No provider, credential, Keychain, or network is used.</span></div>
       <div class="section-heading"><p>Call board</p><h2>On deck</h2></div>
       <ul id="room-cast" class="room-cast" aria-label="Selected characters"></ul>
       <section class="transcript-panel" aria-labelledby="transcript-title">
@@ -62,6 +64,7 @@
       </form>
       <div class="room-actions">
         <button id="new-room" class="button" type="button" aria-label="Create another room">Create another room</button>
+        <button id="leave-review-demo" class="button button-paper" type="button" aria-label="Leave Demonstration Mode" hidden>Leave Demonstration Mode</button>
       </div>
       <p class="boundary"><strong>Private rehearsal.</strong> Rooms and non-secret provider choices live on this iPhone. A selected provider receives bounded persona and transcript context; credentials stay in this iPhone’s Keychain.</p>
     </section>
@@ -70,6 +73,7 @@
       <div class="eyebrow">New saved room</div>
       <h1 id="picker-title" tabindex="-1">Choose the conversation</h1>
       <p class="lede">Pick one to three bundled perspectives. Your existing room stays saved.</p>
+      <div id="picker-demo-notice" class="demo-banner" hidden><strong>Review Demonstration Mode · explicit opt-in</strong><span>This creates a separate offline demonstration room. Local scripted replies are visibly labeled and never use your provider settings.</span></div>
       <div class="catalog-reality"><strong>Candidate · draft catalog.</strong> Eighteen historical interpretations and one creator-authorized original. None is claimed as an Official Catalog release.</div>
       <div class="picker-bar">
         <p id="selection-count" role="status" aria-live="polite">0 of 3 selected</p>

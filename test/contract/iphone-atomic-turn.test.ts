@@ -32,7 +32,7 @@ async function api(cache = "") {
 
 class AtomicDatabase {
   readonly room = {
-    id: ROOM_ID, title: "Atomic room", status: "active", generation: 0,
+    id: ROOM_ID, title: "Atomic room", status: "active", generation: 0, inferenceMode: "provider",
     participants: [
       { id: "human-1", kind: "human", displayName: "You", muted: false, sortOrder: 0, personaSlug: null },
       { id: "ada-lovelace", kind: "persona", displayName: "Ada Lovelace", muted: false, sortOrder: 1, personaSlug: "ada-lovelace" },
@@ -51,7 +51,7 @@ class AtomicDatabase {
 
   async open(call: Envelope) {
     this.calls.push(call);
-    return success(call, { schema: 8 });
+    return success(call, { schema: 9 });
   }
 
   async executeBatch(call: Envelope) {
@@ -66,6 +66,10 @@ class AtomicDatabase {
       for (const statement of call.payload.statements as any[]) {
         const p = statement.parameters;
         switch (statement.sqlId) {
+          case "select_room": {
+            if (p[0] !== ROOM_ID) throw new Error("unknown room");
+            break;
+          }
           case "save_local_draft": this.draft = p[1]; break;
           case "delete_local_draft": this.draft = null; break;
           case "prepare_generation_command": {
@@ -199,7 +203,7 @@ function provider(database: AtomicDatabase, outcome: "success" | "preflight" | "
   } };
 }
 
-test("drafts restore as Not sent and offline room open is query-only", async () => {
+test("drafts restore as Not sent and saved-room reopen commits the selected room", async () => {
   const runtime = await api("draft-open");
   const database = new AtomicDatabase();
   await runtime.saveLocalDraft(database, ROOM_ID, "unfinished", ids());
@@ -208,7 +212,8 @@ test("drafts restore as Not sent and offline room open is query-only", async () 
   const before = database.calls.length;
   const reopened = await runtime.reopenLocalRoom(database, ROOM_ID, ids());
   assert.equal(reopened.draft.text, "unfinished");
-  assert.equal(database.calls.slice(before).some(({ method }) => method === "database.executeBatch"), false);
+  assert.equal(database.calls.slice(before).some(({ payload }) =>
+    payload.statements?.some(({ sqlId }: any) => sqlId === "select_room")), true);
   assert.equal(database.calls.slice(before).some(({ payload }) => payload.sqlId === "room_by_id"), true);
 });
 

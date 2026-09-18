@@ -43,7 +43,7 @@ private func expectFailure(_ code: String, _ operation: () throws -> Void) {
 
 private func createStatements(title: String = "A\0B") -> [[String: Any]] {
     [
-        ["sqlId": "create_room", "parameters": ["room-00000000-0000-4000-8000-000000000001", title]],
+        ["sqlId": "create_room", "parameters": ["room-00000000-0000-4000-8000-000000000001", title, "provider"]],
         ["sqlId": "create_human", "parameters": ["human-1", "room-00000000-0000-4000-8000-000000000001", "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", "room-00000000-0000-4000-8000-000000000001", "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": ["room-00000000-0000-4000-8000-000000000001"]],
@@ -115,10 +115,10 @@ private func runAtomicGenerationDatabaseTests() throws {
     let store = GreenRoomDatabaseStore(
         directory: atomicRoot, migrationsDirectory: migrations, fileProtector: protection.protect
     )
-    require(try store.open(expectedSchema: 8)["schema"] as? Int == 8, "fresh schema eight did not open")
+    require(try store.open(expectedSchema: 9)["schema"] as? Int == 9, "fresh schema nine did not open")
     let roomId = "room-00000000-0000-4000-8000-000000000091"
     _ = try store.executeBatch(transactionId: "atomic-room", statements: [
-        ["sqlId": "create_room", "parameters": [roomId, "Atomic room"]],
+        ["sqlId": "create_room", "parameters": [roomId, "Atomic room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-1", roomId, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", roomId, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [roomId]],
@@ -203,7 +203,7 @@ private func runAtomicGenerationDatabaseTests() throws {
 
     let failureRoom = "room-00000000-0000-4000-8000-000000000092"
     _ = try store.executeBatch(transactionId: "atomic-failure-room", statements: [
-        ["sqlId": "create_room", "parameters": [failureRoom, "Failure room"]],
+        ["sqlId": "create_room", "parameters": [failureRoom, "Failure room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-2", failureRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", failureRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [failureRoom]],
@@ -245,7 +245,7 @@ private func runAtomicGenerationDatabaseTests() throws {
 
     let silenceRoom = "room-00000000-0000-4000-8000-000000000093"
     _ = try store.executeBatch(transactionId: "atomic-silence-room", statements: [
-        ["sqlId": "create_room", "parameters": [silenceRoom, "Silence room"]],
+        ["sqlId": "create_room", "parameters": [silenceRoom, "Silence room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-3", silenceRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", silenceRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [silenceRoom]],
@@ -270,7 +270,7 @@ private func runAtomicGenerationDatabaseTests() throws {
 
     let rollbackRoom = "room-00000000-0000-4000-8000-000000000094"
     _ = try store.executeBatch(transactionId: "atomic-rollback-room", statements: [
-        ["sqlId": "create_room", "parameters": [rollbackRoom, "Rollback room"]],
+        ["sqlId": "create_room", "parameters": [rollbackRoom, "Rollback room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-4", rollbackRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", rollbackRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [rollbackRoom]],
@@ -307,7 +307,7 @@ private func runAtomicGenerationDatabaseTests() throws {
 
     let recoveredRoom = "room-00000000-0000-4000-8000-000000000095"
     _ = try store.executeBatch(transactionId: "atomic-recovered-room", statements: [
-        ["sqlId": "create_room", "parameters": [recoveredRoom, "Recovered silence"]],
+        ["sqlId": "create_room", "parameters": [recoveredRoom, "Recovered silence", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-5", recoveredRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", recoveredRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [recoveredRoom]],
@@ -339,7 +339,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     let racePlan = atomicPlan(roomId: raceRoom, requestId: raceRequest)
     let raceDigest = SHA256.hash(data: Data(racePlan.utf8)).map { String(format: "%02x", $0) }.joined()
     _ = try store.executeBatch(transactionId: "atomic-race-room", statements: [
-        ["sqlId": "create_room", "parameters": [raceRoom, "Race room"]],
+        ["sqlId": "create_room", "parameters": [raceRoom, "Race room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-6", raceRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", raceRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [raceRoom]],
@@ -390,7 +390,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     let epochPlan = atomicPlan(roomId: epochRoom, requestId: epochRequest)
     let epochDigest = SHA256.hash(data: Data(epochPlan.utf8)).map { String(format: "%02x", $0) }.joined()
     _ = try store.executeBatch(transactionId: "atomic-epoch-room", statements: [
-        ["sqlId": "create_room", "parameters": [epochRoom, "Epoch room"]],
+        ["sqlId": "create_room", "parameters": [epochRoom, "Epoch room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-7", epochRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", epochRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [epochRoom]],
@@ -438,7 +438,7 @@ private func runAtomicGenerationDatabaseTests() throws {
     let rollbackEpochPlan = atomicPlan(roomId: rollbackEpochRoom, requestId: rollbackEpochRequest)
     let rollbackEpochDigest = SHA256.hash(data: Data(rollbackEpochPlan.utf8)).map { String(format: "%02x", $0) }.joined()
     _ = try store.executeBatch(transactionId: "atomic-retry-rollback-room", statements: [
-        ["sqlId": "create_room", "parameters": [rollbackEpochRoom, "Retry rollback room"]],
+        ["sqlId": "create_room", "parameters": [rollbackEpochRoom, "Retry rollback room", "provider"]],
         ["sqlId": "create_human", "parameters": ["human-8", rollbackEpochRoom, "You"]],
         ["sqlId": "create_persona", "parameters": ["ada-lovelace", rollbackEpochRoom, "Ada Lovelace", 1, "ada-lovelace"]],
         ["sqlId": "create_director_state", "parameters": [rollbackEpochRoom]],
@@ -505,7 +505,7 @@ private func runSchemaSixUpgradeTest() throws {
     require(sqlite3_exec(raw, "INSERT INTO rooms(id,title,status,last_activity_order) VALUES ('room-00000000-0000-4000-8000-000000000096','Preserved','active',1); INSERT INTO participants(id,room_id,kind,display_name,sort_order) VALUES ('human-1','room-00000000-0000-4000-8000-000000000096','human','You',0); INSERT INTO participants(id,room_id,kind,display_name,sort_order,persona_slug) VALUES ('ada-lovelace','room-00000000-0000-4000-8000-000000000096','persona','Ada Lovelace',1,'ada-lovelace'); INSERT INTO director_state(room_id) VALUES ('room-00000000-0000-4000-8000-000000000096'); INSERT INTO events(room_id,sequence,event_json) VALUES ('room-00000000-0000-4000-8000-000000000096',1,'{\"participantId\":\"human-1\",\"text\":\"preserve me\",\"type\":\"human_message\"}');", nil, nil, nil) == SQLITE_OK, "schema-six preserved data fixture failed")
     sqlite3_close_v2(raw)
     let upgraded = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    require(try upgraded.open(expectedSchema: 8)["schema"] as? Int == 8, "schema six did not upgrade to eight")
+    require(try upgraded.open(expectedSchema: 9)["schema"] as? Int == 9, "schema six did not upgrade to nine")
     let preserved = rowStrings(try upgraded.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000096"]))
     require(preserved.count == 1 && preserved[0].contains("preserve me"), "schema six upgrade lost room events")
     require(rowStrings(try upgraded.query(sqlId: "unresolved_generation_command", parameters: ["room-00000000-0000-4000-8000-000000000096"])).isEmpty, "schema six upgrade invented a command")
@@ -543,7 +543,7 @@ private func runSchemaSevenUpgradeAndConsentTests() throws {
 
     let protection = ProtectionSwitch()
     let store = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: protection.protect)
-    require(try store.open(expectedSchema: 8)["schema"] as? Int == 8, "schema seven did not upgrade to eight")
+    require(try store.open(expectedSchema: 9)["schema"] as? Int == 9, "schema seven did not upgrade to nine")
     require(try store.providerDataUseConsent() == nil, "schema seven upgrade invented consent")
     require(rowStrings(try store.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000088"])).first?.contains("preserve seven") == true, "schema seven upgrade lost events")
     require(rowStrings(try store.query(sqlId: "local_draft", parameters: ["room-00000000-0000-4000-8000-000000000088"])).first?.contains("preserved draft") == true, "schema seven upgrade lost draft")
@@ -574,7 +574,7 @@ private func runSchemaSevenUpgradeAndConsentTests() throws {
     sqlite3_close_v2(stale)
     stale = nil
     let staleDefinitionStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try staleDefinitionStore.open(expectedSchema: 8)
+    _ = try staleDefinitionStore.open(expectedSchema: 9)
     require(try staleDefinitionStore.providerDataUseConsent() == nil, "stale definition version was exposed as current consent")
     _ = try staleDefinitionStore.close()
 
@@ -583,7 +583,7 @@ private func runSchemaSevenUpgradeAndConsentTests() throws {
     sqlite3_close_v2(stale)
     stale = nil
     let staleDisclosureStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try staleDisclosureStore.open(expectedSchema: 8)
+    _ = try staleDisclosureStore.open(expectedSchema: 9)
     require(try staleDisclosureStore.providerDataUseConsent() == nil, "stale disclosure version was exposed as current consent")
     _ = try staleDisclosureStore.close()
 
@@ -597,7 +597,7 @@ private func runSchemaSevenUpgradeAndConsentTests() throws {
     sqlite3_close_v2(stale)
     stale = nil
     let staleSelectionStore = GreenRoomDatabaseStore(directory: upgradeRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try staleSelectionStore.open(expectedSchema: 8)
+    _ = try staleSelectionStore.open(expectedSchema: 9)
     require(try staleSelectionStore.providerDataUseConsent() == nil, "stale provider/model selection was exposed as current consent")
     _ = try staleSelectionStore.close()
 
@@ -619,7 +619,7 @@ private func runRoomTalkTests() throws {
     let roomTalkRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-room-talk-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: roomTalkRoot) }
     let store = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try store.open(expectedSchema: 8)
+    _ = try store.open(expectedSchema: 9)
     var roomStatements = createStatements(title: "Room Talk")
     roomStatements.insert(
         ["sqlId": "create_persona", "parameters": ["isaac-newton", "room-00000000-0000-4000-8000-000000000001", "Isaac Newton", 2, "isaac-newton"]],
@@ -654,9 +654,114 @@ private func runRoomTalkTests() throws {
     require(rowStrings(try store.query(sqlId: "room_list", parameters: [])).first?.contains("Room Talk") == true, "room activity list missing")
     _ = try store.close()
     let reopened = GreenRoomDatabaseStore(directory: roomTalkRoot, migrationsDirectory: migrations, fileProtector: { _ in })
-    _ = try reopened.open(expectedSchema: 8)
+    _ = try reopened.open(expectedSchema: 9)
     require(rowStrings(try reopened.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])).count == 3, "force-relaunch lost persona reply")
     require(rowStrings(try reopened.query(sqlId: "provider_selection", parameters: [])).count == 1, "force-relaunch lost provider selection")
+}
+
+private func runReviewDemoDatabaseTests() throws {
+    require(databaseBridgeRejectsProviderStatements(
+        currentMode: "provider", selectedModes: ["review_demo"],
+        statementIds: ["select_room", "prepare_generation_command"]
+    ), "mixed demo selection/provider batch escaped the bridge fence")
+    require(databaseBridgeRejectsProviderStatements(
+        currentMode: "review_demo", selectedModes: ["provider"],
+        statementIds: ["select_room", "reserve_credential"]
+    ), "provider mutation escaped while leaving a demo room")
+    require(!databaseBridgeRejectsProviderStatements(
+        currentMode: "provider", selectedModes: ["review_demo"],
+        statementIds: ["create_room", "select_room"]
+    ), "ordinary demo-room creation was rejected")
+    require(databaseBridgeRejectsProviderStatements(
+        currentMode: "provider", selectedModes: ["review_demo", "provider"],
+        statementIds: ["select_room", "reserve_credential", "select_room"]
+    ), "temporarily selected demo room escaped the bridge fence")
+    require(databaseBridgeRejectsProviderStatements(
+        currentMode: "review_demo", selectedModes: [], statementIds: ["append_event"]
+    ), "ordinary provider-room mutation escaped the demo bridge fence")
+    for queryId in ["provider_selection", "provider_profile", "unresolved_generation_command", "generation_command_by_id"] {
+        require(databaseBridgeRejectsProviderQuery(currentMode: "review_demo", queryId: queryId),
+                "review demo exposed provider query \(queryId)")
+    }
+    require(!databaseBridgeRejectsProviderQuery(currentMode: "review_demo", queryId: "room_events"),
+            "review demo rejected local room events")
+
+    let demoRoot = FileManager.default.temporaryDirectory.appendingPathComponent("greenroom-review-demo-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: demoRoot) }
+    let protection = ProtectionSwitch()
+    var store: GreenRoomDatabaseStore? = GreenRoomDatabaseStore(directory: demoRoot, migrationsDirectory: migrations, fileProtector: protection.protect)
+    require(try store!.open(expectedSchema: 9)["schema"] as? Int == 9, "review demo schema did not open")
+    let roomId = "room-30000000-0000-4000-8000-000000000001"
+    _ = try store!.executeBatch(transactionId: "review-demo-room", statements: [
+        ["sqlId": "create_room", "parameters": [roomId, "Review Demo", "review_demo"]],
+        ["sqlId": "create_human", "parameters": ["human-demo", roomId, "You"]],
+        ["sqlId": "create_persona", "parameters": ["ada-lovelace", roomId, "Ada Lovelace", 1, "ada-lovelace"]],
+        ["sqlId": "create_director_state", "parameters": [roomId]],
+        ["sqlId": "select_room", "parameters": [roomId]],
+        ["sqlId": "save_local_draft", "parameters": [roomId, "Explain the engine"]],
+    ])
+    var failedBatchReachedCommitFence = false
+    expectFailure("transaction_rejected") {
+        _ = try store!.executeBatch(
+            transactionId: "failed-selection-does-not-cancel",
+            statements: [["sqlId": "select_room", "parameters": ["room-30000000-0000-4000-8000-000000000099"]]],
+            beforeCommit: { failedBatchReachedCommitFence = true }
+        )
+    }
+    require(!failedBatchReachedCommitFence, "failed selection reached provider cancellation fence")
+    var replayCommitFenceCount = 0
+    let replayStatements: [[String: Any]] = [[
+        "sqlId": "save_local_draft", "parameters": [roomId, "Explain the engine"],
+    ]]
+    _ = try store!.executeBatch(
+        transactionId: "review-demo-replay-fence", statements: replayStatements,
+        beforeCommit: { replayCommitFenceCount += 1 }
+    )
+    _ = try store!.executeBatch(
+        transactionId: "review-demo-replay-fence", statements: replayStatements,
+        beforeCommit: { replayCommitFenceCount += 1 }
+    )
+    require(replayCommitFenceCount == 1, "transaction replay repeated the commit fence")
+    let requestId = "31000000-0000-4000-8000-000000000001"
+    let state = "{\"acceptedHumanEventNumber\":1,\"autonomousTurns\":1,\"cancelled\":false,\"fallbackIndex\":0,\"lastSelectedAt\":[[\"ada-lovelace\",1]],\"maxAutonomousTurns\":10,\"seen\":[[\"iphone-room:\(roomId)\",\"\(requestId)\"]],\"version\":1}"
+    let human = "{\"participantId\":\"human-demo\",\"text\":\"Explain the engine\",\"type\":\"human_message\"}"
+    let director = "{\"generation\":0,\"reason\":\"selected\",\"sourceEventSequence\":1,\"speaker\":\"ada-lovelace\",\"type\":\"director_decision\"}"
+    let persona = "{\"generation\":0,\"personaSlug\":\"ada-lovelace\",\"sourceEventSequence\":1,\"text\":\"Demonstration reply (offline) — Ada Lovelace: bounded local text.\",\"type\":\"persona_message\"}"
+    let turn: [[String: Any]] = [
+        ["sqlId": "update_review_demo_director_state", "parameters": [state, 1, "ada-lovelace", 1, 0, roomId, 0, 1]],
+        ["sqlId": "append_review_demo_human_event", "parameters": [human, roomId, 0, 1, human, human]],
+        ["sqlId": "append_review_demo_director_event", "parameters": [director, roomId, 0, 2, director, director, 1, director, "ada-lovelace"]],
+        ["sqlId": "append_review_demo_persona_event", "parameters": [persona, roomId, 0, 3, persona, persona, 1, persona, "ada-lovelace", "ada-lovelace"]],
+        ["sqlId": "delete_local_draft", "parameters": [roomId]],
+    ]
+    _ = try store!.executeBatch(transactionId: "review-demo-turn", statements: turn)
+    let events = rowStrings(try store!.query(sqlId: "room_events", parameters: [roomId]))
+    require(events.count == 3 && events[2].contains("Demonstration reply (offline)"), "review demo turn was not persisted")
+    require(rowStrings(try store!.query(sqlId: "local_draft", parameters: [roomId])).isEmpty, "review demo completion retained draft")
+    let room = rowStrings(try store!.query(sqlId: "room_by_id", parameters: [roomId])).first ?? ""
+    require(room.contains("\"inferenceMode\":\"review_demo\""), "review demo room mode was not projected")
+
+    _ = try store!.close(); store = nil
+    store = GreenRoomDatabaseStore(directory: demoRoot, migrationsDirectory: migrations, fileProtector: protection.protect)
+    _ = try store!.open(expectedSchema: 9)
+    require(rowStrings(try store!.query(sqlId: "room_events", parameters: [roomId])).count == 3, "review demo events did not survive relaunch")
+    expectFailure("transaction_rejected") {
+        _ = try store!.executeBatch(transactionId: "review-demo-replay-stale", statements: turn)
+    }
+
+    let normalRoom = "room-30000000-0000-4000-8000-000000000002"
+    _ = try store!.executeBatch(transactionId: "normal-room", statements: [
+        ["sqlId": "create_room", "parameters": [normalRoom, "Normal Room", "provider"]],
+        ["sqlId": "create_human", "parameters": ["human-normal", normalRoom, "You"]],
+        ["sqlId": "create_persona", "parameters": ["ada-lovelace", normalRoom, "Ada Lovelace", 1, "ada-lovelace"]],
+        ["sqlId": "create_director_state", "parameters": [normalRoom]],
+        ["sqlId": "select_room", "parameters": [normalRoom]],
+    ])
+    expectFailure("transaction_rejected") {
+        _ = try store!.executeBatch(transactionId: "normal-cannot-demo", statements: [[
+            "sqlId": "update_review_demo_director_state", "parameters": [state, 1, "ada-lovelace", 1, 0, normalRoom, 0, 1],
+        ]])
+    }
 }
 
 @main
@@ -670,7 +775,7 @@ struct NativeDatabaseTests {
             migrationsDirectory: migrations,
             fileProtector: protection.protect
         )
-        require(try store!.open(expectedSchema: 8)["schema"] as? Int == 8, "schema eight did not open")
+        require(try store!.open(expectedSchema: 9)["schema"] as? Int == 9, "schema nine did not open")
 
         let callId = "00000000-0000-4000-8000-000000000001"
         require(canonicalBridgeCallId(callId) == callId, "canonical call ID was rejected")
@@ -755,7 +860,7 @@ struct NativeDatabaseTests {
 
         let roomB = "room-00000000-0000-4000-8000-000000000002"
         let createB: [[String: Any]] = [
-            ["sqlId": "create_room", "parameters": [roomB, "Room B"]],
+            ["sqlId": "create_room", "parameters": [roomB, "Room B", "provider"]],
             ["sqlId": "create_human", "parameters": ["human-2", roomB, "You"]],
             ["sqlId": "create_persona", "parameters": ["isaac-newton", roomB, "Isaac Newton", 1, "isaac-newton"]],
             ["sqlId": "create_director_state", "parameters": [roomB]],
@@ -767,7 +872,7 @@ struct NativeDatabaseTests {
         _ = try store!.close()
         store = nil
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 8)
+        _ = try store!.open(expectedSchema: 9)
         _ = try store!.executeBatch(transactionId: "message-1", statements: messageStatements())
         let existingA = rowStrings(try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"]))
         require(existingA.count == 2, "relaunch retry duplicated message pair")
@@ -786,7 +891,7 @@ struct NativeDatabaseTests {
         require(try JSONSerialization.data(withJSONObject: boundaryResult, options: [.sortedKeys]).count == valueBudget, "boundary fixture is not exact")
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 3, json_object('participantId','human-1','text', printf('%.*c', \(boundaryPadding), 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 8)
+        _ = try store!.open(expectedSchema: 9)
         let exactResult = try store!.query(
             sqlId: "room_events",
             parameters: ["room-00000000-0000-4000-8000-000000000001"],
@@ -798,7 +903,7 @@ struct NativeDatabaseTests {
         store = nil
         rawExecute("INSERT INTO events(room_id, sequence, event_json) VALUES ('room-00000000-0000-4000-8000-000000000001', 4, json_object('participantId','human-1','text','one-more-row','type','human_message')); INSERT INTO events(room_id, sequence, event_json) VALUES ('\(roomB)', 1, json_object('participantId','human-2','text', printf('%.*c', 300000, 'z'),'type','human_message'));")
         store = GreenRoomDatabaseStore(directory: temporary, migrationsDirectory: migrations, fileProtector: protection.protect)
-        _ = try store!.open(expectedSchema: 8)
+        _ = try store!.open(expectedSchema: 9)
         expectFailure("result_too_large") {
             _ = try store!.query(sqlId: "room_events", parameters: ["room-00000000-0000-4000-8000-000000000001"])
         }
@@ -808,6 +913,7 @@ struct NativeDatabaseTests {
 
         try runRoomTalkTests()
         try runAtomicGenerationDatabaseTests()
+        try runReviewDemoDatabaseTests()
 
         try runSchemaSixUpgradeTest()
 

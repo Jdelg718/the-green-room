@@ -141,7 +141,7 @@ test("rendered mobile controls and actual ios-web accessibility flows pass at 32
       response.writeHead(200, { "Content-Type": "text/javascript" });
       response.end(request.url.endsWith("locked.js")
         ? iosMock.toString("utf8").replace(
-          "async open(call) { return success(call, { schema: 8 }); }",
+          "async open(call) { return success(call, { schema: 9 }); }",
           "async open(call) { return { callId: call.callId, ok: false, error: { code: 'database_locked', retryable: true } }; }",
         )
         : iosMock);

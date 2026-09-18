@@ -119,7 +119,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
 
     func open(expectedSchema: Int) throws -> [String: Any] {
         try serializationLock.withLock {
-            guard expectedSchema == 8 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+            guard expectedSchema == 9 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
             if database == nil {
                 let directory = try applicationDirectory()
                 let path = directory.appendingPathComponent("greenroom.sqlite")
@@ -172,7 +172,11 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
-    func executeBatch(transactionId: String, statements: [[String: Any]]) throws -> [String: Any] {
+    func executeBatch(
+        transactionId: String,
+        statements: [[String: Any]],
+        beforeCommit: (() -> Void)? = nil
+    ) throws -> [String: Any] {
         try serializationLock.withLock {
             guard !transactionId.isEmpty, transactionId.utf8.count <= 256,
                   transactionId.trimmingCharacters(in: .whitespacesAndNewlines) == transactionId,
@@ -228,6 +232,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                     throw DatabaseFailure(code: "transaction_rejected", retryable: false)
                 }
                 try protectDatabaseFiles(try databaseURL())
+                beforeCommit?()
                 try execute("COMMIT", on: database)
                 return result
             } catch {
@@ -254,6 +259,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 sql = """
                 SELECT json_object(
                   'id', room.id, 'title', room.title, 'status', room.status,
+                  'inferenceMode', room.inference_mode,
                   'generation', room.generation,
                   'participants', json((
                     SELECT json_group_array(json_object(
@@ -273,6 +279,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                   'id', room.id,
                   'title', room.title,
                   'status', room.status,
+                  'inferenceMode', room.inference_mode,
                   'generation', room.generation,
                   'participants', json((
                     SELECT json_group_array(json_object(
@@ -328,7 +335,8 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 SELECT json_object(
                   'id', room.id,
                   'title', room.title,
-                  'lastActivityOrder', room.last_activity_order
+                  'lastActivityOrder', room.last_activity_order,
+                  'inferenceMode', room.inference_mode
                 ) AS room_summary_json
                 FROM rooms room
                 WHERE room.status = 'active'
@@ -813,6 +821,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                     WHERE current.profile_id = profile.profile_id
                   )
                   AND room.status = 'active'
+                  AND room.inference_mode = 'provider'
                   AND room.generation = command.expected_generation
                   AND room.next_event_sequence = command.expected_next_event_sequence
                   AND EXISTS (
@@ -1061,6 +1070,46 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
         }
     }
 
+    func currentRoomInferenceMode() throws -> String? {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
+            let statement = try prepare(
+                "SELECT room.inference_mode FROM current_room current JOIN rooms room ON room.id = current.room_id WHERE current.singleton = 1",
+                on: database
+            )
+            defer { sqlite3_finalize(statement) }
+            let status = sqlite3_step(statement)
+            if status == SQLITE_DONE { return nil }
+            guard status == SQLITE_ROW, let raw = sqlite3_column_text(statement, 0) else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+            let mode = String(cString: raw)
+            guard mode == "provider" || mode == "review_demo" else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: false)
+            }
+            return mode
+        }
+    }
+
+    func roomInferenceMode(roomId: String) throws -> String? {
+        try serializationLock.withLock {
+            guard let database else { throw DatabaseFailure(code: "database_unavailable", retryable: true) }
+            let statement = try prepare("SELECT inference_mode FROM rooms WHERE id = ?", on: database)
+            defer { sqlite3_finalize(statement) }
+            try bind([roomId], to: statement)
+            let status = sqlite3_step(statement)
+            if status == SQLITE_DONE { return nil }
+            guard status == SQLITE_ROW, let raw = sqlite3_column_text(statement, 0) else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
+            }
+            let mode = String(cString: raw)
+            guard mode == "provider" || mode == "review_demo" else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: false)
+            }
+            return mode
+        }
+    }
+
     private static let statements = [
         "append_event": "INSERT INTO events(room_id, sequence, event_json) SELECT id, next_event_sequence, ? FROM rooms WHERE id = ?",
         "append_persona_event": """
@@ -1080,7 +1129,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 AND json_extract(decision.event_json, '$.speaker') = ?
             )
           """,
-        "create_room": "INSERT INTO rooms(id, title, status, last_activity_order) SELECT ?, ?, 'active', COALESCE(max(last_activity_order), 0) + 1 FROM rooms",
+        "create_room": "INSERT INTO rooms(id, title, status, last_activity_order, inference_mode) VALUES (?, ?, 'active', (SELECT COALESCE(max(last_activity_order), 0) + 1 FROM rooms), ?)",
         "create_human": "INSERT INTO participants(id, room_id, display_name, kind, sort_order) VALUES (?, ?, ?, 'human', 0)",
         "create_persona": "INSERT INTO participants(id, room_id, display_name, kind, sort_order, persona_slug) VALUES (?, ?, ?, 'persona', ?, ?)",
         "create_director_state": "INSERT INTO director_state(room_id) VALUES (?)",
@@ -1089,6 +1138,49 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
           ON CONFLICT(room_id) DO UPDATE SET text = excluded.text, updated_at = CURRENT_TIMESTAMP
           """,
         "delete_local_draft": "DELETE FROM local_drafts WHERE room_id = ?",
+        "update_review_demo_director_state": """
+          UPDATE director_state
+          SET state_json = ?, last_human_event_sequence = ?, last_speaker_id = ?,
+              autonomous_turns = ?, scheduling_window_generation = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE room_id = ? AND EXISTS (
+            SELECT 1 FROM rooms WHERE id = director_state.room_id
+              AND inference_mode = 'review_demo' AND status = 'active'
+              AND generation = ? AND next_event_sequence = ?
+              AND EXISTS (SELECT 1 FROM current_room WHERE singleton = 1 AND room_id = rooms.id)
+          )
+          """,
+        "append_review_demo_human_event": """
+          INSERT INTO events(room_id, sequence, event_json)
+          SELECT room.id, room.next_event_sequence, ? FROM rooms room
+          WHERE room.id = ? AND room.inference_mode = 'review_demo' AND room.status = 'active'
+            AND room.generation = ? AND room.next_event_sequence = ?
+            AND json_extract(?, '$.type') = 'human_message'
+            AND EXISTS (SELECT 1 FROM participants human WHERE human.room_id = room.id
+              AND human.kind = 'human' AND human.id = json_extract(?, '$.participantId'))
+            AND EXISTS (SELECT 1 FROM current_room WHERE singleton = 1 AND room_id = room.id)
+          """,
+        "append_review_demo_director_event": """
+          INSERT INTO events(room_id, sequence, event_json)
+          SELECT room.id, room.next_event_sequence, ? FROM rooms room
+          WHERE room.id = ? AND room.inference_mode = 'review_demo' AND room.status = 'active'
+            AND room.generation = ? AND room.next_event_sequence = ?
+            AND json_extract(?, '$.type') = 'director_decision'
+            AND json_extract(?, '$.sourceEventSequence') = ?
+            AND json_extract(?, '$.speaker') = ?
+            AND EXISTS (SELECT 1 FROM current_room WHERE singleton = 1 AND room_id = room.id)
+          """,
+        "append_review_demo_persona_event": """
+          INSERT INTO events(room_id, sequence, event_json)
+          SELECT room.id, room.next_event_sequence, ? FROM rooms room
+          WHERE room.id = ? AND room.inference_mode = 'review_demo' AND room.status = 'active'
+            AND room.generation = ? AND room.next_event_sequence = ?
+            AND json_extract(?, '$.type') = 'persona_message'
+            AND json_extract(?, '$.sourceEventSequence') = ?
+            AND json_extract(?, '$.personaSlug') = ?
+            AND EXISTS (SELECT 1 FROM participants persona WHERE persona.room_id = room.id
+              AND persona.kind = 'persona' AND persona.persona_slug = ?)
+            AND EXISTS (SELECT 1 FROM current_room WHERE singleton = 1 AND room_id = room.id)
+          """,
         "prepare_generation_command": """
           INSERT INTO generation_commands(
             command_id, request_id, room_id, request_digest, request_plan_json,
@@ -1098,7 +1190,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
           SELECT ?, ?, room.id, ?, input.plan_json, ?, ?, ?, ?, ?, input.persona_slug, 'prepared'
           FROM rooms room
           CROSS JOIN (SELECT ? AS persona_slug, ? AS plan_json) input
-          WHERE room.id = ? AND room.status = 'active'
+          WHERE room.id = ? AND room.status = 'active' AND room.inference_mode = 'provider'
             AND room.generation = ? AND room.next_event_sequence = ?
             AND NOT EXISTS (
               SELECT 1 FROM generation_commands unresolved
@@ -1169,6 +1261,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 AND credential.credential_ref = ? AND credential.mutation_id = ?
                 AND credential.lifecycle_state = 'ready' AND credential.tombstoned = 0
                 AND room.status = 'active'
+                AND room.inference_mode = 'provider'
                 AND room.generation = generation_commands.expected_generation
                 AND room.next_event_sequence = generation_commands.expected_next_event_sequence
                 AND EXISTS (
@@ -1257,7 +1350,9 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     ]
 
     private static let requiredSingleChangeStatements = Set([
-        "append_event", "append_persona_event", "update_director_state", "create_connection_profile_revision",
+        "append_event", "append_persona_event", "update_director_state",
+        "update_review_demo_director_state", "append_review_demo_human_event",
+        "append_review_demo_director_event", "append_review_demo_persona_event", "create_connection_profile_revision",
         "reserve_credential", "save_provider_selection", "tombstone_credential", "prepare_generation_command",
         "begin_generation_command", "fail_generation_command", "interrupt_generation_command",
         "complete_generation_command", "complete_silent_generation_command", "abandon_generation_command"
@@ -1302,13 +1397,13 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
             "0001-iphone-alpha.sql", "0002-ordered-events.sql",
             "0003-shared-director-state.sql", "0004-transaction-replay.sql",
             "0005-credential-lifecycle.sql", "0006-room-talk.sql", "0007-generation-commands.sql",
-            "0008-provider-data-use-consent.sql"
+            "0008-provider-data-use-consent.sql", "0009-review-demo-mode.sql"
         ]
-        guard current <= 8,
+        guard current <= 9,
               let manifestURL = migrationURL(file: "manifest.json"),
               let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              manifest["schema"] as? Int == 8,
+              manifest["schema"] as? Int == 9,
               let migrations = manifest["migrations"] as? [[String: Any]],
               migrations.count == expectedFiles.count else {
             throw DatabaseFailure(code: "migration_rejected", retryable: false)
@@ -1337,7 +1432,7 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
                 throw DatabaseFailure(code: "migration_rejected", retryable: false)
             }
         }
-        guard current == 8 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
+        guard current == 9 else { throw DatabaseFailure(code: "migration_rejected", retryable: false) }
     }
 
     private func migrationURL(file: String) -> URL? {
@@ -1465,6 +1560,29 @@ final class GreenRoomDatabaseStore: @unchecked Sendable {
     }
 }
 
+let providerOnlyDatabaseStatementIds = Set([
+    "append_event", "append_persona_event", "update_director_state",
+    "create_connection_profile_revision", "reserve_credential", "save_provider_selection",
+    "tombstone_credential", "prepare_generation_command", "begin_generation_command",
+    "fail_generation_command", "interrupt_generation_command", "complete_generation_command",
+    "complete_silent_generation_command", "abandon_generation_command",
+])
+
+let providerOnlyDatabaseQueryIds = Set([
+    "provider_selection", "provider_profile", "unresolved_generation_command", "generation_command_by_id",
+])
+
+func databaseBridgeRejectsProviderStatements(
+    currentMode: String?, selectedModes: [String], statementIds: [String]
+) -> Bool {
+    (currentMode == "review_demo" || selectedModes.contains("review_demo")) &&
+        statementIds.contains(where: providerOnlyDatabaseStatementIds.contains)
+}
+
+func databaseBridgeRejectsProviderQuery(currentMode: String?, queryId: String) -> Bool {
+    currentMode == "review_demo" && providerOnlyDatabaseQueryIds.contains(queryId)
+}
+
 #if canImport(Capacitor)
 @objc(GreenRoomDatabasePlugin)
 final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
@@ -1500,7 +1618,7 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func checkpoint(_ call: CAPPluginCall) {
         respond(call, method: "database.checkpoint") { payload in
             guard payload.isEmpty else { throw DatabaseFailure(code: "invalid_call", retryable: false) }
-            return try GreenRoomNativeAuthority.shared.withReconciledDatabase { try self.store.checkpoint() }
+            return try GreenRoomNativeAuthority.shared.withDatabaseAuthority { try self.store.checkpoint() }
         }
     }
 
@@ -1511,8 +1629,58 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
                   let statements = payload["statements"] as? [[String: Any]] else {
                 throw DatabaseFailure(code: "invalid_call", retryable: false)
             }
-            return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
-                try self.store.executeBatch(transactionId: transactionId, statements: statements)
+            return try GreenRoomNativeAuthority.shared.withDatabaseAuthority {
+                let ids = try statements.map { statement -> String in
+                    guard let sqlId = statement["sqlId"] as? String else {
+                        throw DatabaseFailure(code: "invalid_call", retryable: false)
+                    }
+                    return sqlId
+                }
+                let currentMode = try self.store.currentRoomInferenceMode()
+                var selectedModes: [String] = []
+                for selection in statements where (selection["sqlId"] as? String) == "select_room" {
+                    guard let parameters = selection["parameters"] as? [Any], let roomId = parameters.first as? String else {
+                        throw DatabaseFailure(code: "invalid_call", retryable: false)
+                    }
+                    var mode: String?
+                    if let creation = statements.first(where: {
+                        ($0["sqlId"] as? String) == "create_room" &&
+                        (($0["parameters"] as? [Any])?.first as? String) == roomId
+                    }), let creationParameters = creation["parameters"] as? [Any], creationParameters.count == 3 {
+                        mode = creationParameters[2] as? String
+                    }
+                    if mode == nil { mode = try self.store.roomInferenceMode(roomId: roomId) }
+                    if let mode { selectedModes.append(mode) }
+                }
+                if databaseBridgeRejectsProviderStatements(
+                    currentMode: currentMode, selectedModes: selectedModes, statementIds: ids
+                ) {
+                    throw DatabaseFailure(code: "database_unavailable", retryable: false)
+                }
+                let finalSelectedMode = selectedModes.last
+                let execute = {
+                    do {
+                        let result = try self.store.executeBatch(
+                            transactionId: transactionId,
+                            statements: statements,
+                            beforeCommit: finalSelectedMode == "review_demo"
+                                ? { ProviderTaskRegistry.shared.updateRoomModeAvailability(false) }
+                                : nil
+                        )
+                        if finalSelectedMode == "provider" { ProviderTaskRegistry.shared.updateRoomModeAvailability(true) }
+                        return result
+                    } catch {
+                        if finalSelectedMode != nil {
+                            let persistedMode = try? self.store.currentRoomInferenceMode()
+                            ProviderTaskRegistry.shared.updateRoomModeAvailability(persistedMode != "review_demo")
+                        }
+                        throw error
+                    }
+                }
+                if ids.contains(where: providerOnlyDatabaseStatementIds.contains) {
+                    return try GreenRoomNativeAuthority.shared.withReconciledDatabase(execute)
+                }
+                return try execute()
             }
         }
     }
@@ -1562,8 +1730,22 @@ final class GreenRoomDatabasePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let options = call.options as? [String: Any] ?? [:]
             let callId = options["callId"] as? String ?? "invalid"
-            return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
-                try self.store.query(
+            return try GreenRoomNativeAuthority.shared.withDatabaseAuthority {
+                if databaseBridgeRejectsProviderQuery(
+                    currentMode: try self.store.currentRoomInferenceMode(), queryId: sqlId
+                ) {
+                    throw DatabaseFailure(code: "database_unavailable", retryable: false)
+                }
+                if providerOnlyDatabaseQueryIds.contains(sqlId) {
+                    return try GreenRoomNativeAuthority.shared.withReconciledDatabase {
+                        try self.store.query(
+                            sqlId: sqlId,
+                            parameters: parameters,
+                            maximumResultBytes: bridgeSuccessValueBudget(callId: callId)
+                        )
+                    }
+                }
+                return try self.store.query(
                     sqlId: sqlId,
                     parameters: parameters,
                     maximumResultBytes: bridgeSuccessValueBudget(callId: callId)

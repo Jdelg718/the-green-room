@@ -62,8 +62,9 @@ const REVIEWED_MIGRATION_SHA256 = new Map([
   ["0006-room-talk.sql", "aa213b30cbbf9af668e0ab62c3eed93fe5538ee81bf887f88d30b3625c93dd45"],
   ["0007-generation-commands.sql", "1ffbc6cc570e1205a8353a21e2218aca3603d1e84bd7a3d13772f486bf040899"],
   ["0008-provider-data-use-consent.sql", "8aeeb24a57431e425de09a2176ba29e1174f1e3ae17d00a5bf0b68d5cb3a7eef"],
+  ["0009-review-demo-mode.sql", "0b4198dd23b84cc96eae32cdc1806d5840d676326a340d5f1930d3b9bc496a60"],
 ]);
-const REVIEWED_MIGRATION_MANIFEST_SHA256 = "fbae3d99793bc3f2298e6db8840654c3ef033670104fb2927e77d9019df38ef9";
+const REVIEWED_MIGRATION_MANIFEST_SHA256 = "0b872a5883fc1ca11d85b7e3598caddf8d50eb8fa1a6b32419852072bb808dbc";
 const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/ada-lovelace.webp", "daa916a330fde6c45e6998e7cd447c205b71a89e28ef2e0ff890679f3566a5e2"],
   ["assets/portraits/benjamin-franklin.webp", "16951ccd809df29121a3417f344d4656320aef071a6cdf69138c89c9ca49e7c0"],
@@ -85,24 +86,24 @@ const REVIEWED_WEB_SHA256 = new Map([
   ["assets/portraits/thomas-jefferson.webp", "1af3d4d7f72dc0f5d94f0f889bd14fca3a6c737c071c68e521580a4178b4fd06"],
   ["assets/portraits/timothy-c-may.webp", "b5c48f80d6fc6480d9a7f262922f4f6e0b07fe49c40714cd7a2f366080bf5a34"],
   ["director.js", "c4ea9c32296011a1f2705402ce013ec646eb46263c6e4b2ee9fa907b241e8565"],
-  ["index.html", "04c59395abe57a0d7a30ab1ecfdff9bdd74d41a6b10887525ac2fe948ecfb265"],
+  ["index.html", "5fb16dc22752f77662fa176ec88d40898044ab5bdfd850de68b659d730f5fd1a"],
   ["personas.js", "3a15aaa03034134a0407e178ca65e431a1ca88c4fb2c2886d7b8c7ff16fb6849"],
   ["portraits.js", "c8dcae39d92247699feff3109aa7f40802ec1a57a0e7019309c04c427828b0ca"],
   ["provider-data-use.js", "094be80e9d92c72ef1a426f30fbf230e120979bddde7577e1a1aa9f6d167f813"],
-  ["room-runtime.js", "3b159eb52fbd5a9f2e5cf5c5321e3eb26e3066208d2d879d538e78e9d0150923"],
-  ["shell.css", "2b1a606df3e3a7b65a7e68b7c6c1950f754ddb1c9672fd4e1cf7a6a671f1c271"],
+  ["room-runtime.js", "bf6a029b1536bde4597ab62062e336c89acf237f454fe49debddd5c67cf38005"],
+  ["shell.css", "389f4dc9698f8400bab51fdd85cac2a6b65f11b799b6b40849454fffda153d9f"],
 ]);
 const REVIEWED_SWIFT_SHA256 = new Map([
   ["App/AppDelegate.swift", "1f48df1782c8c84d31741cad58ea06f0e7148aa21d27d2d1f7524d516107d201"],
   ["App/ContainedBridgeViewController.swift", "02662d6c07aae235631bc216c0230e569392e6cfad712675ef4997fd40d24691"],
   ["App/Credentials/GreenRoomCredentialLifecycle.swift", "611a310306c0984490a3bc44a5dec1a49ee0a9e33ad46d7ea2bd4890a7d1e48e"],
-  ["App/Credentials/GreenRoomCredentialPlugin.swift", "63118e7ad0a5174eb374698371ca5aefd086696c29d1575c8c7dd65a96405225"],
-  ["App/Credentials/DeviceCredentialAcceptance.swift", "168ddb64fa29d665f2474f97f75b399eefa751b994f9a37ed238b1ab6d604003"],
+  ["App/Credentials/GreenRoomCredentialPlugin.swift", "9a8b10b8688e2537ee15ada6050125c8f1c7d42e7ab1d6911b170f67d2a850d8"],
+  ["App/Credentials/DeviceCredentialAcceptance.swift", "ed2f8e7fb002a784367e7484c0c3438d19ee3773db7975e232ad469a8a3515a7"],
   ["App/Credentials/SecurityCredentialStore.swift", "9e59af1628ddc2ddd1d0eb6e87f30c37cf150888b9c5cab657304aa91206bc5f"],
-  ["App/GreenRoomDatabasePlugin.swift", "5fa323a217fdd2409d1c494fc1c4c811306da1d3a94db2bedd49223ad09d9196"],
-  ["App/NativeLifecycleCoordinator.swift", "28c28b3106856757be16d51dc5d538b80a84a0afe6ea7c60a854034654a1e37c"],
+  ["App/GreenRoomDatabasePlugin.swift", "f5f98bf31097b9b184d1f8d032d9c3a1bd113c3086def0dbfb853ba545812c63"],
+  ["App/NativeLifecycleCoordinator.swift", "a1e123eae9ed983f2ccd7e5b418ea60dc855e0f38ab3261cfe3dcfcc080b63d3"],
   ["App/Providers/ApprovedProviderDefinitions.swift", "3399b7c370730437fbbe3e3277787702c003aea1474e0ae573bb64888c7d38e4"],
-  ["App/Providers/GreenRoomProviderPlugin.swift", "94caa62eee16424b8c936e62328541568a731ad444a529e3368df87a342f34c6"],
+  ["App/Providers/GreenRoomProviderPlugin.swift", "28f884bd9faa0418151ae250fb4bb28a30ade666282f1c31b2fa0633bed4306d"],
   ["App/SceneDelegate.swift", "a7073fbb97cb7d2c34840ce30808b324402644acebbce43de8fad225e073e1ef"],
 ]);
 const REVIEWED_ACCESSIBILITY_SHA256 = new Map([
@@ -582,6 +583,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
     "ios/App/App/Resources/Migrations/0005-credential-lifecycle.sql",
     "ios/App/App/Resources/Migrations/0006-room-talk.sql",
     "ios/App/App/Resources/Migrations/0008-provider-data-use-consent.sql",
+    "ios/App/App/Resources/Migrations/0009-review-demo-mode.sql",
     "ios/App/App/Resources/Migrations/manifest.json",
     "ios/App/App/Info.plist",
     "ios/App/App/App.entitlements",
@@ -655,7 +657,7 @@ export function verifySourceCore(root = process.cwd(), adapters) {
   requireCondition((project.match(/DEVELOPMENT_TEAM = JZ233HBW3Z;/gu) ?? []).length === 4, "development team must be exact");
   requireCondition((project.match(/MARKETING_VERSION = 0\.1\.0;/gu) ?? []).length === 2, "marketing version must be 0.1.0 in Debug and Release");
   const appBuildVersions = resolveXcodeTargetBuildVersions(project, "App");
-  requireCondition(appBuildVersions.Debug === "4" && appBuildVersions.Release === "4", "App target build number must be 4 in Debug and Release");
+  requireCondition(appBuildVersions.Debug === "5" && appBuildVersions.Release === "5", "App target build number must be 5 in Debug and Release");
   requireCondition((project.match(/GREENROOM_SOURCE_COMMIT = development;/gu) ?? []).length === 2, "normal builds must use the non-release declared-commit placeholder");
   requireCondition((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/gu) ?? []).length === 2, "Xcode code-sign entitlements must name App/App.entitlements in Debug and Release");
   requireCondition((project.match(/ENABLE_DEBUG_DYLIB = NO;/gu) ?? []).length === 2, "debug dylib splitting must remain disabled");
@@ -773,7 +775,7 @@ export function verifyBuiltAppCore(appPath) {
   const info = applePlistJson(join(appRoot, "Info.plist"), appRoot);
   requireCondition(info.CFBundleIdentifier === BUNDLE_ID, "built CFBundleIdentifier is not exact");
   requireCondition(info.CFBundleDisplayName === APP_NAME, "built display name is not exact");
-  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "4", "built version/build identity is not exactly 0.1.0 (4)");
+  requireCondition(info.CFBundleShortVersionString === "0.1.0" && info.CFBundleVersion === "5", "built version/build identity is not exactly 0.1.0 (5)");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "built export encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === "development" || /^[0-9a-f]{40}$/u.test(info.GreenRoomSourceCommit), "built source commit must be development or an exact lowercase Git commit");
   requireCondition(info.MinimumOSVersion === MINIMUM_IOS, "built MinimumOSVersion is not exactly 18.6");

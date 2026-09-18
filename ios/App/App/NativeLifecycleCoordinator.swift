@@ -59,7 +59,7 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
             return false
         }
         if application.isProtectedDataAvailable {
-            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
+            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 9)
         }
     }
 
@@ -71,7 +71,7 @@ final class NativeLifecycleCoordinator: @unchecked Sendable {
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
         mutateAndPublishAvailability { protectedDataAvailable = true; epoch += 1; return false }
         if application.applicationState == .active {
-            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 8)
+            _ = try? GreenRoomNativeAuthority.shared.openDatabase(expectedSchema: 9)
         }
     }
 

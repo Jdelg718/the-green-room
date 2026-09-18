@@ -23,6 +23,13 @@ const ROOM_ID = /^(?:room-local-default|room-[0-9a-f-]{36})$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CATALOG = new Map(BUNDLED_PERSONAS.map((persona) => [persona.slug, persona]));
 const DIRECTOR_REASONS = new Set(Object.values(DIRECTOR_REASON));
+export const ROOM_INFERENCE_MODE = Object.freeze({ PROVIDER: "provider", REVIEW_DEMO: "review_demo" });
+const REVIEW_DEMO_PREFIX = "Demonstration reply (offline)";
+const REVIEW_DEMO_LINES = Object.freeze([
+  "I would begin by naming the premise clearly, then test it against what the room has already said.",
+  "A useful next step is to separate the observation from the conclusion and examine each in turn.",
+  "Let us keep this bounded: one claim, one reason, and one question for the room to carry forward.",
+]);
 let activeRoom = null;
 let activeEvents = Object.freeze([]);
 let activeViewToken = 0;
@@ -42,6 +49,7 @@ let pendingDraftFailure = null;
 let pendingRoomReopen = null;
 let abandonModal = null;
 let credentialRemovalModal = null;
+let pickerInferenceMode = ROOM_INFERENCE_MODE.PROVIDER;
 
 export function operationLatch(onChange = () => {}) {
   let current = null;
@@ -271,16 +279,17 @@ function lifecycleAllowsNetworkMutation(status) {
   return lifecycleAllowsLocalWrites(status) && status.pathAvailable;
 }
 
-export function mutationAvailability(status, hasReadyProvider, hasUnresolvedCommand) {
+export function mutationAvailability(status, hasReadyProvider, hasUnresolvedCommand, roomMode = ROOM_INFERENCE_MODE.PROVIDER) {
   const local = lifecycleAllowsLocalWrites(parseLifecycleStatus(status));
   const network = local && status.pathAvailable;
+  const demo = roomMode === ROOM_INFERENCE_MODE.REVIEW_DEMO;
   return Object.freeze({
     abandon: local && hasUnresolvedCommand,
     createRoom: network,
     draft: local && !hasUnresolvedCommand,
     providerSave: network,
     retry: network && hasReadyProvider && hasUnresolvedCommand,
-    send: network && hasReadyProvider && !hasUnresolvedCommand,
+    send: !hasUnresolvedCommand && (demo ? local : network && hasReadyProvider),
   });
 }
 
@@ -329,8 +338,9 @@ function parseRoom(value) {
   const encoded = value.rows[0]?.[0];
   if (typeof encoded !== "string" || encoded.length > 64 * 1024) throw new Error("Invalid local room projection.");
   const room = JSON.parse(encoded);
-  if (!exactRecord(room, ["generation", "id", "participants", "status", "title"]) ||
+  if (!exactRecord(room, ["generation", "id", "inferenceMode", "participants", "status", "title"]) ||
       !ROOM_ID.test(room.id) || room.status !== "active" || !Number.isSafeInteger(room.generation) || room.generation < 0 ||
+      !new Set(Object.values(ROOM_INFERENCE_MODE)).has(room.inferenceMode) ||
       typeof room.title !== "string" || room.title.length < 1 || room.title.length > 128 ||
       !Array.isArray(room.participants) || room.participants.length < 2 || room.participants.length > 4) {
     throw new Error("Invalid local room projection.");
@@ -454,11 +464,12 @@ async function readDirectorContext(plugin, room, uuid) {
 }
 
 export async function openLocalRoom(plugin, uuid = () => crypto.randomUUID()) {
-  await invoke(plugin, "database.open", { expectedSchema: 8 }, uuid);
+  await invoke(plugin, "database.open", { expectedSchema: 9 }, uuid);
   const room = await readCurrentRoom(plugin, uuid);
   const events = room === null ? [] : await readRoomEvents(plugin, room.id, uuid);
   const draft = room === null ? null : await loadLocalDraft(plugin, room.id, uuid);
-  const command = room === null ? null : await readUnresolvedGenerationCommand(plugin, room.id, uuid);
+  const command = room === null || room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO
+    ? null : await readUnresolvedGenerationCommand(plugin, room.id, uuid);
   return Object.freeze({ command, draft, events: Object.freeze(events), room, source: room === null ? "empty" : "reopened" });
 }
 
@@ -498,16 +509,17 @@ function castTitle(personas) {
   return `${names[0]}, ${names[1]} & ${names[2]}`;
 }
 
-export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.randomUUID()) {
+export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.randomUUID(), inferenceMode = ROOM_INFERENCE_MODE.PROVIDER) {
   if (!Array.isArray(personaSlugs) || personaSlugs.length < 1 || personaSlugs.length > MAX_CAST ||
       new Set(personaSlugs).size !== personaSlugs.length || personaSlugs.some((slug) => !CATALOG.has(slug))) {
     throw new TypeError("Choose one to three unique bundled characters.");
   }
+  if (!new Set(Object.values(ROOM_INFERENCE_MODE)).has(inferenceMode)) throw new TypeError("Choose a valid room mode.");
   const personas = personaSlugs.map((slug) => CATALOG.get(slug));
   const roomId = `room-${nextUuid(uuid)}`;
   const humanId = `human-${nextUuid(uuid)}`;
   const statements = [
-    { sqlId: "create_room", parameters: [roomId, castTitle(personas)] },
+    { sqlId: "create_room", parameters: [roomId, castTitle(personas), inferenceMode] },
     { sqlId: "create_human", parameters: [humanId, roomId, "You"] },
     ...personas.map((persona, index) => ({
       sqlId: "create_persona", parameters: [persona.slug, roomId, persona.name, index + 1, persona.slug],
@@ -519,6 +531,65 @@ export async function createLocalRoom(plugin, personaSlugs, uuid = () => crypto.
   const room = await readCurrentRoom(plugin, uuid);
   if (room?.id !== roomId) throw new Error("The selected local room was not committed.");
   return Object.freeze({ events: Object.freeze([]), room, source: "created" });
+}
+
+function demoReplyIndex(personaSlug, text, turnNumber) {
+  let value = 2166136261;
+  for (const byte of new TextEncoder().encode(`${personaSlug}\0${text}\0${turnNumber}`)) {
+    value ^= byte;
+    value = Math.imul(value, 16777619) >>> 0;
+  }
+  return value % REVIEW_DEMO_LINES.length;
+}
+
+export function deterministicReviewDemoReply(personaSlug, text, turnNumber) {
+  const persona = CATALOG.get(personaSlug);
+  if (!persona || typeof text !== "string" || text.trim().length === 0 || text.length > 16_384 ||
+      !Number.isSafeInteger(turnNumber) || turnNumber < 1) throw new TypeError("Invalid demonstration reply input.");
+  const reply = `${REVIEW_DEMO_PREFIX} — ${persona.name}: ${REVIEW_DEMO_LINES[demoReplyIndex(personaSlug, text, turnNumber)]}`;
+  if (encodedBytes(reply) > 700) throw new Error("Demonstration reply exceeded its local bound.");
+  return reply;
+}
+
+export async function completeReviewDemoTurn(database, room, text, uuid = () => crypto.randomUUID(), options = {}) {
+  if (room?.inferenceMode !== ROOM_INFERENCE_MODE.REVIEW_DEMO) throw new TypeError("A Demonstration Mode room is required.");
+  if (typeof text !== "string" || text.trim().length === 0 || text.length > 16_384) throw new TypeError("Message must be nonblank and bounded.");
+  validateMessageOptions(options);
+  const requestId = options.requestId ?? nextUuid(uuid);
+  if (!UUID.test(requestId)) throw new TypeError("requestId must be a canonical lowercase UUID.");
+  const events = await readRoomEvents(database, room.id, uuid);
+  const context = await readDirectorContext(database, room, uuid);
+  const human = room.participants.find(({ kind }) => kind === "human");
+  if (!human) throw new TypeError("A valid open room is required.");
+  const personaIds = context.personas.map(({ id }) => id);
+  const director = context.state === null ? new Director(personaIds) : Director.restore(personaIds, context.state);
+  for (const persona of context.personas) director.setMuted(persona.id, persona.muted);
+  const target = options.targetPersonaSlug === undefined ? undefined : context.personas.find(({ personaSlug }) => personaSlug === options.targetPersonaSlug);
+  if (options.targetPersonaSlug !== undefined && target === undefined) throw new TypeError("The selected character is not in the active room.");
+  const decision = director.schedule(new TrustedEventAdapter(`iphone-room:${room.id}`).humanEvent(requestId, text, true), target?.id);
+  if (decision.speaker === null) throw new Error("The demonstration director did not select a speaker.");
+  const source = context.nextEventSequence;
+  const state = director.snapshot();
+  const humanEvent = { participantId: human.id, text, type: "human_message" };
+  const directorEvent = { generation: context.generation, reason: decision.reason, sourceEventSequence: source, speaker: decision.speaker, type: "director_decision" };
+  const responseText = deterministicReviewDemoReply(decision.speaker, text, state.autonomousTurns);
+  const personaEvent = { generation: context.generation, personaSlug: decision.speaker, sourceEventSequence: source, text: responseText, type: "persona_message" };
+  const humanJSON = JSON.stringify(humanEvent);
+  const directorJSON = JSON.stringify(directorEvent);
+  const personaJSON = JSON.stringify(personaEvent);
+  await invoke(database, "database.executeBatch", {
+    transactionId: `review-demo-${requestId}`,
+    statements: [
+      { sqlId: "update_review_demo_director_state", parameters: [JSON.stringify(state), source, decision.speaker, state.autonomousTurns, context.generation, room.id, context.generation, source] },
+      { sqlId: "append_review_demo_human_event", parameters: [humanJSON, room.id, context.generation, source, humanJSON, humanJSON] },
+      { sqlId: "append_review_demo_director_event", parameters: [directorJSON, room.id, context.generation, source + 1, directorJSON, directorJSON, source, directorJSON, decision.speaker] },
+      { sqlId: "append_review_demo_persona_event", parameters: [personaJSON, room.id, context.generation, source + 2, personaJSON, personaJSON, source, personaJSON, decision.speaker, decision.speaker] },
+      { sqlId: "delete_local_draft", parameters: [room.id] },
+    ],
+  }, uuid);
+  const committed = Object.freeze(await readRoomEvents(database, room.id, uuid));
+  verifyCommittedTurn({ personaSlug: decision.speaker, requestPlan: { sourceEventSequence: source } }, committed, responseText);
+  return Object.freeze({ decision, events: committed, text: responseText });
 }
 
 function validateMessageOptions(options) {
@@ -911,7 +982,8 @@ export async function listLocalRooms(plugin, uuid = () => crypto.randomUUID()) {
     const encoded = row?.[0];
     if (typeof encoded !== "string" || encodedBytes(encoded) > 1024) throw new Error("Invalid room list projection.");
     const summary = JSON.parse(encoded);
-    if (!exactRecord(summary, ["id", "lastActivityOrder", "title"]) || !ROOM_ID.test(summary.id) ||
+    if (!exactRecord(summary, ["id", "inferenceMode", "lastActivityOrder", "title"]) || !ROOM_ID.test(summary.id) ||
+        !new Set(Object.values(ROOM_INFERENCE_MODE)).has(summary.inferenceMode) ||
         typeof summary.title !== "string" || !Number.isSafeInteger(summary.lastActivityOrder) || summary.lastActivityOrder < 0) {
       throw new Error("Invalid room list projection.");
     }
@@ -921,11 +993,16 @@ export async function listLocalRooms(plugin, uuid = () => crypto.randomUUID()) {
 
 export async function reopenLocalRoom(plugin, roomId, uuid = () => crypto.randomUUID()) {
   if (!ROOM_ID.test(roomId)) throw new TypeError("A valid local room ID is required.");
+  await invoke(plugin, "database.executeBatch", {
+    transactionId: `select-${roomId}-${nextUuid(uuid)}`,
+    statements: [{ sqlId: "select_room", parameters: [roomId] }],
+  }, uuid);
   const room = await readRoomById(plugin, roomId, uuid);
   if (room?.id !== roomId) throw new Error("The local room is unavailable.");
   const events = await readRoomEvents(plugin, roomId, uuid);
   const draft = await loadLocalDraft(plugin, roomId, uuid);
-  const command = await readUnresolvedGenerationCommand(plugin, roomId, uuid);
+  const command = room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO
+    ? null : await readUnresolvedGenerationCommand(plugin, roomId, uuid);
   const confirmed = await readRoomById(plugin, roomId, uuid);
   if (confirmed?.generation !== room.generation) throw new Error("The local room changed while reopening.");
   return Object.freeze({ command, draft, events: Object.freeze(events), room, source: "reopened" });
@@ -1072,7 +1149,13 @@ export function renderRoom(opened) {
   activeCommand = opened.command ?? null;
   const cast = room.participants.filter(({ kind }) => kind === "persona").map(({ personaSlug }) => CATALOG.get(personaSlug));
   document.getElementById("room-title").textContent = room.title;
-  document.getElementById("room-state").textContent = opened.source === "created" ? "New local room created." : "Saved local room reopened.";
+  const isDemo = room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO;
+  document.getElementById("room-state").textContent = isDemo
+    ? (opened.source === "created" ? "New offline Demonstration Mode room created." : "Saved offline Demonstration Mode room reopened.")
+    : (opened.source === "created" ? "New local room created." : "Saved local room reopened.");
+  document.getElementById("review-demo-banner").hidden = !isDemo;
+  document.getElementById("leave-review-demo").hidden = !isDemo;
+  document.getElementById("provider-button").disabled = isDemo;
   const roster = document.getElementById("room-cast");
   roster.replaceChildren(...cast.map((persona) => {
     const item = document.createElement("li");
@@ -1211,7 +1294,7 @@ function renderCommandAndMutationState() {
   const error = document.getElementById("reply-error");
   const status = document.getElementById("message-status");
   const unresolved = activeCommand !== null;
-  const availability = mutationAvailability(mutationGate, providerReady, unresolved);
+  const availability = mutationAvailability(mutationGate, providerReady, unresolved, activeRoom?.inferenceMode);
   input.disabled = !availability.draft;
   target.disabled = !availability.draft;
   send.disabled = !availability.send;
@@ -1238,6 +1321,7 @@ function renderCommandAndMutationState() {
     if (pendingDraftFailure !== null) status.textContent = "Draft not saved yet. Your text is still here; retry saving it.";
     else if (input.value.length > 0) status.textContent = "Not sent";
     else if (!localWrites) status.textContent = "Room is read-only while the app is inactive or protected data is unavailable.";
+    else if (activeRoom?.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO) status.textContent = "Demonstration Mode · ready for an offline local reply.";
     else if (!mutationGate.pathAvailable) status.textContent = "Offline · room is readable and drafts stay Not sent.";
     else if (!providerReady) status.textContent = "Set up a ready provider before sending. Drafts stay Not sent.";
     else status.textContent = "Ready. Lines and replies commit atomically.";
@@ -1278,7 +1362,9 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
   function refresh() {
     count.textContent = `${selected.size} of ${MAX_CAST} selected`;
     create.dataset.selectionReady = String(selected.size > 0);
-    create.disabled = selected.size === 0 || !lifecycleAllowsNetworkMutation(mutationGate);
+    const canCreate = pickerInferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO
+      ? lifecycleAllowsLocalWrites(mutationGate) : lifecycleAllowsNetworkMutation(mutationGate);
+    create.disabled = selected.size === 0 || !canCreate;
     for (const button of grid.querySelectorAll("button[data-slug]")) {
       const active = selected.has(button.dataset.slug);
       button.setAttribute("aria-pressed", String(active));
@@ -1316,7 +1402,9 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
   }));
 
   create.addEventListener("click", async () => {
-    if (!lifecycleAllowsNetworkMutation(mutationGate)) {
+    const canCreate = pickerInferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO
+      ? lifecycleAllowsLocalWrites(mutationGate) : lifecycleAllowsNetworkMutation(mutationGate);
+    if (!canCreate) {
       document.getElementById("picker-status").textContent = "Room creation is unavailable while offline or inactive.";
       return;
     }
@@ -1324,7 +1412,7 @@ export function pickerController(plugin, uuid = () => crypto.randomUUID()) {
     document.getElementById("picker-status").textContent = "Committing the local room…";
     try {
       returnFocusElement = null;
-      renderRoom(await createLocalRoom(plugin, [...selected], uuid));
+      renderRoom(await createLocalRoom(plugin, [...selected], uuid, pickerInferenceMode));
     }
     catch { document.getElementById("picker-status").textContent = "The local room could not be created."; refresh(); }
   });
@@ -1349,7 +1437,8 @@ export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.random
     if (room === null || activeViewToken !== pickerToken) return false;
     const events = await readRoomEvents(plugin, room.id, uuid);
     const draft = await loadLocalDraft(plugin, room.id, uuid);
-    const command = await readUnresolvedGenerationCommand(plugin, room.id, uuid);
+    const command = room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO
+      ? null : await readUnresolvedGenerationCommand(plugin, room.id, uuid);
     const confirmed = await readRoomById(plugin, roomId, uuid);
     if (activeViewToken !== pickerToken) return false;
     if (confirmed?.id === room.id) {
@@ -1360,7 +1449,9 @@ export async function reopenAuthoritativeRoom(plugin, uuid = () => crypto.random
   return false;
 }
 
-export function showPicker(trigger) {
+export function showPicker(trigger, inferenceMode = ROOM_INFERENCE_MODE.PROVIDER) {
+  if (!new Set(Object.values(ROOM_INFERENCE_MODE)).has(inferenceMode)) throw new TypeError("Choose a valid room mode.");
+  pickerInferenceMode = inferenceMode;
   rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
@@ -1370,6 +1461,10 @@ export function showPicker(trigger) {
   document.getElementById("privacy-view").hidden = true;
   document.documentElement.dataset.localRoomBoot = "picker";
   document.documentElement.dataset.localRoomSource = "empty";
+  const demo = inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO;
+  document.getElementById("picker-demo-notice").hidden = !demo;
+  document.getElementById("picker-title").textContent = demo ? "Choose the demonstration cast" : "Choose the conversation";
+  document.getElementById("create-room").textContent = demo ? "Create Demonstration Room" : "Create room";
   const cancel = document.getElementById("cancel-picker");
   cancel.hidden = activeRoom === null;
   cancel.disabled = activeRoom === null;
@@ -1377,7 +1472,7 @@ export function showPicker(trigger) {
   document.getElementById("picker-title").focus();
 }
 
-async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
+async function showRoomList(plugin, lifecycle, uuid = () => crypto.randomUUID(), trigger) {
   rememberReturnFocus(trigger);
   activeViewToken += 1;
   document.getElementById("room-view").hidden = true;
@@ -1392,15 +1487,19 @@ async function showRoomList(plugin, uuid = () => crypto.randomUUID(), trigger) {
   list.replaceChildren(...rooms.map((room, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.setAttribute("aria-label", `Open saved room ${index + 1}: ${room.title}; ${room.lastActivityOrder === 0 ? "no lines yet" : `activity ${room.lastActivityOrder}`}`);
+    const modeLabel = room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO ? "Demonstration Mode · Offline" : "Provider room";
+    button.setAttribute("aria-label", `Open saved room ${index + 1}: ${room.title}; ${modeLabel}; ${room.lastActivityOrder === 0 ? "no lines yet" : `activity ${room.lastActivityOrder}`}`);
     const title = document.createElement("strong");
     title.textContent = room.title;
     const activity = document.createElement("span");
     activity.textContent = room.lastActivityOrder === 0 ? "No lines yet" : `Activity ${room.lastActivityOrder}`;
-    button.append(title, activity);
+    const mode = document.createElement("span");
+    mode.textContent = modeLabel;
+    button.append(title, mode, activity);
     button.addEventListener("click", async () => {
       try {
         renderRoom(await reopenLocalRoom(plugin, room.id, uuid));
+        await refreshMutationGate(plugin, lifecycle, uuid);
         pendingRoomReopen = null;
       } catch (failure) {
         pendingRoomReopen = Object.freeze({ plugin, roomId: room.id });
@@ -1493,7 +1592,8 @@ export async function reprojectVisibleRoom({ getActiveRoom, isDatabaseReady, isR
 
 async function refreshMutationGate(database, lifecycle, uuid = () => crypto.randomUUID()) {
   mutationGate = await readLifecycleStatus(lifecycle, uuid);
-  providerReady = lifecycleAllowsLocalWrites(mutationGate) && await selectedProviderIsReady(database, uuid);
+  providerReady = activeRoom?.inferenceMode === ROOM_INFERENCE_MODE.PROVIDER &&
+    lifecycleAllowsLocalWrites(mutationGate) && await selectedProviderIsReady(database, uuid);
   if (typeof document !== "undefined") renderCommandAndMutationState();
   return mutationGate;
 }
@@ -1727,16 +1827,30 @@ async function boot() {
     const credential = globalThis.Capacitor?.Plugins?.GreenRoomCredential;
     const lifecycle = globalThis.Capacitor?.Plugins?.GreenRoomLifecycle;
     const opened = await openLocalRoom(database);
+    activeRoom = opened.room;
     await refreshMutationGate(database, lifecycle);
+    if (opened.room === null) {
+      showPicker();
+    } else if (opened.room.inferenceMode === ROOM_INFERENCE_MODE.PROVIDER) {
+      renderRoom(await reopenLocalRoom(database, opened.room.id));
+    } else {
+      renderRoom(opened);
+    }
     pickerController(database);
     document.getElementById("new-room").addEventListener("click", (event) => {
       if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker(event.currentTarget);
+    });
+    document.getElementById("review-demo-button").addEventListener("click", (event) => {
+      if (lifecycleAllowsLocalWrites(mutationGate)) showPicker(event.currentTarget, ROOM_INFERENCE_MODE.REVIEW_DEMO);
+    });
+    document.getElementById("leave-review-demo").addEventListener("click", (event) => {
+      showPicker(event.currentTarget, ROOM_INFERENCE_MODE.PROVIDER);
     });
     document.getElementById("rooms-new").addEventListener("click", () => {
       if (lifecycleAllowsNetworkMutation(mutationGate)) showPicker();
     });
     document.getElementById("rooms-button").addEventListener("click", async (event) => {
-      try { await showRoomList(database, undefined, event.currentTarget); }
+      try { await showRoomList(database, lifecycle, undefined, event.currentTarget); }
       catch (failure) { showBootRecovery(failure); }
     });
     document.getElementById("provider-button").addEventListener("click", async (event) => {
@@ -1764,6 +1878,7 @@ async function boot() {
       const pending = pendingRoomReopen;
       try {
         renderRoom(await reopenLocalRoom(pending.plugin, pending.roomId));
+        await refreshMutationGate(database, lifecycle);
         pendingRoomReopen = null;
       } catch (failure) {
         document.getElementById("rooms-status").textContent = recoveryPresentation(failure, "room");
@@ -1812,12 +1927,27 @@ async function boot() {
       status.textContent = "Preparing an atomic turn. Nothing is sent or acknowledged yet…";
       let submitFailure = null;
       try {
-        await requireReadyMutation(database, lifecycle);
+        if (room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO) {
+          const lifecycleStatus = await refreshMutationGate(database, lifecycle);
+          if (!lifecycleAllowsLocalWrites(lifecycleStatus)) throw new NativeBridgeError("canceled", true);
+        } else {
+          await requireReadyMutation(database, lifecycle);
+        }
         if (!await persistVisibleDraft(database)) return;
-        const prepared = await prepareAtomicTurn(
-          database, room, input.value, undefined,
-          targetPersonaSlug === "" ? {} : { targetPersonaSlug },
-        );
+        if (room.inferenceMode === ROOM_INFERENCE_MODE.REVIEW_DEMO) {
+          const completed = await completeReviewDemoTurn(
+            database, room, input.value, undefined,
+            targetPersonaSlug === "" ? {} : { targetPersonaSlug },
+          );
+          if (!currentView(room, token)) return;
+          activeEvents = completed.events;
+          input.value = "";
+          renderEvents(activeEvents);
+          status.textContent = "Demonstration reply committed locally. No provider or network was used.";
+          return;
+        }
+        const prepared = await prepareAtomicTurn(database, room, input.value, undefined,
+          targetPersonaSlug === "" ? {} : { targetPersonaSlug });
         if (!currentView(room, token)) return;
         activeCommand = prepared.command;
         renderCommandAndMutationState();
@@ -1835,17 +1965,15 @@ async function boot() {
         }
       }
     });
-    if (opened.room === null) showPicker(); else renderRoom(opened);
-
     const reconcileAndReproject = async () => {
       try {
         let status = await readLifecycleStatus(lifecycle);
         if (status.active && status.protectedDataAvailable && !status.databaseReady) {
-          await invoke(database, "database.open", { expectedSchema: 8 }, () => crypto.randomUUID());
+          await invoke(database, "database.open", { expectedSchema: 9 }, () => crypto.randomUUID());
           status = await readLifecycleStatus(lifecycle);
         }
         mutationGate = status;
-        providerReady = lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
+        providerReady = activeRoom?.inferenceMode === ROOM_INFERENCE_MODE.PROVIDER && lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
         const roomView = document.getElementById("room-view");
         const reprojected = await reprojectVisibleRoom({
           getActiveRoom: () => activeRoom,
@@ -1871,7 +1999,7 @@ async function boot() {
           await reconcileAndReproject();
         } else if (status.epoch !== mutationGate.epoch || status.pathAvailable !== mutationGate.pathAvailable) {
           mutationGate = status;
-          providerReady = lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
+          providerReady = activeRoom?.inferenceMode === ROOM_INFERENCE_MODE.PROVIDER && lifecycleAllowsLocalWrites(status) && await selectedProviderIsReady(database);
           renderCommandAndMutationState();
         }
       } catch { /* the next activation event performs the same reconciliation */ }

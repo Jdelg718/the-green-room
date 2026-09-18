@@ -12,6 +12,7 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
     let credentials: GreenRoomCredentialLifecycle
     let inFlightCalls = CredentialInFlightCalls()
     private var databaseReconciled = false
+    private var credentialsReconciled = false
 
     init(
         database: GreenRoomDatabaseStore = GreenRoomDatabaseStore(),
@@ -24,16 +25,10 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
     func openDatabase(expectedSchema: Int) throws -> [String: Any] {
         try database.serializationLock.withLock {
             databaseReconciled = false
+            credentialsReconciled = false
             let result = try database.open(expectedSchema: expectedSchema)
-            do {
-                try credentials.reconcileAtDatabaseOpen()
-                try database.interruptInFlightGenerationCommands()
-                databaseReconciled = true
-                return result
-            } catch {
-                _ = try? database.close()
-                throw error
-            }
+            databaseReconciled = true
+            return result
         }
     }
 
@@ -44,6 +39,7 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
     func closeDatabase() throws -> [String: Any] {
         try database.serializationLock.withLock {
             databaseReconciled = false
+            credentialsReconciled = false
             return try database.close()
         }
     }
@@ -53,8 +49,22 @@ final class GreenRoomNativeAuthority: @unchecked Sendable {
         _ operation: () throws -> T
     ) throws -> T {
         try database.serializationLock.withLock {
-            guard databaseReconciled else {
+            guard databaseReconciled, try database.currentRoomInferenceMode() != "review_demo" else {
                 throw DatabaseFailure(code: unavailableCode, retryable: true)
+            }
+            if !credentialsReconciled {
+                try credentials.reconcileAtDatabaseOpen()
+                try database.interruptInFlightGenerationCommands()
+                credentialsReconciled = true
+            }
+            return try operation()
+        }
+    }
+
+    func withDatabaseAuthority<T>(_ operation: () throws -> T) throws -> T {
+        try database.serializationLock.withLock {
+            guard databaseReconciled else {
+                throw DatabaseFailure(code: "database_unavailable", retryable: true)
             }
             return try operation()
         }

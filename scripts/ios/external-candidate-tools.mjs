@@ -23,14 +23,14 @@ export const EXTERNAL_IDENTITY = Object.freeze({
   bundleIdentifier: "net.greenroomai.GreenRoom",
   displayName: "Green Room",
   version: "0.1.0",
-  build: "4",
+  build: "5",
   teamIdentifier: "JZ233HBW3Z",
   minimumOS: "18.6",
   deviceFamily: [1],
   profileName: "Green Room App Store Connect 0.1.0 Build 1",
 });
-export const PROTECTED_BASELINE_COMMIT = "ea6d1ed881d26b24e78a30bad7a3555620a5b853";
-export const PROTECTED_BASELINE_TREE = "152b275abdae8089c5684ed24e48abaaeb437c5e";
+export const PROTECTED_BASELINE_COMMIT = "14f48401cfac12f740f369ad0e658382473fb171";
+export const PROTECTED_BASELINE_TREE = "075d3a2f14b90693b7b0414d812730b9a1c5572a";
 export const REQUIRED_NODE_VERSION = "v24.20.0";
 
 const SHA40 = /^[0-9a-f]{40}$/u;
@@ -159,7 +159,7 @@ export function closeExternalLaneParent(lane) { closeLaneParent(lane); }
 export function validateExternalReleaseInfo(info, expectedCommit) {
   requireCondition(SHA40.test(expectedCommit), "expected source commit is malformed");
   requireCondition(info.CFBundleIdentifier === EXTERNAL_IDENTITY.bundleIdentifier && info.CFBundleDisplayName === EXTERNAL_IDENTITY.displayName, "release identity is not exact");
-  requireCondition(info.CFBundleShortVersionString === EXTERNAL_IDENTITY.version && info.CFBundleVersion === EXTERNAL_IDENTITY.build, "release identity must be exactly 0.1.0 (4)");
+  requireCondition(info.CFBundleShortVersionString === EXTERNAL_IDENTITY.version && info.CFBundleVersion === EXTERNAL_IDENTITY.build, "release identity must be exactly 0.1.0 (5)");
   requireCondition(info.MinimumOSVersion === EXTERNAL_IDENTITY.minimumOS && JSON.stringify(info.UIDeviceFamily) === "[1]", "release platform must be iPhone-only iOS 18.6");
   requireCondition(info.ITSAppUsesNonExemptEncryption === false, "release encryption declaration must be Boolean false");
   requireCondition(info.GreenRoomSourceCommit === expectedCommit, "release source commit is not exact");
@@ -564,7 +564,7 @@ function validateSigningEvidence(signing) {
 
 export function validateArchivePrerequisiteEvidence({ evidence, sourceCommit, sourceTree, archive }) {
   exactKeys(evidence, ["schemaVersion", "kind", "source", "archive", "tool", "audit", "actions"], "archive evidence");
-  requireCondition(evidence.schemaVersion === 1 && evidence.kind === "greenroom-ios-external-build-4-archive-evidence", "ARCHIVE_EVIDENCE_SCHEMA_INVALID");
+  requireCondition(evidence.schemaVersion === 1 && evidence.kind === "greenroom-ios-external-build-5-archive-evidence", "ARCHIVE_EVIDENCE_SCHEMA_INVALID");
   exactKeys(evidence.source, ["commit", "tree", "parentCommit", "baselineCommit", "baselineTree"], "archive evidence source");
   requireCondition(JSON.stringify(evidence.source) === JSON.stringify({ commit: sourceCommit, tree: sourceTree, parentCommit: PROTECTED_BASELINE_COMMIT, baselineCommit: PROTECTED_BASELINE_COMMIT, baselineTree: PROTECTED_BASELINE_TREE }), "ARCHIVE_EVIDENCE_SOURCE_INVALID");
   exactKeys(evidence.archive, ["path", "inventorySha256", "entries", "signing"], "archive evidence archive");
@@ -600,11 +600,11 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
   requireCondition(SHA40.test(sourceTree), "SOURCE_TREE_INVALID");
   const laneParent = ensureLaneParent(root);
   const parent = laneParent.path;
-  const archivePath = join(parent, `external-build-4-${commit}.xcarchive`);
-  const stagingName = `.external-build-4-${commit}-archive-staging`;
+  const archivePath = join(parent, `external-build-5-${commit}.xcarchive`);
+  const stagingName = `.external-build-5-${commit}-archive-staging`;
   const stagingPath = join(parent, stagingName);
   const stagedArchiveName = "candidate.xcarchive";
-  const evidencePath = join(parent, `external-build-4-archive-${commit}.json`);
+  const evidencePath = join(parent, `external-build-5-archive-${commit}.json`);
   const packageResolution = "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
   let retainedArchive;
   let retainedStaging;
@@ -666,7 +666,7 @@ export function runExternalArchiveCore({ sourceRoot = process.cwd(), destination
     validateSource();
     const archiveEvidence = {
       schemaVersion: 1,
-      kind: "greenroom-ios-external-build-4-archive-evidence",
+      kind: "greenroom-ios-external-build-5-archive-evidence",
       source: { commit, tree: sourceTree, parentCommit: PROTECTED_BASELINE_COMMIT, baselineCommit: PROTECTED_BASELINE_COMMIT, baselineTree: PROTECTED_BASELINE_TREE },
       archive: audit.archive,
       tool: { xcodebuildVersion: invoke("/usr/bin/xcodebuild", ["-version"]).trim() },
@@ -781,14 +781,14 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
   requireCondition(SHA40.test(sourceTree), "SOURCE_TREE_INVALID");
   const laneParent = ensureLaneParent(root);
   const parent = laneParent.path;
-  const archivePath = join(parent, `external-build-4-${commit}.xcarchive`);
-  const archiveEvidencePath = join(parent, `external-build-4-archive-${commit}.json`);
-  const exportPath = join(parent, `external-build-4-export-${commit}`);
-  const stagingName = `.external-build-4-${commit}-export-staging`;
+  const archivePath = join(parent, `external-build-5-${commit}.xcarchive`);
+  const archiveEvidencePath = join(parent, `external-build-5-archive-${commit}.json`);
+  const exportPath = join(parent, `external-build-5-export-${commit}`);
+  const stagingName = `.external-build-5-${commit}-export-staging`;
   const stagingPath = join(parent, stagingName);
   const stagedExportName = "candidate-export";
-  const evidencePath = join(parent, `external-build-4-export-${commit}.json`);
-  const privateOptionsPath = join(parent, `.external-build-4-options-${commit}-${randomBytes(16).toString("hex")}.plist`);
+  const evidencePath = join(parent, `external-build-5-export-${commit}.json`);
+  const privateOptionsPath = join(parent, `.external-build-5-options-${commit}-${randomBytes(16).toString("hex")}.plist`);
   const optionsRelative = "ios/ExternalCandidateExportOptions.plist";
   const workingOptionsPath = join(root, optionsRelative);
   let retainedArchive;
@@ -873,7 +873,7 @@ export function runExternalExportCore({ sourceRoot = process.cwd(), destinationC
     validateToolVersion(xcodebuildVersion);
     writeJsonNoClobber(evidencePath, {
       schemaVersion: 1,
-      kind: "greenroom-ios-external-build-4-no-upload-export-evidence",
+      kind: "greenroom-ios-external-build-5-no-upload-export-evidence",
       sourceCommit: commit,
       archive: { path: portable(root, archivePath), inventorySha256: archiveBefore.sha256 },
       export: { path: portable(root, exportPath), inventorySha256: outputAfterAudit.sha256, entries: outputAfterAudit.entries },
